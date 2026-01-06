@@ -1,5 +1,6 @@
 import { ReactNode, useState, useEffect } from 'react';
 import { Sidebar, MobileMenuButton } from './Sidebar';
+import { MobileBottomNav } from './MobileBottomNav';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface LayoutProps {
@@ -28,11 +29,14 @@ export const Layout = ({ children }: LayoutProps) => {
         <MobileMenuButton onClick={toggleSidebar} />
       )}
       
-      <main className={isMobile ? "min-h-screen" : "ml-64 min-h-screen"}>
+      <main className={isMobile ? "min-h-screen pb-20" : "ml-64 min-h-screen"}>
         <div className={isMobile ? "p-4 pt-16" : "p-8"}>
           {children}
         </div>
       </main>
+      
+      {/* Mobile bottom navigation */}
+      {isMobile && <MobileBottomNav />}
       
       {/* Scanning line effect */}
       <div className="fixed inset-0 pointer-events-none scanning-line opacity-30" />
