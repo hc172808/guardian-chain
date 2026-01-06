@@ -9,6 +9,7 @@ import Validators from "./pages/Validators";
 import Mining from "./pages/Mining";
 import Protocol from "./pages/Protocol";
 import Security from "./pages/Security";
+import DownloadPage from "./pages/Download";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
           <Route path="/mining" element={<Mining />} />
           <Route path="/protocol" element={<Protocol />} />
           <Route path="/security" element={<Security />} />
+          <Route path="/download" element={<DownloadPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
