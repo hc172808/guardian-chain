@@ -230,14 +230,6 @@ const DownloadPage = () => {
                   )}
                   {user ? 'Install Lite Node' : 'Sign In to Install'}
                 </Button>
-                <Button 
-                  variant="outline"
-                  onClick={() => window.open('/blockchain-go/cmd/litenode/main.go', '_blank')}
-                  className="gap-2"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  View Source Code
-                </Button>
               </div>
             </GlassCard>
 
@@ -350,14 +342,6 @@ const DownloadPage = () => {
                     <Lock className="h-4 w-4" />
                   )}
                   {!user ? 'Sign In to Install' : isFounder || isAdmin ? 'Install Full Node' : 'Founder Access Required'}
-                </Button>
-                <Button 
-                  variant="outline"
-                  className="gap-2 border-yellow-500/50"
-                  onClick={() => window.open('/blockchain-go/cmd/fullnode/main.go', '_blank')}
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  View Source Code
                 </Button>
               </div>
             </GlassCard>

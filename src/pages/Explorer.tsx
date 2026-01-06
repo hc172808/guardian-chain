@@ -3,11 +3,12 @@ import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { generateMockBlocks, Block } from '@/lib/blockchain';
 import { motion } from 'framer-motion';
-import { Search, Blocks, CheckCircle, Clock, ChevronRight, ExternalLink } from 'lucide-react';
+import { Search, Blocks, CheckCircle, Clock, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
+import { RequireAuth } from '@/components/auth/RequireAuth';
 
-const Explorer = () => {
+const ExplorerContent = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
   
@@ -192,6 +193,12 @@ const DetailRow = ({
       {value}
     </p>
   </div>
+);
+
+const Explorer = () => (
+  <RequireAuth>
+    <ExplorerContent />
+  </RequireAuth>
 );
 
 export default Explorer;

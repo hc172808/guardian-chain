@@ -37,7 +37,7 @@ interface SidebarProps {
 }
 
 export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
-  const { user, profile, signOut } = useAuth();
+  const { user, roles, signOut } = useAuth();
   const navigate = useNavigate();
 
   const handleAuthClick = async () => {
@@ -48,6 +48,8 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
     }
     if (isMobile) onToggle();
   };
+
+  const displayRole = roles.includes('founder') ? 'founder' : roles.includes('admin') ? 'admin' : null;
 
   return (
     <>
@@ -161,13 +163,13 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
                 )}
               </Button>
               
-              {user && profile && (
+              {user && (
                 <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
                   <User className="h-3 w-3" />
-                  <span className="truncate">{profile.email}</span>
-                  {profile.role !== 'user' && (
+                  <span className="truncate">{user.email}</span>
+                  {displayRole && (
                     <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] uppercase">
-                      {profile.role}
+                      {displayRole}
                     </span>
                   )}
                 </div>
