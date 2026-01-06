@@ -190,7 +190,7 @@ const DownloadPage = () => {
                   onClick={() => downloadFile('/scripts/install-litenode.sh', 'install-litenode.sh')}
                   className="gap-2"
                 >
-                  <Download className="h-4 w-4" />
+                  <DownloadIcon className="h-4 w-4" />
                   Download Script
                 </Button>
                 <Button 
@@ -301,7 +301,7 @@ const DownloadPage = () => {
                   onClick={() => downloadFile('/scripts/install-fullnode.sh', 'install-fullnode.sh')}
                   className="gap-2 bg-yellow-600 hover:bg-yellow-700"
                 >
-                  <Download className="h-4 w-4" />
+                  <DownloadIcon className="h-4 w-4" />
                   Download Full Node Script
                 </Button>
                 <Button 
@@ -404,4 +404,4 @@ const DownloadPage = () => {
   );
 };
 
-export default Download;
+export default DownloadPage;
