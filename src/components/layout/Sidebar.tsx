@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { 
   Blocks, 
@@ -11,9 +11,14 @@ import {
   Cpu,
   Download,
   Menu,
-  X
+  X,
+  LogIn,
+  LogOut,
+  User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '@/contexts/AuthContext';
+import { Button } from '@/components/ui/button';
 
 const navItems = [
   { to: '/', icon: BarChart3, label: 'Dashboard' },
@@ -32,6 +37,18 @@ interface SidebarProps {
 }
 
 export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
+  const { user, profile, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleAuthClick = async () => {
+    if (user) {
+      await signOut();
+    } else {
+      navigate('/auth');
+    }
+    if (isMobile) onToggle();
+  };
+
   return (
     <>
       {/* Mobile overlay */}
@@ -112,7 +129,7 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
 
             {/* Network Status */}
             <div className="p-4 border-t border-sidebar-border">
-              <div className="glass-card p-4 rounded-lg">
+              <div className="glass-card p-4 rounded-lg mb-3">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-2 h-2 rounded-full bg-neon-emerald animate-pulse" />
                   <span className="text-xs font-medium text-neon-emerald">Network Active</span>
@@ -124,6 +141,37 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
                   TPS: <span className="font-mono text-foreground">1,250</span>
                 </p>
               </div>
+
+              {/* Auth Button */}
+              <Button
+                variant={user ? 'outline' : 'default'}
+                className="w-full gap-2"
+                onClick={handleAuthClick}
+              >
+                {user ? (
+                  <>
+                    <LogOut className="h-4 w-4" />
+                    Sign Out
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="h-4 w-4" />
+                    Sign In
+                  </>
+                )}
+              </Button>
+              
+              {user && profile && (
+                <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                  <User className="h-3 w-3" />
+                  <span className="truncate">{profile.email}</span>
+                  {profile.role !== 'user' && (
+                    <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] uppercase">
+                      {profile.role}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </motion.aside>
         )}

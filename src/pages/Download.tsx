@@ -13,14 +13,22 @@ import {
   Cpu,
   Lock,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Play,
+  LogIn
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import { useInstaller } from '@/hooks/useInstaller';
+import { useNavigate } from 'react-router-dom';
 
 const DownloadPage = () => {
   const { toast } = useToast();
+  const { user, isFounder, isAdmin } = useAuth();
+  const { downloadAndInstall, installing } = useInstaller();
+  const navigate = useNavigate();
+  
   const [activeTab, setActiveTab] = useState<'fullnode' | 'litenode'>('litenode');
   const [storageSize, setStorageSize] = useState(10);
   const [rpcEndpoint, setRpcEndpoint] = useState('http://node1.chaincore.io:8546');
@@ -34,17 +42,38 @@ const DownloadPage = () => {
     });
   };
 
-  const downloadFile = (path: string, filename: string) => {
-    const link = document.createElement('a');
-    link.href = path;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast({
-      title: "Download Started",
-      description: `${filename} is downloading...`,
-    });
+  const handleInstallLitenode = () => {
+    if (!user) {
+      toast({
+        title: 'Login Required',
+        description: 'Please sign in to install a lite node.',
+        variant: 'destructive',
+      });
+      navigate('/auth');
+      return;
+    }
+    downloadAndInstall('litenode', { rpcEndpoint, storageSize, enableMining });
+  };
+
+  const handleInstallFullnode = () => {
+    if (!user) {
+      toast({
+        title: 'Login Required',
+        description: 'Please sign in to install a full node.',
+        variant: 'destructive',
+      });
+      navigate('/auth');
+      return;
+    }
+    if (!isFounder && !isAdmin) {
+      toast({
+        title: 'Access Denied',
+        description: 'Full node installation is restricted to founders only.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    downloadAndInstall('fullnode');
   };
 
   const liteNodeCommand = `curl -sSL https://chaincore.io/install-litenode.sh | RPC_ENDPOINTS="${rpcEndpoint}" STORAGE_SIZE=${storageSize} ENABLE_MINING=${enableMining} bash`;
@@ -184,14 +213,22 @@ const DownloadPage = () => {
                 </div>
               </div>
 
-              {/* Download Buttons */}
+              {/* Install Buttons */}
               <div className="flex flex-wrap gap-3 mt-6">
                 <Button 
-                  onClick={() => downloadFile('/scripts/install-litenode.sh', 'install-litenode.sh')}
+                  onClick={handleInstallLitenode}
+                  disabled={installing}
                   className="gap-2"
+                  size="lg"
                 >
-                  <DownloadIcon className="h-4 w-4" />
-                  Download Script
+                  {installing ? (
+                    <span className="animate-spin">⟳</span>
+                  ) : user ? (
+                    <Play className="h-4 w-4" />
+                  ) : (
+                    <LogIn className="h-4 w-4" />
+                  )}
+                  {user ? 'Install Lite Node' : 'Sign In to Install'}
                 </Button>
                 <Button 
                   variant="outline"
@@ -295,22 +332,32 @@ const DownloadPage = () => {
                 </div>
               </div>
 
-              {/* Download Buttons */}
+              {/* Install Buttons */}
               <div className="flex flex-wrap gap-3">
                 <Button 
-                  onClick={() => downloadFile('/scripts/install-fullnode.sh', 'install-fullnode.sh')}
+                  onClick={handleInstallFullnode}
+                  disabled={installing}
                   className="gap-2 bg-yellow-600 hover:bg-yellow-700"
+                  size="lg"
                 >
-                  <DownloadIcon className="h-4 w-4" />
-                  Download Full Node Script
+                  {installing ? (
+                    <span className="animate-spin">⟳</span>
+                  ) : !user ? (
+                    <LogIn className="h-4 w-4" />
+                  ) : isFounder || isAdmin ? (
+                    <Play className="h-4 w-4" />
+                  ) : (
+                    <Lock className="h-4 w-4" />
+                  )}
+                  {!user ? 'Sign In to Install' : isFounder || isAdmin ? 'Install Full Node' : 'Founder Access Required'}
                 </Button>
                 <Button 
-                  onClick={() => downloadFile('/scripts/deploy-remote-fullnode.sh', 'deploy-remote-fullnode.sh')}
                   variant="outline"
                   className="gap-2 border-yellow-500/50"
+                  onClick={() => window.open('/blockchain-go/cmd/fullnode/main.go', '_blank')}
                 >
-                  <Globe className="h-4 w-4" />
-                  Remote Deployment Script
+                  <ExternalLink className="h-4 w-4" />
+                  View Source Code
                 </Button>
               </div>
             </GlassCard>
