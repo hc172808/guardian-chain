@@ -5,8 +5,9 @@ import { ValidatorChart } from '@/components/dashboard/ValidatorChart';
 import { MiningActivity } from '@/components/dashboard/MiningActivity';
 import { ConsensusFlow } from '@/components/dashboard/ConsensusFlow';
 import { motion } from 'framer-motion';
+import { RequireAuth } from '@/components/auth/RequireAuth';
 
-const Index = () => {
+const IndexContent = () => {
   return (
     <Layout>
       <motion.div
@@ -16,11 +17,11 @@ const Index = () => {
       >
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold">
+          <h1 className="text-2xl sm:text-3xl font-bold">
             <span className="text-gradient-primary">ChainCore</span> Dashboard
           </h1>
-          <p className="text-muted-foreground mt-2">
-            Real-time overview of the hybrid PoS + PoW blockchain network
+          <p className="text-muted-foreground mt-2 text-sm">
+            Real-time overview • Block time: 120s
           </p>
         </div>
 
@@ -42,5 +43,11 @@ const Index = () => {
     </Layout>
   );
 };
+
+const Index = () => (
+  <RequireAuth>
+    <IndexContent />
+  </RequireAuth>
+);
 
 export default Index;

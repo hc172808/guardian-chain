@@ -1,12 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { ANTI_BOT_FORMULAS, DIFFICULTY_FORMULAS, formatHashRate, generateHash } from '@/lib/blockchain';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Pickaxe, Play, Pause, RefreshCw, Zap, Shield, Activity, AlertTriangle } from 'lucide-react';
+import { Pickaxe, Play, Pause, RefreshCw, Zap, Shield, Activity, AlertTriangle, Wifi, WifiOff, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
+import { useAuth } from '@/contexts/AuthContext';
+import { RequireAuth } from '@/components/auth/RequireAuth';
 
 interface MiningState {
   isActive: boolean;
@@ -18,9 +20,13 @@ interface MiningState {
   humanScore: number;
   sessionDuration: number;
   lastShareHash: string;
+  lastShareTime: number;
+  isSynced: boolean;
+  syncProgress: number;
 }
 
-const Mining = () => {
+const MiningContent = () => {
+  const { user } = useAuth();
   const [mining, setMining] = useState<MiningState>({
     isActive: false,
     hashRate: 0,
@@ -31,19 +37,47 @@ const Mining = () => {
     humanScore: 85,
     sessionDuration: 0,
     lastShareHash: '',
+    lastShareTime: 0,
+    isSynced: false,
+    syncProgress: 0,
   });
 
   const [shareHistory, setShareHistory] = useState<{ hash: string; valid: boolean; reward: number; time: number }[]>([]);
 
-  // Simulate mining
+  // Simulate VPN/sync check
   useEffect(() => {
-    if (!mining.isActive) return;
+    if (!mining.isSynced && mining.syncProgress < 100) {
+      const syncInterval = setInterval(() => {
+        setMining(prev => {
+          const newProgress = Math.min(100, prev.syncProgress + Math.random() * 5);
+          return {
+            ...prev,
+            syncProgress: newProgress,
+            isSynced: newProgress >= 100,
+          };
+        });
+      }, 500);
+      return () => clearInterval(syncInterval);
+    }
+  }, [mining.isSynced, mining.syncProgress]);
 
+  // Simulate mining with rate limiting (120s block time)
+  useEffect(() => {
+    if (!mining.isActive || !mining.isSynced) return;
+
+    // Rate-limited interval: check every 5 seconds minimum
     const interval = setInterval(() => {
       setMining(prev => {
-        const isValid = Math.random() > 0.05; // 95% valid shares
-        const reward = isValid ? (0.001 / (prev.currentDifficulty / 1000000)) : 0;
-        const newHashRate = 1e6 + Math.random() * 5e5; // ~1-1.5 MH/s simulated
+        const now = Date.now();
+        
+        // Enforce rate limiting - minimum 5 seconds between shares
+        if (DIFFICULTY_FORMULAS.isRateLimited(prev.lastShareTime)) {
+          return prev; // Skip this tick
+        }
+
+        const isValid = Math.random() > 0.08; // 92% valid shares
+        const reward = isValid ? (0.0001 / (prev.currentDifficulty / 1000000)) : 0;
+        const newHashRate = 5e5 + Math.random() * 2e5; // Slower: ~0.5-0.7 MH/s
         
         // Calculate session reward cap
         const sessionCap = ANTI_BOT_FORMULAS.sessionRewardCap(prev.sessionDuration, 10);
@@ -54,7 +88,7 @@ const Mining = () => {
             hash: generateHash().slice(0, 16),
             valid: true,
             reward: actualReward,
-            time: Date.now(),
+            time: now,
           }, ...h.slice(0, 9)]);
         }
 
@@ -64,22 +98,23 @@ const Mining = () => {
           validShares: prev.validShares + (isValid ? 1 : 0),
           invalidShares: prev.invalidShares + (isValid ? 0 : 1),
           totalReward: prev.totalReward + actualReward,
-          sessionDuration: prev.sessionDuration + 500,
+          sessionDuration: prev.sessionDuration + 5000, // 5 seconds per tick
           lastShareHash: generateHash(),
-          // Adjust difficulty based on hash rate
+          lastShareTime: now,
           currentDifficulty: DIFFICULTY_FORMULAS.minerDifficulty(
             prev.currentDifficulty,
             newHashRate,
-            1e6
+            5e5
           ),
         };
       });
-    }, 500);
+    }, 5000); // Rate limited: 5 seconds minimum
 
     return () => clearInterval(interval);
-  }, [mining.isActive]);
+  }, [mining.isActive, mining.isSynced]);
 
   const toggleMining = () => {
+    if (!mining.isSynced) return;
     setMining(prev => ({ ...prev, isActive: !prev.isActive }));
   };
 
@@ -94,6 +129,9 @@ const Mining = () => {
       humanScore: 85,
       sessionDuration: 0,
       lastShareHash: '',
+      lastShareTime: 0,
+      isSynced: false,
+      syncProgress: 0,
     });
     setShareHistory([]);
   };
@@ -109,14 +147,14 @@ const Mining = () => {
         className="space-y-6"
       >
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-3">
-              <Pickaxe className="w-8 h-8 text-primary" />
-              Mining Simulator
+            <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-3">
+              <Pickaxe className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
+              Mining
             </h1>
-            <p className="text-muted-foreground mt-2">
-              CPU/Browser mining demonstration (rewards only, no consensus influence)
+            <p className="text-muted-foreground mt-2 text-sm">
+              Block time: 120s • Rate limited • WireGuard VPN sync required
             </p>
           </div>
           
@@ -125,11 +163,17 @@ const Mining = () => {
               onClick={toggleMining}
               variant={mining.isActive ? "destructive" : "default"}
               size="lg"
+              disabled={!mining.isSynced}
               className={cn(
                 mining.isActive && 'animate-mining'
               )}
             >
-              {mining.isActive ? (
+              {!mining.isSynced ? (
+                <>
+                  <Lock className="w-4 h-4 mr-2" />
+                  Sync Required
+                </>
+              ) : mining.isActive ? (
                 <>
                   <Pause className="w-4 h-4 mr-2" />
                   Stop Mining
@@ -146,6 +190,33 @@ const Mining = () => {
             </Button>
           </div>
         </div>
+
+        {/* Sync Status */}
+        {!mining.isSynced && (
+          <GlassCard className="border-primary/50 bg-primary/5">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-lg bg-primary/10">
+                {mining.syncProgress < 100 ? (
+                  <Wifi className="w-6 h-6 text-primary animate-pulse" />
+                ) : (
+                  <WifiOff className="w-6 h-6 text-muted-foreground" />
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="font-medium">Connecting to Full Node via WireGuard VPN</p>
+                <p className="text-sm text-muted-foreground">
+                  Lite nodes must sync with full nodes before mining
+                </p>
+                <div className="mt-2">
+                  <Progress value={mining.syncProgress} className="h-2" />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sync progress: {mining.syncProgress.toFixed(0)}%
+                  </p>
+                </div>
+              </div>
+            </div>
+          </GlassCard>
+        )}
 
         {/* Mining Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -303,10 +374,19 @@ const Mining = () => {
 
               <div className="grid grid-cols-2 gap-4 text-center">
                 <div className="p-3 rounded-lg bg-secondary/30">
+                  <p className="text-xs text-muted-foreground">Block Time</p>
+                  <p className="font-mono text-lg font-bold">120s</p>
+                </div>
+                <div className="p-3 rounded-lg bg-secondary/30">
+                  <p className="text-xs text-muted-foreground">Min Share Interval</p>
+                  <p className="font-mono text-lg font-bold">5s</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4 text-center mt-4">
+                <div className="p-3 rounded-lg bg-secondary/30">
                   <p className="text-xs text-muted-foreground">Max Shares/Min</p>
-                  <p className="font-mono text-lg font-bold">
-                    {ANTI_BOT_FORMULAS.maxSharesPerMinute(mining.currentDifficulty, mining.humanScore)}
-                  </p>
+                  <p className="font-mono text-lg font-bold">12</p>
                 </div>
                 <div className="p-3 rounded-lg bg-secondary/30">
                   <p className="text-xs text-muted-foreground">Session Cap</p>
@@ -320,5 +400,11 @@ const Mining = () => {
     </Layout>
   );
 };
+
+const Mining = () => (
+  <RequireAuth>
+    <MiningContent />
+  </RequireAuth>
+);
 
 export default Mining;

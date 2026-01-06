@@ -100,8 +100,11 @@ export const ANTI_BOT_FORMULAS = {
 
 // Difficulty adjustment formulas
 export const DIFFICULTY_FORMULAS = {
-  // Target block time: 10 seconds
-  TARGET_BLOCK_TIME: 10000,
+  // Target block time: 120 seconds (2 minutes)
+  TARGET_BLOCK_TIME: 120000,
+  
+  // Minimum share interval in ms (rate limiting)
+  MIN_SHARE_INTERVAL: 5000, // 5 seconds minimum between shares
   
   // Adjust difficulty based on actual vs target time
   adjustDifficulty: (currentDiff: number, actualTime: number, targetTime: number) => {
@@ -112,17 +115,22 @@ export const DIFFICULTY_FORMULAS = {
   
   // Mining difficulty curve based on network hash rate
   networkDifficulty: (totalHashRate: number, targetSharesPerBlock: number) => {
-    return (totalHashRate * 10) / targetSharesPerBlock;
+    return (totalHashRate * 120) / targetSharesPerBlock; // 120s block time
   },
   
   // Individual miner difficulty (prevents speed abuse)
   minerDifficulty: (baseNetworkDiff: number, minerHashRate: number, avgHashRate: number) => {
     const ratio = minerHashRate / avgHashRate;
-    if (ratio > 2) {
-      // Penalize miners with unusually high hash rates
-      return baseNetworkDiff * Math.pow(ratio, 1.5);
+    if (ratio > 1.5) {
+      // More aggressive penalty for fast miners
+      return baseNetworkDiff * Math.pow(ratio, 2);
     }
     return baseNetworkDiff;
+  },
+  
+  // Check if share submission is rate limited
+  isRateLimited: (lastShareTime: number) => {
+    return Date.now() - lastShareTime < 5000; // 5 second minimum
   },
 };
 
