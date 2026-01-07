@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_config: {
+        Row: {
+          config_key: string
+          config_value: Json
+          id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          config_key: string
+          config_value: Json
+          id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          config_key?: string
+          config_value?: Json
+          id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       documentation: {
         Row: {
           content: string
@@ -49,36 +73,54 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           created_at: string
+          hash_rate: number | null
           id: string
           is_approved: boolean | null
+          is_online: boolean | null
           is_synced: boolean | null
+          last_heartbeat: string | null
           last_sync_at: string | null
           node_type: string
+          total_rewards: number | null
           user_id: string
+          valid_shares: number | null
+          wireguard_private_key: string | null
           wireguard_public_key: string | null
         }
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
           created_at?: string
+          hash_rate?: number | null
           id?: string
           is_approved?: boolean | null
+          is_online?: boolean | null
           is_synced?: boolean | null
+          last_heartbeat?: string | null
           last_sync_at?: string | null
           node_type: string
+          total_rewards?: number | null
           user_id: string
+          valid_shares?: number | null
+          wireguard_private_key?: string | null
           wireguard_public_key?: string | null
         }
         Update: {
           approved_at?: string | null
           approved_by?: string | null
           created_at?: string
+          hash_rate?: number | null
           id?: string
           is_approved?: boolean | null
+          is_online?: boolean | null
           is_synced?: boolean | null
+          last_heartbeat?: string | null
           last_sync_at?: string | null
           node_type?: string
+          total_rewards?: number | null
           user_id?: string
+          valid_shares?: number | null
+          wireguard_private_key?: string | null
           wireguard_public_key?: string | null
         }
         Relationships: []
@@ -109,6 +151,59 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      transactions: {
+        Row: {
+          amount: number
+          block_height: number | null
+          confirmed_at: string | null
+          created_at: string
+          fee: number
+          from_address: string
+          id: string
+          status: string
+          to_address: string
+          tx_hash: string | null
+          user_id: string
+          wallet_id: string | null
+        }
+        Insert: {
+          amount: number
+          block_height?: number | null
+          confirmed_at?: string | null
+          created_at?: string
+          fee?: number
+          from_address: string
+          id?: string
+          status?: string
+          to_address: string
+          tx_hash?: string | null
+          user_id: string
+          wallet_id?: string | null
+        }
+        Update: {
+          amount?: number
+          block_height?: number | null
+          confirmed_at?: string | null
+          created_at?: string
+          fee?: number
+          from_address?: string
+          id?: string
+          status?: string
+          to_address?: string
+          tx_hash?: string | null
+          user_id?: string
+          wallet_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: false
+            referencedRelation: "wallets"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
