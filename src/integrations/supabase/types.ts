@@ -14,10 +14,43 @@ export type Database = {
   }
   public: {
     Tables: {
-      node_installations: {
+      documentation: {
         Row: {
+          content: string
           created_at: string
           id: string
+          slug: string
+          title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          slug: string
+          title: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          slug?: string
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      node_installations: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          id: string
+          is_approved: boolean | null
           is_synced: boolean | null
           last_sync_at: string | null
           node_type: string
@@ -25,8 +58,11 @@ export type Database = {
           wireguard_public_key: string | null
         }
         Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
           id?: string
+          is_approved?: boolean | null
           is_synced?: boolean | null
           last_sync_at?: string | null
           node_type: string
@@ -34,8 +70,11 @@ export type Database = {
           wireguard_public_key?: string | null
         }
         Update: {
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
           id?: string
+          is_approved?: boolean | null
           is_synced?: boolean | null
           last_sync_at?: string | null
           node_type?: string
@@ -85,6 +124,33 @@ export type Database = {
         Update: {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      wallets: {
+        Row: {
+          address: string
+          created_at: string
+          encrypted_seed: string
+          id: string
+          pin_hash: string
+          user_id: string
+        }
+        Insert: {
+          address: string
+          created_at?: string
+          encrypted_seed: string
+          id?: string
+          pin_hash: string
+          user_id: string
+        }
+        Update: {
+          address?: string
+          created_at?: string
+          encrypted_seed?: string
+          id?: string
+          pin_hash?: string
           user_id?: string
         }
         Relationships: []

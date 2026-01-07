@@ -14,7 +14,10 @@ import {
   X,
   LogIn,
   LogOut,
-  User
+  User,
+  Wallet,
+  Settings,
+  BookOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,9 +28,15 @@ const navItems = [
   { to: '/explorer', icon: Blocks, label: 'Block Explorer' },
   { to: '/validators', icon: Users, label: 'Validators' },
   { to: '/mining', icon: Pickaxe, label: 'Mining Simulator' },
+  { to: '/wallet', icon: Wallet, label: 'Wallet' },
   { to: '/protocol', icon: FileText, label: 'Protocol Docs' },
   { to: '/security', icon: Shield, label: 'Security Audit' },
   { to: '/download', icon: Download, label: 'Download' },
+];
+
+const adminNavItems = [
+  { to: '/admin', icon: Settings, label: 'Admin Dashboard' },
+  { to: '/docs', icon: BookOpen, label: 'Edit Documentation' },
 ];
 
 interface SidebarProps {
@@ -37,7 +46,7 @@ interface SidebarProps {
 }
 
 export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
-  const { user, roles, signOut } = useAuth();
+  const { user, roles, signOut, isFounder, isAdmin } = useAuth();
   const navigate = useNavigate();
 
   const handleAuthClick = async () => {
@@ -127,6 +136,40 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
                   </NavLink>
                 </motion.div>
               ))}
+
+              {/* Admin section */}
+              {(isFounder || isAdmin) && (
+                <>
+                  <div className="pt-4 pb-2">
+                    <p className="text-xs font-medium text-muted-foreground px-4 uppercase">Admin</p>
+                  </div>
+                  {adminNavItems.map((item, index) => (
+                    <motion.div
+                      key={item.to}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: (navItems.length + index) * 0.05 }}
+                    >
+                      <NavLink
+                        to={item.to}
+                        onClick={isMobile ? onToggle : undefined}
+                        className={({ isActive }) =>
+                          cn(
+                            'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all group',
+                            isActive
+                              ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/20'
+                              : 'text-sidebar-foreground hover:bg-yellow-500/10 hover:text-yellow-500'
+                          )
+                        }
+                      >
+                        <item.icon className="w-5 h-5" />
+                        <span className="flex-1">{item.label}</span>
+                        <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </NavLink>
+                    </motion.div>
+                  ))}
+                </>
+              )}
             </nav>
 
             {/* Network Status */}
