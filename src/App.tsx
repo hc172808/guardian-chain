@@ -12,6 +12,9 @@ import Protocol from "./pages/Protocol";
 import Security from "./pages/Security";
 import DownloadPage from "./pages/Download";
 import Auth from "./pages/Auth";
+import WalletPage from "./pages/Wallet";
+import AdminPage from "./pages/Admin";
+import DocsPage from "./pages/Docs";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +34,9 @@ const App = () => (
             <Route path="/protocol" element={<Protocol />} />
             <Route path="/security" element={<Security />} />
             <Route path="/download" element={<DownloadPage />} />
+            <Route path="/wallet" element={<WalletPage />} />
+            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/docs" element={<DocsPage />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

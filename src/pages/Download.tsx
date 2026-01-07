@@ -404,32 +404,37 @@ const DownloadPage = () => {
           </motion.div>
         )}
 
-        {/* Source Code Downloads */}
-        <GlassCard className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Go Source Code</h3>
-          <p className="text-muted-foreground mb-4">
-            Download the complete Go blockchain implementation to build from source.
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { name: 'Blockchain Core', path: '/blockchain-go/internal/blockchain/' },
-              { name: 'PoS Consensus', path: '/blockchain-go/internal/consensus/' },
-              { name: 'Mining System', path: '/blockchain-go/internal/mining/' },
-              { name: 'RPC Server', path: '/blockchain-go/internal/rpc/' },
-            ].map((item) => (
-              <Button
-                key={item.name}
-                variant="outline"
-                size="sm"
-                onClick={() => window.open(item.path, '_blank')}
-                className="gap-2"
-              >
-                <ExternalLink className="h-3 w-3" />
-                {item.name}
-              </Button>
-            ))}
-          </div>
-        </GlassCard>
+        {/* Source Code Downloads - Founder/Admin Only */}
+        {(isFounder || isAdmin) && (
+          <GlassCard className="p-6 border-yellow-500/30">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Lock className="h-5 w-5 text-yellow-500" />
+              Go Source Code (Founder Only)
+            </h3>
+            <p className="text-muted-foreground mb-4">
+              Access the complete Go blockchain implementation source code.
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { name: 'Blockchain Core', path: '/docs?tab=blockchain-core' },
+                { name: 'PoS Consensus', path: '/docs?tab=pos-consensus' },
+                { name: 'Mining System', path: '/docs?tab=mining-system' },
+                { name: 'RPC Server', path: '/docs?tab=rpc-server' },
+              ].map((item) => (
+                <Button
+                  key={item.name}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(item.path)}
+                  className="gap-2 border-yellow-500/50"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {item.name}
+                </Button>
+              ))}
+            </div>
+          </GlassCard>
+        )}
       </motion.div>
     </Layout>
   );
