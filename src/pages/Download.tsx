@@ -108,15 +108,17 @@ const DownloadPage = () => {
             <Monitor className="h-4 w-4" />
             Lite Node (Public)
           </Button>
-          <Button
-            variant={activeTab === 'fullnode' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('fullnode')}
-            className="gap-2"
-          >
-            <Server className="h-4 w-4" />
-            <Lock className="h-3 w-3" />
-            Full Node (Founder Only)
-          </Button>
+          {isFounder && (
+            <Button
+              variant={activeTab === 'fullnode' ? 'default' : 'outline'}
+              onClick={() => setActiveTab('fullnode')}
+              className="gap-2"
+            >
+              <Server className="h-4 w-4" />
+              <Lock className="h-3 w-3" />
+              Full Node (Founder Only)
+            </Button>
+          )}
         </div>
 
         {/* Lite Node Section */}
@@ -263,8 +265,8 @@ const DownloadPage = () => {
           </motion.div>
         )}
 
-        {/* Full Node Section */}
-        {activeTab === 'fullnode' && (
+        {/* Full Node Section - Founder Only */}
+        {activeTab === 'fullnode' && isFounder && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -336,12 +338,10 @@ const DownloadPage = () => {
                     <span className="animate-spin">⟳</span>
                   ) : !user ? (
                     <LogIn className="h-4 w-4" />
-                  ) : isFounder || isAdmin ? (
-                    <Play className="h-4 w-4" />
                   ) : (
-                    <Lock className="h-4 w-4" />
+                    <Play className="h-4 w-4" />
                   )}
-                  {!user ? 'Sign In to Install' : isFounder || isAdmin ? 'Install Full Node' : 'Founder Access Required'}
+                  {!user ? 'Sign In to Install' : 'Install Full Node'}
                 </Button>
               </div>
             </GlassCard>

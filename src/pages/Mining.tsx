@@ -1,14 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { ANTI_BOT_FORMULAS, DIFFICULTY_FORMULAS, formatHashRate, generateHash } from '@/lib/blockchain';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Pickaxe, Play, Pause, RefreshCw, Zap, Shield, Activity, AlertTriangle, Wifi, WifiOff, Lock } from 'lucide-react';
+import { Pickaxe, Play, Pause, RefreshCw, Zap, Shield, Activity, AlertTriangle, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/contexts/AuthContext';
 import { RequireAuth } from '@/components/auth/RequireAuth';
+import { WireGuardStatus } from '@/components/wireguard/WireGuardStatus';
 
 interface MiningState {
   isActive: boolean;
@@ -21,12 +22,11 @@ interface MiningState {
   sessionDuration: number;
   lastShareHash: string;
   lastShareTime: number;
-  isSynced: boolean;
-  syncProgress: number;
 }
 
 const MiningContent = () => {
   const { user } = useAuth();
+  const [isVpnConnected, setIsVpnConnected] = useState(false);
   const [mining, setMining] = useState<MiningState>({
     isActive: false,
     hashRate: 0,
@@ -38,32 +38,20 @@ const MiningContent = () => {
     sessionDuration: 0,
     lastShareHash: '',
     lastShareTime: 0,
-    isSynced: false,
-    syncProgress: 0,
   });
 
   const [shareHistory, setShareHistory] = useState<{ hash: string; valid: boolean; reward: number; time: number }[]>([]);
 
-  // Simulate VPN/sync check
-  useEffect(() => {
-    if (!mining.isSynced && mining.syncProgress < 100) {
-      const syncInterval = setInterval(() => {
-        setMining(prev => {
-          const newProgress = Math.min(100, prev.syncProgress + Math.random() * 5);
-          return {
-            ...prev,
-            syncProgress: newProgress,
-            isSynced: newProgress >= 100,
-          };
-        });
-      }, 500);
-      return () => clearInterval(syncInterval);
+  const handleVpnConnection = useCallback((connected: boolean) => {
+    setIsVpnConnected(connected);
+    if (!connected && mining.isActive) {
+      setMining(prev => ({ ...prev, isActive: false }));
     }
-  }, [mining.isSynced, mining.syncProgress]);
+  }, [mining.isActive]);
 
-  // Simulate mining with rate limiting (120s block time)
+  // Mining with rate limiting (120s block time)
   useEffect(() => {
-    if (!mining.isActive || !mining.isSynced) return;
+    if (!mining.isActive || !isVpnConnected) return;
 
     // Rate-limited interval: check every 5 seconds minimum
     const interval = setInterval(() => {
@@ -111,10 +99,10 @@ const MiningContent = () => {
     }, 5000); // Rate limited: 5 seconds minimum
 
     return () => clearInterval(interval);
-  }, [mining.isActive, mining.isSynced]);
+  }, [mining.isActive, isVpnConnected]);
 
   const toggleMining = () => {
-    if (!mining.isSynced) return;
+    if (!isVpnConnected) return;
     setMining(prev => ({ ...prev, isActive: !prev.isActive }));
   };
 
@@ -130,8 +118,6 @@ const MiningContent = () => {
       sessionDuration: 0,
       lastShareHash: '',
       lastShareTime: 0,
-      isSynced: false,
-      syncProgress: 0,
     });
     setShareHistory([]);
   };
@@ -163,15 +149,15 @@ const MiningContent = () => {
               onClick={toggleMining}
               variant={mining.isActive ? "destructive" : "default"}
               size="lg"
-              disabled={!mining.isSynced}
+              disabled={!isVpnConnected}
               className={cn(
                 mining.isActive && 'animate-mining'
               )}
             >
-              {!mining.isSynced ? (
+              {!isVpnConnected ? (
                 <>
                   <Lock className="w-4 h-4 mr-2" />
-                  Sync Required
+                  VPN Required
                 </>
               ) : mining.isActive ? (
                 <>
@@ -191,32 +177,8 @@ const MiningContent = () => {
           </div>
         </div>
 
-        {/* Sync Status */}
-        {!mining.isSynced && (
-          <GlassCard className="border-primary/50 bg-primary/5">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-lg bg-primary/10">
-                {mining.syncProgress < 100 ? (
-                  <Wifi className="w-6 h-6 text-primary animate-pulse" />
-                ) : (
-                  <WifiOff className="w-6 h-6 text-muted-foreground" />
-                )}
-              </div>
-              <div className="flex-1">
-                <p className="font-medium">Connecting to Full Node via WireGuard VPN</p>
-                <p className="text-sm text-muted-foreground">
-                  Lite nodes must sync with full nodes before mining
-                </p>
-                <div className="mt-2">
-                  <Progress value={mining.syncProgress} className="h-2" />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Sync progress: {mining.syncProgress.toFixed(0)}%
-                  </p>
-                </div>
-              </div>
-            </div>
-          </GlassCard>
-        )}
+        {/* WireGuard VPN Status */}
+        <WireGuardStatus onConnected={handleVpnConnection} />
 
         {/* Mining Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

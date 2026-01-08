@@ -4,6 +4,7 @@ import { RecentBlocks } from '@/components/dashboard/RecentBlocks';
 import { ValidatorChart } from '@/components/dashboard/ValidatorChart';
 import { MiningActivity } from '@/components/dashboard/MiningActivity';
 import { ConsensusFlow } from '@/components/dashboard/ConsensusFlow';
+import { NodeMonitor } from '@/components/dashboard/NodeMonitor';
 import { motion } from 'framer-motion';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 
@@ -36,6 +37,9 @@ const IndexContent = () => {
           <RecentBlocks />
           <ValidatorChart />
         </div>
+
+        {/* Node Monitor */}
+        <NodeMonitor />
 
         {/* Mining Activity */}
         <MiningActivity />
