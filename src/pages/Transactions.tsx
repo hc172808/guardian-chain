@@ -14,13 +14,15 @@ import {
   XCircle, 
   Clock,
   Loader2,
-  Wallet
+  Wallet,
+  Radio
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { TOKENOMICS } from '@/config/wallets';
 
 interface WalletData {
   id: string;
@@ -59,6 +61,39 @@ const TransactionsContent = () => {
   useEffect(() => {
     if (user) {
       fetchData();
+      
+      // Real-time subscription for transactions
+      const channel = supabase
+        .channel('user-transactions')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'transactions',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              setTransactions((prev) => [payload.new as Transaction, ...prev]);
+            } else if (payload.eventType === 'UPDATE') {
+              setTransactions((prev) =>
+                prev.map((tx) =>
+                  tx.id === (payload.new as Transaction).id ? (payload.new as Transaction) : tx
+                )
+              );
+            } else if (payload.eventType === 'DELETE') {
+              setTransactions((prev) =>
+                prev.filter((tx) => tx.id !== (payload.old as Transaction).id)
+              );
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [user]);
 
@@ -148,12 +183,18 @@ const TransactionsContent = () => {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold flex items-center gap-3">
-          <Send className="w-8 h-8 text-primary" />
-          Send CORE
-        </h1>
-        <p className="text-muted-foreground mt-2">Transfer tokens to another address</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-3">
+            <Send className="w-8 h-8 text-primary" />
+            Send {TOKENOMICS.symbol}
+          </h1>
+          <p className="text-muted-foreground mt-2">Transfer tokens to another address</p>
+        </div>
+        <Badge variant="outline" className="text-neon-emerald border-neon-emerald flex items-center gap-1">
+          <Radio className="h-3 w-3 animate-pulse" />
+          Real-time
+        </Badge>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -197,7 +238,7 @@ const TransactionsContent = () => {
               </div>
 
               <div>
-                <Label>Amount (CORE)</Label>
+                <Label>Amount ({TOKENOMICS.symbol})</Label>
                 <Input
                   type="number"
                   value={amount}
@@ -210,11 +251,11 @@ const TransactionsContent = () => {
               <div className="p-3 rounded-lg bg-secondary/30 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Network Fee</span>
-                  <span>{fee} CORE</span>
+                  <span>{fee} {TOKENOMICS.symbol}</span>
                 </div>
                 <div className="flex justify-between mt-1 font-medium">
                   <span className="text-muted-foreground">Total</span>
-                  <span>{amount ? (parseFloat(amount) + fee).toFixed(4) : fee} CORE</span>
+                  <span>{amount ? (parseFloat(amount) + fee).toFixed(4) : fee} {TOKENOMICS.symbol}</span>
                 </div>
               </div>
 
@@ -269,7 +310,7 @@ const TransactionsContent = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-mono font-medium">{tx.amount} CORE</p>
+                      <p className="font-mono font-medium">{tx.amount} {TOKENOMICS.symbol}</p>
                       {getStatusBadge(tx.status)}
                     </div>
                   </div>

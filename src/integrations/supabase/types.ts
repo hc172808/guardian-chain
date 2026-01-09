@@ -72,16 +72,23 @@ export type Database = {
         Row: {
           approved_at: string | null
           approved_by: string | null
+          blocks_synced: number | null
+          connection_quality: number | null
           created_at: string
+          error_count: number | null
           hash_rate: number | null
           id: string
           is_approved: boolean | null
           is_online: boolean | null
           is_synced: boolean | null
+          last_block_height: number | null
           last_heartbeat: string | null
           last_sync_at: string | null
           node_type: string
+          peer_count: number | null
+          sync_progress: number | null
           total_rewards: number | null
+          uptime_seconds: number | null
           user_id: string
           valid_shares: number | null
           wireguard_private_key: string | null
@@ -90,16 +97,23 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
+          blocks_synced?: number | null
+          connection_quality?: number | null
           created_at?: string
+          error_count?: number | null
           hash_rate?: number | null
           id?: string
           is_approved?: boolean | null
           is_online?: boolean | null
           is_synced?: boolean | null
+          last_block_height?: number | null
           last_heartbeat?: string | null
           last_sync_at?: string | null
           node_type: string
+          peer_count?: number | null
+          sync_progress?: number | null
           total_rewards?: number | null
+          uptime_seconds?: number | null
           user_id: string
           valid_shares?: number | null
           wireguard_private_key?: string | null
@@ -108,16 +122,23 @@ export type Database = {
         Update: {
           approved_at?: string | null
           approved_by?: string | null
+          blocks_synced?: number | null
+          connection_quality?: number | null
           created_at?: string
+          error_count?: number | null
           hash_rate?: number | null
           id?: string
           is_approved?: boolean | null
           is_online?: boolean | null
           is_synced?: boolean | null
+          last_block_height?: number | null
           last_heartbeat?: string | null
           last_sync_at?: string | null
           node_type?: string
+          peer_count?: number | null
+          sync_progress?: number | null
           total_rewards?: number | null
+          uptime_seconds?: number | null
           user_id?: string
           valid_shares?: number | null
           wireguard_private_key?: string | null
@@ -149,6 +170,69 @@ export type Database = {
           role?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      token_operations: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          id: string
+          operation_type: string
+          status: string
+          tx_hash: string | null
+          usdt_amount: number | null
+          wallet_address: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          operation_type: string
+          status?: string
+          tx_hash?: string | null
+          usdt_amount?: number | null
+          wallet_address: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          operation_type?: string
+          status?: string
+          tx_hash?: string | null
+          usdt_amount?: number | null
+          wallet_address?: string
+        }
+        Relationships: []
+      }
+      token_price: {
+        Row: {
+          burned_total: number
+          circulating_supply: number
+          id: string
+          price: number
+          total_supply: number
+          updated_at: string
+        }
+        Insert: {
+          burned_total?: number
+          circulating_supply?: number
+          id?: string
+          price?: number
+          total_supply?: number
+          updated_at?: string
+        }
+        Update: {
+          burned_total?: number
+          circulating_supply?: number
+          id?: string
+          price?: number
+          total_supply?: number
+          updated_at?: string
         }
         Relationships: []
       }

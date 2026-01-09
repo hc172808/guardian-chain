@@ -13,7 +13,8 @@ import {
   Clock,
   Key,
   Copy,
-  RefreshCw
+  RefreshCw,
+  Flame
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,6 +22,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
+import { BurnMintManager } from '@/components/admin/BurnMintManager';
+import { DatabaseSettings } from '@/components/admin/DatabaseSettings';
 
 interface UserProfile {
   id: string;
@@ -152,13 +155,21 @@ const AdminContent = () => {
         <TabsList>
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
-            Node Approvals
+            Nodes
           </TabsTrigger>
           <TabsTrigger value="users" className="gap-2">
             <Users className="h-4 w-4" />
             Users
           </TabsTrigger>
+          <TabsTrigger value="tokens" className="gap-2">
+            <Flame className="h-4 w-4" />
+            Burn/Mint
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="tokens">
+          <BurnMintManager />
+        </TabsContent>
 
         <TabsContent value="nodes" className="space-y-4">
           {loading ? (
