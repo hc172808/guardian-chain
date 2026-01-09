@@ -90,25 +90,54 @@ export const WireGuardManager = ({
     setGenerating(false);
   };
 
-  const exportConfig = () => {
-    const config = `[Interface]
+  const exportConfig = async () => {
+    // Fetch fullnode public key from admin config if available
+    const { data: adminConfig } = await supabase
+      .from('admin_config')
+      .select('config_value')
+      .eq('config_key', 'wireguard_fullnode_pubkey')
+      .maybeSingle();
+    
+    const configValue = adminConfig?.config_value as { public_key?: string; endpoint?: string } | null;
+    const fullnodePublicKey = configValue?.public_key || '<FULLNODE_PUBLIC_KEY>';
+    const fullnodeEndpoint = configValue?.endpoint || 'fullnode.gyds.io:51820';
+    
+    // Generate a unique client IP based on node ID or random
+    const clientIP = nodeId 
+      ? `10.0.0.${parseInt(nodeId.slice(0, 8), 16) % 254 + 1}`
+      : `10.0.0.${Math.floor(Math.random() * 254) + 1}`;
+    
+    const config = `# GYDS WireGuard VPN Configuration
+# Generated: ${new Date().toISOString()}
+# Node ID: ${nodeId || 'unknown'}
+
+[Interface]
+# Your private key - NEVER SHARE THIS!
 PrivateKey = ${privateKey}
-Address = 10.0.0.${Math.floor(Math.random() * 254) + 1}/24
+# Your VPN IP address
+Address = ${clientIP}/24
+# Optional: DNS servers
+DNS = 1.1.1.1, 8.8.8.8
 
 [Peer]
-PublicKey = <FULLNODE_PUBLIC_KEY>
+# Full Node Public Key
+PublicKey = ${fullnodePublicKey}
+# Routes all GYDS network traffic through VPN
 AllowedIPs = 10.0.0.0/24
-Endpoint = fullnode.chaincore.io:51820
-PersistentKeepalive = 25`;
+# Full Node endpoint
+Endpoint = ${fullnodeEndpoint}
+# Keep connection alive
+PersistentKeepalive = 25
+`;
 
     const blob = new Blob([config], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'wg-chaincore.conf';
+    a.download = `wg-gyds-${nodeId?.slice(0, 8) || 'client'}.conf`;
     a.click();
     URL.revokeObjectURL(url);
-    toast({ title: 'Config exported!' });
+    toast({ title: 'WireGuard config exported!', description: 'Import this file into your WireGuard client' });
   };
 
   const importConfig = async () => {
