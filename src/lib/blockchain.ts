@@ -1,4 +1,92 @@
-// Blockchain simulation types and utilities
+// Blockchain types and utilities
+import { TOKENOMICS } from '@/config/wallets';
+
+// Mining reward formulas based on algorithm and hash rate
+// RandomX (CPU): 1 KH/s = 0.00032077 GYDS/day, 0.00962324 GYDS/month
+// kHeavyHash (GPU): 1000 GH/s = 0.00000298 GYDS/day, 0.0000894 GYDS/month
+
+export type MiningAlgorithm = 'randomx' | 'kheavyhash';
+
+export const MINING_REWARDS = {
+  randomx: {
+    name: 'RandomX',
+    type: 'CPU' as const,
+    // Per H/s per second reward rate
+    rewardPerHashPerSecond: 0.00032077 / 1000 / 86400, // KH/s daily rate converted to H/s per second
+    // Reference rates
+    referenceRates: {
+      hashRate: 1000, // H/s (1 KH/s)
+      dailyReward: 0.00032077,
+      monthlyReward: 0.00962324,
+    },
+    // At 1000 H/s
+    lowHashRates: {
+      hashRate: 1000, // H/s
+      dailyReward: 3.2e-7, // 0.00000032
+      monthlyReward: 0.00000962,
+    },
+  },
+  kheavyhash: {
+    name: 'kHeavyHash',
+    type: 'GPU' as const,
+    // Per GH/s per second reward rate
+    rewardPerHashPerSecond: 0.00000298 / 1000 / 86400, // 1000 GH/s daily rate converted to 1 GH/s per second
+    // Reference rates (at 1000 GH/s = 1 TH/s)
+    referenceRates: {
+      hashRate: 1000e9, // 1000 GH/s
+      dailyReward: 0.00000298,
+      monthlyReward: 0.0000894,
+    },
+  },
+};
+
+// Calculate mining reward based on algorithm, hash rate, and time
+export const calculateMiningReward = (
+  algorithm: MiningAlgorithm,
+  hashRate: number, // H/s for RandomX, GH/s for kHeavyHash
+  durationSeconds: number,
+  humanScore: number = 100
+): number => {
+  const config = MINING_REWARDS[algorithm];
+  const humanMultiplier = Math.max(0.1, humanScore / 100);
+  
+  if (algorithm === 'randomx') {
+    // hashRate is in H/s
+    const dailyRate = (hashRate / 1000) * config.referenceRates.dailyReward;
+    const perSecondRate = dailyRate / 86400;
+    return perSecondRate * durationSeconds * humanMultiplier;
+  } else {
+    // hashRate is in GH/s
+    const dailyRate = (hashRate / 1000) * config.referenceRates.dailyReward;
+    const perSecondRate = dailyRate / 86400;
+    return perSecondRate * durationSeconds * humanMultiplier;
+  }
+};
+
+// Estimate earnings for display
+export const estimateMiningEarnings = (
+  algorithm: MiningAlgorithm,
+  hashRate: number, // H/s for RandomX, GH/s for kHeavyHash
+  humanScore: number = 100
+): { daily: number; monthly: number; yearly: number } => {
+  const humanMultiplier = Math.max(0.1, humanScore / 100);
+  const config = MINING_REWARDS[algorithm];
+  
+  let dailyReward: number;
+  if (algorithm === 'randomx') {
+    // hashRate in H/s, reference is 1000 H/s = 1 KH/s
+    dailyReward = (hashRate / 1000) * config.referenceRates.dailyReward;
+  } else {
+    // hashRate in GH/s, reference is 1000 GH/s
+    dailyReward = (hashRate / 1000) * config.referenceRates.dailyReward;
+  }
+  
+  return {
+    daily: dailyReward * humanMultiplier,
+    monthly: dailyReward * 30 * humanMultiplier,
+    yearly: dailyReward * 365 * humanMultiplier,
+  };
+};
 
 export interface Block {
   height: number;
