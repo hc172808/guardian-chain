@@ -2,17 +2,29 @@ import { useState, useEffect, useCallback } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
-import { ANTI_BOT_FORMULAS, DIFFICULTY_FORMULAS, formatHashRate, generateHash } from '@/lib/blockchain';
+import { 
+  ANTI_BOT_FORMULAS, 
+  DIFFICULTY_FORMULAS, 
+  formatHashRate, 
+  generateHash,
+  MINING_REWARDS,
+  calculateMiningReward,
+  estimateMiningEarnings,
+  MiningAlgorithm 
+} from '@/lib/blockchain';
+import { TOKENOMICS } from '@/config/wallets';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Pickaxe, Play, Pause, RefreshCw, Zap, Shield, Activity, AlertTriangle, Lock } from 'lucide-react';
+import { Pickaxe, Play, Pause, RefreshCw, Zap, Shield, Activity, AlertTriangle, Lock, Cpu, MonitorPlay } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/contexts/AuthContext';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 import { WireGuardStatus } from '@/components/wireguard/WireGuardStatus';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 interface MiningState {
   isActive: boolean;
+  algorithm: MiningAlgorithm;
   hashRate: number;
   validShares: number;
   invalidShares: number;
@@ -27,8 +39,10 @@ interface MiningState {
 const MiningContent = () => {
   const { user } = useAuth();
   const [isVpnConnected, setIsVpnConnected] = useState(false);
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState<MiningAlgorithm>('randomx');
   const [mining, setMining] = useState<MiningState>({
     isActive: false,
+    algorithm: 'randomx',
     hashRate: 0,
     validShares: 0,
     invalidShares: 0,
@@ -39,6 +53,13 @@ const MiningContent = () => {
     lastShareHash: '',
     lastShareTime: 0,
   });
+
+  // Estimated earnings based on current hash rate
+  const estimatedEarnings = estimateMiningEarnings(
+    mining.algorithm,
+    mining.hashRate,
+    mining.humanScore
+  );
 
   const [shareHistory, setShareHistory] = useState<{ hash: string; valid: boolean; reward: number; time: number }[]>([]);
 
@@ -64,14 +85,27 @@ const MiningContent = () => {
         }
 
         const isValid = Math.random() > 0.08; // 92% valid shares
-        const reward = isValid ? (0.0001 / (prev.currentDifficulty / 1000000)) : 0;
-        const newHashRate = 5e5 + Math.random() * 2e5; // Slower: ~0.5-0.7 MH/s
+        
+        // Calculate hash rate based on algorithm
+        let newHashRate: number;
+        if (prev.algorithm === 'randomx') {
+          // RandomX CPU: simulate 800-1200 H/s
+          newHashRate = 800 + Math.random() * 400;
+        } else {
+          // kHeavyHash GPU: simulate 800-1200 GH/s
+          newHashRate = 800 + Math.random() * 400;
+        }
+        
+        // Calculate actual reward using the formula
+        const reward = isValid 
+          ? calculateMiningReward(prev.algorithm, newHashRate, 5, prev.humanScore) 
+          : 0;
         
         // Calculate session reward cap
-        const sessionCap = ANTI_BOT_FORMULAS.sessionRewardCap(prev.sessionDuration, 10);
+        const sessionCap = ANTI_BOT_FORMULAS.sessionRewardCap(prev.sessionDuration, 0.001);
         const actualReward = prev.totalReward < sessionCap ? reward : 0;
 
-        if (isValid) {
+        if (isValid && actualReward > 0) {
           setShareHistory(h => [{
             hash: generateHash().slice(0, 16),
             valid: true,
@@ -92,7 +126,7 @@ const MiningContent = () => {
           currentDifficulty: DIFFICULTY_FORMULAS.minerDifficulty(
             prev.currentDifficulty,
             newHashRate,
-            5e5
+            1000
           ),
         };
       });
@@ -103,12 +137,13 @@ const MiningContent = () => {
 
   const toggleMining = () => {
     if (!isVpnConnected) return;
-    setMining(prev => ({ ...prev, isActive: !prev.isActive }));
+    setMining(prev => ({ ...prev, isActive: !prev.isActive, algorithm: selectedAlgorithm }));
   };
 
   const resetMining = () => {
     setMining({
       isActive: false,
+      algorithm: selectedAlgorithm,
       hashRate: 0,
       validShares: 0,
       invalidShares: 0,
@@ -120,6 +155,12 @@ const MiningContent = () => {
       lastShareTime: 0,
     });
     setShareHistory([]);
+  };
+
+  const handleAlgorithmChange = (algo: string) => {
+    if (!mining.isActive) {
+      setSelectedAlgorithm(algo as MiningAlgorithm);
+    }
   };
 
   const sessionCap = ANTI_BOT_FORMULAS.sessionRewardCap(mining.sessionDuration, 10);
@@ -177,6 +218,69 @@ const MiningContent = () => {
           </div>
         </div>
 
+        {/* Algorithm Selection */}
+        <GlassCard>
+          <h3 className="font-semibold mb-4">Select Mining Algorithm</h3>
+          <Tabs value={selectedAlgorithm} onValueChange={handleAlgorithmChange} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="randomx" disabled={mining.isActive} className="flex items-center gap-2">
+                <Cpu className="w-4 h-4" />
+                RandomX (CPU)
+              </TabsTrigger>
+              <TabsTrigger value="kheavyhash" disabled={mining.isActive} className="flex items-center gap-2">
+                <MonitorPlay className="w-4 h-4" />
+                kHeavyHash (GPU)
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="randomx" className="mt-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-3 rounded-lg bg-secondary/30 text-center">
+                  <p className="text-xs text-muted-foreground">1 KH/s Daily</p>
+                  <p className="font-mono font-bold text-neon-emerald">
+                    {MINING_REWARDS.randomx.referenceRates.dailyReward.toFixed(8)} {TOKENOMICS.symbol}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg bg-secondary/30 text-center">
+                  <p className="text-xs text-muted-foreground">1 KH/s Monthly</p>
+                  <p className="font-mono font-bold text-neon-emerald">
+                    {MINING_REWARDS.randomx.referenceRates.monthlyReward.toFixed(8)} {TOKENOMICS.symbol}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg bg-secondary/30 text-center">
+                  <p className="text-xs text-muted-foreground">1000 H/s Daily</p>
+                  <p className="font-mono font-bold">
+                    {MINING_REWARDS.randomx.lowHashRates.dailyReward.toExponential(1)} {TOKENOMICS.symbol}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg bg-secondary/30 text-center">
+                  <p className="text-xs text-muted-foreground">1000 H/s Monthly</p>
+                  <p className="font-mono font-bold">
+                    {MINING_REWARDS.randomx.lowHashRates.monthlyReward.toFixed(8)} {TOKENOMICS.symbol}
+                  </p>
+                </div>
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="kheavyhash" className="mt-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 rounded-lg bg-secondary/30 text-center">
+                  <p className="text-xs text-muted-foreground">1000 GH/s Daily</p>
+                  <p className="font-mono font-bold text-neon-emerald">
+                    {MINING_REWARDS.kheavyhash.referenceRates.dailyReward.toFixed(8)} {TOKENOMICS.symbol}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg bg-secondary/30 text-center">
+                  <p className="text-xs text-muted-foreground">1000 GH/s Monthly</p>
+                  <p className="font-mono font-bold text-neon-emerald">
+                    {MINING_REWARDS.kheavyhash.referenceRates.monthlyReward.toFixed(7)} {TOKENOMICS.symbol}
+                  </p>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </GlassCard>
+
         {/* WireGuard VPN Status */}
         <WireGuardStatus onConnected={handleVpnConnection} />
 
@@ -188,10 +292,16 @@ const MiningContent = () => {
                 'w-5 h-5',
                 mining.isActive ? 'text-neon-amber animate-pulse' : 'text-muted-foreground'
               )} />
-              <span className="text-sm text-muted-foreground">Hash Rate</span>
+              <span className="text-sm text-muted-foreground">Hash Rate ({MINING_REWARDS[mining.algorithm].type})</span>
             </div>
             <p className="text-2xl font-bold font-mono text-gradient-primary">
-              {formatHashRate(mining.hashRate)}
+              {mining.algorithm === 'randomx' 
+                ? `${mining.hashRate.toFixed(0)} H/s`
+                : `${mining.hashRate.toFixed(0)} GH/s`
+              }
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {MINING_REWARDS[mining.algorithm].name}
             </p>
           </GlassCard>
 
@@ -214,7 +324,10 @@ const MiningContent = () => {
               <span className="text-sm text-muted-foreground">Total Reward</span>
             </div>
             <p className="text-2xl font-bold font-mono">
-              {mining.totalReward.toFixed(6)} <span className="text-sm text-muted-foreground">CORE</span>
+              {mining.totalReward.toFixed(10)} <span className="text-sm text-muted-foreground">{TOKENOMICS.symbol}</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Est. Daily: {estimatedEarnings.daily.toFixed(10)}
             </p>
           </GlassCard>
 
@@ -229,6 +342,37 @@ const MiningContent = () => {
             <p className="text-xs text-muted-foreground mt-1">Anti-bot verification</p>
           </GlassCard>
         </div>
+
+        {/* Earnings Estimate Card */}
+        <GlassCard>
+          <h3 className="font-semibold mb-4 flex items-center gap-2">
+            <Zap className="w-5 h-5 text-neon-amber" />
+            Estimated Earnings at Current Hash Rate
+          </h3>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs text-muted-foreground mb-1">Daily</p>
+              <p className="font-mono font-bold text-lg text-neon-emerald">
+                {estimatedEarnings.daily.toFixed(10)}
+              </p>
+              <p className="text-xs text-muted-foreground">{TOKENOMICS.symbol}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs text-muted-foreground mb-1">Monthly</p>
+              <p className="font-mono font-bold text-lg text-neon-emerald">
+                {estimatedEarnings.monthly.toFixed(8)}
+              </p>
+              <p className="text-xs text-muted-foreground">{TOKENOMICS.symbol}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs text-muted-foreground mb-1">Yearly</p>
+              <p className="font-mono font-bold text-lg text-neon-emerald">
+                {estimatedEarnings.yearly.toFixed(6)}
+              </p>
+              <p className="text-xs text-muted-foreground">{TOKENOMICS.symbol}</p>
+            </div>
+          </div>
+        </GlassCard>
 
         {/* Session Cap Warning */}
         {capProgress > 80 && (
@@ -287,7 +431,7 @@ const MiningContent = () => {
                     >
                       <span className="font-mono text-muted-foreground">{share.hash}...</span>
                       <span className="text-neon-emerald font-mono">
-                        +{share.reward.toFixed(6)} CORE
+                        +{share.reward.toFixed(10)} {TOKENOMICS.symbol}
                       </span>
                     </motion.div>
                   ))}

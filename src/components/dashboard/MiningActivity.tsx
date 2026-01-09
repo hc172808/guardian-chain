@@ -1,8 +1,9 @@
 import { useMemo, useState, useEffect } from 'react';
 import { GlassCard } from '../ui/GlassCard';
-import { generateMockMiners, formatHashRate, Miner } from '@/lib/blockchain';
+import { generateMockMiners, formatHashRate, Miner, MINING_REWARDS, estimateMiningEarnings } from '@/lib/blockchain';
+import { TOKENOMICS } from '@/config/wallets';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart } from 'recharts';
-import { Activity } from 'lucide-react';
+import { Activity, Cpu, MonitorPlay } from 'lucide-react';
 
 export const MiningActivity = () => {
   const [hashRateHistory, setHashRateHistory] = useState<{ time: string; hashRate: number }[]>([]);
@@ -85,18 +86,42 @@ export const MiningActivity = () => {
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-4 text-center">
-        <div>
-          <p className="text-xs text-muted-foreground">Active Miners</p>
-          <p className="font-mono font-bold">12,456</p>
+      <div className="mt-4 space-y-4">
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <div>
+            <p className="text-xs text-muted-foreground">Active Miners</p>
+            <p className="font-mono font-bold">12,456</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Valid Shares (1h)</p>
+            <p className="font-mono font-bold text-neon-emerald">1.2M</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Rejected</p>
+            <p className="font-mono font-bold text-neon-rose">0.02%</p>
+          </div>
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Valid Shares (1h)</p>
-          <p className="font-mono font-bold text-neon-emerald">1.2M</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Rejected</p>
-          <p className="font-mono font-bold text-neon-rose">0.02%</p>
+
+        {/* Mining Reward Rates */}
+        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border/50">
+          <div className="p-2 rounded bg-secondary/30">
+            <div className="flex items-center gap-1 mb-1">
+              <Cpu className="w-3 h-3 text-primary" />
+              <p className="text-xs text-muted-foreground">RandomX (1 KH/s)</p>
+            </div>
+            <p className="font-mono text-sm text-neon-emerald">
+              {MINING_REWARDS.randomx.referenceRates.dailyReward.toFixed(8)}/day
+            </p>
+          </div>
+          <div className="p-2 rounded bg-secondary/30">
+            <div className="flex items-center gap-1 mb-1">
+              <MonitorPlay className="w-3 h-3 text-primary" />
+              <p className="text-xs text-muted-foreground">kHeavyHash (1 TH/s)</p>
+            </div>
+            <p className="font-mono text-sm text-neon-emerald">
+              {MINING_REWARDS.kheavyhash.referenceRates.dailyReward.toFixed(8)}/day
+            </p>
+          </div>
         </div>
       </div>
     </GlassCard>
