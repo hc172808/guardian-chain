@@ -18,7 +18,8 @@ import {
   Wallet,
   Settings,
   BookOpen,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Network
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,9 +29,10 @@ const navItems = [
   { to: '/', icon: BarChart3, label: 'Dashboard' },
   { to: '/explorer', icon: Blocks, label: 'Block Explorer' },
   { to: '/validators', icon: Users, label: 'Validators' },
-  { to: '/mining', icon: Pickaxe, label: 'Mining Simulator' },
+  { to: '/mining', icon: Pickaxe, label: 'Mining' },
   { to: '/wallet', icon: Wallet, label: 'Wallet' },
   { to: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
+  { to: '/network', icon: Network, label: 'Network Config' },
   { to: '/protocol', icon: FileText, label: 'Protocol Docs' },
   { to: '/security', icon: Shield, label: 'Security Audit' },
   { to: '/download', icon: Download, label: 'Download' },

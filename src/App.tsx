@@ -16,6 +16,7 @@ import WalletPage from "./pages/Wallet";
 import AdminPage from "./pages/Admin";
 import DocsPage from "./pages/Docs";
 import TransactionsPage from "./pages/Transactions";
+import NetworkPage from "./pages/Network";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +38,7 @@ const App = () => (
             <Route path="/download" element={<DownloadPage />} />
             <Route path="/wallet" element={<WalletPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/network" element={<NetworkPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/docs" element={<DocsPage />} />
             <Route path="/auth" element={<Auth />} />

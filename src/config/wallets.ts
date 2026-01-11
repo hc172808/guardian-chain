@@ -4,7 +4,7 @@
 export const GENESIS_CONFIG = {
   // Genesis block configuration
   timestamp: new Date('2024-01-01T00:00:00Z').getTime() / 1000,
-  chainId: 1337,
+  chainId: 13370, // Updated to unique GYDS chain ID
   initialSupply: 100_000_000_000, // 100 billion GYDS
   initialPrice: 0.0000001, // Starting price in USD
 };

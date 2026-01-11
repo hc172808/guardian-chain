@@ -50,7 +50,7 @@ func DefaultGenesisConfig() *GenesisConfig {
 	totalSupply := new(big.Int).Mul(big.NewInt(100_000_000_000), weiMultiplier)
 
 	return &GenesisConfig{
-		ChainID:       1337,
+		ChainID:       13370, // GYDS Mainnet Chain ID
 		Timestamp:     uint64(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).Unix()),
 		InitialSupply: totalSupply,
 		InitialPrice:  0.0000001,
