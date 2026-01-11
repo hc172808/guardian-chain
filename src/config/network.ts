@@ -83,6 +83,15 @@ export const TRUST_WALLET_CONFIG = {
   blockExplorerUrl: NETWORK_CONFIG.blockExplorerUrls[0],
 };
 
+// RPC configuration for connecting to full nodes
+export const RPC_CONFIG = {
+  fullNodeUrl: NETWORK_CONFIG.rpcUrls.primary,
+  wsUrl: NETWORK_CONFIG.rpcUrls.primary.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws',
+  timeout: 30000,
+  retryAttempts: 3,
+  retryDelay: 1000,
+};
+
 // RPC endpoint configuration for the Go backend
 export const RPC_ENDPOINTS = {
   // Standard Ethereum JSON-RPC methods that wallets expect
