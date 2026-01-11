@@ -63,10 +63,10 @@ func main() {
 
 	// Initialize blockchain
 	chainConfig := blockchain.Config{
-		ChainID:          1337,
-		BlockTime:        12, // 12 seconds
-		MaxBlockSize:     2 * 1024 * 1024, // 2MB
-		MinGasPrice:      1000000000, // 1 Gwei
+		ChainID:           13370, // GYDS Mainnet Chain ID
+		BlockTime:         12,    // 12 seconds
+		MaxBlockSize:      2 * 1024 * 1024, // 2MB
+		MinGasPrice:       1000000000, // 1 Gwei
 		ValidatorMinStake: 32000000000000000000, // 32 ETH equivalent
 	}
 	chain, err := blockchain.NewBlockchain(db, chainConfig)
