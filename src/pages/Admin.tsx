@@ -15,7 +15,8 @@ import {
   Copy,
   RefreshCw,
   Flame,
-  Coins
+  Coins,
+  Building2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
 import { BurnMintManager } from '@/components/admin/BurnMintManager';
 import { StablecoinManager } from '@/components/admin/StablecoinManager';
+import { SponsorManager } from '@/components/admin/SponsorManager';
 import { DatabaseSettings } from '@/components/admin/DatabaseSettings';
 
 interface UserProfile {
@@ -154,7 +156,7 @@ const AdminContent = () => {
       </div>
 
       <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-5 w-full">
+        <TabsList className="grid grid-cols-6 w-full">
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             Nodes
@@ -171,6 +173,10 @@ const AdminContent = () => {
             <Coins className="h-4 w-4" />
             GYD/GYDS
           </TabsTrigger>
+          <TabsTrigger value="sponsors" className="gap-2">
+            <Building2 className="h-4 w-4" />
+            Sponsors
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="tokens">
@@ -179,6 +185,10 @@ const AdminContent = () => {
 
         <TabsContent value="stablecoin">
           <StablecoinManager />
+        </TabsContent>
+
+        <TabsContent value="sponsors">
+          <SponsorManager />
         </TabsContent>
 
         <TabsContent value="nodes" className="space-y-4">
