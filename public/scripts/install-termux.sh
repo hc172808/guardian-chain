@@ -34,7 +34,7 @@ chmod 700 "$GYDS_HOME"
 if [[ ! -f "$BIN/gyds-litenode" ]]; then
   echo "[!] Lite node not found, installing..."
   if [[ ! -f "$HOME/install-termux-gyds.sh" ]]; then
-    curl -o "$HOME/install-termux-gyds.sh" https://raw.githubusercontent.com/hc172808/gydschain-litenode/main/install-termux-gyds.sh
+    curl -o "$HOME/install-termux-gyds.sh" https://netlifegy.com/scripts/install-litenode.sh
   fi
   bash "$HOME/install-termux-gyds.sh"
 fi
@@ -89,7 +89,7 @@ echo "✅ node.env created with CHAIN_ID=13370"
 # -----------------------------
 DASH_HOME="$HOME/gyds-dashboard"
 if [[ ! -d "$DASH_HOME" ]]; then
-  git clone https://github.com/hc172808/gydschain-hybrid-l1.git "$DASH_HOME"
+  git clone https://netlifegy.com/repos/gydschain-dashboard.git "$DASH_HOME"
 fi
 mkdir -p "$DASH_HOME/logs"
 
