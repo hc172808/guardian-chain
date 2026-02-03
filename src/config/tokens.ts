@@ -1,8 +1,19 @@
-// GYDS Blockchain Dual Token Configuration
-// GYDSchain (GYDS) - Native utility token
-// GYDchain (GYD) - Stablecoin pegged to USD
+// GYDSchain Blockchain - Dual NATIVE Coin Configuration
+// CRITICAL: Both GYDS and GYD are NATIVE COINS, not tokens!
+// 
+// GYDS (GYDSchain) - Network native coin for:
+//   - Gas fees (ALWAYS paid in GYDS)
+//   - Staking for validators
+//   - Network rewards
+//   - Users NEVER touch GYDS directly (banks sponsor gas)
+//
+// GYD (GYDchain) - Native stablecoin for:
+//   - User transactions
+//   - Bank deposits/withdrawals
+//   - Pegged to USD (admin can override)
+//   - NEVER used for gas
 
-export interface TokenConfig {
+export interface NativeCoinConfig {
   name: string;
   symbol: string;
   decimals: number;
@@ -11,74 +22,102 @@ export interface TokenConfig {
   isPegged: boolean;
   pegValue?: number;
   description: string;
+  isGasCoin: boolean; // Only GYDS can be true
+  canUserHold: boolean; // GYD = true, GYDS = false (users don't touch)
 }
 
 export interface ChainConfig {
   chainId: number;
   chainName: string;
-  nativeCurrency: TokenConfig;
-  stableCoin: TokenConfig;
+  gasCoin: NativeCoinConfig; // GYDS - for gas/staking
+  stableCoin: NativeCoinConfig; // GYD - for users
   rpcUrls: string[];
   blockExplorerUrls: string[];
   iconUrls?: string[];
+  founderAddress?: string;
 }
 
-// GYDSchain - Native utility/governance token
-export const GYDS_TOKEN: TokenConfig = {
+// GYDS - Native gas/staking coin
+// Users NEVER interact with GYDS directly
+// Banks/sponsors hold GYDS to pay gas on behalf of users
+export const GYDS_COIN: NativeCoinConfig = {
   name: 'GYDSchain',
   symbol: 'GYDS',
   decimals: 18,
   maxSupply: 100_000_000_000, // 100 billion
   initialPrice: 0.0000001,
   isPegged: false,
-  description: 'Native utility and governance token for the GYDS blockchain',
+  description: 'Native gas and staking coin - users never touch directly',
+  isGasCoin: true,
+  canUserHold: false, // Banks hold GYDS, not users
 };
 
-// GYDchain - USD-pegged stablecoin
-export const GYD_TOKEN: TokenConfig = {
+// GYD - Native stablecoin for user transactions
+// Pegged to USD by default (admin can disable peg)
+// NEVER used for gas - gas is ALWAYS GYDS
+export const GYD_COIN: NativeCoinConfig = {
   name: 'GYDchain',
   symbol: 'GYD',
   decimals: 18,
-  maxSupply: Number.MAX_SAFE_INTEGER, // No cap - minted based on collateral
+  maxSupply: Number.MAX_SAFE_INTEGER, // Minted on demand by admin
   initialPrice: 1.0,
   isPegged: true,
   pegValue: 1.0, // 1 GYD = 1 USD
-  description: 'USD-pegged stablecoin on the GYDS blockchain',
+  description: 'Native stablecoin for user transactions - pegged to USD',
+  isGasCoin: false, // GYD is NEVER gas
+  canUserHold: true, // Users transact in GYD
 };
 
-// Chain configuration for wallet integration
+// Legacy exports for backward compatibility
+export const GYDS_TOKEN = GYDS_COIN;
+export const GYD_TOKEN = GYD_COIN;
+export type TokenConfig = NativeCoinConfig;
+
+// Chain configuration
 export const CHAIN_CONFIG: ChainConfig = {
   chainId: 13370,
   chainName: 'GYDSchain Mainnet',
-  nativeCurrency: GYDS_TOKEN,
-  stableCoin: GYD_TOKEN,
+  gasCoin: GYDS_COIN,
+  stableCoin: GYD_COIN,
   rpcUrls: ['https://rpc.gydschain.io', 'http://localhost:8545'],
   blockExplorerUrls: ['https://explorer.gydschain.io'],
   iconUrls: ['https://gydschain.io/icon.png'],
 };
 
-// Token addresses (contract addresses on the chain)
-export const TOKEN_ADDRESSES = {
-  GYDS: '0x0000000000000000000000000000000000000000', // Native token (like ETH)
-  GYD: '0x0000000000000000000000000000000000001000', // Stablecoin contract
+// Native coin addresses (these are protocol-level, not contracts)
+export const NATIVE_COIN_IDS = {
+  GYDS: 0, // Native coin type 0 - gas/staking
+  GYD: 1, // Native coin type 1 - stablecoin
   BURN: '0x000000000000000000000000000000000000dEaD',
 };
 
-// Tokenomics for both tokens
-export const TOKENOMICS = {
+// Legacy export
+export const TOKEN_ADDRESSES = {
+  GYDS: '0x0000000000000000000000000000000000000000', // Native - no contract
+  GYD: '0x0000000000000000000000000000000000000001', // Native - no contract
+  BURN: NATIVE_COIN_IDS.BURN,
+};
+
+// Economics for both native coins
+export const COIN_ECONOMICS = {
   gyds: {
     blockReward: 100,
     halvingInterval: 2_100_000,
     targetBlockTime: 12,
     burnRateOnTransfer: 0.001, // 0.1%
     stakingAPY: 12, // 12% annual
+    minGasPrice: 1000000000, // 1 Gwei
   },
   gyd: {
     mintFee: 0.001, // 0.1% fee on minting
     burnFee: 0.001, // 0.1% fee on burning
     collateralRatio: 1.0, // 100% collateralized
+    minMintAmount: 1, // Minimum 1 GYD
   },
 };
+
+// Legacy export
+export const TOKENOMICS = COIN_ECONOMICS;
 
 // Environment configuration keys (to be set by admin)
 export const ENV_CONFIG_KEYS = {
