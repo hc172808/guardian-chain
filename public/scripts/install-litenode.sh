@@ -48,12 +48,13 @@ echo "────────────────────────�
 # RPC Endpoints
 if [[ -z "$RPC_ENDPOINTS" ]]; then
     echo -e "${YELLOW}Enter Full Node RPC endpoints (comma-separated):${NC}"
-    echo -e "Example: http://node1.chaincore.io:8546,http://node2.chaincore.io:8546"
+    echo -e "Example: https://rpc.netlifegy.com,https://rpc2.netlifegy.com"
     read -p "> " RPC_ENDPOINTS
     
     if [[ -z "$RPC_ENDPOINTS" ]]; then
-        echo -e "${RED}Error: At least one RPC endpoint is required${NC}"
-        exit 1
+        # Default to netlifegy.com RPC
+        RPC_ENDPOINTS="https://rpc.netlifegy.com"
+        echo -e "${GREEN}Using default: $RPC_ENDPOINTS${NC}"
     fi
 fi
 

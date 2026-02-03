@@ -20,21 +20,21 @@ export const NETWORK_CONFIG = {
     decimals: TOKENOMICS.decimals,
   },
   
-  // RPC endpoints (update these with your actual server addresses)
+  // RPC endpoints for netlifegy.com
   rpcUrls: {
-    primary: 'https://rpc.gyds.network',
+    primary: 'https://rpc.netlifegy.com',
     backup: [
-      'https://rpc2.gyds.network',
-      'https://rpc3.gyds.network',
+      'https://rpc2.netlifegy.com',
+      'https://rpc3.netlifegy.com',
     ],
     local: 'http://localhost:8546',
   },
   
   // Block explorer URL
-  blockExplorerUrls: ['https://explorer.gyds.network'],
+  blockExplorerUrls: ['https://explorer.netlifegy.com'],
   
   // Icon URLs for wallet display
-  iconUrls: ['https://gyds.network/icon.png'],
+  iconUrls: ['https://netlifegy.com/icon.png'],
 };
 
 // Testnet configuration
@@ -48,10 +48,10 @@ export const TESTNET_CONFIG = {
     decimals: 18,
   },
   rpcUrls: {
-    primary: 'https://testnet-rpc.gyds.network',
+    primary: 'https://testnet-rpc.netlifegy.com',
     local: 'http://localhost:8547',
   },
-  blockExplorerUrls: ['https://testnet-explorer.gyds.network'],
+  blockExplorerUrls: ['https://testnet-explorer.netlifegy.com'],
 };
 
 // EIP-3085 compatible network parameters for wallet_addEthereumChain
