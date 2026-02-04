@@ -22,6 +22,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { FounderWalletConfig } from '@/components/wallet/FounderWalletConfig';
 
 interface WalletData {
   id: string;
@@ -73,7 +74,7 @@ const decryptSeed = (encrypted: string, pin: string) => {
 };
 
 const WalletContent = () => {
-  const { user } = useAuth();
+  const { user, isFounder } = useAuth();
   const { toast } = useToast();
   const [wallets, setWallets] = useState<WalletData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -216,6 +217,7 @@ const WalletContent = () => {
           <p className="text-muted-foreground mt-2">Create, import, and manage your wallets</p>
         </div>
         <div className="flex gap-2">
+          {isFounder && <FounderWalletConfig />}
           <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="gap-2">
