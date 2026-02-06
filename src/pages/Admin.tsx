@@ -177,6 +177,10 @@ const AdminContent = () => {
             <Building2 className="h-4 w-4" />
             Sponsors
           </TabsTrigger>
+          <TabsTrigger value="database" className="gap-2">
+            <Key className="h-4 w-4" />
+            Database
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="tokens">
@@ -189,6 +193,10 @@ const AdminContent = () => {
 
         <TabsContent value="sponsors">
           <SponsorManager />
+        </TabsContent>
+
+        <TabsContent value="database">
+          <DatabaseSettings />
         </TabsContent>
 
         <TabsContent value="nodes" className="space-y-4">

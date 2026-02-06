@@ -19,8 +19,10 @@ import {
   Wallet, 
   Activity,
   Shield,
-  AlertTriangle
+  AlertTriangle,
+  Coins
 } from 'lucide-react';
+import { SponsorFunding } from './SponsorFunding';
 import {
   Dialog,
   DialogContent,
@@ -55,6 +57,8 @@ export const SponsorManager = () => {
   const [sponsors, setSponsors] = useState<FeeSponsor[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [fundingSponsor, setFundingSponsor] = useState<FeeSponsor | null>(null);
+  const [fundingOpen, setFundingOpen] = useState(false);
   
   // New sponsor form
   const [newSponsor, setNewSponsor] = useState({
@@ -315,8 +319,8 @@ export const SponsorManager = () => {
                 <TableHead>Sponsor</TableHead>
                 <TableHead>Address</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right">GYDS Balance</TableHead>
                 <TableHead className="text-right">Daily Usage</TableHead>
-                <TableHead className="text-right">Transactions</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -359,6 +363,23 @@ export const SponsorManager = () => {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="font-medium text-primary">{formatGYDS(sponsor.balance_gyds)}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 gap-1"
+                          onClick={() => {
+                            setFundingSponsor(sponsor);
+                            setFundingOpen(true);
+                          }}
+                        >
+                          <Coins className="h-3 w-3" />
+                          Fund
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
                       <div className="space-y-1">
                         <p className="text-sm">
                           {formatGYDS(sponsor.daily_gas_used)} / {formatGYDS(sponsor.daily_gas_limit)}
@@ -370,12 +391,6 @@ export const SponsorManager = () => {
                           />
                         </div>
                         <p className="text-xs text-muted-foreground">{usagePercent}% used</p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Activity className="h-3 w-3 text-muted-foreground" />
-                        <span>{sponsor.tx_count.toLocaleString()}</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
@@ -394,6 +409,16 @@ export const SponsorManager = () => {
             </TableBody>
           </Table>
         </GlassCard>
+      )}
+
+      {/* Funding Dialog */}
+      {fundingSponsor && (
+        <SponsorFunding
+          sponsor={fundingSponsor}
+          open={fundingOpen}
+          onOpenChange={setFundingOpen}
+          onUpdate={fetchSponsors}
+        />
       )}
 
       {/* Important Notes */}

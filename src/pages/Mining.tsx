@@ -13,8 +13,10 @@ import { WireGuardStatus } from '@/components/wireguard/WireGuardStatus';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { MiningPoolInterface } from '@/components/mining/MiningPoolInterface';
 import { ProfitabilityCalculator } from '@/components/mining/ProfitabilityCalculator';
+import { MiningProcess } from '@/components/mining/MiningProcess';
 import { createMiningClient, MiningEngine } from '@/lib/miningClient';
 import { Badge } from '@/components/ui/badge';
+import { BookOpen } from 'lucide-react';
 
 const MiningContent = () => {
   const { user } = useAuth();
@@ -131,7 +133,7 @@ const MiningContent = () => {
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="mine" className="flex items-center gap-2">
               <Pickaxe className="w-4 h-4" />
               Mining Pool
@@ -143,6 +145,10 @@ const MiningContent = () => {
             <TabsTrigger value="calculator" className="flex items-center gap-2">
               <Calculator className="w-4 h-4" />
               Calculator
+            </TabsTrigger>
+            <TabsTrigger value="learn" className="flex items-center gap-2">
+              <BookOpen className="w-4 h-4" />
+              How It Works
             </TabsTrigger>
           </TabsList>
 
@@ -156,6 +162,10 @@ const MiningContent = () => {
 
           <TabsContent value="calculator" className="mt-6">
             <ProfitabilityCalculator />
+          </TabsContent>
+
+          <TabsContent value="learn" className="mt-6">
+            <MiningProcess />
           </TabsContent>
         </Tabs>
       </motion.div>
