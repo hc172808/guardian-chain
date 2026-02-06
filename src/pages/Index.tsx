@@ -5,6 +5,7 @@ import { ValidatorChart } from '@/components/dashboard/ValidatorChart';
 import { MiningActivity } from '@/components/dashboard/MiningActivity';
 import { ConsensusFlow } from '@/components/dashboard/ConsensusFlow';
 import { NodeMonitor } from '@/components/dashboard/NodeMonitor';
+import { GenesisStatus } from '@/components/dashboard/GenesisStatus';
 import { motion } from 'framer-motion';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 
@@ -25,6 +26,9 @@ const IndexContent = () => {
             Real-time overview • Block time: 120s
           </p>
         </div>
+
+        {/* Genesis Status */}
+        <GenesisStatus />
 
         {/* Network Stats */}
         <NetworkStats />
