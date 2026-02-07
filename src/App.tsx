@@ -17,6 +17,7 @@ import AdminPage from "./pages/Admin";
 import DocsPage from "./pages/Docs";
 import TransactionsPage from "./pages/Transactions";
 import NetworkPage from "./pages/Network";
+import TokensPage from "./pages/Tokens";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
             <Route path="/explorer" element={<Explorer />} />
             <Route path="/validators" element={<Validators />} />
             <Route path="/mining" element={<Mining />} />
+            <Route path="/tokens" element={<TokensPage />} />
             <Route path="/protocol" element={<Protocol />} />
             <Route path="/security" element={<Security />} />
             <Route path="/download" element={<DownloadPage />} />
