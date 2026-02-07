@@ -1,5 +1,5 @@
 import { Layout } from '@/components/layout/Layout';
-import { NetworkStats } from '@/components/dashboard/NetworkStats';
+import { LiveNetworkStats } from '@/components/dashboard/LiveNetworkStats';
 import { RecentBlocks } from '@/components/dashboard/RecentBlocks';
 import { ValidatorChart } from '@/components/dashboard/ValidatorChart';
 import { MiningActivity } from '@/components/dashboard/MiningActivity';
@@ -30,8 +30,8 @@ const IndexContent = () => {
         {/* Genesis Status */}
         <GenesisStatus />
 
-        {/* Network Stats */}
-        <NetworkStats />
+        {/* Live Network Stats (WebSocket connected) */}
+        <LiveNetworkStats />
 
         {/* Consensus Flow */}
         <ConsensusFlow />
