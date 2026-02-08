@@ -32,6 +32,7 @@ const navItems = [
   { to: '/validators', icon: Users, label: 'Validators' },
   { to: '/mining', icon: Pickaxe, label: 'Mining' },
   { to: '/tokens', icon: Coins, label: 'Token Factory' },
+  { to: '/defi', icon: ArrowRightLeft, label: 'DeFi' },
   { to: '/wallet', icon: Wallet, label: 'Wallet' },
   { to: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
   { to: '/network', icon: Network, label: 'Network Config' },
