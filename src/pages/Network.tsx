@@ -22,6 +22,7 @@ import {
   TESTNET_CONFIG, 
   addNetworkToWallet, 
   switchToNetwork,
+  hasEthereumProvider,
   GAS_CONFIG 
 } from '@/config/network';
 import { TOKENOMICS } from '@/config/wallets';
@@ -197,7 +198,9 @@ const NetworkPage = () => {
               <div>
                 <h2 className="text-xl font-bold">Quick Add to Wallet</h2>
                 <p className="text-muted-foreground text-sm">
-                  Click the button to automatically add GYDS Network to your wallet
+                  {hasEthereumProvider()
+                    ? 'Click the button to automatically add GYDS Network to your wallet'
+                    : 'Install MetaMask or Trust Wallet first, or add the network manually using the details below'}
                 </p>
               </div>
             </div>
@@ -208,7 +211,7 @@ const NetworkPage = () => {
               className="gap-2"
             >
               <Wallet className="h-5 w-5" />
-              Add GYDS Network
+              {hasEthereumProvider() ? 'Add GYDS Network' : 'Add GYDS Network'}
             </Button>
           </div>
         </GlassCard>

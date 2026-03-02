@@ -7,6 +7,7 @@ import { StakeInterface } from '@/components/defi/StakeInterface';
 import { Launchpad } from '@/components/defi/Launchpad';
 import { PositionDetails } from '@/components/defi/PositionDetails';
 import { DeFiBottomNav } from '@/components/defi/DeFiBottomNav';
+import { WalletConnectBar } from '@/components/defi/WalletConnectBar';
 
 const DeFiPage = () => {
   const [activeTab, setActiveTab] = useState('swap');
@@ -34,6 +35,7 @@ const DeFiPage = () => {
     <div className="min-h-screen bg-background">
       {/* Main Content */}
       <main className="pb-24 pt-4 px-4 max-w-lg mx-auto">
+        <WalletConnectBar />
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}

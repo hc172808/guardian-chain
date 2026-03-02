@@ -22,6 +22,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useInstaller } from '@/hooks/useInstaller';
 import { useNavigate } from 'react-router-dom';
+import { NodeConfigManager } from '@/components/node/NodeConfigManager';
 
 const DownloadPage = () => {
   const { toast } = useToast();
@@ -406,9 +407,9 @@ const DownloadPage = () => {
 
         {/* Source Code Downloads - Founder/Admin Only */}
         {(isFounder || isAdmin) && (
-          <GlassCard className="p-6 border-yellow-500/30">
+          <GlassCard className="p-6 border-amber-500/30">
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Lock className="h-5 w-5 text-yellow-500" />
+              <Lock className="h-5 w-5 text-amber-500" />
               Go Source Code (Founder Only)
             </h3>
             <p className="text-muted-foreground mb-4">
@@ -426,7 +427,7 @@ const DownloadPage = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => navigate(item.path)}
-                  className="gap-2 border-yellow-500/50"
+                  className="gap-2 border-amber-500/50"
                 >
                   <ExternalLink className="h-3 w-3" />
                   {item.name}
@@ -435,6 +436,9 @@ const DownloadPage = () => {
             </div>
           </GlassCard>
         )}
+
+        {/* Node Registry */}
+        {user && <NodeConfigManager />}
       </motion.div>
     </Layout>
   );
