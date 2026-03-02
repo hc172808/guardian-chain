@@ -161,16 +161,24 @@ export const GAS_CONFIG = {
   },
 };
 
+// Check if an Ethereum provider (MetaMask, Trust Wallet) is available
+export const hasEthereumProvider = (): boolean => {
+  return typeof window !== 'undefined' && !!window.ethereum;
+};
+
 // Helper to add network to wallet (MetaMask, Trust Wallet, etc.)
 export const addNetworkToWallet = async (isTestnet = false): Promise<boolean> => {
-  if (typeof window === 'undefined' || !window.ethereum) {
-    throw new Error('No Ethereum provider found. Please install MetaMask or Trust Wallet.');
+  if (!hasEthereumProvider()) {
+    throw new Error(
+      'No Ethereum wallet detected. Please install MetaMask or Trust Wallet first, then refresh this page. ' +
+      'You can also add the network manually using the details below.'
+    );
   }
 
   const params = getNetworkParams(isTestnet);
   
   try {
-    await window.ethereum.request({
+    await window.ethereum!.request({
       method: 'wallet_addEthereumChain',
       params: [params],
     });
@@ -185,14 +193,16 @@ export const addNetworkToWallet = async (isTestnet = false): Promise<boolean> =>
 
 // Helper to switch to GYDS network
 export const switchToNetwork = async (isTestnet = false): Promise<boolean> => {
-  if (typeof window === 'undefined' || !window.ethereum) {
-    throw new Error('No Ethereum provider found');
+  if (!hasEthereumProvider()) {
+    throw new Error(
+      'No Ethereum wallet detected. Install MetaMask or Trust Wallet, then refresh this page.'
+    );
   }
 
   const chainIdHex = isTestnet ? TESTNET_CONFIG.chainIdHex : NETWORK_CONFIG.chainIdHex;
   
   try {
-    await window.ethereum.request({
+    await window.ethereum!.request({
       method: 'wallet_switchEthereumChain',
       params: [{ chainId: chainIdHex }],
     });
@@ -208,12 +218,12 @@ export const switchToNetwork = async (isTestnet = false): Promise<boolean> => {
 
 // Check if currently on GYDS network
 export const isOnGYDSNetwork = async (): Promise<boolean> => {
-  if (typeof window === 'undefined' || !window.ethereum) {
+  if (!hasEthereumProvider()) {
     return false;
   }
   
   try {
-    const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+    const chainId = await window.ethereum!.request({ method: 'eth_chainId' });
     return chainId === NETWORK_CONFIG.chainIdHex || chainId === TESTNET_CONFIG.chainIdHex;
   } catch {
     return false;
