@@ -236,6 +236,87 @@ export type Database = {
         }
         Relationships: []
       }
+      tokens: {
+        Row: {
+          address: string
+          burned_supply: number
+          created_at: string
+          creator_id: string
+          decimals: number
+          freeze_enabled: boolean
+          freeze_holder: string | null
+          freeze_locked: boolean
+          gyds_liquidity: number
+          id: string
+          is_active: boolean
+          logo_url: string | null
+          lp_lock_type: string
+          lp_unlock_time: string | null
+          mint_enabled: boolean
+          mint_holder: string | null
+          mint_locked: boolean
+          name: string
+          symbol: string
+          total_supply: number
+          update_enabled: boolean
+          update_holder: string | null
+          update_locked: boolean
+          updated_at: string
+        }
+        Insert: {
+          address: string
+          burned_supply?: number
+          created_at?: string
+          creator_id: string
+          decimals?: number
+          freeze_enabled?: boolean
+          freeze_holder?: string | null
+          freeze_locked?: boolean
+          gyds_liquidity?: number
+          id?: string
+          is_active?: boolean
+          logo_url?: string | null
+          lp_lock_type?: string
+          lp_unlock_time?: string | null
+          mint_enabled?: boolean
+          mint_holder?: string | null
+          mint_locked?: boolean
+          name: string
+          symbol: string
+          total_supply: number
+          update_enabled?: boolean
+          update_holder?: string | null
+          update_locked?: boolean
+          updated_at?: string
+        }
+        Update: {
+          address?: string
+          burned_supply?: number
+          created_at?: string
+          creator_id?: string
+          decimals?: number
+          freeze_enabled?: boolean
+          freeze_holder?: string | null
+          freeze_locked?: boolean
+          gyds_liquidity?: number
+          id?: string
+          is_active?: boolean
+          logo_url?: string | null
+          lp_lock_type?: string
+          lp_unlock_time?: string | null
+          mint_enabled?: boolean
+          mint_holder?: string | null
+          mint_locked?: boolean
+          name?: string
+          symbol?: string
+          total_supply?: number
+          update_enabled?: boolean
+          update_holder?: string | null
+          update_locked?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number
