@@ -68,6 +68,57 @@ export type Database = {
         }
         Relationships: []
       }
+      liquidity_pools: {
+        Row: {
+          apr: number
+          created_at: string
+          creator_id: string
+          fee_tier: number
+          fees_24h: number
+          id: string
+          is_active: boolean
+          token_a_address: string | null
+          token_a_symbol: string
+          token_b_address: string | null
+          token_b_symbol: string
+          tvl: number
+          updated_at: string
+          volume_24h: number
+        }
+        Insert: {
+          apr?: number
+          created_at?: string
+          creator_id: string
+          fee_tier?: number
+          fees_24h?: number
+          id?: string
+          is_active?: boolean
+          token_a_address?: string | null
+          token_a_symbol: string
+          token_b_address?: string | null
+          token_b_symbol: string
+          tvl?: number
+          updated_at?: string
+          volume_24h?: number
+        }
+        Update: {
+          apr?: number
+          created_at?: string
+          creator_id?: string
+          fee_tier?: number
+          fees_24h?: number
+          id?: string
+          is_active?: boolean
+          token_a_address?: string | null
+          token_a_symbol?: string
+          token_b_address?: string | null
+          token_b_symbol?: string
+          tvl?: number
+          updated_at?: string
+          volume_24h?: number
+        }
+        Relationships: []
+      }
       node_installations: {
         Row: {
           approved_at: string | null
@@ -172,6 +223,83 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      token_launches: {
+        Row: {
+          bonding_curve_steepness: number
+          bonding_curve_type: string
+          created_at: string
+          creator_id: string
+          description: string | null
+          ends_at: string | null
+          id: string
+          initial_price: number
+          is_premier: boolean
+          logo_url: string | null
+          max_price: number | null
+          name: string
+          participants: number
+          raised_amount: number
+          starts_at: string | null
+          status: string
+          symbol: string
+          target_raise: number
+          token_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          bonding_curve_steepness?: number
+          bonding_curve_type?: string
+          created_at?: string
+          creator_id: string
+          description?: string | null
+          ends_at?: string | null
+          id?: string
+          initial_price?: number
+          is_premier?: boolean
+          logo_url?: string | null
+          max_price?: number | null
+          name: string
+          participants?: number
+          raised_amount?: number
+          starts_at?: string | null
+          status?: string
+          symbol: string
+          target_raise?: number
+          token_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          bonding_curve_steepness?: number
+          bonding_curve_type?: string
+          created_at?: string
+          creator_id?: string
+          description?: string | null
+          ends_at?: string | null
+          id?: string
+          initial_price?: number
+          is_premier?: boolean
+          logo_url?: string | null
+          max_price?: number | null
+          name?: string
+          participants?: number
+          raised_amount?: number
+          starts_at?: string | null
+          status?: string
+          symbol?: string
+          target_raise?: number
+          token_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "token_launches_token_id_fkey"
+            columns: ["token_id"]
+            isOneToOne: false
+            referencedRelation: "tokens"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       token_operations: {
         Row: {
