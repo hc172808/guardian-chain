@@ -19,6 +19,7 @@ import TransactionsPage from "./pages/Transactions";
 import NetworkPage from "./pages/Network";
 import TokensPage from "./pages/Tokens";
 import DeFiPage from "./pages/DeFi";
+import TokenDetail from "./pages/TokenDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/explorer" element={<Explorer />} />
+            <Route path="/explorer/token/:address" element={<TokenDetail />} />
             <Route path="/validators" element={<Validators />} />
             <Route path="/mining" element={<Mining />} />
             <Route path="/tokens" element={<TokensPage />} />

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { generateMockBlocks, Block, Transaction } from '@/lib/blockchain';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -231,6 +232,7 @@ const Explorer = () => {
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground font-mono mt-2 truncate">{token.address}</p>
+                  <Link to={`/explorer/token/${token.address}`} className="mt-2 inline-block text-xs text-primary hover:underline">View Details →</Link>
                 </GlassCard>
               ))}
               {tokens.length === 0 && (
