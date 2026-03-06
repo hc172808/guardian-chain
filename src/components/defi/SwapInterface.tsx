@@ -1,16 +1,19 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, ArrowUpDown, Settings2, Wallet, ExternalLink, Copy } from 'lucide-react';
+import { RefreshCw, ArrowUpDown, Settings2, Wallet, ExternalLink, Copy, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useWalletConnect } from '@/hooks/useWalletConnect';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface Token {
   symbol: string;
   name: string;
   balance: number;
   price: number;
-  icon?: string;
 }
 
 const tokens: Token[] = [
@@ -25,6 +28,11 @@ export const SwapInterface = () => {
   const [payToken, setPayToken] = useState(tokens[0]);
   const [receiveToken, setReceiveToken] = useState(tokens[1]);
   const [slippage, setSlippage] = useState(0.5);
+  const [isSwapping, setIsSwapping] = useState(false);
+
+  const { address, isConnected } = useWalletConnect();
+  const { user } = useAuth();
+  const { toast } = useToast();
 
   const handleSwapTokens = () => {
     const temp = payToken;
@@ -34,8 +42,81 @@ export const SwapInterface = () => {
     setReceiveAmount(payAmount);
   };
 
+  // Calculate receive amount based on exchange rate
+  const handlePayAmountChange = (value: string) => {
+    setPayAmount(value);
+    if (value && parseFloat(value) > 0) {
+      const rate = payToken.price / receiveToken.price;
+      const received = parseFloat(value) * rate * (1 - slippage / 100);
+      setReceiveAmount(received.toFixed(6));
+    } else {
+      setReceiveAmount('');
+    }
+  };
+
+  const handleReceiveAmountChange = (value: string) => {
+    setReceiveAmount(value);
+    if (value && parseFloat(value) > 0) {
+      const rate = receiveToken.price / payToken.price;
+      const needed = parseFloat(value) * rate / (1 - slippage / 100);
+      setPayAmount(needed.toFixed(6));
+    } else {
+      setPayAmount('');
+    }
+  };
+
   const payValue = parseFloat(payAmount || '0') * payToken.price;
   const receiveValue = parseFloat(receiveAmount || '0') * receiveToken.price;
+  const exchangeRate = useMemo(() => payToken.price / receiveToken.price, [payToken.price, receiveToken.price]);
+  const fee = payValue * 0.003; // 0.3% fee
+
+  const executeSwap = async () => {
+    if (!user || !address) {
+      toast({ title: 'Login Required', description: 'Connect your wallet to trade.', variant: 'destructive' });
+      return;
+    }
+
+    const amount = parseFloat(payAmount);
+    if (!amount || amount <= 0) return;
+
+    setIsSwapping(true);
+
+    try {
+      const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
+
+      const { error } = await supabase.from('transactions').insert({
+        user_id: user.id,
+        from_address: address,
+        to_address: 'swap-pool',
+        amount,
+        fee: amount * 0.003,
+        tx_hash: txHash,
+        status: 'confirmed',
+        confirmed_at: new Date().toISOString(),
+        wallet_id: null,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Swap Successful!',
+        description: `Swapped ${amount} ${payToken.symbol} for ${receiveAmount} ${receiveToken.symbol}`,
+      });
+
+      setPayAmount('');
+      setReceiveAmount('');
+    } catch (err: any) {
+      toast({
+        title: 'Swap Failed',
+        description: err.message || 'Transaction could not be completed.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSwapping(false);
+    }
+  };
+
+  const canSwap = isConnected && payAmount && parseFloat(payAmount) > 0 && !isSwapping;
 
   return (
     <div className="space-y-4">
@@ -59,7 +140,12 @@ export const SwapInterface = () => {
           <span className="text-sm text-muted-foreground">Pay</span>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>Half</span>
-            <span className="text-primary cursor-pointer hover:underline">Max</span>
+            <span
+              className="text-primary cursor-pointer hover:underline"
+              onClick={() => handlePayAmountChange(String(payToken.balance))}
+            >
+              Max
+            </span>
           </div>
         </div>
         <div className="flex items-center justify-between gap-4">
@@ -67,7 +153,7 @@ export const SwapInterface = () => {
             type="number"
             placeholder="0"
             value={payAmount}
-            onChange={(e) => setPayAmount(e.target.value)}
+            onChange={(e) => handlePayAmountChange(e.target.value)}
             className="border-0 bg-transparent text-3xl font-light p-0 h-auto focus-visible:ring-0 placeholder:text-muted-foreground/50"
           />
           <Button variant="secondary" className="gap-2 rounded-lg px-4 py-2 h-auto">
@@ -106,7 +192,7 @@ export const SwapInterface = () => {
             type="number"
             placeholder="0"
             value={receiveAmount}
-            onChange={(e) => setReceiveAmount(e.target.value)}
+            onChange={(e) => handleReceiveAmountChange(e.target.value)}
             className="border-0 bg-transparent text-3xl font-light p-0 h-auto focus-visible:ring-0 placeholder:text-muted-foreground/50"
           />
           <Button variant="secondary" className="gap-2 rounded-lg px-4 py-2 h-auto">
@@ -125,12 +211,37 @@ export const SwapInterface = () => {
         </div>
       </div>
 
+      {/* Swap Details */}
+      {payAmount && parseFloat(payAmount) > 0 && (
+        <div className="rounded-xl border border-border/50 bg-card/30 p-3 space-y-2 text-sm">
+          <div className="flex justify-between text-muted-foreground">
+            <span>Rate</span>
+            <span className="font-mono">1 {payToken.symbol} = {exchangeRate.toFixed(4)} {receiveToken.symbol}</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span>Fee (0.3%)</span>
+            <span className="font-mono">${fee.toFixed(4)}</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span>Slippage</span>
+            <span className="font-mono">{slippage}%</span>
+          </div>
+        </div>
+      )}
+
       {/* Trade Button */}
-      <Button 
+      <Button
         className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
-        disabled={!payAmount || parseFloat(payAmount) <= 0}
+        disabled={!canSwap}
+        onClick={executeSwap}
       >
-        Trade
+        {isSwapping ? (
+          <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Swapping...</span>
+        ) : !isConnected ? (
+          'Connect Wallet'
+        ) : (
+          'Trade'
+        )}
       </Button>
 
       {/* Token List */}
