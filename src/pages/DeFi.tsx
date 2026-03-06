@@ -11,13 +11,19 @@ import { WalletConnectBar } from '@/components/defi/WalletConnectBar';
 
 const DeFiPage = () => {
   const [activeTab, setActiveTab] = useState('swap');
+  const [selectedPosition, setSelectedPosition] = useState<any>(null);
+
+  const handleViewPosition = (position: any) => {
+    setSelectedPosition(position);
+    setActiveTab('position');
+  };
 
   const renderContent = () => {
     switch (activeTab) {
       case 'pools':
         return <PoolsList />;
       case 'portfolio':
-        return <Portfolio />;
+        return <Portfolio onViewPosition={handleViewPosition} />;
       case 'swap':
         return <SwapInterface />;
       case 'stake':
@@ -25,7 +31,7 @@ const DeFiPage = () => {
       case 'launchpad':
         return <Launchpad />;
       case 'position':
-        return <PositionDetails />;
+        return <PositionDetails position={selectedPosition} />;
       default:
         return <SwapInterface />;
     }
@@ -33,7 +39,6 @@ const DeFiPage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Main Content */}
       <main className="pb-24 pt-4 px-4 max-w-lg mx-auto">
         <WalletConnectBar />
         <AnimatePresence mode="wait">
@@ -48,8 +53,6 @@ const DeFiPage = () => {
           </motion.div>
         </AnimatePresence>
       </main>
-
-      {/* Bottom Navigation */}
       <DeFiBottomNav activeTab={activeTab} onTabChange={setActiveTab} />
     </div>
   );

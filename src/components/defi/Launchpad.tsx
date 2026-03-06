@@ -9,10 +9,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Rocket, Search, Filter, ArrowUpDown, ArrowRight, Plus } from 'lucide-react';
+import { Rocket, Search, Filter, ArrowUpDown, ArrowRight, Plus, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { CreateLaunch } from './CreateLaunch';
+import { ContributeModal } from './ContributeModal';
 
 interface Launch {
   id: string;
@@ -27,6 +28,8 @@ interface Launch {
   is_premier: boolean;
   logo_url: string | null;
   bonding_curve_type: string;
+  initial_price: number;
+  bonding_curve_steepness: number;
 }
 
 const timeRemaining = (date: string | null) => {
@@ -42,13 +45,14 @@ export const Launchpad = () => {
   const [filter, setFilter] = useState('all');
   const [launches, setLaunches] = useState<Launch[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [contributeTo, setContributeTo] = useState<Launch | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadLaunches = async () => {
     setLoading(true);
     const { data } = await supabase
       .from('token_launches')
-      .select('id, name, symbol, status, raised_amount, target_raise, participants, ends_at, starts_at, is_premier, logo_url, bonding_curve_type')
+      .select('id, name, symbol, status, raised_amount, target_raise, participants, ends_at, starts_at, is_premier, logo_url, bonding_curve_type, initial_price, bonding_curve_steepness')
       .order('created_at', { ascending: false });
     if (data) setLaunches(data);
     setLoading(false);
@@ -64,6 +68,7 @@ export const Launchpad = () => {
   }, []);
 
   if (showCreate) return <CreateLaunch onBack={() => { setShowCreate(false); loadLaunches(); }} />;
+  if (contributeTo) return <ContributeModal launch={contributeTo} onBack={() => { setContributeTo(null); loadLaunches(); }} />;
 
   const filtered = launches.filter(l => filter === 'all' || l.status === filter);
 
@@ -166,6 +171,14 @@ export const Launchpad = () => {
                       {remaining && <span>{remaining}</span>}
                     </div>
                   </div>
+                  {launch.status === 'live' && (
+                    <Button
+                      className="w-full mt-4 gap-2 bg-primary/20 text-primary hover:bg-primary/30 border border-primary/50"
+                      onClick={() => setContributeTo(launch)}
+                    >
+                      <TrendingUp className="h-4 w-4" /> Buy {launch.symbol}
+                    </Button>
+                  )}
                 </GlassCard>
               );
             })}
