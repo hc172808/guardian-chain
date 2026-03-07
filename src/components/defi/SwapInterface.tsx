@@ -284,6 +284,8 @@ export const SwapInterface = () => {
           </div>
         ))}
       </div>
+      {/* Recent Swaps History */}
+      <RecentSwaps />
     </div>
   );
 };
