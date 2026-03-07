@@ -8,6 +8,7 @@ import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { RecentSwaps } from './RecentSwaps';
 
 interface Token {
   symbol: string;
