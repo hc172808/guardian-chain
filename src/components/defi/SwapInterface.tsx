@@ -140,7 +140,12 @@ export const SwapInterface = () => {
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Pay</span>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>Half</span>
+            <span
+              className="text-primary cursor-pointer hover:underline"
+              onClick={() => handlePayAmountChange(String(payToken.balance / 2))}
+            >
+              Half
+            </span>
             <span
               className="text-primary cursor-pointer hover:underline"
               onClick={() => handlePayAmountChange(String(payToken.balance))}
