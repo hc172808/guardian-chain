@@ -8,6 +8,7 @@ import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { RecentSwaps } from './RecentSwaps';
 
 interface Token {
   symbol: string;
@@ -139,7 +140,12 @@ export const SwapInterface = () => {
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Pay</span>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>Half</span>
+            <span
+              className="text-primary cursor-pointer hover:underline"
+              onClick={() => handlePayAmountChange(String(payToken.balance / 2))}
+            >
+              Half
+            </span>
             <span
               className="text-primary cursor-pointer hover:underline"
               onClick={() => handlePayAmountChange(String(payToken.balance))}
@@ -278,6 +284,8 @@ export const SwapInterface = () => {
           </div>
         ))}
       </div>
+      {/* Recent Swaps History */}
+      <RecentSwaps />
     </div>
   );
 };

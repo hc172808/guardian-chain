@@ -10,19 +10,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { 
-  Sprout, 
-  Search, 
-  List, 
-  LayoutGrid, 
-  AlertTriangle, 
-  MoreHorizontal,
-  FileText,
-  Plus,
-  Minus,
-  Lock,
-  ArrowLeftRight,
-  X,
-  Monitor
+  Sprout, Search, List, LayoutGrid, AlertTriangle, MoreHorizontal,
+  FileText, Plus, Minus, Lock, ArrowLeftRight, X, Monitor
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -71,21 +60,25 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
     toast({ title: 'Harvesting Yield', description: `Collecting $${pos.pendingYield.toFixed(2)} from ${pos.tokenA.symbol}/${pos.tokenB.symbol}` });
   };
 
+  const openPositionDetails = (pos: Position) => {
+    onViewPosition?.({
+      tokenA: pos.tokenA,
+      tokenB: pos.tokenB,
+      balance: pos.balance,
+      pendingYield: pos.pendingYield,
+      priceRatio: 11720.903,
+      rangeMin: 0,
+      rangeMax: Infinity,
+      address: '5n2K...VjsQ',
+      fee: pos.fee,
+    });
+  };
+
   const handleAction = (action: string, pos: Position) => {
     const pair = `${pos.tokenA.symbol}/${pos.tokenB.symbol}`;
     switch (action) {
       case 'details':
-        onViewPosition?.({
-          tokenA: pos.tokenA,
-          tokenB: pos.tokenB,
-          balance: pos.balance,
-          pendingYield: pos.pendingYield,
-          priceRatio: 11720.903,
-          rangeMin: 0,
-          rangeMax: Infinity,
-          address: '5n2K...VjsQ',
-          fee: pos.fee,
-        });
+        openPositionDetails(pos);
         break;
       case 'close':
         toast({ title: 'Close Position', description: `Closing ${pair} position...`, variant: 'destructive' });
@@ -159,7 +152,7 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
           <div
             key={position.id}
             className="flex items-center justify-between p-4 rounded-xl bg-card/50 border border-border/30 hover:border-border/60 transition-colors cursor-pointer"
-            onClick={() => handleAction('details', position)}
+            onClick={() => openPositionDetails(position)}
           >
             <div className="flex items-center gap-3">
               <div className="flex -space-x-2">
@@ -201,34 +194,34 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
                     <MoreHorizontal className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-card border-border">
-                  <DropdownMenuItem className="gap-2 text-primary" onClick={() => handleHarvest(position)}>
+                <DropdownMenuContent align="end" className="w-56 bg-card border-border" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenuItem className="gap-2 text-primary" onSelect={() => handleHarvest(position)}>
                     <Sprout className="h-4 w-4" /> Harvest Yield
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onClick={() => handleAction('details', position)}>
+                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('details', position)}>
                     <FileText className="h-4 w-4" /> Position Details
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onClick={() => handleAction('Deposit Liquidity', position)}>
+                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('Deposit Liquidity', position)}>
                     <Plus className="h-4 w-4" /> Deposit Liquidity
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onClick={() => handleAction('Withdraw Liquidity', position)}>
+                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('Withdraw Liquidity', position)}>
                     <Minus className="h-4 w-4" /> Withdraw Liquidity
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onClick={() => handleAction('Lock Liquidity', position)}>
+                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('Lock Liquidity', position)}>
                     <Lock className="h-4 w-4" /> Lock Liquidity
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onClick={() => handleAction('Transfer Position', position)}>
+                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('Transfer Position', position)}>
                     <ArrowLeftRight className="h-4 w-4" /> Transfer Position
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="gap-2 text-destructive" onClick={() => handleAction('close', position)}>
+                  <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => handleAction('close', position)}>
                     <X className="h-4 w-4" /> Close position
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem className="gap-2 text-muted-foreground text-xs" disabled>
                     OPEN POSITION IN
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onClick={() => handleAction('Liquidity Terminal', position)}>
+                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('Liquidity Terminal', position)}>
                     <Monitor className="h-4 w-4" /> Liquidity Terminal
                   </DropdownMenuItem>
                 </DropdownMenuContent>
