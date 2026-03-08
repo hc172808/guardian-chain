@@ -599,6 +599,10 @@ const RateLimitTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'Rate limit rule added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Added rate limit rule', category: 'firewall', target_type: 'rate_limit_rules',
+        details: { name: form.name, endpoint: form.endpoint, requests: form.requests_per_window, action: form.action },
+      });
       setDialogOpen(false);
       setForm({ name: '', endpoint: '', requests_per_window: '100', window_seconds: '60', burst_limit: '20', action: 'throttle', description: '' });
       fetchRules();
