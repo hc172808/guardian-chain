@@ -315,6 +315,10 @@ const AdminContent = () => {
           <TokenPricingManager />
         </TabsContent>
 
+        <TabsContent value="token-mgmt">
+          <TokenManager />
+        </TabsContent>
+
         <TabsContent value="nodes" className="space-y-4">
           {loading ? (
             <GlassCard className="p-6 text-center">Loading...</GlassCard>
