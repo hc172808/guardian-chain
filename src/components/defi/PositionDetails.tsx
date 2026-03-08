@@ -47,20 +47,20 @@ export const PositionDetails = ({ position }: PositionDetailsProps) => {
   const { address, isConnected } = useWalletConnect();
   const { toast } = useToast();
 
-  // Default mock position
+  // Default empty position when none provided
   const pos = position || {
-    tokenA: { symbol: 'NETGY' },
-    tokenB: { symbol: 'BRGC' },
-    balance: 9.07,
-    pendingYield: 0.14,
-    priceRatio: 11720.903,
+    tokenA: { symbol: 'TOKEN_A' },
+    tokenB: { symbol: 'TOKEN_B' },
+    balance: 0,
+    pendingYield: 0,
+    priceRatio: 0,
     rangeMin: 0,
     rangeMax: Infinity,
-    address: '5n2K...VjsQ',
-    fee: '1.000%',
+    address: '—',
+    fee: '0.000%',
   };
 
-  const priceProgress = 75; // Mock: current price position in range
+  const priceProgress = 0;
 
   return (
     <div className="space-y-6">
