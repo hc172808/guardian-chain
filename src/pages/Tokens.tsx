@@ -119,6 +119,8 @@ const TokensPage = () => {
         <Tabs defaultValue="browse" className="space-y-6">
           <TabsList className="bg-secondary/50">
             <TabsTrigger value="browse" className="gap-2"><Eye className="h-4 w-4" /> Browse Tokens</TabsTrigger>
+            {user && <TabsTrigger value="watchlist" className="gap-2"><Star className="h-4 w-4" /> Watchlist</TabsTrigger>}
+            {user && <TabsTrigger value="alerts" className="gap-2"><Bell className="h-4 w-4" /> Price Alerts</TabsTrigger>}
             {user && <TabsTrigger value="create" className="gap-2"><Plus className="h-4 w-4" /> Create Token</TabsTrigger>}
           </TabsList>
 
