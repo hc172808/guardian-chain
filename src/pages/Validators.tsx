@@ -10,6 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { DelegateModal } from '@/components/validators/DelegateModal';
 import { MyDelegations } from '@/components/validators/MyDelegations';
+import { StakingCalculator } from '@/components/validators/StakingCalculator';
 
 interface Validator {
   id: string;
