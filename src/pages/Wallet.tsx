@@ -525,8 +525,14 @@ const WalletContent = () => {
         <GlassCard className="p-8 max-w-sm w-full text-center">
           <ShieldAlert className="h-16 w-16 mx-auto text-primary mb-4" />
           <h2 className="text-2xl font-bold mb-2">Wallet Locked</h2>
-          <p className="text-muted-foreground mb-6">Enter your PIN to access your wallet</p>
+          <p className="text-muted-foreground mb-6">Enter your PIN or use biometrics to access your wallet</p>
           <div className="space-y-4">
+            {biometricEnabled && (
+              <Button onClick={handleBiometricUnlock} variant="outline" className="w-full gap-2">
+                <Fingerprint className="h-5 w-5" /> Unlock with Biometrics
+              </Button>
+            )}
+            {biometricEnabled && <div className="relative"><div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div><div className="relative flex justify-center text-xs"><span className="bg-card px-2 text-muted-foreground">or use PIN</span></div></div>}
             <Input
               type="password"
               value={unlockPin}
@@ -538,7 +544,7 @@ const WalletContent = () => {
             />
             {unlockError && <p className="text-sm text-destructive">{unlockError}</p>}
             <Button onClick={handleUnlock} className="w-full gap-2">
-              <Lock className="h-4 w-4" /> Unlock
+              <Lock className="h-4 w-4" /> Unlock with PIN
             </Button>
           </div>
         </GlassCard>
