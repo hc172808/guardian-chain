@@ -634,6 +634,47 @@ export type Database = {
         }
         Relationships: []
       }
+      validator_delegations: {
+        Row: {
+          amount: number
+          created_at: string
+          delegated_at: string
+          id: string
+          status: string
+          undelegated_at: string | null
+          user_id: string
+          validator_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          delegated_at?: string
+          id?: string
+          status?: string
+          undelegated_at?: string | null
+          user_id: string
+          validator_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          delegated_at?: string
+          id?: string
+          status?: string
+          undelegated_at?: string | null
+          user_id?: string
+          validator_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "validator_delegations_validator_id_fkey"
+            columns: ["validator_id"]
+            isOneToOne: false
+            referencedRelation: "network_validators"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wallets: {
         Row: {
           address: string
