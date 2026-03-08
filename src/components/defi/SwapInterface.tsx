@@ -144,12 +144,12 @@ export const SwapInterface = () => {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Load tokens from database + coin logos
+  // Load tokens from database + coin logos + real balances
   useEffect(() => {
     const loadTokens = async () => {
       const { data } = await supabase
         .from('tokens')
-        .select('symbol, name, address, total_supply, logo_url')
+        .select('symbol, name, address, total_supply, logo_url, creator_id')
         .eq('is_active', true)
         .order('symbol');
 
@@ -165,15 +165,102 @@ export const SwapInterface = () => {
         if (val?.url) logos[c.config_key] = val.url;
       });
 
+      // Get GYDS price
+      const { data: priceData } = await supabase
+        .from('token_price')
+        .select('price')
+        .limit(1)
+        .single();
+
+      const gydsPrice = priceData?.price || 0.0000001;
+
+      // Calculate real balances if user is logged in
+      let gydsBalance = 0;
+      let gydBalance = 0;
+
+      if (user) {
+        // Get user wallets
+        const { data: userWallets } = await supabase
+          .from('wallets')
+          .select('address')
+          .eq('user_id', user.id);
+
+        const myAddresses = new Set((userWallets || []).map(w => w.address.toLowerCase()));
+
+        // Check founder wallet config
+        const { data: founderConfig } = await supabase
+          .from('admin_config')
+          .select('config_value')
+          .eq('config_key', 'founder_wallet')
+          .maybeSingle();
+
+        if (founderConfig?.config_value) {
+          const fc = founderConfig.config_value as Record<string, string>;
+          if (fc.address) myAddresses.add(fc.address.toLowerCase());
+        }
+
+        // Include reserved founder address for founder users
+        if (user.email === 'netlifegy@gmail.com') {
+          myAddresses.add('0x0000000000000000000000000000000000000001');
+        }
+
+        const isCreator = (createdBy: string | null) => createdBy === user.id;
+
+        // Get confirmed transactions
+        const { data: txData } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('status', 'confirmed');
+
+        // Get token operations
+        const { data: opsData } = await supabase
+          .from('token_operations')
+          .select('*')
+          .eq('status', 'confirmed');
+
+        // Credits from token operations
+        if (opsData) {
+          opsData.forEach(op => {
+            const addressMatch = myAddresses.has(op.wallet_address.toLowerCase());
+            const creatorMatch = isCreator(op.created_by);
+            if (!addressMatch && !creatorMatch) return;
+            if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds' || op.operation_type === 'mint') {
+              gydsBalance += op.amount;
+            } else if (op.operation_type === 'mint_gyd' || op.operation_type === 'premine_gyd') {
+              gydBalance += op.amount;
+            } else if (op.operation_type === 'burn_gyds' || op.operation_type === 'burn') {
+              gydsBalance -= op.amount;
+            } else if (op.operation_type === 'burn_gyd') {
+              gydBalance -= op.amount;
+            }
+          });
+        }
+
+        // Net from transactions
+        if (txData) {
+          txData.forEach(tx => {
+            const fromMe = myAddresses.has(tx.from_address.toLowerCase());
+            const toMe = myAddresses.has(tx.to_address.toLowerCase());
+            if (fromMe) {
+              gydBalance -= tx.amount + tx.fee;
+            }
+            if (toMe) {
+              gydBalance += tx.amount;
+            }
+          });
+        }
+      }
+
       const nativeWithLogos: Token[] = [
-        { symbol: 'GYD', name: 'GYDchain', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: logos['gyd_logo'] },
-        { symbol: 'GYDS', name: 'GYDSchain', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000', logo: logos['gyds_logo'] },
+        { symbol: 'GYD', name: 'GYDchain', balance: gydBalance, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: logos['gyd_logo'] },
+        { symbol: 'GYDS', name: 'GYDSchain', balance: gydsBalance, price: gydsPrice, address: '0x0000000000000000000000000000000000000000', logo: logos['gyds_logo'] },
       ];
 
       const dbTokens: Token[] = (data || []).map(t => ({
         symbol: t.symbol,
         name: t.name,
-        balance: 0,
+        balance: user && t.creator_id === user.id ? t.total_supply : 0,
         price: 0.01,
         address: t.address,
         logo: t.logo_url || undefined,
@@ -187,7 +274,6 @@ export const SwapInterface = () => {
         }
       });
       setAllTokens(merged);
-      // Update selected tokens if they got logos
       setPayToken(prev => merged.find(m => m.symbol === prev.symbol) || prev);
       setReceiveToken(prev => merged.find(m => m.symbol === prev.symbol) || prev);
     };
@@ -197,9 +283,11 @@ export const SwapInterface = () => {
     const channel = supabase
       .channel('swap-tokens')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tokens' }, () => loadTokens())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadTokens())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'token_operations' }, () => loadTokens())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [user]);
 
   const handleSwapTokens = () => {
     const temp = payToken;
