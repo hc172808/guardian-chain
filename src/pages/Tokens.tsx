@@ -1,6 +1,8 @@
 import { Layout } from '@/components/layout/Layout';
 import { TokenFactory } from '@/components/token/TokenFactory';
 import { TokenFeaturePanel } from '@/components/token/TokenFeaturePanel';
+import { TokenWatchlist } from '@/components/token/TokenWatchlist';
+import { PriceAlerts } from '@/components/token/PriceAlerts';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
