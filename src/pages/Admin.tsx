@@ -306,6 +306,10 @@ const AdminContent = () => {
           <HealthCheck />
         </TabsContent>
 
+        <TabsContent value="token-pricing">
+          <TokenPricingManager />
+        </TabsContent>
+
         <TabsContent value="nodes" className="space-y-4">
           {loading ? (
             <GlassCard className="p-6 text-center">Loading...</GlassCard>
