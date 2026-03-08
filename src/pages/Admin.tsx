@@ -160,10 +160,14 @@ const AdminContent = () => {
       </div>
 
       <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-4 md:grid-cols-8 w-full">
+        <TabsList className="grid grid-cols-5 md:grid-cols-10 w-full">
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
+          </TabsTrigger>
+          <TabsTrigger value="validators" className="gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="hidden md:inline">Validators</span>
           </TabsTrigger>
           <TabsTrigger value="users" className="gap-2">
             <Users className="h-4 w-4" />
@@ -193,7 +197,15 @@ const AdminContent = () => {
             <Key className="h-4 w-4" />
             <span className="hidden md:inline">Database</span>
           </TabsTrigger>
+          <TabsTrigger value="github" className="gap-2">
+            <GitBranch className="h-4 w-4" />
+            <span className="hidden md:inline">GitHub</span>
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="validators">
+          <ValidatorManager />
+        </TabsContent>
 
         <TabsContent value="tokens">
           <BurnMintManager />
