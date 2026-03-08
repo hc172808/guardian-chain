@@ -16,13 +16,13 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
-GYDS_VERSION="1.0.0"
+GYDS_VERSION="2.0.0"
 GYDS_USER="gydschain"
 GYDS_HOME="/var/lib/gydschain"
 GYDS_BIN="/usr/local/bin"
-GO_VERSION="1.21.5"
+GO_VERSION="1.22.5"
 RPC_PORT="${RPC_PORT:-8546}"
-P2P_PORT="${P2P_PORT:-8545}"
+P2P_PORT="${P2P_PORT:-30303}"
 STORAGE_SIZE="${STORAGE_SIZE:-100}"
 
 # RPC endpoints
