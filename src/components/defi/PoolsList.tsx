@@ -3,10 +3,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Plus, Search, Filter, Settings, Circle, AlertTriangle, MoreHorizontal, Droplets } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Plus, Search, Filter, MoreHorizontal, Droplets, FileText, Sprout, Lock, ArrowLeftRight, X, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { CreatePool } from './CreatePool';
+import { useToast } from '@/hooks/use-toast';
 
 interface Pool {
   id: string;
@@ -31,6 +39,30 @@ export const PoolsList = () => {
   const [pools, setPools] = useState<Pool[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const { toast } = useToast();
+
+  const handlePoolAction = (action: string, pool: Pool) => {
+    const pair = `${pool.token_a_symbol}/${pool.token_b_symbol}`;
+    switch (action) {
+      case 'add':
+        toast({ title: 'Add Liquidity', description: `Opening deposit for ${pair}...` });
+        break;
+      case 'remove':
+        toast({ title: 'Remove Liquidity', description: `Opening withdrawal for ${pair}...` });
+        break;
+      case 'lock':
+        toast({ title: 'Lock Liquidity', description: `Locking liquidity for ${pair}...` });
+        break;
+      case 'analytics':
+        toast({ title: 'Pool Analytics', description: `Viewing analytics for ${pair}` });
+        break;
+      case 'close':
+        toast({ title: 'Close Pool', description: `Closing ${pair} pool...`, variant: 'destructive' });
+        break;
+      default:
+        toast({ title: action, description: `${action} for ${pair} — coming soon.` });
+    }
+  };
 
   const loadPools = async () => {
     setLoading(true);
@@ -139,9 +171,31 @@ export const PoolsList = () => {
                   <div className="text-primary font-semibold">{pool.apr.toFixed(1)}%</div>
                   <div className="text-xs text-muted-foreground">{formatValue(pool.tvl)}</div>
                 </div>
-                <Button variant="ghost" size="icon" className="text-muted-foreground">
-                  <MoreHorizontal className="h-5 w-5" />
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                      <MoreHorizontal className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52 bg-card border-border" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem className="gap-2 text-primary" onSelect={() => handlePoolAction('add', pool)}>
+                      <Plus className="h-4 w-4" /> Add Liquidity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handlePoolAction('remove', pool)}>
+                      <ArrowLeftRight className="h-4 w-4" /> Remove Liquidity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handlePoolAction('lock', pool)}>
+                      <Lock className="h-4 w-4" /> Lock Liquidity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handlePoolAction('analytics', pool)}>
+                      <BarChart3 className="h-4 w-4" /> Pool Analytics
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => handlePoolAction('close', pool)}>
+                      <X className="h-4 w-4" /> Close Pool
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           ))}

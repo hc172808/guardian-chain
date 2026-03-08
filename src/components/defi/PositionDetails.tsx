@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,9 +12,16 @@ import {
   ChevronDown, 
   Copy, 
   ExternalLink,
-  BarChart3
+  BarChart3,
+  Wallet,
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { useWalletConnect } from '@/hooks/useWalletConnect';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface PositionDetailsProps {
   position?: {
@@ -31,6 +39,13 @@ interface PositionDetailsProps {
 
 export const PositionDetails = ({ position }: PositionDetailsProps) => {
   const [yieldPeriod, setYieldPeriod] = useState<'24H' | '7D' | '30D'>('24H');
+  const [depositAmountA, setDepositAmountA] = useState('');
+  const [depositAmountB, setDepositAmountB] = useState('');
+  const [withdrawPercent, setWithdrawPercent] = useState([50]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const { user } = useAuth();
+  const { address, isConnected } = useWalletConnect();
+  const { toast } = useToast();
 
   // Default mock position
   const pos = position || {
@@ -192,22 +207,151 @@ export const PositionDetails = ({ position }: PositionDetailsProps) => {
           </div>
         </TabsContent>
 
-        <TabsContent value="deposit" className="pt-4">
-          <GlassCard className="p-6">
-            <p className="text-center text-muted-foreground">
-              Deposit liquidity to increase your position
-            </p>
-            {/* Add deposit form here */}
+        <TabsContent value="deposit" className="pt-4 space-y-4">
+          <GlassCard className="p-4 space-y-3">
+            <p className="text-sm text-muted-foreground">Deposit {pos.tokenA.symbol}</p>
+            <div className="flex items-center justify-between gap-4">
+              <Input
+                type="number"
+                placeholder="0"
+                value={depositAmountA}
+                onChange={(e) => setDepositAmountA(e.target.value)}
+                className="border-0 bg-transparent text-2xl font-light p-0 h-auto focus-visible:ring-0 placeholder:text-muted-foreground/50"
+              />
+              <Badge variant="secondary" className="font-semibold px-3 py-1">{pos.tokenA.symbol}</Badge>
+            </div>
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>${(parseFloat(depositAmountA || '0') * 86.8).toFixed(2)}</span>
+              <div className="flex items-center gap-1">
+                <Wallet className="h-3 w-3" />
+                <span>0.0000</span>
+                <span className="text-primary cursor-pointer hover:underline" onClick={() => setDepositAmountA('0')}>Max</span>
+              </div>
+            </div>
           </GlassCard>
+
+          <GlassCard className="p-4 space-y-3">
+            <p className="text-sm text-muted-foreground">Deposit {pos.tokenB.symbol}</p>
+            <div className="flex items-center justify-between gap-4">
+              <Input
+                type="number"
+                placeholder="0"
+                value={depositAmountB}
+                onChange={(e) => setDepositAmountB(e.target.value)}
+                className="border-0 bg-transparent text-2xl font-light p-0 h-auto focus-visible:ring-0 placeholder:text-muted-foreground/50"
+              />
+              <Badge variant="secondary" className="font-semibold px-3 py-1">{pos.tokenB.symbol}</Badge>
+            </div>
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>${(parseFloat(depositAmountB || '0') * 1).toFixed(2)}</span>
+              <div className="flex items-center gap-1">
+                <Wallet className="h-3 w-3" />
+                <span>0.0000</span>
+                <span className="text-primary cursor-pointer hover:underline" onClick={() => setDepositAmountB('0')}>Max</span>
+              </div>
+            </div>
+          </GlassCard>
+
+          <GlassCard className="p-3 space-y-1 text-sm">
+            <div className="flex justify-between text-muted-foreground">
+              <span>Estimated Share</span>
+              <span className="font-mono">~0.01%</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Fee Tier</span>
+              <span className="font-mono">{pos.fee}</span>
+            </div>
+          </GlassCard>
+
+          <Button
+            className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
+            disabled={isProcessing || (!depositAmountA && !depositAmountB) || !isConnected}
+            onClick={async () => {
+              if (!user || !address) return;
+              setIsProcessing(true);
+              try {
+                const amount = parseFloat(depositAmountA || '0') + parseFloat(depositAmountB || '0');
+                const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
+                const { error } = await supabase.from('transactions').insert({
+                  user_id: user.id, from_address: address, to_address: 'liquidity-pool',
+                  amount, fee: amount * 0.001, tx_hash: txHash, status: 'confirmed',
+                  confirmed_at: new Date().toISOString(), wallet_id: null,
+                });
+                if (error) throw error;
+                toast({ title: 'Deposit Successful', description: `Added liquidity to ${pos.tokenA.symbol}/${pos.tokenB.symbol}` });
+                setDepositAmountA(''); setDepositAmountB('');
+              } catch (err: any) {
+                toast({ title: 'Deposit Failed', description: err.message, variant: 'destructive' });
+              } finally { setIsProcessing(false); }
+            }}
+          >
+            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Depositing...</span>
+              : !isConnected ? 'Connect Wallet' : 'Deposit Liquidity'}
+          </Button>
         </TabsContent>
 
-        <TabsContent value="withdraw" className="pt-4">
-          <GlassCard className="p-6">
-            <p className="text-center text-muted-foreground">
-              Withdraw liquidity from your position
-            </p>
-            {/* Add withdraw form here */}
+        <TabsContent value="withdraw" className="pt-4 space-y-4">
+          <GlassCard className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Withdraw Amount</span>
+              <span className="font-semibold text-lg">{withdrawPercent[0]}%</span>
+            </div>
+            <Slider value={withdrawPercent} onValueChange={setWithdrawPercent} max={100} step={1} />
+            <div className="flex gap-2">
+              {[25, 50, 75, 100].map(v => (
+                <Button key={v} variant={withdrawPercent[0] === v ? 'secondary' : 'ghost'} size="sm" className="flex-1"
+                  onClick={() => setWithdrawPercent([v])}>{v}%</Button>
+              ))}
+            </div>
           </GlassCard>
+
+          <GlassCard className="p-4 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">You Receive ({pos.tokenA.symbol})</span>
+              <span className="font-mono">{((pos.balance * withdrawPercent[0] / 100) / 2).toFixed(4)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">You Receive ({pos.tokenB.symbol})</span>
+              <span className="font-mono">{((pos.balance * withdrawPercent[0] / 100) / 2).toFixed(4)}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Withdrawal Fee</span>
+              <span className="font-mono">0.1%</span>
+            </div>
+          </GlassCard>
+
+          {withdrawPercent[0] === 100 && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-400">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>Withdrawing 100% will close this position.</span>
+            </div>
+          )}
+
+          <Button
+            className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
+            disabled={isProcessing || withdrawPercent[0] === 0 || !isConnected}
+            onClick={async () => {
+              if (!user || !address) return;
+              setIsProcessing(true);
+              try {
+                const amount = pos.balance * withdrawPercent[0] / 100;
+                const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
+                const { error } = await supabase.from('transactions').insert({
+                  user_id: user.id, from_address: 'liquidity-pool', to_address: address,
+                  amount, fee: amount * 0.001, tx_hash: txHash, status: 'confirmed',
+                  confirmed_at: new Date().toISOString(), wallet_id: null,
+                });
+                if (error) throw error;
+                toast({ title: 'Withdrawal Successful', description: `Removed ${withdrawPercent[0]}% liquidity from ${pos.tokenA.symbol}/${pos.tokenB.symbol}` });
+                setWithdrawPercent([50]);
+              } catch (err: any) {
+                toast({ title: 'Withdrawal Failed', description: err.message, variant: 'destructive' });
+              } finally { setIsProcessing(false); }
+            }}
+          >
+            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Withdrawing...</span>
+              : !isConnected ? 'Connect Wallet' : `Withdraw ${withdrawPercent[0]}%`}
+          </Button>
         </TabsContent>
       </Tabs>
     </div>

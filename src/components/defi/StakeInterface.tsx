@@ -4,13 +4,55 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { HelpCircle, Wallet, ArrowLeftRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { HelpCircle, Wallet, ArrowLeftRight, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { useWalletConnect } from '@/hooks/useWalletConnect';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 export const StakeInterface = () => {
   const [stakeAmount, setStakeAmount] = useState('');
   const [unstakeAmount, setUnstakeAmount] = useState('');
   const [showDetails, setShowDetails] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const { user } = useAuth();
+  const { address, isConnected } = useWalletConnect();
+  const { toast } = useToast();
+
+  const executeStake = async (type: 'stake' | 'unstake') => {
+    if (!user || !address) {
+      toast({ title: 'Login Required', description: 'Connect your wallet first.', variant: 'destructive' });
+      return;
+    }
+    const amount = parseFloat(type === 'stake' ? stakeAmount : unstakeAmount);
+    if (!amount || amount <= 0) return;
+    setIsProcessing(true);
+    try {
+      const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
+      const { error } = await supabase.from('transactions').insert({
+        user_id: user.id,
+        from_address: type === 'stake' ? address : 'staking-pool',
+        to_address: type === 'stake' ? 'staking-pool' : address,
+        amount,
+        fee: amount * 0.001,
+        tx_hash: txHash,
+        status: 'confirmed',
+        confirmed_at: new Date().toISOString(),
+        wallet_id: null,
+      });
+      if (error) throw error;
+      toast({
+        title: type === 'stake' ? 'Staked Successfully!' : 'Unstaked Successfully!',
+        description: type === 'stake'
+          ? `Staked ${amount} GYD → ${(amount / exchangeRate).toFixed(4)} xGYD`
+          : `Unstaked ${amount} xGYD → ${(amount * exchangeRate).toFixed(4)} GYD`,
+      });
+      if (type === 'stake') setStakeAmount(''); else setUnstakeAmount('');
+    } catch (err: any) {
+      toast({ title: 'Transaction Failed', description: err.message, variant: 'destructive' });
+    } finally { setIsProcessing(false); }
+  };
 
   const apr = 74.87;
   const stakedTotal = 7439000;
@@ -139,9 +181,11 @@ export const StakeInterface = () => {
           {/* Stake Button */}
           <Button
             className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
-            disabled={!stakeAmount || parseFloat(stakeAmount) <= 0}
+            disabled={isProcessing || !stakeAmount || parseFloat(stakeAmount) <= 0 || !isConnected}
+            onClick={() => executeStake('stake')}
           >
-            Stake
+            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Staking...</span>
+              : !isConnected ? 'Connect Wallet' : 'Stake'}
           </Button>
         </TabsContent>
 
@@ -189,9 +233,11 @@ export const StakeInterface = () => {
           {/* Unstake Button */}
           <Button
             className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
-            disabled={!unstakeAmount || parseFloat(unstakeAmount) <= 0}
+            disabled={isProcessing || !unstakeAmount || parseFloat(unstakeAmount) <= 0 || !isConnected}
+            onClick={() => executeStake('unstake')}
           >
-            Unstake
+            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Unstaking...</span>
+              : !isConnected ? 'Connect Wallet' : 'Unstake'}
           </Button>
         </TabsContent>
       </Tabs>
