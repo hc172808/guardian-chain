@@ -14,7 +14,7 @@ export const logAuditEvent = async (
   entry: AuditLogEntry
 ) => {
   try {
-    await supabase.from('audit_logs' as any).insert({
+    await supabase.from('audit_logs').insert({
       user_id: userId,
       user_email: userEmail,
       action: entry.action,

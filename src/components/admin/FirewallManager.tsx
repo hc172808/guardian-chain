@@ -285,7 +285,7 @@ const Fail2BanTab = () => {
   };
 
   const deleteJail = async (id: string) => {
-    await supabase.from('fail2ban_jails' as any).delete().eq('id', id);
+    await supabase.from('fail2ban_jails').delete().eq('id', id);
     toast({ title: 'Jail removed' });
     fetchJails();
   };

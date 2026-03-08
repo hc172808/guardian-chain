@@ -58,7 +58,7 @@ export const AuditLogViewer = () => {
     }
 
     const { data } = await query;
-    if (data) setLogs(data as any);
+    if (data) setLogs(data as unknown as AuditEntry[]);
     setLoading(false);
   };
 
