@@ -19,13 +19,14 @@ interface CreatePoolProps {
   onBack: () => void;
 }
 
-const NATIVE_TOKENS = ['GYD', 'GYDS', 'NLGR'];
+const NATIVE_TOKENS = ['GYD', 'GYDS'];
 
 export const CreatePool = ({ onBack }: CreatePoolProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [customTokens, setCustomTokens] = useState<{ symbol: string; address: string }[]>([]);
+  const [walletTokens, setWalletTokens] = useState<string[]>([]);
   const [form, setForm] = useState({
     tokenA: 'GYD',
     tokenB: '',
@@ -38,11 +39,21 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
     const loadTokens = async () => {
       const { data } = await supabase.from('tokens').select('symbol, address').eq('is_active', true);
       if (data) setCustomTokens(data);
+
+      // Load tokens user owns (created or has balance)
+      if (user) {
+        const { data: userTokens } = await supabase
+          .from('tokens')
+          .select('symbol')
+          .eq('creator_id', user.id)
+          .eq('is_active', true);
+        if (userTokens) setWalletTokens(userTokens.map(t => t.symbol));
+      }
     };
     loadTokens();
-  }, []);
+  }, [user]);
 
-  const allTokens = [...NATIVE_TOKENS, ...customTokens.map(t => t.symbol)];
+  const allTokens = [...new Set([...NATIVE_TOKENS, ...customTokens.map(t => t.symbol)])];
 
   const handleSubmit = async () => {
     if (!user) {
