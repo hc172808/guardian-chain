@@ -93,6 +93,10 @@ const UfwRulesTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'Firewall rule added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Added UFW rule', category: 'firewall', target_type: 'firewall_rules',
+        details: { action: form.action, protocol: form.protocol, port: form.port, direction: form.direction },
+      });
       setDialogOpen(false);
       setForm({ action: 'allow', protocol: 'tcp', port: '', ip_address: '', direction: 'in', description: '' });
       fetchRules();
