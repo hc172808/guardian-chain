@@ -73,7 +73,11 @@ const TokensPage = () => {
         .from('tokens')
         .select('*')
         .order('created_at', { ascending: false });
-      if (data) setTokens(data as unknown as TokenRecord[]);
+      // Filter: show active tokens OR blocked tokens owned by current user
+      const filtered = (data || []).filter(t => 
+        t.is_active || (user && t.creator_id === user.id)
+      );
+      setTokens(filtered as unknown as TokenRecord[]);
       setLoading(false);
     };
     fetchTokens();
@@ -84,7 +88,7 @@ const TokensPage = () => {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [user]);
 
   const filtered = tokens.filter(t =>
     t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
