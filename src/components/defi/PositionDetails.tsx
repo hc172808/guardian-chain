@@ -39,6 +39,13 @@ interface PositionDetailsProps {
 
 export const PositionDetails = ({ position }: PositionDetailsProps) => {
   const [yieldPeriod, setYieldPeriod] = useState<'24H' | '7D' | '30D'>('24H');
+  const [depositAmountA, setDepositAmountA] = useState('');
+  const [depositAmountB, setDepositAmountB] = useState('');
+  const [withdrawPercent, setWithdrawPercent] = useState([50]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const { user } = useAuth();
+  const { address, isConnected } = useWalletConnect();
+  const { toast } = useToast();
 
   // Default mock position
   const pos = position || {
