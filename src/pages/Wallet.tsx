@@ -449,6 +449,33 @@ const WalletContent = () => {
     }
   };
 
+  const handleBiometricUnlock = async () => {
+    const ok = await authenticateBiometric();
+    if (ok) {
+      setAppLocked(false);
+      setUnlockError('');
+    } else {
+      setUnlockError('Biometric authentication failed. Try PIN instead.');
+    }
+  };
+
+  const handleEnableBiometric = async () => {
+    if (!user) return;
+    const ok = await registerBiometric(user.id);
+    if (ok) {
+      setBiometricEnabled(true);
+      toast({ title: 'Biometric unlock enabled', description: 'You can now unlock with fingerprint or face.' });
+    } else {
+      toast({ title: 'Biometric setup failed', description: 'Your device may not support this feature.', variant: 'destructive' });
+    }
+  };
+
+  const handleDisableBiometric = () => {
+    disableBiometric();
+    setBiometricEnabled(false);
+    toast({ title: 'Biometric unlock disabled' });
+  };
+
   const MAX_PIN_ATTEMPTS_DISPLAY = 5;
 
   const handleSendTransaction = async () => {
