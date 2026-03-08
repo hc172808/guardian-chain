@@ -119,6 +119,54 @@ export type Database = {
         }
         Relationships: []
       }
+      network_validators: {
+        Row: {
+          address: string
+          blocks_proposed: number
+          commission: number
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          is_jailed: boolean
+          last_vote_height: number
+          name: string | null
+          stake: number
+          updated_at: string
+          uptime: number
+        }
+        Insert: {
+          address: string
+          blocks_proposed?: number
+          commission?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          is_jailed?: boolean
+          last_vote_height?: number
+          name?: string | null
+          stake?: number
+          updated_at?: string
+          uptime?: number
+        }
+        Update: {
+          address?: string
+          blocks_proposed?: number
+          commission?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          is_jailed?: boolean
+          last_vote_height?: number
+          name?: string | null
+          stake?: number
+          updated_at?: string
+          uptime?: number
+        }
+        Relationships: []
+      }
       node_installations: {
         Row: {
           approved_at: string | null
@@ -363,6 +411,76 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      token_price_alerts: {
+        Row: {
+          created_at: string
+          direction: string
+          id: string
+          is_triggered: boolean
+          target_price: number
+          token_id: string
+          triggered_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          direction?: string
+          id?: string
+          is_triggered?: boolean
+          target_price: number
+          token_id: string
+          triggered_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          direction?: string
+          id?: string
+          is_triggered?: boolean
+          target_price?: number
+          token_id?: string
+          triggered_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "token_price_alerts_token_id_fkey"
+            columns: ["token_id"]
+            isOneToOne: false
+            referencedRelation: "tokens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      token_watchlist: {
+        Row: {
+          created_at: string
+          id: string
+          token_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          token_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          token_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "token_watchlist_token_id_fkey"
+            columns: ["token_id"]
+            isOneToOne: false
+            referencedRelation: "tokens"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       tokens: {
         Row: {
