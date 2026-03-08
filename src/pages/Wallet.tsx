@@ -270,6 +270,46 @@ const WalletContent = () => {
     toast({ title: `${label} copied!` });
   };
 
+  const handleSendTransaction = async () => {
+    if (!user || !sendTo.trim() || !sendAmount || wallets.length === 0) {
+      toast({ title: 'Please fill all fields and create a wallet first', variant: 'destructive' });
+      return;
+    }
+    const amount = parseFloat(sendAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({ title: 'Invalid amount', variant: 'destructive' });
+      return;
+    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(sendTo.trim())) {
+      toast({ title: 'Invalid address format (0x + 40 hex)', variant: 'destructive' });
+      return;
+    }
+    setSendLoading(true);
+    const fee = amount * 0.001;
+    const txHash = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const { error } = await supabase.from('transactions').insert({
+      user_id: user.id,
+      from_address: wallets[0].address,
+      to_address: sendTo.trim(),
+      amount,
+      fee,
+      tx_hash: txHash,
+      status: 'confirmed',
+      confirmed_at: new Date().toISOString(),
+      wallet_id: wallets[0].id,
+    });
+    setSendLoading(false);
+    if (error) {
+      toast({ title: 'Transaction failed', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: `Sent ${amount} ${sendAsset}`, description: `Fee: ${fee.toFixed(6)} ${sendAsset}` });
+      setSendDialogOpen(false);
+      setSendTo('');
+      setSendAmount('');
+      loadBalances();
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div className="flex items-center justify-between">
