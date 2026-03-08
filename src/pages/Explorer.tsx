@@ -16,7 +16,7 @@ const Explorer = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
-  const [blocks, setBlocks] = useState<Block[]>(() => generateMockBlocks(50).reverse());
+  const [blocks, setBlocks] = useState<Block[]>([]);
   const [tokens, setTokens] = useState<any[]>([]);
 
   const { isConnected, latestBlock, latestTransactions, pendingTransactions, error } = useBlockchainWebSocket();
