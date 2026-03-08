@@ -584,7 +584,7 @@ const RateLimitTab = () => {
   };
 
   const deleteRule = async (id: string) => {
-    await supabase.from('rate_limit_rules' as any).delete().eq('id', id);
+    await supabase.from('rate_limit_rules').delete().eq('id', id);
     toast({ title: 'Rule removed' });
     fetchRules();
   };
