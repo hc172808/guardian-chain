@@ -345,18 +345,29 @@ export const SwapInterface = () => {
     try {
       // ── Enforce token purchase limits ──
       if (receiveToken.address && !receiveToken.address.startsWith('0x000000000000000000000000000000000000000')) {
+        // Get per-token limits
         const { data: limitsConfig } = await supabase
           .from('admin_config')
           .select('config_value')
           .eq('config_key', `token_limits_${receiveToken.address}`)
           .maybeSingle();
 
-        if (limitsConfig?.config_value) {
-          const limits = limitsConfig.config_value as Record<string, number>;
-          const maxBuy = limits.max_buy_per_wallet || Infinity;
-          const dailyLimit = limits.daily_buy_limit || Infinity;
+        // Get global limits as fallback
+        const { data: globalConfig } = await supabase
+          .from('admin_config')
+          .select('config_value')
+          .eq('config_key', 'token_factory_pricing')
+          .maybeSingle();
 
-          // Check wallet cap
+        const perTokenLimits = limitsConfig?.config_value as Record<string, number> | null;
+        const globalLimits = globalConfig?.config_value as Record<string, number> | null;
+
+        // Use per-token if set, otherwise fallback to global (0 = unlimited)
+        const maxBuy = perTokenLimits?.max_buy_per_wallet || globalLimits?.global_max_buy_per_wallet || 0;
+        const dailyLimit = perTokenLimits?.daily_buy_limit || globalLimits?.global_daily_buy_limit || 0;
+
+        // Check wallet cap (only if limit > 0)
+        if (maxBuy > 0) {
           const currentHolding = receiveToken.balance || 0;
           if (currentHolding + receiveAmt > maxBuy) {
             toast({
@@ -367,8 +378,10 @@ export const SwapInterface = () => {
             setIsSwapping(false);
             return;
           }
+        }
 
-          // Check daily buy limit
+        // Check daily buy limit (only if limit > 0)
+        if (dailyLimit > 0) {
           const oneDayAgo = new Date(Date.now() - 86400000).toISOString();
           const { data: recentBuys } = await supabase
             .from('transactions')

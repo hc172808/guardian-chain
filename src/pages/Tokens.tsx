@@ -37,6 +37,8 @@ interface TokenRecord {
   mint_holder: string | null;
   mint_locked: boolean;
   created_at: string;
+  is_active: boolean;
+  creator_id: string;
 }
 
 const toFeaturePanelToken = (t: TokenRecord) => ({
@@ -71,7 +73,11 @@ const TokensPage = () => {
         .from('tokens')
         .select('*')
         .order('created_at', { ascending: false });
-      if (data) setTokens(data as unknown as TokenRecord[]);
+      // Filter: show active tokens OR blocked tokens owned by current user
+      const filtered = (data || []).filter(t => 
+        t.is_active || (user && t.creator_id === user.id)
+      );
+      setTokens(filtered as unknown as TokenRecord[]);
       setLoading(false);
     };
     fetchTokens();
@@ -82,12 +88,14 @@ const TokensPage = () => {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [user]);
 
   const filtered = tokens.filter(t =>
-    t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     t.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.address.toLowerCase().includes(searchQuery.toLowerCase())
+    t.address.toLowerCase().includes(searchQuery.toLowerCase())) &&
+    // Only show blocked tokens to their creator
+    (t.is_active || (user && t.creator_id === user.id))
   );
 
   return (
@@ -184,7 +192,10 @@ const TokensPage = () => {
                               </div>
                             )}
                             <div>
-                              <h3 className="font-semibold">{token.name}</h3>
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-semibold">{token.name}</h3>
+                                {!token.is_active && <Badge variant="destructive" className="text-xs">Blocked</Badge>}
+                              </div>
                               <p className="text-sm text-muted-foreground">{token.symbol}</p>
                             </div>
                           </div>

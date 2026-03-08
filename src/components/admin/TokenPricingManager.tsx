@@ -14,6 +14,8 @@ interface TokenPricing {
   update_authority_fee: number;
   mint_authority_fee: number;
   min_liquidity: number;
+  global_max_buy_per_wallet: number;
+  global_daily_buy_limit: number;
 }
 
 const DEFAULTS: TokenPricing = {
@@ -22,6 +24,8 @@ const DEFAULTS: TokenPricing = {
   update_authority_fee: 25,
   mint_authority_fee: 200,
   min_liquidity: 100,
+  global_max_buy_per_wallet: 0,
+  global_daily_buy_limit: 0,
 };
 
 export const TokenPricingManager = () => {
@@ -46,6 +50,8 @@ export const TokenPricingManager = () => {
           update_authority_fee: val.update_authority_fee ?? DEFAULTS.update_authority_fee,
           mint_authority_fee: val.mint_authority_fee ?? DEFAULTS.mint_authority_fee,
           min_liquidity: val.min_liquidity ?? DEFAULTS.min_liquidity,
+          global_max_buy_per_wallet: val.global_max_buy_per_wallet ?? DEFAULTS.global_max_buy_per_wallet,
+          global_daily_buy_limit: val.global_daily_buy_limit ?? DEFAULTS.global_daily_buy_limit,
         });
       }
       setLoading(false);
@@ -130,6 +136,35 @@ export const TokenPricingManager = () => {
             value={pricing.mint_authority_fee}
             onChange={(e) => setPricing({ ...pricing, mint_authority_fee: parseFloat(e.target.value) || 0 })}
           />
+        </div>
+      </div>
+
+      <div className="mt-6 pt-6 border-t border-border">
+        <h4 className="font-medium mb-4">Global Purchase Limits</h4>
+        <p className="text-sm text-muted-foreground mb-4">
+          These limits apply to all tokens unless overridden by per-token settings. Set to 0 for no limit.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Max Buy Per Wallet (tokens)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={pricing.global_max_buy_per_wallet}
+              onChange={(e) => setPricing({ ...pricing, global_max_buy_per_wallet: parseFloat(e.target.value) || 0 })}
+              placeholder="0 = unlimited"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Daily Buy Limit (tokens)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={pricing.global_daily_buy_limit}
+              onChange={(e) => setPricing({ ...pricing, global_daily_buy_limit: parseFloat(e.target.value) || 0 })}
+              placeholder="0 = unlimited"
+            />
+          </div>
         </div>
       </div>
 
