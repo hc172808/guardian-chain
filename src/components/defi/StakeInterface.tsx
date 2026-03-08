@@ -4,8 +4,12 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { HelpCircle, Wallet, ArrowLeftRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { HelpCircle, Wallet, ArrowLeftRight, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { useWalletConnect } from '@/hooks/useWalletConnect';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 export const StakeInterface = () => {
   const [stakeAmount, setStakeAmount] = useState('');
