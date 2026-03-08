@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { logAuditEvent } from '@/lib/auditLog';
 import {
   Shield, Plus, Trash2, Edit, Loader2, CheckCircle, XCircle,
   Ban, Lock, Unlock, Globe, AlertTriangle, Wifi, Gauge, Zap, Timer,
