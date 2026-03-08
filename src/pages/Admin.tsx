@@ -213,6 +213,10 @@ const AdminContent = () => {
             <ScrollText className="h-4 w-4" />
             <span className="hidden md:inline">Audit Log</span>
           </TabsTrigger>
+          <TabsTrigger value="health" className="gap-2">
+            <Activity className="h-4 w-4" />
+            <span className="hidden md:inline">Health</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="validators">
