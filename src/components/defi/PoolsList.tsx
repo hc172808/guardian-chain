@@ -202,7 +202,7 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
   const [withdrawPercent, setWithdrawPercent] = useState([50]);
   const [lockDays, setLockDays] = useState('30');
 
-  const submitTx = async (desc: string, amount: number, toAddress: string) => {
+  const submitTx = async (desc: string, amount: number, toAddress: string, closePool = false) => {
     if (!user || !address) {
       toast({ title: 'Login Required', description: 'Connect your wallet first.', variant: 'destructive' });
       return;
@@ -216,6 +216,16 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
         confirmed_at: new Date().toISOString(), wallet_id: null,
       });
       if (error) throw error;
+
+      // If closing pool, deactivate it
+      if (closePool) {
+        const { error: poolError } = await supabase
+          .from('liquidity_pools')
+          .update({ is_active: false })
+          .eq('id', pool.id);
+        if (poolError) throw poolError;
+      }
+
       toast({ title: 'Success', description: desc });
       onBack();
     } catch (err: any) {
@@ -389,7 +399,7 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
           </GlassCard>
           <Button className="w-full h-14 text-lg font-semibold bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             disabled={isProcessing || !isConnected}
-            onClick={() => submitTx(`Closed ${pair} pool position`, pool.tvl * 0.001, address || 'user-wallet')}>
+            onClick={() => submitTx(`Closed ${pair} pool position`, pool.tvl * 0.001, address || 'user-wallet', true)}>
             {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Closing...</span>
               : !isConnected ? 'Connect Wallet' : 'Confirm Close Pool'}
           </Button>
