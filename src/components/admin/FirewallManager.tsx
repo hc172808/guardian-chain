@@ -100,7 +100,7 @@ const UfwRulesTab = () => {
   };
 
   const toggleRule = async (id: string, active: boolean) => {
-    await supabase.from('firewall_rules' as any).update({ is_active: !active }).eq('id', id);
+    await supabase.from('firewall_rules').update({ is_active: !active }).eq('id', id);
     fetchRules();
   };
 
