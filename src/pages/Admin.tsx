@@ -37,6 +37,7 @@ import { ValidatorManager } from '@/components/admin/ValidatorManager';
 import { FirewallManager } from '@/components/admin/FirewallManager';
 import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
+import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 
 interface UserProfile {
   id: string;
