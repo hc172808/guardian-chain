@@ -16,21 +16,21 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
-GYDS_VERSION="1.0.0"
+GYDS_VERSION="2.0.0"
 GYDS_USER="gydschain"
 GYDS_HOME="/var/lib/gydschain"
 GYDS_BIN="/usr/local/bin"
-GO_VERSION="1.21.5"
+GO_VERSION="1.22.5"
 RPC_PORT="${RPC_PORT:-8546}"
-P2P_PORT="${P2P_PORT:-8545}"
+P2P_PORT="${P2P_PORT:-30303}"
 STORAGE_SIZE="${STORAGE_SIZE:-100}"
 
 # RPC endpoints
 RPC_PRIMARY="https://rpc.netlifegy.com"
 RPC_BACKUP_1="https://rpc2.netlifegy.com"
 RPC_BACKUP_2="https://rpc3.netlifegy.com"
-RPC_LOCAL="https://localhost:8546"
-RPC_LAN="https://192.168.18.106:8546"
+RPC_LOCAL="http://localhost:8546"
+RPC_LAN="http://192.168.18.106:8546"
 WS_ENDPOINT="wss://ws.netlifegy.com"
 
 echo -e "${CYAN}"
@@ -43,7 +43,7 @@ echo "║        ██║   ██║ ╚██╔╝  ██║  ██║╚�
 echo "║        ╚██████╔╝  ██║   ██████╔╝███████║╚██████╗██║  ██║██║  ██║    ║"
 echo "║         ╚═════╝   ╚═╝   ╚═════╝ ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝    ║"
 echo "║                                                                       ║"
-echo "║        FULL NODE INSTALLER v${GYDS_VERSION} - FOUNDER EDITION                    ║"
+echo "║        FULL NODE INSTALLER v${GYDS_VERSION} - FOUNDER EDITION                   ║"
 echo "║                        netlifegy.com                                  ║"
 echo "║                                                                       ║"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
@@ -143,16 +143,37 @@ BINARY
 
 chmod +x "$GYDS_BIN/gyds-fullnode"
 
-echo -e "${GREEN}[6/8]${NC} Configuring firewall..."
+echo -e "${GREEN}[6/8]${NC} Configuring firewall & Fail2Ban..."
 ufw --force reset >/dev/null 2>&1
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow ssh >/dev/null
-ufw allow "$P2P_PORT/tcp" comment 'GYDSchain P2P' >/dev/null
+ufw limit ssh/tcp >/dev/null
+ufw allow 80/tcp comment 'HTTP' >/dev/null
+ufw allow 443/tcp comment 'HTTPS' >/dev/null
+ufw allow "$P2P_PORT/tcp" comment 'GYDSchain P2P TCP' >/dev/null
+ufw allow "$P2P_PORT/udp" comment 'GYDSchain P2P UDP' >/dev/null
 ufw allow "$RPC_PORT/tcp" comment 'GYDSchain RPC' >/dev/null
 ufw allow 51820/udp comment 'WireGuard VPN' >/dev/null
 ufw --force enable >/dev/null
-echo -e "  Ports opened: SSH, ${P2P_PORT} (P2P), ${RPC_PORT} (RPC), 51820 (WireGuard)"
+echo -e "  Ports: SSH(rate-limited), 80, 443, ${P2P_PORT}, ${RPC_PORT}, 51820"
+
+# Fail2Ban
+cat > /etc/fail2ban/jail.d/gydschain.conf << 'FAIL2BAN'
+[sshd]
+enabled = true
+maxretry = 5
+bantime = 3600
+
+[gyds-rpc]
+enabled = true
+maxretry = 20
+bantime = 1800
+findtime = 300
+FAIL2BAN
+systemctl enable fail2ban >/dev/null 2>&1
+systemctl restart fail2ban >/dev/null 2>&1
+echo -e "  Fail2Ban enabled for SSH and RPC"
 
 echo -e "${GREEN}[7/8]${NC} Creating systemd service..."
 cat > /etc/systemd/system/gyds-fullnode.service << EOF

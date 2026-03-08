@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { logAuditEvent } from '@/lib/auditLog';
 import {
   Users, Plus, Trash2, Edit, CheckCircle, XCircle, Loader2, Shield,
 } from 'lucide-react';
@@ -73,6 +74,12 @@ export const ValidatorManager = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: editingId ? 'Validator updated' : 'Validator added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: editingId ? 'Updated validator' : 'Added validator',
+        category: 'validator',
+        target_type: 'network_validators',
+        details: { address: form.address, name: form.name, stake: form.stake },
+      });
       setDialogOpen(false);
       resetForm();
       fetchValidators();
@@ -81,8 +88,17 @@ export const ValidatorManager = () => {
   };
 
   const handleDelete = async (id: string) => {
+    const { user: currentUser } = { user };
     await supabase.from('network_validators').delete().eq('id', id);
     toast({ title: 'Validator removed' });
+    if (user) {
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Removed validator',
+        category: 'validator',
+        target_type: 'network_validators',
+        target_id: id,
+      });
+    }
     fetchValidators();
   };
 

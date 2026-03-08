@@ -1,8 +1,6 @@
-# GydsChain Complete Stack
-# Usage: docker-compose up -d
-# Deploy specific: docker-compose up -d validator fullnode rpc
-
-version: '3.8'
+# GydsChain Complete Stack v2.0
+# Usage: docker compose up -d
+# Deploy specific: docker compose up -d validator fullnode rpc
 
 services:
   # ═══════════════════════════════════════
@@ -18,21 +16,31 @@ services:
       NODE_TYPE: fullnode
       DATA_DIR: /var/lib/gydschain
       RPC_PORT: "8546"
-      P2P_PORT: "8545"
+      P2P_PORT: "30303"
       MAX_PEERS: "50"
       STORAGE_GB: "100"
+      CHAIN_ID: "13370"
+      LOG_LEVEL: info
     volumes:
       - validator-data:/var/lib/gydschain
+      - validator-logs:/var/log/gydschain
       - ./validator-key:/etc/gydschain/validator-key:ro
     ports:
       - "8545:8545"
       - "8546:8546"
+      - "30303:30303"
+      - "30303:30303/udp"
       - "51820:51820/udp"
     restart: unless-stopped
     networks:
       - gydsnet
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8546"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8546/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -46,19 +54,28 @@ services:
       NODE_TYPE: fullnode
       DATA_DIR: /var/lib/gydschain
       RPC_PORT: "8547"
-      P2P_PORT: "8548"
+      P2P_PORT: "30304"
       MAX_PEERS: "25"
       STORAGE_GB: "50"
+      CHAIN_ID: "13370"
+      LOG_LEVEL: info
     volumes:
       - fullnode-data:/var/lib/gydschain
+      - fullnode-logs:/var/log/gydschain
     ports:
       - "8547:8547"
-      - "8548:8548"
+      - "30304:30304"
     restart: unless-stopped
     networks:
       - gydsnet
     depends_on:
-      - validator
+      validator:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
 
   rpc:
     build:
@@ -69,18 +86,27 @@ services:
       NODE_TYPE: fullnode
       DATA_DIR: /var/lib/gydschain
       RPC_PORT: "8549"
-      P2P_PORT: "8550"
+      P2P_PORT: "30305"
       MAX_PEERS: "100"
       STORAGE_GB: "50"
+      CHAIN_ID: "13370"
+      LOG_LEVEL: info
     volumes:
       - rpc-data:/var/lib/gydschain
+      - rpc-logs:/var/log/gydschain
     ports:
       - "8549:8549"
     restart: unless-stopped
     networks:
       - gydsnet
     depends_on:
-      - validator
+      validator:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
 
   litenode:
     build:
@@ -90,9 +116,17 @@ services:
     environment:
       NODE_TYPE: litenode
       RPC_URL: https://rpc.netlifegy.com
+      RPC_FAILOVER: https://rpc2.netlifegy.com,https://rpc3.netlifegy.com
+      WS_URL: wss://ws.netlifegy.com
+      CHAIN_ID: "13370"
     restart: unless-stopped
     networks:
       - gydsnet
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
 
   # ═══════════════════════════════════════
   # ECOSYSTEM SERVICES
@@ -109,7 +143,13 @@ services:
     networks:
       - gydsnet
     depends_on:
-      - rpc
+      rpc:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
   indexer:
     image: postgres:16-alpine
@@ -126,6 +166,16 @@ services:
     restart: unless-stopped
     networks:
       - gydsnet
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indexer -d gydschain_indexer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ═══════════════════════════════════════
   # DEVTOOLS
@@ -142,6 +192,7 @@ services:
       RPC_PORT: "9546"
       P2P_PORT: "9545"
       CHAIN_ID: "13371"
+      LOG_LEVEL: debug
     volumes:
       - testnet-data:/var/lib/gydschain-testnet
     ports:
@@ -149,13 +200,18 @@ services:
     restart: unless-stopped
     networks:
       - gydsnet-testnet
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
 
   # ═══════════════════════════════════════
-  # MONITORING
+  # NETWORKING / VPN
   # ═══════════════════════════════════════
 
   wireguard:
-    image: linuxserver/wireguard
+    image: linuxserver/wireguard:latest
     container_name: gyds-wireguard
     cap_add:
       - NET_ADMIN
@@ -165,21 +221,28 @@ services:
       PGID: 1000
       TZ: UTC
       SERVERURL: vpn.netlifegy.com
-      PEERS: 10
+      SERVERPORT: 51820
+      PEERS: 50
       PEERDNS: auto
+      ALLOWEDIPS: 10.0.0.0/24
     volumes:
       - wireguard-config:/config
-      - /lib/modules:/lib/modules
+      - /lib/modules:/lib/modules:ro
     ports:
       - "51821:51820/udp"
     restart: unless-stopped
     networks:
       - gydsnet
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
 
 volumes:
   validator-data:
+  validator-logs:
   fullnode-data:
+  fullnode-logs:
   rpc-data:
+  rpc-logs:
   indexer-data:
   testnet-data:
   wireguard-config:
@@ -187,5 +250,8 @@ volumes:
 networks:
   gydsnet:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
   gydsnet-testnet:
     driver: bridge
