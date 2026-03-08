@@ -9,6 +9,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { hashPin, encryptWithPin } from '@/lib/walletCrypto';
 import { 
   Crown, 
   Key, 
