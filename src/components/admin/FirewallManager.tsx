@@ -772,6 +772,10 @@ const DDoSProtectionTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'DDoS protection rule added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Added DDoS protection rule', category: 'firewall', target_type: 'ddos_protection',
+        details: { name: form.name, protection_type: form.protection_type, threshold: form.threshold, action: form.action },
+      });
       setDialogOpen(false);
       setForm({ name: '', protection_type: 'syn_flood', threshold: '1000', action: 'drop', description: '' });
       fetchConfigs();
