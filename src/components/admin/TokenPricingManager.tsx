@@ -14,6 +14,8 @@ interface TokenPricing {
   update_authority_fee: number;
   mint_authority_fee: number;
   min_liquidity: number;
+  global_max_buy_per_wallet: number;
+  global_daily_buy_limit: number;
 }
 
 const DEFAULTS: TokenPricing = {
@@ -22,6 +24,8 @@ const DEFAULTS: TokenPricing = {
   update_authority_fee: 25,
   mint_authority_fee: 200,
   min_liquidity: 100,
+  global_max_buy_per_wallet: 0,
+  global_daily_buy_limit: 0,
 };
 
 export const TokenPricingManager = () => {
