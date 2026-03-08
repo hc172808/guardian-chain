@@ -174,12 +174,14 @@ const WalletContent = () => {
     // Credits from token operations (pre-mine, mint)
     if (opsData) {
       opsData.forEach(op => {
-        if (!myAddresses.has(op.wallet_address.toLowerCase())) return;
-        if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds') {
+        const addressMatch = myAddresses.has(op.wallet_address.toLowerCase());
+        const creatorMatch = isCreator(op.created_by);
+        if (!addressMatch && !creatorMatch) return;
+        if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds' || op.operation_type === 'mint') {
           gydsBalance += op.amount;
         } else if (op.operation_type === 'mint_gyd' || op.operation_type === 'premine_gyd') {
           gydBalance += op.amount;
-        } else if (op.operation_type === 'burn_gyds') {
+        } else if (op.operation_type === 'burn_gyds' || op.operation_type === 'burn') {
           gydsBalance -= op.amount;
         } else if (op.operation_type === 'burn_gyd') {
           gydBalance -= op.amount;
