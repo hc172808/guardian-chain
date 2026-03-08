@@ -224,6 +224,10 @@ const AdminContent = () => {
             <Coins className="h-4 w-4" />
             <span className="hidden md:inline">Pricing</span>
           </TabsTrigger>
+          <TabsTrigger value="token-mgmt" className="gap-2">
+            <Coins className="h-4 w-4" />
+            <span className="hidden md:inline">Tokens</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="validators">
