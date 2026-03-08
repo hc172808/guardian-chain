@@ -22,6 +22,7 @@ import DeFiPage from "./pages/DeFi";
 import TokenDetail from "./pages/TokenDetail";
 import NotFound from "./pages/NotFound";
 import CliReferencePage from "./pages/CliReference";
+import ResetPassword from "./pages/ResetPassword";
 
 const queryClient = new QueryClient();
 
@@ -50,6 +51,7 @@ const App = () => (
             <Route path="/docs" element={<DocsPage />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/cli" element={<CliReferencePage />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

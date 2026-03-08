@@ -68,6 +68,14 @@ import {
   verifyPinLock,
   getPinLockStatus,
 } from '@/lib/walletCrypto';
+import {
+  isBiometricAvailable,
+  isBiometricEnabled,
+  registerBiometric,
+  authenticateBiometric,
+  disableBiometric,
+} from '@/lib/biometric';
+import { Fingerprint } from 'lucide-react';
 
 const WalletContent = () => {
   const { user, isFounder } = useAuth();
@@ -107,6 +115,14 @@ const WalletContent = () => {
   const [appLocked, setAppLocked] = useState(isPinLockEnabled());
   const [unlockPin, setUnlockPin] = useState('');
   const [unlockError, setUnlockError] = useState('');
+
+  // Biometric state
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(isBiometricEnabled());
+
+  useEffect(() => {
+    isBiometricAvailable().then(setBiometricAvailable);
+  }, []);
 
   useEffect(() => {
     fetchWallets();
@@ -433,6 +449,33 @@ const WalletContent = () => {
     }
   };
 
+  const handleBiometricUnlock = async () => {
+    const ok = await authenticateBiometric();
+    if (ok) {
+      setAppLocked(false);
+      setUnlockError('');
+    } else {
+      setUnlockError('Biometric authentication failed. Try PIN instead.');
+    }
+  };
+
+  const handleEnableBiometric = async () => {
+    if (!user) return;
+    const ok = await registerBiometric(user.id);
+    if (ok) {
+      setBiometricEnabled(true);
+      toast({ title: 'Biometric unlock enabled', description: 'You can now unlock with fingerprint or face.' });
+    } else {
+      toast({ title: 'Biometric setup failed', description: 'Your device may not support this feature.', variant: 'destructive' });
+    }
+  };
+
+  const handleDisableBiometric = () => {
+    disableBiometric();
+    setBiometricEnabled(false);
+    toast({ title: 'Biometric unlock disabled' });
+  };
+
   const MAX_PIN_ATTEMPTS_DISPLAY = 5;
 
   const handleSendTransaction = async () => {
@@ -482,8 +525,14 @@ const WalletContent = () => {
         <GlassCard className="p-8 max-w-sm w-full text-center">
           <ShieldAlert className="h-16 w-16 mx-auto text-primary mb-4" />
           <h2 className="text-2xl font-bold mb-2">Wallet Locked</h2>
-          <p className="text-muted-foreground mb-6">Enter your PIN to access your wallet</p>
+          <p className="text-muted-foreground mb-6">Enter your PIN or use biometrics to access your wallet</p>
           <div className="space-y-4">
+            {biometricEnabled && (
+              <Button onClick={handleBiometricUnlock} variant="outline" className="w-full gap-2">
+                <Fingerprint className="h-5 w-5" /> Unlock with Biometrics
+              </Button>
+            )}
+            {biometricEnabled && <div className="relative"><div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div><div className="relative flex justify-center text-xs"><span className="bg-card px-2 text-muted-foreground">or use PIN</span></div></div>}
             <Input
               type="password"
               value={unlockPin}
@@ -495,7 +544,7 @@ const WalletContent = () => {
             />
             {unlockError && <p className="text-sm text-destructive">{unlockError}</p>}
             <Button onClick={handleUnlock} className="w-full gap-2">
-              <Lock className="h-4 w-4" /> Unlock
+              <Lock className="h-4 w-4" /> Unlock with PIN
             </Button>
           </div>
         </GlassCard>
@@ -840,6 +889,32 @@ const WalletContent = () => {
               </div>
             </div>
           </div>
+          {/* Biometric Unlock */}
+          {biometricAvailable && (
+            <div className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/30">
+              <div className="flex items-center gap-3">
+                <Fingerprint className={cn("h-5 w-5", biometricEnabled ? "text-green-500" : "text-muted-foreground")} />
+                <div>
+                  <p className="font-semibold">Biometric Unlock</p>
+                  <p className="text-sm text-muted-foreground">
+                    {biometricEnabled
+                      ? 'Fingerprint or face unlock enabled'
+                      : 'Use fingerprint or face to unlock wallet'}
+                  </p>
+                </div>
+              </div>
+              {biometricEnabled ? (
+                <Button variant="outline" size="sm" onClick={handleDisableBiometric}>Disable</Button>
+              ) : (
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleEnableBiometric} disabled={!pinLockEnabled}>
+                  <Fingerprint className="h-4 w-4" /> Enable
+                </Button>
+              )}
+            </div>
+          )}
+          {biometricAvailable && !pinLockEnabled && !biometricEnabled && (
+            <p className="text-xs text-muted-foreground pl-1">Enable PIN lock first to use biometric unlock.</p>
+          )}
         </div>
       </GlassCard>
     </motion.div>
