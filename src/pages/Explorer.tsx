@@ -76,35 +76,62 @@ const Explorer = () => {
         <div className="relative max-w-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search by block height, hash, address, or token..."
+            placeholder="Search by block, hash, token name, symbol, or address..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={async (e) => {
-              if (e.key === 'Enter' && searchQuery.startsWith('0x') && searchQuery.length > 10) {
-                // Check if it's a token address
-                const { data } = await supabase
+              if (e.key === 'Enter' && searchQuery.trim().length > 1) {
+                const q = searchQuery.trim();
+                // Try exact address match first
+                if (q.startsWith('0x') && q.length > 10) {
+                  const { data } = await supabase
+                    .from('tokens')
+                    .select('address')
+                    .eq('address', q)
+                    .maybeSingle();
+                  if (data) {
+                    navigate(`/explorer/token/${data.address}`);
+                    return;
+                  }
+                }
+                // Try name/symbol search
+                const { data: matched } = await supabase
                   .from('tokens')
-                  .select('address')
-                  .eq('address', searchQuery)
+                  .select('address, name, symbol')
+                  .or(`name.ilike.%${q}%,symbol.ilike.%${q}%`)
+                  .limit(1)
                   .maybeSingle();
-                if (data) {
-                  navigate(`/explorer/token/${data.address}`);
+                if (matched) {
+                  navigate(`/explorer/token/${matched.address}`);
                 }
               }
             }}
             className="pl-10 bg-secondary/50 border-border/50 h-12 text-base"
           />
-          {searchQuery.startsWith('0x') && searchQuery.length > 10 && (
+          {searchQuery.trim().length > 1 && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
               <Badge variant="secondary" className="text-xs cursor-pointer hover:bg-primary/20"
                 onClick={async () => {
-                  const { data } = await supabase
+                  const q = searchQuery.trim();
+                  if (q.startsWith('0x') && q.length > 10) {
+                    const { data } = await supabase
+                      .from('tokens')
+                      .select('address')
+                      .eq('address', q)
+                      .maybeSingle();
+                    if (data) {
+                      navigate(`/explorer/token/${data.address}`);
+                      return;
+                    }
+                  }
+                  const { data: matched } = await supabase
                     .from('tokens')
-                    .select('address')
-                    .eq('address', searchQuery)
+                    .select('address, name, symbol')
+                    .or(`name.ilike.%${q}%,symbol.ilike.%${q}%`)
+                    .limit(1)
                     .maybeSingle();
-                  if (data) {
-                    navigate(`/explorer/token/${data.address}`);
+                  if (matched) {
+                    navigate(`/explorer/token/${matched.address}`);
                   }
                 }}
               >

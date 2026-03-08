@@ -209,20 +209,115 @@ const TokenDetail = () => {
           <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
             <Shield className="h-4 w-4" /> Token Authorities
           </h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {[
-              { name: 'Freeze', enabled: token.freeze_enabled, locked: token.freeze_locked },
-              { name: 'Mint', enabled: token.mint_enabled, locked: token.mint_locked },
-              { name: 'Update', enabled: token.update_enabled, locked: token.update_locked },
+              { name: 'Mint Authority', icon: Plus, enabled: token.mint_enabled, locked: token.mint_locked, holder: token.mint_holder, desc: 'Can create new tokens', fee: '200 GYDS' },
+              { name: 'Freeze Authority', icon: Pause, enabled: token.freeze_enabled, locked: token.freeze_locked, holder: token.freeze_holder, desc: 'Can freeze/unfreeze addresses', fee: '50 GYDS' },
+              { name: 'Update Authority', icon: Edit, enabled: token.update_enabled, locked: token.update_locked, holder: token.update_holder, desc: 'Can modify token metadata', fee: '25 GYDS' },
             ].map((auth) => (
-              <div key={auth.name} className="flex items-center gap-2 text-sm">
-                {auth.locked ? <Lock className="h-3.5 w-3.5 text-muted-foreground" /> : <Unlock className="h-3.5 w-3.5 text-primary" />}
-                <span>{auth.name}:</span>
-                <Badge variant={auth.enabled ? 'default' : 'secondary'} className="text-xs">
-                  {auth.enabled ? (auth.locked ? 'Locked' : 'Enabled') : 'Disabled'}
-                </Badge>
+              <div key={auth.name} className="p-3 rounded-lg bg-secondary/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <auth.icon className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{auth.name}</span>
+                  </div>
+                  {auth.locked ? (
+                    <Badge variant="outline" className="text-xs gap-1 border-primary/30 text-primary">
+                      <Lock className="h-3 w-3" /> LOCKED
+                    </Badge>
+                  ) : auth.enabled ? (
+                    <Badge variant="outline" className="text-xs gap-1 border-yellow-500/50 text-yellow-500">
+                      <Unlock className="h-3 w-3" /> ACTIVE
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs gap-1 text-muted-foreground">
+                      <XCircle className="h-3 w-3" /> DISABLED
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">{auth.desc}</p>
+                {auth.holder && !auth.locked && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <User className="h-3 w-3 text-muted-foreground" />
+                    <code className="text-muted-foreground bg-background/50 px-1 rounded truncate">{auth.holder.slice(0, 6)}...{auth.holder.slice(-4)}</code>
+                  </div>
+                )}
+                {auth.locked && (
+                  <p className="text-xs text-primary/70 flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3" /> Permanently renounced
+                  </p>
+                )}
               </div>
             ))}
+          </div>
+
+          {/* LP Lock Details */}
+          <div className="mt-4 p-3 rounded-lg bg-secondary/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Lock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">LP Lock Status</span>
+              </div>
+              {token.lp_lock_type === 'burned' ? (
+                <Badge variant="outline" className="text-xs gap-1 border-primary/30 text-primary">
+                  <Flame className="h-3 w-3" /> BURNED (Permanent)
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-xs gap-1 border-blue-500/50 text-blue-400">
+                  <Clock className="h-3 w-3" /> Time-Locked
+                </Badge>
+              )}
+            </div>
+            {token.lp_lock_type === 'timelocked' && token.lp_unlock_time && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Unlocks: {new Date(token.lp_unlock_time).toLocaleDateString()}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              {token.gyds_liquidity.toLocaleString()} GYDS locked in Liquidity Pool Bank
+            </p>
+          </div>
+
+          {/* Security Score */}
+          <div className="mt-4 p-3 rounded-lg border border-border/50">
+            <div className="flex items-center gap-2 mb-2">
+              <Shield className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium">Security Assessment</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              <div className="flex items-center gap-1">
+                {!token.mint_enabled || token.mint_locked ? (
+                  <CheckCircle className="h-3 w-3 text-primary" />
+                ) : (
+                  <XCircle className="h-3 w-3 text-yellow-500" />
+                )}
+                <span className="text-muted-foreground">Mint Safe</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {!token.freeze_enabled || token.freeze_locked ? (
+                  <CheckCircle className="h-3 w-3 text-primary" />
+                ) : (
+                  <XCircle className="h-3 w-3 text-yellow-500" />
+                )}
+                <span className="text-muted-foreground">Freeze Safe</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {token.lp_lock_type === 'burned' ? (
+                  <CheckCircle className="h-3 w-3 text-primary" />
+                ) : (
+                  <Clock className="h-3 w-3 text-blue-400" />
+                )}
+                <span className="text-muted-foreground">LP Permanent</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {token.gyds_liquidity >= 100 ? (
+                  <CheckCircle className="h-3 w-3 text-primary" />
+                ) : (
+                  <XCircle className="h-3 w-3 text-destructive" />
+                )}
+                <span className="text-muted-foreground">Liquidity OK</span>
+              </div>
+            </div>
           </div>
         </GlassCard>
 
