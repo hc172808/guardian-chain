@@ -33,6 +33,7 @@ const docTabs = [
   { slug: 'pos-consensus', label: 'PoS Consensus', icon: Shield },
   { slug: 'mining-system', label: 'Mining System', icon: Pickaxe },
   { slug: 'rpc-server', label: 'RPC Server', icon: Server },
+  { slug: 'cli-reference', label: 'CLI Reference', icon: FileText },
 ];
 
 const DocsPage = () => {
