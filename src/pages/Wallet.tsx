@@ -371,6 +371,7 @@ const WalletContent = () => {
                     </div>
                     <p className="text-xs text-muted-foreground font-mono">
                       ${token.price < 1 ? token.price.toFixed(7) : token.price.toFixed(2)} per token
+                      {token.decimals !== undefined && <span className="ml-2 text-muted-foreground/60">({token.decimals} decimals)</span>}
                     </p>
                   </div>
                 </div>
