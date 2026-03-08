@@ -321,13 +321,15 @@ const NetworkPage = () => {
                 <Badge variant="outline">Fallback</Badge>
               </div>
             ))}
-            <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
-              <div>
-                <p className="font-medium">Local Node</p>
-                <p className="text-sm text-muted-foreground">{NETWORK_CONFIG.rpcUrls.local}</p>
+            {NETWORK_CONFIG.rpcUrls.local.map((url, i) => (
+              <div key={`local-${i}`} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                <div>
+                  <p className="font-medium">Local Node {NETWORK_CONFIG.rpcUrls.local.length > 1 ? i + 1 : ''}</p>
+                  <p className="text-sm text-muted-foreground">{url}</p>
+                </div>
+                <Badge variant="outline">Development</Badge>
               </div>
-              <Badge variant="outline">Development</Badge>
-            </div>
+            ))}
           </div>
         </GlassCard>
 

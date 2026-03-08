@@ -169,6 +169,7 @@ const WalletContent = () => {
         value: 0,
         price: 1.00,
         change24h: 0,
+        decimals: 6,
       },
     ];
 

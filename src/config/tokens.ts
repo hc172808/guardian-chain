@@ -42,7 +42,7 @@ export const GYDS_COIN: NativeCoinConfig = {
 export const GYD_COIN: NativeCoinConfig = {
   name: 'GYDchain',
   symbol: 'GYD',
-  decimals: 18,
+  decimals: 6,
   maxSupply: Number.MAX_SAFE_INTEGER,
   initialPrice: 1.0,
   isPegged: true,

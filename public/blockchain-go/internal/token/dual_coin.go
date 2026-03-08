@@ -67,10 +67,10 @@ func NewDualCoinManager() *DualCoinManager {
 			InitialSupply: big.NewInt(0),
 			IsPegged:      false,
 		},
-		gydConfig: CoinConfig{
+	gydConfig: CoinConfig{
 			Name:          "GYDchain",
 			Symbol:        "GYD",
-			Decimals:      18,
+			Decimals:      6,
 			MaxSupply:     nil, // No max for stablecoin
 			InitialSupply: big.NewInt(0),
 			IsPegged:      true,
