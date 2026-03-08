@@ -143,9 +143,53 @@ const Auth = () => {
             </div>
             <h1 className="text-2xl font-bold text-gradient-primary">ChainCore</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              {isLogin ? 'Sign in to your account' : 'Create a new account'}
+              {isForgotPassword
+                ? (resetSent ? 'Check your email' : 'Reset your password')
+                : isLogin ? 'Sign in to your account' : 'Create a new account'}
             </p>
           </div>
+
+          {/* Forgot Password Form */}
+          {isForgotPassword ? (
+            resetSent ? (
+              <div className="text-center space-y-4">
+                <div className="p-4 rounded-lg bg-primary/10 border border-primary/30">
+                  <Mail className="h-8 w-8 mx-auto text-primary mb-2" />
+                  <p className="text-sm">We've sent a password reset link to <strong>{email}</strong>. Check your inbox and follow the link.</p>
+                </div>
+                <Button variant="outline" className="w-full" onClick={() => { setIsForgotPassword(false); setResetSent(false); }}>
+                  Back to Sign In
+                </Button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="reset-email">Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="reset-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
+                </div>
+                <Button type="submit" className="w-full gap-2" disabled={isLoading}>
+                  {isLoading ? <span className="animate-spin">⟳</span> : <Mail className="h-4 w-4" />}
+                  {isLoading ? 'Sending...' : 'Send Reset Link'}
+                </Button>
+                <Button type="button" variant="ghost" className="w-full text-sm" onClick={() => { setIsForgotPassword(false); setErrors({}); }}>
+                  Back to Sign In
+                </Button>
+              </form>
+            )
+          ) : (
+            <>
+          {/* Login/Signup Form */}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
