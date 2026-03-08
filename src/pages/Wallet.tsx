@@ -475,6 +475,34 @@ const WalletContent = () => {
     }
   };
 
+  // ─── PIN Lock Screen ───────────────────────────────────
+  if (appLocked) {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center min-h-[60vh]">
+        <GlassCard className="p-8 max-w-sm w-full text-center">
+          <ShieldAlert className="h-16 w-16 mx-auto text-primary mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Wallet Locked</h2>
+          <p className="text-muted-foreground mb-6">Enter your PIN to access your wallet</p>
+          <div className="space-y-4">
+            <Input
+              type="password"
+              value={unlockPin}
+              onChange={(e) => { setUnlockPin(e.target.value); setUnlockError(''); }}
+              placeholder="Enter PIN"
+              maxLength={6}
+              className="text-center text-lg tracking-widest"
+              onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
+            />
+            {unlockError && <p className="text-sm text-destructive">{unlockError}</p>}
+            <Button onClick={handleUnlock} className="w-full gap-2">
+              <Lock className="h-4 w-4" /> Unlock
+            </Button>
+          </div>
+        </GlassCard>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div className="flex items-center justify-between">
