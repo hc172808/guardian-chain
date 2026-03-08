@@ -104,6 +104,11 @@ const WalletContent = () => {
   const [newWalletData, setNewWalletData] = useState<{ address: string; seedPhrase: string } | null>(null);
   const [balances, setBalances] = useState<TokenBalance[]>([]);
   const [balancesLoading, setBalancesLoading] = useState(true);
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [sendAsset, setSendAsset] = useState<string>('GYD');
+  const [sendTo, setSendTo] = useState('');
+  const [sendAmount, setSendAmount] = useState('');
+  const [sendLoading, setSendLoading] = useState(false);
 
   useEffect(() => {
     fetchWallets();
