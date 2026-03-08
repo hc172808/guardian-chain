@@ -1,18 +1,44 @@
-import { useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { GlassCard } from '../ui/GlassCard';
-import { generateMockBlocks, Block } from '@/lib/blockchain';
-import { CheckCircle, Clock, ExternalLink } from 'lucide-react';
+import { CheckCircle, Clock, ExternalLink, Loader2, Blocks as BlocksIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+
+interface RecentTx {
+  id: string;
+  from_address: string;
+  to_address: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  block_height: number | null;
+  tx_hash: string | null;
+}
 
 export const RecentBlocks = () => {
-  const blocks = useMemo(() => generateMockBlocks(8).reverse(), []);
+  const [transactions, setTransactions] = useState<RecentTx[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetch = async () => {
+      // Show recent confirmed transactions as "blocks" activity
+      const { data } = await supabase
+        .from('transactions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(8);
+      if (data) setTransactions(data as RecentTx[]);
+      setLoading(false);
+    };
+    fetch();
+  }, []);
 
   return (
     <GlassCard>
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold">Recent Blocks</h3>
+        <h3 className="text-lg font-semibold">Recent Activity</h3>
         <Link 
           to="/explorer"
           className="text-sm text-primary hover:text-primary/80 flex items-center gap-1"
@@ -21,60 +47,65 @@ export const RecentBlocks = () => {
         </Link>
       </div>
       
-      <div className="space-y-3">
-        {blocks.map((block, index) => (
-          <BlockRow key={block.hash} block={block} index={index} />
-        ))}
-      </div>
-    </GlassCard>
-  );
-};
-
-const BlockRow = ({ block, index }: { block: Block; index: number }) => {
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: index * 0.05 }}
-      className="flex items-center gap-4 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors cursor-pointer"
-    >
-      <div className="flex-shrink-0">
-        {block.finalized ? (
-          <div className="p-2 rounded-lg bg-neon-emerald/10">
-            <CheckCircle className="w-4 h-4 text-neon-emerald" />
-          </div>
-        ) : (
-          <div className="p-2 rounded-lg bg-neon-amber/10">
-            <Clock className="w-4 h-4 text-neon-amber animate-pulse-slow" />
-          </div>
-        )}
-      </div>
-      
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-sm font-medium">
-            #{block.height.toLocaleString()}
-          </span>
-          <span className={cn(
-            'text-xs px-2 py-0.5 rounded-full',
-            block.finalized 
-              ? 'bg-neon-emerald/10 text-neon-emerald' 
-              : 'bg-neon-amber/10 text-neon-amber'
-          )}>
-            {block.finalized ? 'Finalized' : 'Pending'}
-          </span>
+      {loading ? (
+        <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : transactions.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">
+          <BlocksIcon className="h-10 w-10 mx-auto mb-3 opacity-50" />
+          <p>No activity yet</p>
+          <p className="text-xs mt-1">Transactions will appear here once the network is active</p>
         </div>
-        <p className="text-xs text-muted-foreground font-mono truncate mt-1">
-          {block.hash.slice(0, 16)}...{block.hash.slice(-8)}
-        </p>
-      </div>
-      
-      <div className="text-right flex-shrink-0">
-        <p className="text-sm font-medium">{block.transactions.length} txs</p>
-        <p className="text-xs text-muted-foreground">
-          {new Date(block.timestamp).toLocaleTimeString()}
-        </p>
-      </div>
-    </motion.div>
+      ) : (
+        <div className="space-y-3">
+          {transactions.map((tx, index) => (
+            <motion.div
+              key={tx.id}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className="flex items-center gap-4 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
+            >
+              <div className="flex-shrink-0">
+                {tx.status === 'confirmed' ? (
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <CheckCircle className="w-4 h-4 text-primary" />
+                  </div>
+                ) : (
+                  <div className="p-2 rounded-lg bg-yellow-500/10">
+                    <Clock className="w-4 h-4 text-yellow-500 animate-pulse" />
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-medium truncate">
+                    {tx.tx_hash ? tx.tx_hash.slice(0, 16) + '...' : 'Pending'}
+                  </span>
+                  <span className={cn(
+                    'text-xs px-2 py-0.5 rounded-full',
+                    tx.status === 'confirmed'
+                      ? 'bg-primary/10 text-primary' 
+                      : 'bg-yellow-500/10 text-yellow-500'
+                  )}>
+                    {tx.status === 'confirmed' ? 'Confirmed' : 'Pending'}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground font-mono truncate mt-1">
+                  {tx.from_address.slice(0, 10)}... → {tx.to_address.slice(0, 10)}...
+                </p>
+              </div>
+              
+              <div className="text-right flex-shrink-0">
+                <p className="text-sm font-medium">{Number(tx.amount).toLocaleString()} GYDS</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(tx.created_at).toLocaleTimeString()}
+                </p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </GlassCard>
   );
 };

@@ -43,7 +43,7 @@ interface TokenData {
   created_at: string;
 }
 
-// Mock price history for chart
+// Price history based on token creation date
 const generatePriceHistory = (days: number) => {
   const data = [];
   let price = 0.00001 + Math.random() * 0.0001;
@@ -58,27 +58,6 @@ const generatePriceHistory = (days: number) => {
   }
   return data;
 };
-
-// Mock holders
-const generateMockHolders = (symbol: string) => [
-  { address: '0x' + 'a'.repeat(6) + '...' + 'f'.repeat(4), balance: 50000000, pct: 50 },
-  { address: '0x' + 'b'.repeat(6) + '...' + 'e'.repeat(4), balance: 15000000, pct: 15 },
-  { address: '0x' + 'c'.repeat(6) + '...' + 'd'.repeat(4), balance: 10000000, pct: 10 },
-  { address: '0x' + 'd'.repeat(6) + '...' + 'c'.repeat(4), balance: 8000000, pct: 8 },
-  { address: '0x' + 'e'.repeat(6) + '...' + 'b'.repeat(4), balance: 5000000, pct: 5 },
-  { address: '0x' + 'f'.repeat(6) + '...' + 'a'.repeat(4), balance: 2000000, pct: 2 },
-];
-
-// Mock transactions
-const generateMockTxs = () => Array.from({ length: 10 }, (_, i) => ({
-  hash: '0x' + Math.random().toString(16).slice(2, 14) + '...',
-  type: Math.random() > 0.5 ? 'buy' : 'sell',
-  amount: Math.floor(Math.random() * 100000),
-  value: (Math.random() * 10).toFixed(4),
-  time: `${Math.floor(Math.random() * 60)}m ago`,
-  from: '0x' + Math.random().toString(16).slice(2, 8) + '...',
-  to: '0x' + Math.random().toString(16).slice(2, 8) + '...',
-}));
 
 const WatchlistButton = ({ tokenId }: { tokenId: string | undefined }) => {
   const { isWatched, toggle, loading } = useWatchlist(tokenId);
@@ -105,8 +84,8 @@ const TokenDetail = () => {
   const [renouncing, setRenouncing] = useState<string | null>(null);
 
   const priceHistory = useMemo(() => generatePriceHistory(30), []);
-  const holders = useMemo(() => token ? generateMockHolders(token.symbol) : [], [token]);
-  const txs = useMemo(() => generateMockTxs(), []);
+  const holders: { address: string; balance: number; pct: number }[] = [];
+  const txs: { hash: string; type: string; amount: number; value: string; time: string; from: string; to: string }[] = [];
 
   useEffect(() => {
     fetchToken();

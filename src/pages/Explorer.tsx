@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { generateMockBlocks, Block, Transaction } from '@/lib/blockchain';
+import { Block, Transaction } from '@/lib/blockchain';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -16,7 +16,7 @@ const Explorer = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
-  const [blocks, setBlocks] = useState<Block[]>(() => generateMockBlocks(50).reverse());
+  const [blocks, setBlocks] = useState<Block[]>([]);
   const [tokens, setTokens] = useState<any[]>([]);
 
   const { isConnected, latestBlock, latestTransactions, pendingTransactions, error } = useBlockchainWebSocket();
