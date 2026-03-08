@@ -2,15 +2,16 @@ import { ReactNode, forwardRef } from 'react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 
-interface GlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
+interface GlassCardProps {
   children: ReactNode;
   className?: string;
   glow?: boolean;
   hover?: boolean;
+  onClick?: () => void;
 }
 
 export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
-  ({ children, className, glow = false, hover = false, ...props }, ref) => {
+  ({ children, className, glow = false, hover = false, onClick }, ref) => {
     return (
       <motion.div
         ref={ref}
@@ -18,13 +19,13 @@ export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
         whileHover={hover ? { scale: 1.02, transition: { duration: 0.2 } } : undefined}
+        onClick={onClick}
         className={cn(
           'glass-card rounded-lg p-6',
           glow && 'border-glow',
           hover && 'cursor-pointer transition-colors hover:border-primary/30',
           className
         )}
-        {...props}
       >
         {children}
       </motion.div>
