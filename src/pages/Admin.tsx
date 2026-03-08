@@ -16,7 +16,8 @@ import {
   RefreshCw,
   Flame,
   Coins,
-  Building2
+  Building2,
+  GitBranch
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
