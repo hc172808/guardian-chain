@@ -22,6 +22,7 @@ import DeFiPage from "./pages/DeFi";
 import TokenDetail from "./pages/TokenDetail";
 import NotFound from "./pages/NotFound";
 import CliReferencePage from "./pages/CliReference";
+import ResetPassword from "./pages/ResetPassword";
 
 const queryClient = new QueryClient();
 
