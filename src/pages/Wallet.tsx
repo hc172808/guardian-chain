@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { motion } from 'framer-motion';
 import { 
   Wallet as WalletIcon, 
@@ -23,7 +24,11 @@ import {
   TrendingUp,
   Loader2,
   Send,
-  ArrowRight
+  ArrowRight,
+  RefreshCw,
+  Shield,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -56,6 +61,12 @@ import {
   verifyPin,
   encryptWithPin,
   decryptWithPin,
+  rotatePin,
+  enablePinLock,
+  disablePinLock,
+  isPinLockEnabled,
+  verifyPinLock,
+  getPinLockStatus,
 } from '@/lib/walletCrypto';
 
 const WalletContent = () => {
@@ -79,6 +90,23 @@ const WalletContent = () => {
   const [sendTo, setSendTo] = useState('');
   const [sendAmount, setSendAmount] = useState('');
   const [sendLoading, setSendLoading] = useState(false);
+
+  // PIN rotation state
+  const [rotatePinDialogOpen, setRotatePinDialogOpen] = useState(false);
+  const [rotateWalletId, setRotateWalletId] = useState<string | null>(null);
+  const [oldPin, setOldPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmNewPin, setConfirmNewPin] = useState('');
+  const [rotateLoading, setRotateLoading] = useState(false);
+
+  // PIN lock state
+  const [pinLockEnabled, setPinLockEnabled] = useState(isPinLockEnabled());
+  const [pinLockDialogOpen, setPinLockDialogOpen] = useState(false);
+  const [pinLockInput, setPinLockInput] = useState('');
+  const [pinLockConfirm, setPinLockConfirm] = useState('');
+  const [appLocked, setAppLocked] = useState(isPinLockEnabled());
+  const [unlockPin, setUnlockPin] = useState('');
+  const [unlockError, setUnlockError] = useState('');
 
   useEffect(() => {
     fetchWallets();
