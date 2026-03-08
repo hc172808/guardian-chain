@@ -621,6 +621,9 @@ const RateLimitTab = () => {
   const deleteRule = async (id: string) => {
     await supabase.from('rate_limit_rules').delete().eq('id', id);
     toast({ title: 'Rule removed' });
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: 'Removed rate limit rule', category: 'firewall', target_type: 'rate_limit_rules', target_id: id,
+    });
     fetchRules();
   };
 
