@@ -16,7 +16,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
-GYDS_VERSION="2.0.0"
+GYDS_VERSION="2.1.0"
 GYDS_USER="gydschain"
 GYDS_HOME="/var/lib/gydschain"
 GYDS_BIN="/usr/local/bin"

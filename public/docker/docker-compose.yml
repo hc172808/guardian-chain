@@ -1,4 +1,4 @@
-# GydsChain Complete Stack v2.0
+# GydsChain Complete Stack v2.1.0
 # Usage: docker compose up -d
 # Deploy specific: docker compose up -d validator fullnode rpc
 

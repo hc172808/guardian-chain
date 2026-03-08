@@ -1,5 +1,5 @@
 #!/bin/bash
-# GydsChain Ecosystem Deployment v2.0
+# GydsChain Ecosystem Deployment v2.1.0
 # Deploys: Explorer, Indexer DB
 # Domain: netlifegy.com | Chain ID: 13370
 set -e

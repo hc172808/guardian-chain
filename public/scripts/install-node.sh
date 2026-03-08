@@ -1,5 +1,5 @@
 #!/bin/bash
-# GydsChain Node Installer v2.0
+# GydsChain Node Installer v2.1.0
 # Usage: bash install-node.sh [validator|fullnode|rpc|litenode]
 # Domain: netlifegy.com | Chain ID: 13370
 set -e
