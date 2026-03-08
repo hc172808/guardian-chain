@@ -260,6 +260,19 @@ const Auth = () => {
             </Button>
           </form>
 
+          {/* Forgot Password link (login only) */}
+          {isLogin && (
+            <div className="mt-3 text-center">
+              <button
+                type="button"
+                onClick={() => { setIsForgotPassword(true); setErrors({}); }}
+                className="text-sm text-muted-foreground hover:text-primary hover:underline"
+              >
+                Forgot your password?
+              </button>
+            </div>
+          )}
+
           {/* Toggle */}
           <div className="mt-6 text-center">
             <p className="text-sm text-muted-foreground">
@@ -276,6 +289,8 @@ const Auth = () => {
               </button>
             </p>
           </div>
+          </>
+          )}
         </div>
       </motion.div>
 
