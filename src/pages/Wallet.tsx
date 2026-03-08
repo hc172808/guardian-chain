@@ -28,7 +28,9 @@ import {
   RefreshCw,
   Shield,
   ShieldCheck,
-  ShieldAlert
+  ShieldAlert,
+  ArrowRightLeft,
+  Layers
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
