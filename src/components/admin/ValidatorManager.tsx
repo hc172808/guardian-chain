@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { logAuditEvent } from '@/lib/auditLog';
 import {
   Users, Plus, Trash2, Edit, CheckCircle, XCircle, Loader2, Shield,
 } from 'lucide-react';
