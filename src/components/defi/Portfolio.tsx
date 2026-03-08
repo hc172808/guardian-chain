@@ -136,14 +136,42 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
 
         // Add generic LP position if exists
         const genericLp = poolTxMap.get('generic-lp');
-        if (genericLp && genericLp.deposits > 0) {
+        if (genericLp && (genericLp.deposits - genericLp.withdrawals) > 0) {
           realPositions.push({
             id: 'generic-lp',
             tokenA: { symbol: 'GYD' },
             tokenB: { symbol: 'GYDS' },
             fee: '0.3%',
-            balance: genericLp.deposits,
-            pendingYield: genericLp.deposits * 0.0001,
+            balance: genericLp.deposits - genericLp.withdrawals,
+            pendingYield: (genericLp.deposits - genericLp.withdrawals) * 0.0001,
+            hasWarning: false,
+          });
+        }
+
+        // Add staking position
+        const staking = poolTxMap.get('staking');
+        if (staking && (staking.deposits - staking.withdrawals) > 0) {
+          realPositions.push({
+            id: 'staking',
+            tokenA: { symbol: 'GYD' },
+            tokenB: { symbol: 'xGYD' },
+            fee: '0%',
+            balance: staking.deposits - staking.withdrawals,
+            pendingYield: (staking.deposits - staking.withdrawals) * 0.002,
+            hasWarning: false,
+          });
+        }
+
+        // Add swap activity position
+        const swapActivity = poolTxMap.get('swap-activity');
+        if (swapActivity && swapActivity.deposits > 0) {
+          realPositions.push({
+            id: 'swap-activity',
+            tokenA: { symbol: 'GYDS' },
+            tokenB: { symbol: 'GYD' },
+            fee: '0.3%',
+            balance: swapActivity.deposits,
+            pendingYield: swapActivity.deposits * 0.00005,
             hasWarning: false,
           });
         }
