@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 
 interface NodeStats {
   id: string;
+  user_id: string;
   node_type: string;
   is_online: boolean;
   is_synced: boolean;

@@ -10,7 +10,7 @@ interface GlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
-  ({ children, className, glow = false, hover = false }, ref) => {
+  ({ children, className, glow = false, hover = false, ...props }, ref) => {
     return (
       <motion.div
         ref={ref}
@@ -24,6 +24,7 @@ export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
           hover && 'cursor-pointer transition-colors hover:border-primary/30',
           className
         )}
+        {...props}
       >
         {children}
       </motion.div>
