@@ -221,8 +221,10 @@ const WalletContent = () => {
   const handleViewSeed = async () => {
     if (!selectedWallet) return;
     const { data } = await supabase.from('wallets').select('encrypted_seed, pin_hash').eq('id', selectedWallet).single();
-    if (data && hashPin(pin) === data.pin_hash) {
-      const seed = decryptSeed(data.encrypted_seed, pin);
+    if (!data) { toast({ title: 'Wallet not found', variant: 'destructive' }); return; }
+    const pinValid = await verifyPin(pin, data.pin_hash);
+    if (pinValid) {
+      const seed = await decryptWithPin(data.encrypted_seed, pin);
       if (seed) setRevealedSeed(seed);
       else toast({ title: 'Failed to decrypt', variant: 'destructive' });
     } else {
