@@ -428,7 +428,7 @@ const WalletContent = () => {
       if (newStatus.locked) {
         setUnlockError('Too many failed attempts. Locked for 5 minutes.');
       } else {
-        setUnlockError(`Incorrect PIN. ${MAX_PIN_ATTEMPTS - newStatus.attempts} attempt(s) remaining.`);
+        setUnlockError(`Incorrect PIN. ${MAX_PIN_ATTEMPTS_DISPLAY - newStatus.attempts} attempt(s) remaining.`);
       }
     }
   };
