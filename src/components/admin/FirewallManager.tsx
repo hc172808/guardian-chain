@@ -612,6 +612,9 @@ const RateLimitTab = () => {
 
   const toggleRule = async (id: string, enabled: boolean) => {
     await supabase.from('rate_limit_rules').update({ is_enabled: !enabled }).eq('id', id);
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: enabled ? 'Disabled rate limit rule' : 'Enabled rate limit rule', category: 'firewall', target_type: 'rate_limit_rules', target_id: id,
+    });
     fetchRules();
   };
 
