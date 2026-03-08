@@ -50,43 +50,13 @@ interface TokenBalance {
   logo?: string;
 }
 
-// Simple crypto functions for demo
-const generateWallet = () => {
-  const chars = '0123456789abcdef';
-  let privateKey = '0x';
-  let address = '0x';
-  for (let i = 0; i < 64; i++) privateKey += chars[Math.floor(Math.random() * 16)];
-  for (let i = 0; i < 40; i++) address += chars[Math.floor(Math.random() * 16)];
-  const words = ['abandon','ability','able','about','above','absent','absorb','abstract','absurd','abuse','access','accident','account','accuse','achieve','acid','acoustic','acquire','across','act','action','actor','actress','actual'];
-  const seedPhrase = Array(12).fill(0).map(() => words[Math.floor(Math.random() * words.length)]).join(' ');
-  return { privateKey, address, seedPhrase };
-};
-
-const hashPin = (pin: string) => {
-  let hash = 0;
-  for (let i = 0; i < pin.length; i++) {
-    hash = ((hash << 5) - hash) + pin.charCodeAt(i);
-    hash = hash & hash;
-  }
-  return hash.toString(16);
-};
-
-const encryptSeed = (seed: string, pin: string) => {
-  return btoa(seed.split('').map((c, i) => 
-    String.fromCharCode(c.charCodeAt(0) ^ pin.charCodeAt(i % pin.length))
-  ).join(''));
-};
-
-const decryptSeed = (encrypted: string, pin: string) => {
-  try {
-    const decoded = atob(encrypted);
-    return decoded.split('').map((c, i) => 
-      String.fromCharCode(c.charCodeAt(0) ^ pin.charCodeAt(i % pin.length))
-    ).join('');
-  } catch {
-    return null;
-  }
-};
+import {
+  generateSecureWallet,
+  hashPin,
+  verifyPin,
+  encryptWithPin,
+  decryptWithPin,
+} from '@/lib/walletCrypto';
 
 const WalletContent = () => {
   const { user, isFounder } = useAuth();
@@ -215,9 +185,9 @@ const WalletContent = () => {
       toast({ title: 'PINs do not match', variant: 'destructive' });
       return;
     }
-    const wallet = generateWallet();
-    const encryptedSeed = encryptSeed(wallet.seedPhrase, pin);
-    const pinHash = hashPin(pin);
+    const wallet = generateSecureWallet();
+    const encryptedSeed = await encryptWithPin(wallet.seedPhrase, pin);
+    const pinHash = await hashPin(pin);
     const { error } = await supabase.from('wallets').insert({
       user_id: user!.id, address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
     });
@@ -233,9 +203,9 @@ const WalletContent = () => {
     if (pin.length < 4) { toast({ title: 'PIN must be at least 4 digits', variant: 'destructive' }); return; }
     if (pin !== confirmPin) { toast({ title: 'PINs do not match', variant: 'destructive' }); return; }
     if (!importSeed.trim()) { toast({ title: 'Please enter seed phrase', variant: 'destructive' }); return; }
-    const wallet = generateWallet();
-    const encryptedSeed = encryptSeed(importSeed.trim(), pin);
-    const pinHash = hashPin(pin);
+    const wallet = generateSecureWallet();
+    const encryptedSeed = await encryptWithPin(importSeed.trim(), pin);
+    const pinHash = await hashPin(pin);
     const { error } = await supabase.from('wallets').insert({
       user_id: user!.id, address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
     });
@@ -251,8 +221,10 @@ const WalletContent = () => {
   const handleViewSeed = async () => {
     if (!selectedWallet) return;
     const { data } = await supabase.from('wallets').select('encrypted_seed, pin_hash').eq('id', selectedWallet).single();
-    if (data && hashPin(pin) === data.pin_hash) {
-      const seed = decryptSeed(data.encrypted_seed, pin);
+    if (!data) { toast({ title: 'Wallet not found', variant: 'destructive' }); return; }
+    const pinValid = await verifyPin(pin, data.pin_hash);
+    if (pinValid) {
+      const seed = await decryptWithPin(data.encrypted_seed, pin);
       if (seed) setRevealedSeed(seed);
       else toast({ title: 'Failed to decrypt', variant: 'destructive' });
     } else {

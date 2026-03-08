@@ -9,6 +9,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { hashPin, encryptWithPin } from '@/lib/walletCrypto';
 import { 
   Crown, 
   Key, 
@@ -40,21 +41,7 @@ export const FounderWalletConfig = ({ onWalletConfigured }: FounderWalletConfigP
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
 
-  // Simple encryption for demo (use proper crypto in production)
-  const encryptData = (data: string, pin: string) => {
-    return btoa(data.split('').map((c, i) => 
-      String.fromCharCode(c.charCodeAt(0) ^ pin.charCodeAt(i % pin.length))
-    ).join(''));
-  };
-
-  const hashPin = (pin: string) => {
-    let hash = 0;
-    for (let i = 0; i < pin.length; i++) {
-      hash = ((hash << 5) - hash) + pin.charCodeAt(i);
-      hash = hash & hash;
-    }
-    return hash.toString(16);
-  };
+  // Encryption now uses the secure walletCrypto module
 
   const handleSaveFounderWallet = async () => {
     if (!isFounder) {
@@ -75,15 +62,18 @@ export const FounderWalletConfig = ({ onWalletConfigured }: FounderWalletConfigP
     setLoading(true);
 
     try {
-      // Encrypt seed phrase if provided
-      const encryptedSeed = seedPhrase ? encryptData(seedPhrase, pin) : encryptData('founder-genesis-wallet', pin);
+      // Encrypt seed phrase using AES-GCM
+      const encryptedSeed = await encryptWithPin(
+        seedPhrase || 'founder-genesis-wallet', pin
+      );
+      const pinHash = await hashPin(pin);
       
       // Save to database
       const { error } = await supabase.from('wallets').upsert({
         user_id: user!.id,
         address: walletAddress.toLowerCase(),
         encrypted_seed: encryptedSeed,
-        pin_hash: hashPin(pin),
+        pin_hash: pinHash,
       }, {
         onConflict: 'user_id,address'
       });
