@@ -13,6 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 // Standalone explorer - no Layout wrapper, no auth required
 const Explorer = () => {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
   const [blocks, setBlocks] = useState<Block[]>(() => generateMockBlocks(50).reverse());
