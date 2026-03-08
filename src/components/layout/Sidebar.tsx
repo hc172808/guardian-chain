@@ -20,7 +20,10 @@ import {
   BookOpen,
   ArrowRightLeft,
   Network,
-  Coins
+  Coins,
+  Star,
+  Terminal,
+  Droplets
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,7 +38,10 @@ const navItems = [
   { to: '/defi', icon: ArrowRightLeft, label: 'DeFi' },
   { to: '/wallet', icon: Wallet, label: 'Wallet' },
   { to: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
+  { to: '/watchlist', icon: Star, label: 'Watchlist' },
   { to: '/network', icon: Network, label: 'Network Config' },
+  { to: '/node-terminal', icon: Terminal, label: 'Node Terminal' },
+  { to: '/faucet', icon: Droplets, label: 'Testnet Faucet' },
   { to: '/protocol', icon: FileText, label: 'Protocol Docs' },
   { to: '/security', icon: Shield, label: 'Security Audit' },
   { to: '/download', icon: Download, label: 'Download' },
