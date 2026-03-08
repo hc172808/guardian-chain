@@ -40,7 +40,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FounderWalletConfig } from '@/components/wallet/FounderWalletConfig';
 import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
 
 interface WalletData {
   id: string;
