@@ -742,7 +742,7 @@ const DDoSProtectionTab = () => {
   };
 
   const toggleConfig = async (id: string, enabled: boolean) => {
-    await supabase.from('ddos_protection' as any).update({ is_enabled: !enabled }).eq('id', id);
+    await supabase.from('ddos_protection').update({ is_enabled: !enabled }).eq('id', id);
     fetchConfigs();
   };
 
