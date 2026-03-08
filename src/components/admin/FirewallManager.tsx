@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { logAuditEvent } from '@/lib/auditLog';
 import {
   Shield, Plus, Trash2, Edit, Loader2, CheckCircle, XCircle,
   Ban, Lock, Unlock, Globe, AlertTriangle, Wifi, Gauge, Zap, Timer,
@@ -92,6 +93,10 @@ const UfwRulesTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'Firewall rule added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Added UFW rule', category: 'firewall', target_type: 'firewall_rules',
+        details: { action: form.action, protocol: form.protocol, port: form.port, direction: form.direction },
+      });
       setDialogOpen(false);
       setForm({ action: 'allow', protocol: 'tcp', port: '', ip_address: '', direction: 'in', description: '' });
       fetchRules();
@@ -101,12 +106,18 @@ const UfwRulesTab = () => {
 
   const toggleRule = async (id: string, active: boolean) => {
     await supabase.from('firewall_rules').update({ is_active: !active }).eq('id', id);
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: active ? 'Disabled UFW rule' : 'Enabled UFW rule', category: 'firewall', target_type: 'firewall_rules', target_id: id,
+    });
     fetchRules();
   };
 
   const deleteRule = async (id: string) => {
     await supabase.from('firewall_rules').delete().eq('id', id);
     toast({ title: 'Rule removed' });
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: 'Removed UFW rule', category: 'firewall', target_type: 'firewall_rules', target_id: id,
+    });
     fetchRules();
   };
 
@@ -272,6 +283,10 @@ const Fail2BanTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'Fail2Ban jail added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Added Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails',
+        details: { jail_name: form.jail_name, max_retries: form.max_retries, ban_time: form.ban_time },
+      });
       setDialogOpen(false);
       setForm({ jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600', log_path: '', filter_name: '', description: '' });
       fetchJails();
@@ -281,12 +296,18 @@ const Fail2BanTab = () => {
 
   const toggleJail = async (id: string, enabled: boolean) => {
     await supabase.from('fail2ban_jails').update({ is_enabled: !enabled }).eq('id', id);
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: enabled ? 'Disabled Fail2Ban jail' : 'Enabled Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails', target_id: id,
+    });
     fetchJails();
   };
 
   const deleteJail = async (id: string) => {
     await supabase.from('fail2ban_jails').delete().eq('id', id);
     toast({ title: 'Jail removed' });
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: 'Removed Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails', target_id: id,
+    });
     fetchJails();
   };
 
@@ -424,6 +445,10 @@ const IpAccessListTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: `IP ${form.list_type === 'whitelist' ? 'whitelisted' : 'blacklisted'}` });
+      logAuditEvent(user.id, user.email || null, {
+        action: `Added IP to ${form.list_type}`, category: 'firewall', target_type: 'ip_access_list',
+        details: { ip_address: form.ip_address, list_type: form.list_type, reason: form.reason },
+      });
       setDialogOpen(false);
       setForm({ ip_address: '', list_type: 'whitelist', reason: '' });
       fetchEntries();
@@ -434,6 +459,9 @@ const IpAccessListTab = () => {
   const deleteEntry = async (id: string) => {
     await supabase.from('ip_access_list').delete().eq('id', id);
     toast({ title: 'IP entry removed' });
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: 'Removed IP entry', category: 'firewall', target_type: 'ip_access_list', target_id: id,
+    });
     fetchEntries();
   };
 
@@ -571,6 +599,10 @@ const RateLimitTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'Rate limit rule added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Added rate limit rule', category: 'firewall', target_type: 'rate_limit_rules',
+        details: { name: form.name, endpoint: form.endpoint, requests: form.requests_per_window, action: form.action },
+      });
       setDialogOpen(false);
       setForm({ name: '', endpoint: '', requests_per_window: '100', window_seconds: '60', burst_limit: '20', action: 'throttle', description: '' });
       fetchRules();
@@ -580,12 +612,18 @@ const RateLimitTab = () => {
 
   const toggleRule = async (id: string, enabled: boolean) => {
     await supabase.from('rate_limit_rules').update({ is_enabled: !enabled }).eq('id', id);
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: enabled ? 'Disabled rate limit rule' : 'Enabled rate limit rule', category: 'firewall', target_type: 'rate_limit_rules', target_id: id,
+    });
     fetchRules();
   };
 
   const deleteRule = async (id: string) => {
     await supabase.from('rate_limit_rules').delete().eq('id', id);
     toast({ title: 'Rule removed' });
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: 'Removed rate limit rule', category: 'firewall', target_type: 'rate_limit_rules', target_id: id,
+    });
     fetchRules();
   };
 
@@ -734,6 +772,10 @@ const DDoSProtectionTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'DDoS protection rule added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Added DDoS protection rule', category: 'firewall', target_type: 'ddos_protection',
+        details: { name: form.name, protection_type: form.protection_type, threshold: form.threshold, action: form.action },
+      });
       setDialogOpen(false);
       setForm({ name: '', protection_type: 'syn_flood', threshold: '1000', action: 'drop', description: '' });
       fetchConfigs();
@@ -743,12 +785,18 @@ const DDoSProtectionTab = () => {
 
   const toggleConfig = async (id: string, enabled: boolean) => {
     await supabase.from('ddos_protection').update({ is_enabled: !enabled }).eq('id', id);
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: enabled ? 'Disabled DDoS protection' : 'Enabled DDoS protection', category: 'firewall', target_type: 'ddos_protection', target_id: id,
+    });
     fetchConfigs();
   };
 
   const deleteConfig = async (id: string) => {
     await supabase.from('ddos_protection').delete().eq('id', id);
     toast({ title: 'Protection rule removed' });
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: 'Removed DDoS protection rule', category: 'firewall', target_type: 'ddos_protection', target_id: id,
+    });
     fetchConfigs();
   };
 
