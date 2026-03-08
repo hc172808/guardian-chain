@@ -38,6 +38,7 @@ import { FirewallManager } from '@/components/admin/FirewallManager';
 import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
+import { TokenManager } from '@/components/admin/TokenManager';
 
 interface UserProfile {
   id: string;
