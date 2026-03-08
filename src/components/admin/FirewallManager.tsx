@@ -445,6 +445,10 @@ const IpAccessListTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: `IP ${form.list_type === 'whitelist' ? 'whitelisted' : 'blacklisted'}` });
+      logAuditEvent(user.id, user.email || null, {
+        action: `Added IP to ${form.list_type}`, category: 'firewall', target_type: 'ip_access_list',
+        details: { ip_address: form.ip_address, list_type: form.list_type, reason: form.reason },
+      });
       setDialogOpen(false);
       setForm({ ip_address: '', list_type: 'whitelist', reason: '' });
       fetchEntries();
