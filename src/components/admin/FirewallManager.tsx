@@ -248,8 +248,8 @@ const Fail2BanTab = () => {
   });
 
   const fetchJails = async () => {
-    const { data } = await supabase.from('fail2ban_jails' as any).select('*').order('created_at', { ascending: false });
-    if (data) setJails(data as any);
+    const { data } = await supabase.from('fail2ban_jails').select('*').order('created_at', { ascending: false });
+    if (data) setJails(data as unknown as Fail2BanJail[]);
     setLoading(false);
   };
 
