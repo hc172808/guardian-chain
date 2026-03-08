@@ -43,7 +43,7 @@ echo "║        ██║   ██║ ╚██╔╝  ██║  ██║╚�
 echo "║        ╚██████╔╝  ██║   ██████╔╝███████║╚██████╗██║  ██║██║  ██║    ║"
 echo "║         ╚═════╝   ╚═╝   ╚═════╝ ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝    ║"
 echo "║                                                                       ║"
-echo "║        FULL NODE INSTALLER v${GYDS_VERSION} - FOUNDER EDITION                    ║"
+echo "║        FULL NODE INSTALLER v${GYDS_VERSION} - FOUNDER EDITION                   ║"
 echo "║                        netlifegy.com                                  ║"
 echo "║                                                                       ║"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
