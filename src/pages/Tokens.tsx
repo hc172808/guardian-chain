@@ -91,9 +91,11 @@ const TokensPage = () => {
   }, [user]);
 
   const filtered = tokens.filter(t =>
-    t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     t.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.address.toLowerCase().includes(searchQuery.toLowerCase())
+    t.address.toLowerCase().includes(searchQuery.toLowerCase())) &&
+    // Only show blocked tokens to their creator
+    (t.is_active || (user && t.creator_id === user.id))
   );
 
   return (
