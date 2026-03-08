@@ -51,6 +51,7 @@ const App = () => (
             <Route path="/docs" element={<DocsPage />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/cli" element={<CliReferencePage />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

@@ -68,6 +68,14 @@ import {
   verifyPinLock,
   getPinLockStatus,
 } from '@/lib/walletCrypto';
+import {
+  isBiometricAvailable,
+  isBiometricEnabled,
+  registerBiometric,
+  authenticateBiometric,
+  disableBiometric,
+} from '@/lib/biometric';
+import { Fingerprint } from 'lucide-react';
 
 const WalletContent = () => {
   const { user, isFounder } = useAuth();
