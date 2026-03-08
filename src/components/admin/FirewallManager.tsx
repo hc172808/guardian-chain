@@ -106,6 +106,9 @@ const UfwRulesTab = () => {
 
   const toggleRule = async (id: string, active: boolean) => {
     await supabase.from('firewall_rules').update({ is_active: !active }).eq('id', id);
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: active ? 'Disabled UFW rule' : 'Enabled UFW rule', category: 'firewall', target_type: 'firewall_rules', target_id: id,
+    });
     fetchRules();
   };
 
