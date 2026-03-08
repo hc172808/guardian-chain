@@ -39,6 +39,30 @@ export const PoolsList = () => {
   const [pools, setPools] = useState<Pool[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const { toast } = useToast();
+
+  const handlePoolAction = (action: string, pool: Pool) => {
+    const pair = `${pool.token_a_symbol}/${pool.token_b_symbol}`;
+    switch (action) {
+      case 'add':
+        toast({ title: 'Add Liquidity', description: `Opening deposit for ${pair}...` });
+        break;
+      case 'remove':
+        toast({ title: 'Remove Liquidity', description: `Opening withdrawal for ${pair}...` });
+        break;
+      case 'lock':
+        toast({ title: 'Lock Liquidity', description: `Locking liquidity for ${pair}...` });
+        break;
+      case 'analytics':
+        toast({ title: 'Pool Analytics', description: `Viewing analytics for ${pair}` });
+        break;
+      case 'close':
+        toast({ title: 'Close Pool', description: `Closing ${pair} pool...`, variant: 'destructive' });
+        break;
+      default:
+        toast({ title: action, description: `${action} for ${pair} — coming soon.` });
+    }
+  };
 
   const loadPools = async () => {
     setLoading(true);
