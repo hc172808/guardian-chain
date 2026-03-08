@@ -21,12 +21,15 @@ import {
   Coins,
   ArrowUpDown,
   TrendingUp,
-  Loader2
+  Loader2,
+  Send,
+  ArrowRight
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FounderWalletConfig } from '@/components/wallet/FounderWalletConfig';
 import { cn } from '@/lib/utils';
 
