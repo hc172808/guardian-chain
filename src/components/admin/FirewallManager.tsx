@@ -794,6 +794,9 @@ const DDoSProtectionTab = () => {
   const deleteConfig = async (id: string) => {
     await supabase.from('ddos_protection').delete().eq('id', id);
     toast({ title: 'Protection rule removed' });
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: 'Removed DDoS protection rule', category: 'firewall', target_type: 'ddos_protection', target_id: id,
+    });
     fetchConfigs();
   };
 
