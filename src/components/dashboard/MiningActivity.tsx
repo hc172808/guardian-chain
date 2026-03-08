@@ -1,37 +1,28 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { GlassCard } from '../ui/GlassCard';
-import { generateMockMiners, formatHashRate, Miner, MINING_REWARDS, estimateMiningEarnings } from '@/lib/blockchain';
-import { TOKENOMICS } from '@/config/wallets';
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart } from 'recharts';
-import { Activity, Cpu, MonitorPlay } from 'lucide-react';
+import { formatHashRate, MINING_REWARDS } from '@/lib/blockchain';
+import { supabase } from '@/integrations/supabase/client';
+import { Activity, Cpu, MonitorPlay, Loader2, Pickaxe } from 'lucide-react';
 
 export const MiningActivity = () => {
-  const [hashRateHistory, setHashRateHistory] = useState<{ time: string; hashRate: number }[]>([]);
+  const [minerCount, setMinerCount] = useState(0);
+  const [totalHashRate, setTotalHashRate] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Generate initial data
-    const initial = Array.from({ length: 20 }, (_, i) => ({
-      time: `${i}m`,
-      hashRate: Math.random() * 1e12 + 1e11,
-    }));
-    setHashRateHistory(initial);
-
-    // Update every 2 seconds
-    const interval = setInterval(() => {
-      setHashRateHistory(prev => {
-        const newData = [...prev.slice(1), {
-          time: `${prev.length}m`,
-          hashRate: Math.random() * 1e12 + 1e11,
-        }];
-        return newData;
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
+    const fetch = async () => {
+      const { data } = await supabase
+        .from('node_installations')
+        .select('hash_rate, valid_shares, is_online')
+        .eq('is_online', true);
+      if (data) {
+        setMinerCount(data.length);
+        setTotalHashRate(data.reduce((acc, n) => acc + (Number(n.hash_rate) || 0), 0));
+      }
+      setLoading(false);
+    };
+    fetch();
   }, []);
-
-  const miners = useMemo(() => generateMockMiners(5), []);
-  const totalHashRate = miners.reduce((acc, m) => acc + m.hashRate, 0);
 
   return (
     <GlassCard>
@@ -41,87 +32,59 @@ export const MiningActivity = () => {
           <h3 className="text-lg font-semibold">Mining Activity</h3>
         </div>
         <div className="text-right">
-          <p className="text-sm text-muted-foreground">Total Hash Rate</p>
-          <p className="font-mono font-bold text-gradient-primary">
-            {formatHashRate(totalHashRate)}
+          <p className="text-sm text-muted-foreground">Network Hash Rate</p>
+          <p className="font-mono font-bold text-primary">
+            {totalHashRate > 0 ? formatHashRate(totalHashRate) : '0 H/s'}
           </p>
         </div>
       </div>
 
-      <div className="h-48">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={hashRateHistory}>
-            <defs>
-              <linearGradient id="hashRateGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="hsl(173, 80%, 50%)" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="hsl(173, 80%, 50%)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <XAxis 
-              dataKey="time" 
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: 'hsl(215, 15%, 55%)', fontSize: 10 }}
-            />
-            <YAxis 
-              hide
-              domain={['dataMin - 1e11', 'dataMax + 1e11']}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(220, 20%, 9%)',
-                border: '1px solid hsl(220, 15%, 18%)',
-                borderRadius: '8px',
-              }}
-              formatter={(value: number) => [formatHashRate(value), 'Hash Rate']}
-            />
-            <Area
-              type="monotone"
-              dataKey="hashRate"
-              stroke="hsl(173, 80%, 50%)"
-              strokeWidth={2}
-              fill="url(#hashRateGradient)"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="mt-4 space-y-4">
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div>
-            <p className="text-xs text-muted-foreground">Active Miners</p>
-            <p className="font-mono font-bold">12,456</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Valid Shares (1h)</p>
-            <p className="font-mono font-bold text-neon-emerald">1.2M</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Rejected</p>
-            <p className="font-mono font-bold text-neon-rose">0.02%</p>
+      {loading ? (
+        <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : minerCount === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">
+          <Pickaxe className="h-10 w-10 mx-auto mb-3 opacity-50" />
+          <p>No active miners</p>
+          <p className="text-xs mt-1">Miners will appear here once nodes are online</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <p className="text-xs text-muted-foreground">Active Miners</p>
+              <p className="font-mono font-bold">{minerCount.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Network Hash Rate</p>
+              <p className="font-mono font-bold text-primary">{formatHashRate(totalHashRate)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Status</p>
+              <p className="font-mono font-bold text-primary">Active</p>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Mining Reward Rates */}
-        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border/50">
-          <div className="p-2 rounded bg-secondary/30">
-            <div className="flex items-center gap-1 mb-1">
-              <Cpu className="w-3 h-3 text-primary" />
-              <p className="text-xs text-muted-foreground">RandomX (1 KH/s)</p>
-            </div>
-            <p className="font-mono text-sm text-neon-emerald">
-              {MINING_REWARDS.randomx.referenceRates.dailyReward.toFixed(8)}/day
-            </p>
+      {/* Mining Reward Rates - always show */}
+      <div className="grid grid-cols-2 gap-3 pt-3 mt-4 border-t border-border/50">
+        <div className="p-2 rounded bg-secondary/30">
+          <div className="flex items-center gap-1 mb-1">
+            <Cpu className="w-3 h-3 text-primary" />
+            <p className="text-xs text-muted-foreground">RandomX (1 KH/s)</p>
           </div>
-          <div className="p-2 rounded bg-secondary/30">
-            <div className="flex items-center gap-1 mb-1">
-              <MonitorPlay className="w-3 h-3 text-primary" />
-              <p className="text-xs text-muted-foreground">kHeavyHash (1 TH/s)</p>
-            </div>
-            <p className="font-mono text-sm text-neon-emerald">
-              {MINING_REWARDS.kheavyhash.referenceRates.dailyReward.toFixed(8)}/day
-            </p>
+          <p className="font-mono text-sm text-primary">
+            {MINING_REWARDS.randomx.referenceRates.dailyReward.toFixed(8)}/day
+          </p>
+        </div>
+        <div className="p-2 rounded bg-secondary/30">
+          <div className="flex items-center gap-1 mb-1">
+            <MonitorPlay className="w-3 h-3 text-primary" />
+            <p className="text-xs text-muted-foreground">kHeavyHash (1 TH/s)</p>
           </div>
+          <p className="font-mono text-sm text-primary">
+            {MINING_REWARDS.kheavyhash.referenceRates.dailyReward.toFixed(8)}/day
+          </p>
         </div>
       </div>
     </GlassCard>

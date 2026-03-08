@@ -90,6 +90,9 @@ const Validators = () => {
           </GlassCard>
         </div>
 
+        {/* Staking Rewards Calculator */}
+        <StakingCalculator validators={validators} />
+
         {/* My Delegations - only for logged-in users */}
         {user && (
           <MyDelegations validators={validators} onUpdate={fetchValidators} />
