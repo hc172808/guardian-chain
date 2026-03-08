@@ -547,8 +547,8 @@ const RateLimitTab = () => {
   });
 
   const fetchRules = async () => {
-    const { data } = await supabase.from('rate_limit_rules' as any).select('*').order('created_at', { ascending: false });
-    if (data) setRules(data as any);
+    const { data } = await supabase.from('rate_limit_rules').select('*').order('created_at', { ascending: false });
+    if (data) setRules(data);
     setLoading(false);
   };
 
