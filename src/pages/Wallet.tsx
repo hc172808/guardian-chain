@@ -203,9 +203,9 @@ const WalletContent = () => {
     if (pin.length < 4) { toast({ title: 'PIN must be at least 4 digits', variant: 'destructive' }); return; }
     if (pin !== confirmPin) { toast({ title: 'PINs do not match', variant: 'destructive' }); return; }
     if (!importSeed.trim()) { toast({ title: 'Please enter seed phrase', variant: 'destructive' }); return; }
-    const wallet = generateWallet();
-    const encryptedSeed = encryptSeed(importSeed.trim(), pin);
-    const pinHash = hashPin(pin);
+    const wallet = generateSecureWallet();
+    const encryptedSeed = await encryptWithPin(importSeed.trim(), pin);
+    const pinHash = await hashPin(pin);
     const { error } = await supabase.from('wallets').insert({
       user_id: user!.id, address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
     });
