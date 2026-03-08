@@ -747,7 +747,7 @@ const DDoSProtectionTab = () => {
   };
 
   const deleteConfig = async (id: string) => {
-    await supabase.from('ddos_protection' as any).delete().eq('id', id);
+    await supabase.from('ddos_protection').delete().eq('id', id);
     toast({ title: 'Protection rule removed' });
     fetchConfigs();
   };
