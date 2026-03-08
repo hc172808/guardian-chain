@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { 
-  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, Image as ImageIcon
+  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -33,7 +33,25 @@ interface TokenCreationParams {
   authorities: TokenAuthority;
   lpLockType: 'burn' | 'timelock';
   timelockDays: number;
+  maxBuyPerWallet: string;
+  dailyBuyLimit: string;
 }
+
+interface AdminPricing {
+  deployment_fee: number;
+  freeze_authority_fee: number;
+  update_authority_fee: number;
+  mint_authority_fee: number;
+  min_liquidity: number;
+}
+
+const DEFAULT_PRICING: AdminPricing = {
+  deployment_fee: 100,
+  freeze_authority_fee: 50,
+  update_authority_fee: 25,
+  mint_authority_fee: 200,
+  min_liquidity: 100,
+};
 
 export const TokenFactory = () => {
   const { toast } = useToast();
@@ -42,6 +60,7 @@ export const TokenFactory = () => {
   const [creating, setCreating] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [pricing, setPricing] = useState<AdminPricing>(DEFAULT_PRICING);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [params, setParams] = useState<TokenCreationParams>({
@@ -49,18 +68,37 @@ export const TokenFactory = () => {
     gydsLiquidity: '1000',
     authorities: { freeze: false, update: false, mint: false },
     lpLockType: 'burn', timelockDays: 365,
+    maxBuyPerWallet: '10000',
+    dailyBuyLimit: '5000',
   });
 
-  const deploymentFee = 100;
-  const freezeAuthorityFee = 50;
-  const updateAuthorityFee = 25;
-  const mintAuthorityFee = 200;
+  // Load admin pricing from config
+  useEffect(() => {
+    const loadPricing = async () => {
+      const { data } = await supabase
+        .from('admin_config')
+        .select('config_value')
+        .eq('config_key', 'token_factory_pricing')
+        .maybeSingle();
+      if (data?.config_value) {
+        const val = data.config_value as Record<string, number>;
+        setPricing({
+          deployment_fee: val.deployment_fee ?? DEFAULT_PRICING.deployment_fee,
+          freeze_authority_fee: val.freeze_authority_fee ?? DEFAULT_PRICING.freeze_authority_fee,
+          update_authority_fee: val.update_authority_fee ?? DEFAULT_PRICING.update_authority_fee,
+          mint_authority_fee: val.mint_authority_fee ?? DEFAULT_PRICING.mint_authority_fee,
+          min_liquidity: val.min_liquidity ?? DEFAULT_PRICING.min_liquidity,
+        });
+      }
+    };
+    loadPricing();
+  }, []);
 
   const calculateTotalFees = () => {
-    let total = deploymentFee;
-    if (params.authorities.freeze) total += freezeAuthorityFee;
-    if (params.authorities.update) total += updateAuthorityFee;
-    if (params.authorities.mint) total += mintAuthorityFee;
+    let total = pricing.deployment_fee;
+    if (params.authorities.freeze) total += pricing.freeze_authority_fee;
+    if (params.authorities.update) total += pricing.update_authority_fee;
+    if (params.authorities.mint) total += pricing.mint_authority_fee;
     return total;
   };
 
@@ -86,8 +124,21 @@ export const TokenFactory = () => {
       toast({ title: 'Token name and symbol are required', variant: 'destructive' });
       return;
     }
-    if (parseFloat(params.gydsLiquidity) < 100) {
-      toast({ title: 'Minimum 100 GYDS liquidity required', variant: 'destructive' });
+    if (parseFloat(params.gydsLiquidity) < pricing.min_liquidity) {
+      toast({ title: `Minimum ${pricing.min_liquidity} GYDS liquidity required`, variant: 'destructive' });
+      return;
+    }
+
+    const maxBuy = parseFloat(params.maxBuyPerWallet || '0');
+    const dailyLimit = parseFloat(params.dailyBuyLimit || '0');
+    const supply = parseFloat(params.initialSupply || '0');
+
+    if (maxBuy > supply) {
+      toast({ title: 'Max buy per wallet cannot exceed total supply', variant: 'destructive' });
+      return;
+    }
+    if (dailyLimit > maxBuy) {
+      toast({ title: 'Daily buy limit cannot exceed max wallet holding', variant: 'destructive' });
       return;
     }
 
@@ -95,7 +146,6 @@ export const TokenFactory = () => {
     try {
       let logoUrl: string | null = null;
 
-      // Upload logo if provided
       if (logoFile) {
         const ext = logoFile.name.split('.').pop();
         const path = `${user.id}/${params.symbol.toLowerCase()}-${Date.now()}.${ext}`;
@@ -107,7 +157,6 @@ export const TokenFactory = () => {
         logoUrl = urlData.publicUrl;
       }
 
-      // Generate address
       const address = '0x' + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 
       const { error } = await supabase.from('tokens').insert({
@@ -130,6 +179,16 @@ export const TokenFactory = () => {
 
       if (error) throw error;
 
+      // Store purchase limits in admin_config keyed by token address
+      await supabase.from('admin_config').upsert({
+        config_key: `token_limits_${address}`,
+        config_value: {
+          max_buy_per_wallet: maxBuy,
+          daily_buy_limit: dailyLimit,
+        } as any,
+        updated_by: user.id,
+      }, { onConflict: 'config_key' });
+
       toast({ title: 'Token Created!', description: `${params.name} (${params.symbol}) is now live on the marketplace.` });
       setDialogOpen(false);
       resetForm();
@@ -146,6 +205,8 @@ export const TokenFactory = () => {
       gydsLiquidity: '1000',
       authorities: { freeze: false, update: false, mint: false },
       lpLockType: 'burn', timelockDays: 365,
+      maxBuyPerWallet: '10000',
+      dailyBuyLimit: '5000',
     });
     setLogoFile(null);
     setLogoPreview(null);
@@ -181,7 +242,7 @@ export const TokenFactory = () => {
             <p className="text-sm text-muted-foreground">Supply burned from creator → deposited to LP Bank</p>
           </div>
           <div className="p-4 rounded-lg bg-secondary/30">
-            <Shield className="h-5 w-5 text-neon-emerald mb-2" />
+            <Shield className="h-5 w-5 text-primary mb-2" />
             <h3 className="font-medium">GYDS Backed</h3>
             <p className="text-sm text-muted-foreground">All tokens require mandatory GYDS liquidity</p>
           </div>
@@ -252,15 +313,72 @@ export const TokenFactory = () => {
                 </AccordionContent>
               </AccordionItem>
 
+              <AccordionItem value="limits">
+                <AccordionTrigger>
+                  <div className="flex items-center gap-2"><Badge variant="outline">2</Badge> Purchase Limits</div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-4 pt-4">
+                  <p className="text-sm text-muted-foreground">Set limits to prevent whale accumulation and ensure fair distribution.</p>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <ShoppingCart className="h-4 w-4" /> Max Buy Per Wallet
+                      </Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={params.maxBuyPerWallet}
+                        onChange={(e) => setParams({ ...params, maxBuyPerWallet: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Maximum tokens a single wallet can hold. Once reached, wallet cannot buy more.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4" /> Daily Buy Limit
+                      </Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={params.dailyBuyLimit}
+                        onChange={(e) => setParams({ ...params, dailyBuyLimit: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Maximum tokens a wallet can purchase per day (24h rolling window).
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Preview */}
+                  <div className="p-3 rounded-lg bg-secondary/30 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Max wallet holding</span>
+                      <span className="font-mono">{parseFloat(params.maxBuyPerWallet || '0').toLocaleString()} {params.symbol || 'TOKEN'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Daily limit</span>
+                      <span className="font-mono">{parseFloat(params.dailyBuyLimit || '0').toLocaleString()} {params.symbol || 'TOKEN'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">% of supply (wallet)</span>
+                      <span className="font-mono">
+                        {((parseFloat(params.maxBuyPerWallet || '0') / parseFloat(params.initialSupply || '1')) * 100).toFixed(2)}%
+                      </span>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
               <AccordionItem value="liquidity">
                 <AccordionTrigger>
-                  <div className="flex items-center gap-2"><Badge variant="outline">2</Badge> GYDS Liquidity</div>
+                  <div className="flex items-center gap-2"><Badge variant="outline">3</Badge> GYDS Liquidity</div>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pt-4">
                   <div className="space-y-2">
                     <Label>GYDS Liquidity Amount</Label>
-                    <Input type="number" min={100} value={params.gydsLiquidity} onChange={(e) => setParams({ ...params, gydsLiquidity: e.target.value })} />
-                    <p className="text-xs text-muted-foreground">Minimum 100 GYDS required.</p>
+                    <Input type="number" min={pricing.min_liquidity} value={params.gydsLiquidity} onChange={(e) => setParams({ ...params, gydsLiquidity: e.target.value })} />
+                    <p className="text-xs text-muted-foreground">Minimum {pricing.min_liquidity} GYDS required.</p>
                   </div>
                   <div className="space-y-2">
                     <Label>LP Lock Type</Label>
@@ -284,7 +402,7 @@ export const TokenFactory = () => {
 
               <AccordionItem value="authorities">
                 <AccordionTrigger>
-                  <div className="flex items-center gap-2"><Badge variant="outline">3</Badge> Authorities (Optional)</div>
+                  <div className="flex items-center gap-2"><Badge variant="outline">4</Badge> Authorities (Optional)</div>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pt-4">
                   <p className="text-sm text-muted-foreground">Authorities can be renounced later. Extra GYDS fees apply.</p>
@@ -292,21 +410,21 @@ export const TokenFactory = () => {
                     <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
                       <div>
                         <p className="font-medium">Freeze Authority</p>
-                        <p className="text-xs text-muted-foreground">Pause/unpause transfers • +{freezeAuthorityFee} GYDS</p>
+                        <p className="text-xs text-muted-foreground">Pause/unpause transfers • +{pricing.freeze_authority_fee} GYDS</p>
                       </div>
                       <Switch checked={params.authorities.freeze} onCheckedChange={(checked) => setParams({ ...params, authorities: { ...params.authorities, freeze: checked } })} />
                     </div>
                     <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
                       <div>
                         <p className="font-medium">Update Authority</p>
-                        <p className="text-xs text-muted-foreground">Modify metadata • +{updateAuthorityFee} GYDS</p>
+                        <p className="text-xs text-muted-foreground">Modify metadata • +{pricing.update_authority_fee} GYDS</p>
                       </div>
                       <Switch checked={params.authorities.update} onCheckedChange={(checked) => setParams({ ...params, authorities: { ...params.authorities, update: checked } })} />
                     </div>
-                    <div className="flex items-center justify-between p-3 rounded-lg border border-yellow-500/30 bg-yellow-500/5">
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
                       <div>
-                        <p className="font-medium flex items-center gap-2">Mint Authority <AlertTriangle className="h-3 w-3 text-yellow-500" /></p>
-                        <p className="text-xs text-muted-foreground">Create new tokens • +{mintAuthorityFee} GYDS</p>
+                        <p className="font-medium flex items-center gap-2">Mint Authority <AlertTriangle className="h-3 w-3 text-amber-500" /></p>
+                        <p className="text-xs text-muted-foreground">Create new tokens • +{pricing.mint_authority_fee} GYDS</p>
                       </div>
                       <Switch checked={params.authorities.mint} onCheckedChange={(checked) => setParams({ ...params, authorities: { ...params.authorities, mint: checked } })} />
                     </div>
@@ -318,10 +436,10 @@ export const TokenFactory = () => {
             <GlassCard className="p-4">
               <h4 className="font-medium mb-3">Cost Summary</h4>
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Deployment Fee</span><span>{deploymentFee} GYDS</span></div>
-                {params.authorities.freeze && <div className="flex justify-between"><span className="text-muted-foreground">Freeze Authority</span><span>{freezeAuthorityFee} GYDS</span></div>}
-                {params.authorities.update && <div className="flex justify-between"><span className="text-muted-foreground">Update Authority</span><span>{updateAuthorityFee} GYDS</span></div>}
-                {params.authorities.mint && <div className="flex justify-between"><span className="text-muted-foreground">Mint Authority</span><span>{mintAuthorityFee} GYDS</span></div>}
+                <div className="flex justify-between"><span className="text-muted-foreground">Deployment Fee</span><span>{pricing.deployment_fee} GYDS</span></div>
+                {params.authorities.freeze && <div className="flex justify-between"><span className="text-muted-foreground">Freeze Authority</span><span>{pricing.freeze_authority_fee} GYDS</span></div>}
+                {params.authorities.update && <div className="flex justify-between"><span className="text-muted-foreground">Update Authority</span><span>{pricing.update_authority_fee} GYDS</span></div>}
+                {params.authorities.mint && <div className="flex justify-between"><span className="text-muted-foreground">Mint Authority</span><span>{pricing.mint_authority_fee} GYDS</span></div>}
                 <div className="flex justify-between"><span className="text-muted-foreground">LP Liquidity</span><span>{params.gydsLiquidity} GYDS</span></div>
                 <div className="border-t pt-2 flex justify-between font-bold"><span>Total Required</span><span className="text-primary">{calculateTotalGyds().toLocaleString()} GYDS</span></div>
               </div>
