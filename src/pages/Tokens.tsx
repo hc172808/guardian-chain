@@ -5,7 +5,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { motion } from 'framer-motion';
-import { Coins, Plus, Eye, Search, AlertTriangle, ArrowLeftRight, Loader2 } from 'lucide-react';
+import { Coins, Plus, Eye, Search, AlertTriangle, ArrowLeftRight, Loader2, Shield } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
