@@ -38,6 +38,7 @@ import { FirewallManager } from '@/components/admin/FirewallManager';
 import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
+import { TokenManager } from '@/components/admin/TokenManager';
 
 interface UserProfile {
   id: string;
@@ -223,6 +224,10 @@ const AdminContent = () => {
             <Coins className="h-4 w-4" />
             <span className="hidden md:inline">Pricing</span>
           </TabsTrigger>
+          <TabsTrigger value="token-mgmt" className="gap-2">
+            <Coins className="h-4 w-4" />
+            <span className="hidden md:inline">Tokens</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="validators">
@@ -308,6 +313,10 @@ const AdminContent = () => {
 
         <TabsContent value="token-pricing">
           <TokenPricingManager />
+        </TabsContent>
+
+        <TabsContent value="token-mgmt">
+          <TokenManager />
         </TabsContent>
 
         <TabsContent value="nodes" className="space-y-4">
