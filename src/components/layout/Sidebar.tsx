@@ -20,7 +20,10 @@ import {
   BookOpen,
   ArrowRightLeft,
   Network,
-  Coins
+  Coins,
+  Star,
+  Terminal,
+  Droplets
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
