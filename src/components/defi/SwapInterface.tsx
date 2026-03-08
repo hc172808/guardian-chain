@@ -433,14 +433,18 @@ export const SwapInterface = () => {
             onClick={() => { setPayToken(token); }}
           >
             <div className="flex items-center gap-3">
-              <div className={cn(
-                "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
-                token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-                token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
-                "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
-              )}>
-                {token.symbol[0]}
-              </div>
+              {token.logo ? (
+                <img src={token.logo} alt={token.symbol} className="w-10 h-10 rounded-full object-cover" />
+              ) : (
+                <div className={cn(
+                  "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
+                  token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+                  token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                  "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+                )}>
+                  {token.symbol[0]}
+                </div>
+              )}
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">{token.symbol}</span>
