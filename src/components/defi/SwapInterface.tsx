@@ -104,14 +104,18 @@ const TokenSelector = ({
               )}
               onClick={() => { onSelect(token); onOpenChange(false); setSearch(''); }}
             >
-              <div className={cn(
-                "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-                token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
-                "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
-              )}>
-                {token.symbol[0]}
-              </div>
+              {token.logo ? (
+                <img src={token.logo} alt={token.symbol} className="w-8 h-8 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className={cn(
+                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                  token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+                  token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                  "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+                )}>
+                  {token.symbol[0]}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm">{token.symbol}</div>
                 <div className="text-xs text-muted-foreground truncate">{token.name}</div>
