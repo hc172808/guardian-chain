@@ -414,7 +414,7 @@ const IpAccessListTab = () => {
   const handleAdd = async () => {
     if (!user || !form.ip_address) return;
     setSaving(true);
-    const { error } = await supabase.from('ip_access_list' as any).insert({
+    const { error } = await supabase.from('ip_access_list').insert({
       ip_address: form.ip_address,
       list_type: form.list_type,
       reason: form.reason || null,
