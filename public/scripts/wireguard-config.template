@@ -1,61 +1,56 @@
 # ╔════════════════════════════════════════════════════════════════════════╗
-# ║           GYDSchain WireGuard Configuration - netlifegy.com            ║
+# ║           GydsChain WireGuard Configuration v2.0                       ║
+# ║           Domain: vpn.netlifegy.com | Chain ID: 13370                  ║
 # ╚════════════════════════════════════════════════════════════════════════╝
 #
-# This is a template configuration file for WireGuard VPN connection
-# to the GYDSchain network at netlifegy.com
-#
 # Instructions:
-# 1. Fill in your private key (keep secret!)
-# 2. Get your assigned IP from the admin
-# 3. Get the server public key from the admin
-# 4. Save this file as /etc/wireguard/wg0.conf (Linux) or appropriate location
-# 5. Run: wg-quick up wg0
+# 1. Generate keypair: wg genkey | tee privatekey | wg pubkey > publickey
+# 2. Fill in your private key below (keep secret!)
+# 3. Get your assigned IP and server public key from admin
+# 4. Save as /etc/wireguard/wg0.conf (Linux) or equivalent
+# 5. Start: wg-quick up wg0
 #
 # ─────────────────────────────────────────────────────────────────────────
 
 [Interface]
 # Your private key - NEVER SHARE THIS!
-# Generate with: wg genkey
 PrivateKey = YOUR_PRIVATE_KEY_HERE
 
-# Your assigned IP address on the VPN
-# Format: 10.0.0.X/32 where X is assigned by admin
+# Your assigned VPN IP (get from admin)
 Address = 10.0.0.100/32
 
-# DNS server (optional, for name resolution)
+# DNS servers
 DNS = 1.1.1.1, 8.8.8.8
 
-# Optional: Save config on wg-quick down
+# MTU (optimize for your connection)
+MTU = 1420
+
 SaveConfig = false
 
 # ─────────────────────────────────────────────────────────────────────────
 
 [Peer]
-# GYDSchain VPN Server Public Key
-# Get this from the network admin
+# GydsChain VPN Server Public Key (get from admin)
 PublicKey = SERVER_PUBLIC_KEY_HERE
 
 # Pre-shared key for additional security (optional)
-# Generate with: wg genpsk
 # PresharedKey = YOUR_PRESHARED_KEY_HERE
 
-# Server endpoint - vpn.netlifegy.com
+# Server endpoint
 Endpoint = vpn.netlifegy.com:51820
 
-# Networks accessible through this VPN
-# This allows access to the internal GYDSchain node network
+# Internal node network
 AllowedIPs = 10.0.0.0/24
 
-# Keep connection alive (important for mobile/NAT)
+# Keep alive (important for mobile/NAT)
 PersistentKeepalive = 25
 
 # ─────────────────────────────────────────────────────────────────────────
-# 
-# ENVIRONMENT VARIABLES (for use in .env file):
+#
+# ENVIRONMENT VARIABLES (for node.env):
 #
 # GYDS_WG_PRIVATE_KEY=your_private_key
-# GYDS_WG_PUBLIC_KEY=your_public_key  
+# GYDS_WG_PUBLIC_KEY=your_public_key
 # GYDS_WG_SERVER_ENDPOINT=vpn.netlifegy.com
 # GYDS_WG_SERVER_PORT=51820
 # GYDS_WG_SERVER_PUBKEY=server_public_key
@@ -69,13 +64,8 @@ PersistentKeepalive = 25
 # Generate keypair:
 #   wg genkey | tee privatekey | wg pubkey > publickey
 #
-# Start VPN:
-#   wg-quick up wg0
-#
-# Stop VPN:
-#   wg-quick down wg0
-#
-# Check status:
-#   wg show
+# Start VPN:    wg-quick up wg0
+# Stop VPN:     wg-quick down wg0
+# Check status: wg show
 #
 # ─────────────────────────────────────────────────────────────────────────
