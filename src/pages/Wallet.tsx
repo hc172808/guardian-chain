@@ -50,43 +50,13 @@ interface TokenBalance {
   logo?: string;
 }
 
-// Simple crypto functions for demo
-const generateWallet = () => {
-  const chars = '0123456789abcdef';
-  let privateKey = '0x';
-  let address = '0x';
-  for (let i = 0; i < 64; i++) privateKey += chars[Math.floor(Math.random() * 16)];
-  for (let i = 0; i < 40; i++) address += chars[Math.floor(Math.random() * 16)];
-  const words = ['abandon','ability','able','about','above','absent','absorb','abstract','absurd','abuse','access','accident','account','accuse','achieve','acid','acoustic','acquire','across','act','action','actor','actress','actual'];
-  const seedPhrase = Array(12).fill(0).map(() => words[Math.floor(Math.random() * words.length)]).join(' ');
-  return { privateKey, address, seedPhrase };
-};
-
-const hashPin = (pin: string) => {
-  let hash = 0;
-  for (let i = 0; i < pin.length; i++) {
-    hash = ((hash << 5) - hash) + pin.charCodeAt(i);
-    hash = hash & hash;
-  }
-  return hash.toString(16);
-};
-
-const encryptSeed = (seed: string, pin: string) => {
-  return btoa(seed.split('').map((c, i) => 
-    String.fromCharCode(c.charCodeAt(0) ^ pin.charCodeAt(i % pin.length))
-  ).join(''));
-};
-
-const decryptSeed = (encrypted: string, pin: string) => {
-  try {
-    const decoded = atob(encrypted);
-    return decoded.split('').map((c, i) => 
-      String.fromCharCode(c.charCodeAt(0) ^ pin.charCodeAt(i % pin.length))
-    ).join('');
-  } catch {
-    return null;
-  }
-};
+import {
+  generateSecureWallet,
+  hashPin,
+  verifyPin,
+  encryptWithPin,
+  decryptWithPin,
+} from '@/lib/walletCrypto';
 
 const WalletContent = () => {
   const { user, isFounder } = useAuth();
