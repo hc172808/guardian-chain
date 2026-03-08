@@ -68,8 +68,8 @@ const UfwRulesTab = () => {
   });
 
   const fetchRules = async () => {
-    const { data } = await supabase.from('firewall_rules' as any).select('*').order('created_at', { ascending: false });
-    if (data) setRules(data as any);
+    const { data } = await supabase.from('firewall_rules').select('*').order('created_at', { ascending: false });
+    if (data) setRules(data as unknown as FirewallRule[]);
     setLoading(false);
   };
 
