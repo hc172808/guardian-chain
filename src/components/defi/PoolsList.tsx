@@ -3,10 +3,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Plus, Search, Filter, Settings, Circle, AlertTriangle, MoreHorizontal, Droplets } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Plus, Search, Filter, MoreHorizontal, Droplets, FileText, Sprout, Lock, ArrowLeftRight, X, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { CreatePool } from './CreatePool';
+import { useToast } from '@/hooks/use-toast';
 
 interface Pool {
   id: string;
