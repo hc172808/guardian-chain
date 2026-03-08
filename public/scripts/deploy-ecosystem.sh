@@ -1,6 +1,6 @@
 #!/bin/bash
 # GydsChain Ecosystem Deployment v2.0
-# Deploys: Explorer, Indexer, Staking Dashboard
+# Deploys: Explorer, Indexer DB
 # Domain: netlifegy.com | Chain ID: 13370
 set -e
 
@@ -11,8 +11,8 @@ NC='\033[0m'
 
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════╗"
-echo "║       GydsChain Ecosystem Deployment v2.0                 ║"
-echo "║       netlifegy.com                                       ║"
+echo "║     GydsChain Ecosystem Deployment v2.0                   ║"
+echo "║     netlifegy.com | Chain ID: 13370                       ║"
 echo "╚═══════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -36,10 +36,10 @@ fi
 
 cd "$(dirname "$0")/../docker"
 
-# Set secure indexer password if not set
+# Set secure indexer password
 if [ -z "$INDEXER_DB_PASSWORD" ]; then
     export INDEXER_DB_PASSWORD=$(openssl rand -hex 16)
-    echo -e "${GREEN}Generated indexer DB password: $INDEXER_DB_PASSWORD${NC}"
+    echo -e "${GREEN}Generated indexer DB password${NC}"
     echo "INDEXER_DB_PASSWORD=$INDEXER_DB_PASSWORD" >> .env 2>/dev/null || true
 fi
 
@@ -57,6 +57,8 @@ echo ""
 echo -e "${CYAN}Public Endpoints:${NC}"
 echo -e "  explorer.netlifegy.com     - Block Explorer"
 echo -e "  rpc.netlifegy.com          - Main RPC"
+echo -e "  rpc2.netlifegy.com         - Backup RPC #1"
+echo -e "  rpc3.netlifegy.com         - Backup RPC #2"
 echo -e "  ws.netlifegy.com           - WebSocket"
 echo ""
 echo -e "${CYAN}Manage:${NC}"
