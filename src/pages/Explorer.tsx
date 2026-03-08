@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { generateMockBlocks, Block, Transaction } from '@/lib/blockchain';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins } from 'lucide-react';
+import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
