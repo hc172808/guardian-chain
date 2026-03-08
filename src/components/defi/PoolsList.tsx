@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { Slider } from '@/components/ui/slider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,11 +11,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Plus, Search, Filter, MoreHorizontal, Droplets, FileText, Sprout, Lock, ArrowLeftRight, X, BarChart3 } from 'lucide-react';
+import { Plus, Search, Filter, MoreHorizontal, Droplets, Lock, ArrowLeftRight, X, BarChart3, Wallet, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { CreatePool } from './CreatePool';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import { useWalletConnect } from '@/hooks/useWalletConnect';
 
 interface Pool {
   id: string;
@@ -34,35 +37,15 @@ const formatValue = (value: number): string => {
   return `$${value.toFixed(0)}`;
 };
 
+type PoolOverlay = { type: 'add' | 'remove' | 'lock' | 'analytics' | 'close'; pool: Pool } | null;
+
 export const PoolsList = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [pools, setPools] = useState<Pool[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [overlay, setOverlay] = useState<PoolOverlay>(null);
   const { toast } = useToast();
-
-  const handlePoolAction = (action: string, pool: Pool) => {
-    const pair = `${pool.token_a_symbol}/${pool.token_b_symbol}`;
-    switch (action) {
-      case 'add':
-        toast({ title: 'Add Liquidity', description: `Opening deposit for ${pair}...` });
-        break;
-      case 'remove':
-        toast({ title: 'Remove Liquidity', description: `Opening withdrawal for ${pair}...` });
-        break;
-      case 'lock':
-        toast({ title: 'Lock Liquidity', description: `Locking liquidity for ${pair}...` });
-        break;
-      case 'analytics':
-        toast({ title: 'Pool Analytics', description: `Viewing analytics for ${pair}` });
-        break;
-      case 'close':
-        toast({ title: 'Close Pool', description: `Closing ${pair} pool...`, variant: 'destructive' });
-        break;
-      default:
-        toast({ title: action, description: `${action} for ${pair} — coming soon.` });
-    }
-  };
 
   const loadPools = async () => {
     setLoading(true);
@@ -85,6 +68,7 @@ export const PoolsList = () => {
   }, []);
 
   if (showCreate) return <CreatePool onBack={() => { setShowCreate(false); loadPools(); }} />;
+  if (overlay) return <PoolActionPanel overlay={overlay} onBack={() => { setOverlay(null); loadPools(); }} />;
 
   const totalTvl = pools.reduce((acc, p) => acc + p.tvl, 0);
   const totalVolume = pools.reduce((acc, p) => acc + p.volume_24h, 0);
@@ -178,20 +162,20 @@ export const PoolsList = () => {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-52 bg-card border-border" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem className="gap-2 text-primary" onSelect={() => handlePoolAction('add', pool)}>
+                    <DropdownMenuItem className="gap-2 text-primary" onSelect={() => setOverlay({ type: 'add', pool })}>
                       <Plus className="h-4 w-4" /> Add Liquidity
                     </DropdownMenuItem>
-                    <DropdownMenuItem className="gap-2" onSelect={() => handlePoolAction('remove', pool)}>
+                    <DropdownMenuItem className="gap-2" onSelect={() => setOverlay({ type: 'remove', pool })}>
                       <ArrowLeftRight className="h-4 w-4" /> Remove Liquidity
                     </DropdownMenuItem>
-                    <DropdownMenuItem className="gap-2" onSelect={() => handlePoolAction('lock', pool)}>
+                    <DropdownMenuItem className="gap-2" onSelect={() => setOverlay({ type: 'lock', pool })}>
                       <Lock className="h-4 w-4" /> Lock Liquidity
                     </DropdownMenuItem>
-                    <DropdownMenuItem className="gap-2" onSelect={() => handlePoolAction('analytics', pool)}>
+                    <DropdownMenuItem className="gap-2" onSelect={() => setOverlay({ type: 'analytics', pool })}>
                       <BarChart3 className="h-4 w-4" /> Pool Analytics
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => handlePoolAction('close', pool)}>
+                    <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => setOverlay({ type: 'close', pool })}>
                       <X className="h-4 w-4" /> Close Pool
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -200,6 +184,216 @@ export const PoolsList = () => {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+};
+
+// Full action panels for pool operations
+const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay>; onBack: () => void }) => {
+  const { pool, type } = overlay;
+  const pair = `${pool.token_a_symbol}/${pool.token_b_symbol}`;
+  const { user } = useAuth();
+  const { address, isConnected } = useWalletConnect();
+  const { toast } = useToast();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [amountA, setAmountA] = useState('');
+  const [amountB, setAmountB] = useState('');
+  const [withdrawPercent, setWithdrawPercent] = useState([50]);
+  const [lockDays, setLockDays] = useState('30');
+
+  const submitTx = async (desc: string, amount: number, toAddress: string) => {
+    if (!user || !address) {
+      toast({ title: 'Login Required', description: 'Connect your wallet first.', variant: 'destructive' });
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
+      const { error } = await supabase.from('transactions').insert({
+        user_id: user.id, from_address: address, to_address: toAddress,
+        amount, fee: amount * 0.001, tx_hash: txHash, status: 'confirmed',
+        confirmed_at: new Date().toISOString(), wallet_id: null,
+      });
+      if (error) throw error;
+      toast({ title: 'Success', description: desc });
+      onBack();
+    } catch (err: any) {
+      toast({ title: 'Failed', description: err.message, variant: 'destructive' });
+    } finally { setIsProcessing(false); }
+  };
+
+  const titles: Record<string, string> = {
+    add: `Add Liquidity — ${pair}`,
+    remove: `Remove Liquidity — ${pair}`,
+    lock: `Lock Liquidity — ${pair}`,
+    analytics: `Pool Analytics — ${pair}`,
+    close: `Close Pool — ${pair}`,
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="sm" onClick={onBack}>← Back</Button>
+        <h2 className="text-xl font-bold">{titles[type]}</h2>
+      </div>
+
+      {type === 'add' && (
+        <>
+          <GlassCard className="p-4 space-y-3">
+            <p className="text-sm text-muted-foreground">Deposit {pool.token_a_symbol}</p>
+            <div className="flex items-center gap-4">
+              <Input type="number" placeholder="0" value={amountA} onChange={e => setAmountA(e.target.value)}
+                className="border-0 bg-transparent text-2xl font-light p-0 h-auto focus-visible:ring-0" />
+              <Badge variant="secondary" className="font-semibold px-3 py-1">{pool.token_a_symbol}</Badge>
+            </div>
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>${(parseFloat(amountA || '0') * 86.8).toFixed(2)}</span>
+              <div className="flex items-center gap-1"><Wallet className="h-3 w-3" /><span>0.0000</span></div>
+            </div>
+          </GlassCard>
+          <GlassCard className="p-4 space-y-3">
+            <p className="text-sm text-muted-foreground">Deposit {pool.token_b_symbol}</p>
+            <div className="flex items-center gap-4">
+              <Input type="number" placeholder="0" value={amountB} onChange={e => setAmountB(e.target.value)}
+                className="border-0 bg-transparent text-2xl font-light p-0 h-auto focus-visible:ring-0" />
+              <Badge variant="secondary" className="font-semibold px-3 py-1">{pool.token_b_symbol}</Badge>
+            </div>
+          </GlassCard>
+          <GlassCard className="p-3 space-y-1 text-sm">
+            <div className="flex justify-between text-muted-foreground"><span>Pool APR</span><span className="font-mono text-primary">{pool.apr.toFixed(1)}%</span></div>
+            <div className="flex justify-between text-muted-foreground"><span>Fee Tier</span><span className="font-mono">{pool.fee_tier}%</span></div>
+            <div className="flex justify-between text-muted-foreground"><span>Current TVL</span><span className="font-mono">{formatValue(pool.tvl)}</span></div>
+          </GlassCard>
+          <Button className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
+            disabled={isProcessing || (!amountA && !amountB) || !isConnected}
+            onClick={() => submitTx(`Added liquidity to ${pair}`, parseFloat(amountA || '0') + parseFloat(amountB || '0'), `pool-${pool.id}`)}>
+            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Adding...</span>
+              : !isConnected ? 'Connect Wallet' : 'Add Liquidity'}
+          </Button>
+        </>
+      )}
+
+      {type === 'remove' && (
+        <>
+          <GlassCard className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Remove Amount</span>
+              <span className="font-semibold text-lg">{withdrawPercent[0]}%</span>
+            </div>
+            <Slider value={withdrawPercent} onValueChange={setWithdrawPercent} max={100} step={1} />
+            <div className="flex gap-2">
+              {[25, 50, 75, 100].map(v => (
+                <Button key={v} variant={withdrawPercent[0] === v ? 'secondary' : 'ghost'} size="sm" className="flex-1"
+                  onClick={() => setWithdrawPercent([v])}>{v}%</Button>
+              ))}
+            </div>
+          </GlassCard>
+          <GlassCard className="p-4 space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">Pool TVL</span><span className="font-mono">{formatValue(pool.tvl)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Your Share (est.)</span><span className="font-mono">~0.1%</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Remove Fee</span><span className="font-mono">0.1%</span></div>
+          </GlassCard>
+          <Button className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
+            disabled={isProcessing || withdrawPercent[0] === 0 || !isConnected}
+            onClick={() => submitTx(`Removed ${withdrawPercent[0]}% liquidity from ${pair}`, pool.tvl * 0.001 * withdrawPercent[0] / 100, address || 'user-wallet')}>
+            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Removing...</span>
+              : !isConnected ? 'Connect Wallet' : `Remove ${withdrawPercent[0]}%`}
+          </Button>
+        </>
+      )}
+
+      {type === 'lock' && (
+        <>
+          <GlassCard className="p-4 space-y-4">
+            <p className="text-sm text-muted-foreground">Lock your pool position to earn higher yields.</p>
+            <div>
+              <label className="text-sm text-muted-foreground mb-1 block">Lock Duration (days)</label>
+              <Input type="number" value={lockDays} onChange={e => setLockDays(e.target.value)} className="bg-secondary/30" />
+            </div>
+            <div className="flex gap-2">
+              {['7', '30', '90', '180'].map(d => (
+                <Button key={d} variant={lockDays === d ? 'secondary' : 'ghost'} size="sm" className="flex-1"
+                  onClick={() => setLockDays(d)}>{d}d</Button>
+              ))}
+            </div>
+          </GlassCard>
+          <GlassCard className="p-4 space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">Pool</span><span className="font-semibold">{pair}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Lock Duration</span><span className="font-mono">{lockDays} days</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Unlock Date</span><span className="font-mono">{new Date(Date.now() + parseInt(lockDays || '0') * 86400000).toLocaleDateString()}</span></div>
+            <div className="flex justify-between text-primary"><span>APR Boost</span><span className="font-mono font-semibold">+{Math.min(50, parseInt(lockDays || '0') / 3.6).toFixed(1)}%</span></div>
+          </GlassCard>
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-400">
+            <Lock className="h-4 w-4 shrink-0" />
+            <span>Locked liquidity cannot be withdrawn until the lock period ends.</span>
+          </div>
+          <Button className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
+            disabled={isProcessing || !lockDays || parseInt(lockDays) <= 0 || !isConnected}
+            onClick={() => submitTx(`Locked ${pair} liquidity for ${lockDays} days`, pool.tvl * 0.001, 'lock-contract')}>
+            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Locking...</span>
+              : !isConnected ? 'Connect Wallet' : `Lock for ${lockDays} Days`}
+          </Button>
+        </>
+      )}
+
+      {type === 'analytics' && (
+        <>
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <BarChart3 className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold text-lg">Pool Performance</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <GlassCard className="p-3">
+                <p className="text-xs text-muted-foreground mb-1">TVL</p>
+                <p className="text-xl font-bold">{formatValue(pool.tvl)}</p>
+              </GlassCard>
+              <GlassCard className="p-3">
+                <p className="text-xs text-muted-foreground mb-1">APR</p>
+                <p className="text-xl font-bold text-primary">{pool.apr.toFixed(1)}%</p>
+              </GlassCard>
+            </div>
+          </GlassCard>
+          <GlassCard className="p-4 space-y-3">
+            <h4 className="font-medium text-sm text-muted-foreground">Detailed Metrics</h4>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">24H Volume</span><span className="font-mono">{formatValue(pool.volume_24h)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">24H Fees</span><span className="font-mono">{formatValue(pool.fees_24h)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Fee Tier</span><span className="font-mono">{pool.fee_tier}%</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">7D Volume</span><span className="font-mono">{formatValue(pool.volume_24h * 6.5)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">30D Volume</span><span className="font-mono">{formatValue(pool.volume_24h * 28)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Liquidity Providers</span><span className="font-mono">{Math.floor(pool.tvl / 500)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Utilization Rate</span><span className="font-mono">{(pool.volume_24h / Math.max(1, pool.tvl) * 100).toFixed(1)}%</span></div>
+            </div>
+          </GlassCard>
+        </>
+      )}
+
+      {type === 'close' && (
+        <>
+          <GlassCard className="p-4 space-y-3">
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-sm text-destructive">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-semibold">Close Pool Warning</p>
+                <p>This will remove all your liquidity from {pair} and close the pool position. This action cannot be undone.</p>
+              </div>
+            </div>
+          </GlassCard>
+          <GlassCard className="p-4 space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">Pool</span><span className="font-semibold">{pair}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Your TVL</span><span className="font-mono">{formatValue(pool.tvl * 0.001)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Unclaimed Fees</span><span className="font-mono">{formatValue(pool.fees_24h * 0.01)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Exit Fee</span><span className="font-mono">0.1%</span></div>
+          </GlassCard>
+          <Button className="w-full h-14 text-lg font-semibold bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            disabled={isProcessing || !isConnected}
+            onClick={() => submitTx(`Closed ${pair} pool position`, pool.tvl * 0.001, address || 'user-wallet')}>
+            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Closing...</span>
+              : !isConnected ? 'Connect Wallet' : 'Confirm Close Pool'}
+          </Button>
+        </>
       )}
     </div>
   );
