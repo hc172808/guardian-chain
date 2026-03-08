@@ -534,6 +534,346 @@ const IpAccessListTab = () => {
   );
 };
 
+// ─── Rate Limiting Tab ───
+const RateLimitTab = () => {
+  const { user } = useAuth();
+  const [rules, setRules] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    name: '', endpoint: '', requests_per_window: '100', window_seconds: '60',
+    burst_limit: '20', action: 'throttle', description: '',
+  });
+
+  const fetchRules = async () => {
+    const { data } = await supabase.from('rate_limit_rules' as any).select('*').order('created_at', { ascending: false });
+    if (data) setRules(data as any);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchRules(); }, []);
+
+  const handleAdd = async () => {
+    if (!user || !form.name || !form.endpoint) return;
+    setSaving(true);
+    const { error } = await supabase.from('rate_limit_rules' as any).insert({
+      name: form.name,
+      endpoint: form.endpoint,
+      requests_per_window: parseInt(form.requests_per_window),
+      window_seconds: parseInt(form.window_seconds),
+      burst_limit: parseInt(form.burst_limit),
+      action: form.action,
+      description: form.description || null,
+      created_by: user.id,
+    });
+    if (error) {
+      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Rate limit rule added' });
+      setDialogOpen(false);
+      setForm({ name: '', endpoint: '', requests_per_window: '100', window_seconds: '60', burst_limit: '20', action: 'throttle', description: '' });
+      fetchRules();
+    }
+    setSaving(false);
+  };
+
+  const toggleRule = async (id: string, enabled: boolean) => {
+    await supabase.from('rate_limit_rules' as any).update({ is_enabled: !enabled }).eq('id', id);
+    fetchRules();
+  };
+
+  const deleteRule = async (id: string) => {
+    await supabase.from('rate_limit_rules' as any).delete().eq('id', id);
+    toast({ title: 'Rule removed' });
+    fetchRules();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium flex items-center gap-2">
+          <Gauge className="h-4 w-4 text-primary" />
+          Rate Limiting Rules
+        </h4>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> Add Rule</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>Add Rate Limit Rule</DialogTitle></DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>Rule Name</Label>
+                <Input placeholder="e.g. RPC Rate Limit" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Endpoint / Path</Label>
+                <Input placeholder="e.g. /rpc, /api/*, :8545" value={form.endpoint} onChange={(e) => setForm({ ...form, endpoint: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label>Requests</Label>
+                  <Input type="number" value={form.requests_per_window} onChange={(e) => setForm({ ...form, requests_per_window: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Window (s)</Label>
+                  <Input type="number" value={form.window_seconds} onChange={(e) => setForm({ ...form, window_seconds: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Burst</Label>
+                  <Input type="number" value={form.burst_limit} onChange={(e) => setForm({ ...form, burst_limit: e.target.value })} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Action on Exceed</Label>
+                <Select value={form.action} onValueChange={(v) => setForm({ ...form, action: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="throttle">Throttle (429)</SelectItem>
+                    <SelectItem value="drop">Drop Connection</SelectItem>
+                    <SelectItem value="captcha">Require CAPTCHA</SelectItem>
+                    <SelectItem value="ban">Temp Ban (10min)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Input placeholder="What this rule protects" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+              </div>
+              <Button onClick={handleAdd} disabled={saving || !form.name || !form.endpoint} className="w-full gap-2">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Add Rule
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
+        <p className="text-muted-foreground">
+          Rate limits apply per-IP. <strong className="text-foreground">Burst</strong> allows short spikes above the sustained rate.
+          Rules apply to Nginx reverse proxy and RPC endpoints.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      ) : rules.length === 0 ? (
+        <div className="text-center py-6 text-muted-foreground">
+          <Gauge className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p>No rate limit rules configured</p>
+          <p className="text-xs mt-1">Recommended: Add limits for RPC (8545), WebSocket (8546), and API endpoints</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {rules.map((rule: any) => (
+            <div key={rule.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/20">
+                  <Gauge className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">{rule.name}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="text-xs text-muted-foreground bg-secondary/50 px-1.5 py-0.5 rounded">{rule.endpoint}</code>
+                    <span className="text-xs text-muted-foreground">
+                      {rule.requests_per_window} req/{rule.window_seconds}s • burst: {rule.burst_limit}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={rule.action === 'ban' ? 'destructive' : 'secondary'} className="text-xs">
+                  {rule.action}
+                </Badge>
+                <Switch checked={rule.is_enabled} onCheckedChange={() => toggleRule(rule.id, rule.is_enabled)} />
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteRule(rule.id)}>
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── DDoS Protection Tab ───
+const DDoSProtectionTab = () => {
+  const { user } = useAuth();
+  const [configs, setConfigs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    name: '', protection_type: 'syn_flood', threshold: '1000', action: 'drop', description: '',
+  });
+
+  const fetchConfigs = async () => {
+    const { data } = await supabase.from('ddos_protection' as any).select('*').order('created_at', { ascending: false });
+    if (data) setConfigs(data as any);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchConfigs(); }, []);
+
+  const handleAdd = async () => {
+    if (!user || !form.name) return;
+    setSaving(true);
+    const { error } = await supabase.from('ddos_protection' as any).insert({
+      name: form.name,
+      protection_type: form.protection_type,
+      threshold: parseInt(form.threshold),
+      action: form.action,
+      description: form.description || null,
+      created_by: user.id,
+    });
+    if (error) {
+      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'DDoS protection rule added' });
+      setDialogOpen(false);
+      setForm({ name: '', protection_type: 'syn_flood', threshold: '1000', action: 'drop', description: '' });
+      fetchConfigs();
+    }
+    setSaving(false);
+  };
+
+  const toggleConfig = async (id: string, enabled: boolean) => {
+    await supabase.from('ddos_protection' as any).update({ is_enabled: !enabled }).eq('id', id);
+    fetchConfigs();
+  };
+
+  const deleteConfig = async (id: string) => {
+    await supabase.from('ddos_protection' as any).delete().eq('id', id);
+    toast({ title: 'Protection rule removed' });
+    fetchConfigs();
+  };
+
+  const protectionTypes: Record<string, { label: string; icon: string }> = {
+    syn_flood: { label: 'SYN Flood', icon: '🌊' },
+    udp_flood: { label: 'UDP Flood', icon: '💧' },
+    http_flood: { label: 'HTTP Flood', icon: '🔥' },
+    slowloris: { label: 'Slowloris', icon: '🐌' },
+    dns_amplification: { label: 'DNS Amplification', icon: '📡' },
+    icmp_flood: { label: 'ICMP Flood', icon: '📨' },
+    connection_limit: { label: 'Connection Limit', icon: '🔗' },
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium flex items-center gap-2">
+          <Zap className="h-4 w-4 text-primary" />
+          DDoS Protection
+        </h4>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> Add Rule</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>Add DDoS Protection Rule</DialogTitle></DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>Rule Name</Label>
+                <Input placeholder="e.g. SYN Flood Protection" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Protection Type</Label>
+                <Select value={form.protection_type} onValueChange={(v) => setForm({ ...form, protection_type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(protectionTypes).map(([key, { label, icon }]) => (
+                      <SelectItem key={key} value={key}>{icon} {label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Threshold (conn/s)</Label>
+                  <Input type="number" value={form.threshold} onChange={(e) => setForm({ ...form, threshold: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Action</Label>
+                  <Select value={form.action} onValueChange={(v) => setForm({ ...form, action: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="drop">Drop Packets</SelectItem>
+                      <SelectItem value="reject">Reject with RST</SelectItem>
+                      <SelectItem value="tarpit">Tarpit</SelectItem>
+                      <SelectItem value="challenge">Challenge (JS)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Input placeholder="What this rule defends against" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+              </div>
+              <Button onClick={handleAdd} disabled={saving || !form.name} className="w-full gap-2">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Add Protection Rule
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/20 text-sm">
+        <p className="text-muted-foreground">
+          <strong className="text-foreground">⚡ DDoS protection</strong> applies iptables and Nginx-level rules to mitigate volumetric and application-layer attacks on your node infrastructure.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      ) : configs.length === 0 ? (
+        <div className="text-center py-6 text-muted-foreground">
+          <Zap className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p>No DDoS protection rules configured</p>
+          <p className="text-xs mt-1">Recommended: Add SYN flood, HTTP flood, and connection limit rules</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {configs.map((cfg: any) => (
+            <div key={cfg.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <Zap className="h-4 w-4 text-destructive" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium">{cfg.name}</p>
+                    <Badge variant="outline" className="text-xs">
+                      {protectionTypes[cfg.protection_type]?.icon} {protectionTypes[cfg.protection_type]?.label || cfg.protection_type}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Threshold: <strong className="text-foreground">{cfg.threshold} conn/s</strong>
+                    {cfg.description ? ` • ${cfg.description}` : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={cfg.action === 'drop' ? 'destructive' : 'secondary'} className="text-xs">
+                  {cfg.action}
+                </Badge>
+                <Switch checked={cfg.is_enabled} onCheckedChange={() => toggleConfig(cfg.id, cfg.is_enabled)} />
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteConfig(cfg.id)}>
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Main Export ───
 export const FirewallManager = () => {
   return (
@@ -544,17 +884,23 @@ export const FirewallManager = () => {
         </div>
         <div>
           <h3 className="font-semibold text-lg">Firewall & Security</h3>
-          <p className="text-sm text-muted-foreground">UFW rules, Fail2Ban jails, and IP access control</p>
+          <p className="text-sm text-muted-foreground">UFW, Fail2Ban, rate limiting, DDoS protection & IP access control</p>
         </div>
       </div>
 
       <Tabs defaultValue="ufw" className="space-y-4">
-        <TabsList className="grid grid-cols-3 w-full max-w-md">
+        <TabsList className="grid grid-cols-5 w-full">
           <TabsTrigger value="ufw" className="gap-1 text-xs">
-            <Shield className="h-3 w-3" /> UFW Rules
+            <Shield className="h-3 w-3" /> UFW
           </TabsTrigger>
           <TabsTrigger value="fail2ban" className="gap-1 text-xs">
             <Ban className="h-3 w-3" /> Fail2Ban
+          </TabsTrigger>
+          <TabsTrigger value="ratelimit" className="gap-1 text-xs">
+            <Gauge className="h-3 w-3" /> Rate Limit
+          </TabsTrigger>
+          <TabsTrigger value="ddos" className="gap-1 text-xs">
+            <Zap className="h-3 w-3" /> DDoS
           </TabsTrigger>
           <TabsTrigger value="iplist" className="gap-1 text-xs">
             <Globe className="h-3 w-3" /> IP List
@@ -563,6 +909,8 @@ export const FirewallManager = () => {
 
         <TabsContent value="ufw"><UfwRulesTab /></TabsContent>
         <TabsContent value="fail2ban"><Fail2BanTab /></TabsContent>
+        <TabsContent value="ratelimit"><RateLimitTab /></TabsContent>
+        <TabsContent value="ddos"><DDoSProtectionTab /></TabsContent>
         <TabsContent value="iplist"><IpAccessListTab /></TabsContent>
       </Tabs>
 
