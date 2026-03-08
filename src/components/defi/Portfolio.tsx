@@ -524,15 +524,11 @@ const OverlayPanel = ({ type, position, onBack }: { type: OverlayType; position:
           </GlassCard>
 
           <div className="grid grid-cols-2 gap-3">
-            <Button variant="outline" className="gap-2" onClick={() => { onBack(); setTimeout(() => onViewPosition?.({
-              tokenA: position.tokenA, tokenB: position.tokenB, balance: position.balance,
-              pendingYield: position.pendingYield, priceRatio: 11720.903, rangeMin: 0, rangeMax: Infinity,
-              address: '5n2K...VjsQ', fee: position.fee,
-            }), 100); }}>
+            <Button variant="outline" className="gap-2" onClick={onBack}>
               <FileText className="h-4 w-4" /> Full Details
             </Button>
             <Button variant="outline" className="gap-2 text-primary border-primary/50" onClick={() => {
-              handleHarvest(position);
+              toast({ title: 'Harvesting Yield', description: `Collecting $${position.pendingYield.toFixed(2)} from ${pair}` });
             }}>
               <Sprout className="h-4 w-4" /> Harvest
             </Button>
