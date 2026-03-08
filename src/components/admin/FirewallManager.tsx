@@ -557,7 +557,7 @@ const RateLimitTab = () => {
   const handleAdd = async () => {
     if (!user || !form.name || !form.endpoint) return;
     setSaving(true);
-    const { error } = await supabase.from('rate_limit_rules' as any).insert({
+    const { error } = await supabase.from('rate_limit_rules').insert({
       name: form.name,
       endpoint: form.endpoint,
       requests_per_window: parseInt(form.requests_per_window),
