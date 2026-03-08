@@ -78,7 +78,7 @@ const UfwRulesTab = () => {
   const handleAdd = async () => {
     if (!user) return;
     setSaving(true);
-    const { error } = await supabase.from('firewall_rules' as any).insert({
+    const { error } = await supabase.from('firewall_rules').insert({
       rule_type: 'ufw',
       action: form.action,
       protocol: form.protocol,
