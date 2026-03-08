@@ -23,12 +23,16 @@ interface TokenData {
   creator_id: string;
   gyds_liquidity: number;
   lp_lock_type: string;
+  lp_unlock_time: string | null;
   freeze_enabled: boolean;
   freeze_locked: boolean;
+  freeze_holder: string | null;
   mint_enabled: boolean;
   mint_locked: boolean;
+  mint_holder: string | null;
   update_enabled: boolean;
   update_locked: boolean;
+  update_holder: string | null;
   is_active: boolean;
   created_at: string;
 }
