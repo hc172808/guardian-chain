@@ -208,6 +208,10 @@ const AdminContent = () => {
             <Shield className="h-4 w-4" />
             <span className="hidden md:inline">Firewall</span>
           </TabsTrigger>
+          <TabsTrigger value="audit" className="gap-2">
+            <ScrollText className="h-4 w-4" />
+            <span className="hidden md:inline">Audit Log</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="validators">
