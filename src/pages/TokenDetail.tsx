@@ -91,17 +91,7 @@ const TokenDetail = () => {
   const txs = useMemo(() => generateMockTxs(), []);
 
   useEffect(() => {
-    const fetch = async () => {
-      if (!address) return;
-      const { data } = await supabase
-        .from('tokens')
-        .select('*')
-        .eq('address', address)
-        .maybeSingle();
-      setToken(data as TokenData | null);
-      setLoading(false);
-    };
-    fetch();
+    fetchToken();
   }, [address]);
 
   const copyAddress = () => {
