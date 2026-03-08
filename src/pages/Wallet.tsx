@@ -686,43 +686,76 @@ const WalletContent = () => {
         ) : (
           <div className="space-y-3">
             {balances.map(token => (
-              <div key={token.symbol} className="flex items-center justify-between p-3 rounded-lg bg-card/50 border border-border/30">
-                <div className="flex items-center gap-3">
-                  {token.logo ? (
-                    <img src={token.logo} alt={token.symbol} className="w-10 h-10 rounded-full object-cover" />
-                  ) : (
-                    <div className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
-                      token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-                      token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
-                      "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
-                    )}>
-                      {token.symbol[0]}
+              <div key={token.symbol} className="p-3 rounded-lg bg-card/50 border border-border/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {token.logo ? (
+                      <img src={token.logo} alt={token.symbol} className="w-10 h-10 rounded-full object-cover" />
+                    ) : (
+                      <div className={cn(
+                        "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
+                        token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+                        token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                        "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+                      )}>
+                        {token.symbol[0]}
+                      </div>
+                    )}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{token.symbol}</span>
+                        <span className="text-xs text-muted-foreground">{token.name}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground font-mono">
+                        ${token.price < 1 ? token.price.toFixed(7) : token.price.toFixed(2)} per token
+                        {token.decimals !== undefined && <span className="ml-2 text-muted-foreground/60">({token.decimals} decimals)</span>}
+                      </p>
                     </div>
-                  )}
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">{token.symbol}</span>
-                      <span className="text-xs text-muted-foreground">{token.name}</span>
-                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold font-mono">
+                      {token.balance >= 1000000 ? `${(token.balance / 1000000).toFixed(2)}M`
+                        : token.balance >= 1000 ? `${(token.balance / 1000).toFixed(2)}K`
+                        : token.balance.toFixed(4)}
+                    </p>
                     <p className="text-xs text-muted-foreground font-mono">
-                      ${token.price < 1 ? token.price.toFixed(7) : token.price.toFixed(2)} per token
-                      {token.decimals !== undefined && <span className="ml-2 text-muted-foreground/60">({token.decimals} decimals)</span>}
+                      ${token.value < 0.01 && token.value > 0
+                        ? token.value.toFixed(7)
+                        : token.value.toFixed(2)}
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-semibold font-mono">
-                    {token.balance >= 1000000 ? `${(token.balance / 1000000).toFixed(2)}M`
-                      : token.balance >= 1000 ? `${(token.balance / 1000).toFixed(2)}K`
-                      : token.balance.toFixed(4)}
-                  </p>
-                  <p className="text-xs text-muted-foreground font-mono">
-                    ${token.value < 0.01 && token.value > 0
-                      ? token.value.toFixed(7)
-                      : token.value.toFixed(2)}
-                  </p>
-                </div>
+                {/* DeFi Action Buttons */}
+                {token.balance > 0 && (
+                  <div className="flex gap-2 mt-3 pt-3 border-t border-border/30">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 text-xs flex-1"
+                      onClick={() => navigate('/defi')}
+                    >
+                      <ArrowRightLeft className="h-3 w-3" /> Swap
+                    </Button>
+                    {(token.symbol === 'GYD' || token.symbol === 'GYDS') && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 text-xs flex-1"
+                        onClick={() => navigate('/defi')}
+                      >
+                        <Layers className="h-3 w-3" /> Stake
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 text-xs flex-1"
+                      onClick={() => navigate('/defi')}
+                    >
+                      <Coins className="h-3 w-3" /> Pool
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
 
