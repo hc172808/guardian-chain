@@ -27,39 +27,86 @@ export const StakeInterface = () => {
     const loadBalances = async () => {
       if (!user || !address) return;
       
+      // Get user wallets for address matching
+      const { data: userWallets } = await supabase
+        .from('wallets')
+        .select('address')
+        .eq('user_id', user.id);
+
+      const myAddresses = new Set((userWallets || []).map(w => w.address.toLowerCase()));
+      myAddresses.add(address.toLowerCase());
+
+      // Check founder wallet
+      const { data: founderConfig } = await supabase
+        .from('admin_config')
+        .select('config_value')
+        .eq('config_key', 'founder_wallet')
+        .maybeSingle();
+
+      if (founderConfig?.config_value) {
+        const fc = founderConfig.config_value as Record<string, string>;
+        if (fc.address) myAddresses.add(fc.address.toLowerCase());
+      }
+
+      if (user.email === 'netlifegy@gmail.com') {
+        myAddresses.add('0x0000000000000000000000000000000000000001');
+      }
+
+      // Get GYD balance from token_operations (mints/burns)
+      const { data: opsData } = await supabase
+        .from('token_operations')
+        .select('*')
+        .eq('status', 'confirmed');
+
+      let gydFromOps = 0;
+      if (opsData) {
+        opsData.forEach(op => {
+          const addressMatch = myAddresses.has(op.wallet_address.toLowerCase());
+          const creatorMatch = op.created_by === user.id;
+          if (!addressMatch && !creatorMatch) return;
+          if (op.operation_type === 'mint_gyd' || op.operation_type === 'premine_gyd') {
+            gydFromOps += op.amount;
+          } else if (op.operation_type === 'burn_gyd') {
+            gydFromOps -= op.amount;
+          }
+        });
+      }
+
+      // Get transaction-based balance
       const { data: txData } = await supabase
         .from('transactions')
-        .select('from_address, to_address, amount')
+        .select('from_address, to_address, amount, fee')
         .eq('user_id', user.id)
         .eq('status', 'confirmed');
       
+      let staked = 0;
+      let gydFromTx = 0;
+      
       if (txData) {
-        let staked = 0;
-        let totalReceived = 0;
-        let totalSent = 0;
-        
         txData.forEach(tx => {
+          const fromMe = myAddresses.has(tx.from_address.toLowerCase());
+          const toMe = myAddresses.has(tx.to_address.toLowerCase());
+          
           // Track staking deposits
-          if (tx.to_address === 'staking-pool') {
+          if (tx.to_address === 'staking-pool' && fromMe) {
             staked += tx.amount;
           }
           // Track unstaking withdrawals
-          if (tx.from_address === 'staking-pool' && tx.to_address === address) {
+          if (tx.from_address === 'staking-pool' && toMe) {
             staked -= tx.amount;
           }
-          // Track general balance (received)
-          if (tx.to_address === address) {
-            totalReceived += tx.amount;
+          // Track general balance
+          if (toMe && tx.to_address !== 'staking-pool') {
+            gydFromTx += tx.amount;
           }
-          // Track general balance (sent, excluding staking)
-          if (tx.from_address === address && tx.to_address !== 'staking-pool') {
-            totalSent += tx.amount;
+          if (fromMe) {
+            gydFromTx -= tx.amount + (tx.fee || 0);
           }
         });
-        
-        setUserStaked(Math.max(0, staked));
-        setUserBalance(Math.max(0, totalReceived - totalSent));
       }
+      
+      setUserStaked(Math.max(0, staked));
+      setUserBalance(Math.max(0, gydFromOps + gydFromTx));
     };
     
     loadBalances();
@@ -67,6 +114,7 @@ export const StakeInterface = () => {
     const channel = supabase
       .channel('stake-balances')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadBalances())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'token_operations' }, () => loadBalances())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user, address]);
