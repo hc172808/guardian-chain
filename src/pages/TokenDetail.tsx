@@ -80,6 +80,22 @@ const generateMockTxs = () => Array.from({ length: 10 }, (_, i) => ({
   to: '0x' + Math.random().toString(16).slice(2, 8) + '...',
 }));
 
+const WatchlistButton = ({ tokenId }: { tokenId: string | undefined }) => {
+  const { isWatched, toggle, loading } = useWatchlist(tokenId);
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={cn("gap-1", isWatched && "text-yellow-500")}
+      onClick={toggle}
+      disabled={loading}
+    >
+      <Star className={cn("h-4 w-4", isWatched && "fill-yellow-500")} />
+      {isWatched ? 'Watching' : 'Watch'}
+    </Button>
+  );
+};
+
 const TokenDetail = () => {
   const { address } = useParams<{ address: string }>();
   const { user } = useAuth();
