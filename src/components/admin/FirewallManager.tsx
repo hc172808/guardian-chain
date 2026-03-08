@@ -579,7 +579,7 @@ const RateLimitTab = () => {
   };
 
   const toggleRule = async (id: string, enabled: boolean) => {
-    await supabase.from('rate_limit_rules' as any).update({ is_enabled: !enabled }).eq('id', id);
+    await supabase.from('rate_limit_rules').update({ is_enabled: !enabled }).eq('id', id);
     fetchRules();
   };
 
