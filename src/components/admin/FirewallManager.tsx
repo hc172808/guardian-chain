@@ -404,8 +404,8 @@ const IpAccessListTab = () => {
   const [form, setForm] = useState({ ip_address: '', list_type: 'whitelist', reason: '' });
 
   const fetchEntries = async () => {
-    const { data } = await supabase.from('ip_access_list' as any).select('*').order('created_at', { ascending: false });
-    if (data) setEntries(data as any);
+    const { data } = await supabase.from('ip_access_list').select('*').order('created_at', { ascending: false });
+    if (data) setEntries(data as unknown as IpAccessEntry[]);
     setLoading(false);
   };
 
