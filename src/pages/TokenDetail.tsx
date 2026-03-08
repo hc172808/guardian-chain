@@ -84,8 +84,8 @@ const TokenDetail = () => {
   const [renouncing, setRenouncing] = useState<string | null>(null);
 
   const priceHistory = useMemo(() => generatePriceHistory(30), []);
-  const holders = useMemo(() => token ? generateMockHolders(token.symbol) : [], [token]);
-  const txs = useMemo(() => generateMockTxs(), []);
+  const holders: { address: string; balance: number; pct: number }[] = [];
+  const txs: { hash: string; type: string; amount: number; value: string; time: string; from: string; to: string }[] = [];
 
   useEffect(() => {
     fetchToken();
