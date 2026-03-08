@@ -146,54 +146,71 @@ const TokensPage = () => {
               </GlassCard>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filtered.map((token) => (
-                  <motion.div
-                    key={token.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    whileHover={{ scale: 1.01 }}
-                    className="cursor-pointer"
-                    onClick={() => setSelectedToken(toFeaturePanelToken(token))}
-                  >
-                    <GlassCard className="p-4 hover:border-primary/50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          {token.logo_url ? (
-                            <img src={token.logo_url} alt={token.symbol} className="w-10 h-10 rounded-lg object-cover" />
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
-                              <Coins className="h-5 w-5 text-primary" />
+                {filtered.map((token) => {
+                  const getSecurityScore = () => {
+                    let score = 0;
+                    if (!token.mint_enabled || token.mint_locked) score++;
+                    if (!token.freeze_enabled || token.freeze_locked) score++;
+                    if (token.lp_lock_type === 'burned') score++;
+                    if (token.gyds_liquidity >= 100) score++;
+                    if (score >= 4) return { label: 'Safe', color: 'bg-primary/20 text-primary border-primary/30' };
+                    if (score >= 2) return { label: 'Caution', color: 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30' };
+                    return { label: 'Risky', color: 'bg-destructive/20 text-destructive border-destructive/30' };
+                  };
+                  const security = getSecurityScore();
+
+                  return (
+                    <motion.div
+                      key={token.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      whileHover={{ scale: 1.01 }}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/explorer/token/${token.address}`)}
+                    >
+                      <GlassCard className="p-4 hover:border-primary/50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            {token.logo_url ? (
+                              <img src={token.logo_url} alt={token.symbol} className="w-10 h-10 rounded-lg object-cover" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
+                                <Coins className="h-5 w-5 text-primary" />
+                              </div>
+                            )}
+                            <div>
+                              <h3 className="font-semibold">{token.name}</h3>
+                              <p className="text-sm text-muted-foreground">{token.symbol}</p>
                             </div>
-                          )}
-                          <div>
-                            <h3 className="font-semibold">{token.name}</h3>
-                            <p className="text-sm text-muted-foreground">{token.symbol}</p>
+                          </div>
+                          <div className="flex flex-col items-end gap-1">
+                            <Badge variant="outline" className={cn("text-xs gap-1", security.color)}>
+                              {security.label === 'Safe' ? <Shield className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                              {security.label}
+                            </Badge>
+                            <p className="text-xs text-muted-foreground">{token.gyds_liquidity.toLocaleString()} GYDS</p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium">{token.gyds_liquidity.toLocaleString()} GYDS</p>
-                          <p className="text-xs text-muted-foreground">Liquidity</p>
+                        <div className="mt-3 flex gap-2 flex-wrap">
+                          {token.freeze_locked && (
+                            <Badge variant="outline" className="text-xs text-primary border-primary/30">Freeze Locked</Badge>
+                          )}
+                          {token.mint_locked && (
+                            <Badge variant="outline" className="text-xs text-primary border-primary/30">Mint Locked</Badge>
+                          )}
+                          <Badge variant="outline" className="text-xs">
+                            LP: {token.lp_lock_type === 'burned' ? 'Burned 🔥' : 'Time-Locked'}
+                          </Badge>
                         </div>
-                      </div>
-                      <div className="mt-3 flex gap-2 flex-wrap">
-                        {token.freeze_locked && (
-                          <Badge variant="outline" className="text-xs text-neon-emerald border-neon-emerald">Freeze Locked</Badge>
-                        )}
-                        {token.mint_locked && (
-                          <Badge variant="outline" className="text-xs text-neon-emerald border-neon-emerald">Mint Locked</Badge>
-                        )}
-                        <Badge variant="outline" className="text-xs">
-                          LP: {token.lp_lock_type === 'burned' ? 'Burned' : 'Time-Locked'}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 flex gap-2">
-                        <Button size="sm" variant="outline" className="flex-1 gap-1 text-xs" onClick={(e) => { e.stopPropagation(); navigate('/defi'); }}>
-                          <ArrowLeftRight className="h-3 w-3" /> Swap
-                        </Button>
-                      </div>
-                    </GlassCard>
-                  </motion.div>
-                ))}
+                        <div className="mt-3 flex gap-2">
+                          <Button size="sm" variant="outline" className="flex-1 gap-1 text-xs" onClick={(e) => { e.stopPropagation(); navigate('/defi'); }}>
+                            <ArrowLeftRight className="h-3 w-3" /> Swap
+                          </Button>
+                        </div>
+                      </GlassCard>
+                    </motion.div>
+                  );
+                })}
               </div>
             )}
 
