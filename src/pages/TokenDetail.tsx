@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
-import { ArrowLeft, Copy, ExternalLink, Users, ArrowUpRight, ArrowDownLeft, TrendingUp, Coins, Shield, Lock, Unlock } from 'lucide-react';
+import { ArrowLeft, Copy, ExternalLink, Users, ArrowUpRight, ArrowDownLeft, TrendingUp, Coins, Shield, Lock, Unlock, Flame, Edit, Plus, Clock, User, Pause, CheckCircle, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
