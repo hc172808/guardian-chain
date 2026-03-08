@@ -171,9 +171,31 @@ export const PoolsList = () => {
                   <div className="text-primary font-semibold">{pool.apr.toFixed(1)}%</div>
                   <div className="text-xs text-muted-foreground">{formatValue(pool.tvl)}</div>
                 </div>
-                <Button variant="ghost" size="icon" className="text-muted-foreground">
-                  <MoreHorizontal className="h-5 w-5" />
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                      <MoreHorizontal className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52 bg-card border-border" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem className="gap-2 text-primary" onSelect={() => handlePoolAction('add', pool)}>
+                      <Plus className="h-4 w-4" /> Add Liquidity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handlePoolAction('remove', pool)}>
+                      <ArrowLeftRight className="h-4 w-4" /> Remove Liquidity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handlePoolAction('lock', pool)}>
+                      <Lock className="h-4 w-4" /> Lock Liquidity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handlePoolAction('analytics', pool)}>
+                      <BarChart3 className="h-4 w-4" /> Pool Analytics
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => handlePoolAction('close', pool)}>
+                      <X className="h-4 w-4" /> Close Pool
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           ))}
