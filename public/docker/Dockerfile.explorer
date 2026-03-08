@@ -1,4 +1,4 @@
-# GydsChain Explorer + Dashboard Dockerfile v2.0
+# GydsChain Explorer + Dashboard Dockerfile v2.1.0
 # Multi-stage build with security hardening
 # Domain: netlifegy.com | Chain ID: 13370
 FROM node:20-alpine AS builder

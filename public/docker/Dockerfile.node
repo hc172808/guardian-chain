@@ -1,4 +1,4 @@
-# GydsChain Node Dockerfile v2.0
+# GydsChain Node Dockerfile v2.1.0
 # Supports: validator, fullnode, rpc, litenode modes
 # Includes: security hardening, health checks, fail2ban
 FROM golang:1.22-alpine AS builder

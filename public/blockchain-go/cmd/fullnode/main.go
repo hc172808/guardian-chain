@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	version     = "1.0.0"
+	version     = "2.1.0"
 	nodeType    = "fullnode"
 	defaultPort = 8545
 	rpcPort     = 8546
