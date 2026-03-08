@@ -68,6 +68,132 @@ export type Database = {
         }
         Relationships: []
       }
+      fail2ban_jails: {
+        Row: {
+          action: string | null
+          ban_time: number
+          banned_ips: string[] | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          filter_name: string | null
+          find_time: number
+          id: string
+          is_enabled: boolean
+          jail_name: string
+          log_path: string | null
+          max_retries: number
+          updated_at: string
+        }
+        Insert: {
+          action?: string | null
+          ban_time?: number
+          banned_ips?: string[] | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          filter_name?: string | null
+          find_time?: number
+          id?: string
+          is_enabled?: boolean
+          jail_name: string
+          log_path?: string | null
+          max_retries?: number
+          updated_at?: string
+        }
+        Update: {
+          action?: string | null
+          ban_time?: number
+          banned_ips?: string[] | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          filter_name?: string | null
+          find_time?: number
+          id?: string
+          is_enabled?: boolean
+          jail_name?: string
+          log_path?: string | null
+          max_retries?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      firewall_rules: {
+        Row: {
+          action: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          direction: string
+          id: string
+          ip_address: string | null
+          is_active: boolean
+          port: string | null
+          protocol: string
+          rule_type: string
+          updated_at: string
+        }
+        Insert: {
+          action?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          direction?: string
+          id?: string
+          ip_address?: string | null
+          is_active?: boolean
+          port?: string | null
+          protocol?: string
+          rule_type?: string
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          direction?: string
+          id?: string
+          ip_address?: string | null
+          is_active?: boolean
+          port?: string | null
+          protocol?: string
+          rule_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ip_access_list: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          id: string
+          ip_address: string
+          list_type: string
+          reason: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          ip_address: string
+          list_type?: string
+          reason?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          ip_address?: string
+          list_type?: string
+          reason?: string | null
+        }
+        Relationships: []
+      }
       liquidity_pools: {
         Row: {
           apr: number
