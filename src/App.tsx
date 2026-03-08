@@ -21,6 +21,7 @@ import TokensPage from "./pages/Tokens";
 import DeFiPage from "./pages/DeFi";
 import TokenDetail from "./pages/TokenDetail";
 import NotFound from "./pages/NotFound";
+import CliReferencePage from "./pages/CliReference";
 
 const queryClient = new QueryClient();
 
@@ -48,6 +49,7 @@ const App = () => (
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/docs" element={<DocsPage />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/cli" element={<CliReferencePage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
