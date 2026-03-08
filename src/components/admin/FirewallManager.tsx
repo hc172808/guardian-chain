@@ -296,6 +296,9 @@ const Fail2BanTab = () => {
 
   const toggleJail = async (id: string, enabled: boolean) => {
     await supabase.from('fail2ban_jails').update({ is_enabled: !enabled }).eq('id', id);
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: enabled ? 'Disabled Fail2Ban jail' : 'Enabled Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails', target_id: id,
+    });
     fetchJails();
   };
 
