@@ -459,6 +459,9 @@ const IpAccessListTab = () => {
   const deleteEntry = async (id: string) => {
     await supabase.from('ip_access_list').delete().eq('id', id);
     toast({ title: 'IP entry removed' });
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: 'Removed IP entry', category: 'firewall', target_type: 'ip_access_list', target_id: id,
+    });
     fetchEntries();
   };
 
