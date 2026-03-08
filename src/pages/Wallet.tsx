@@ -783,6 +783,65 @@ const WalletContent = () => {
           )}
         </div>
       </div>
+      {/* Security Settings */}
+      <GlassCard className="p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Shield className="h-6 w-6 text-primary" />
+          <h2 className="text-xl font-bold">Security Settings</h2>
+        </div>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/30">
+            <div className="flex items-center gap-3">
+              {pinLockEnabled ? (
+                <ShieldCheck className="h-5 w-5 text-green-500" />
+              ) : (
+                <ShieldAlert className="h-5 w-5 text-muted-foreground" />
+              )}
+              <div>
+                <p className="font-semibold">App PIN Lock</p>
+                <p className="text-sm text-muted-foreground">
+                  {pinLockEnabled
+                    ? 'PIN required to access wallet page'
+                    : 'Protect your wallet with a PIN on each visit'}
+                </p>
+              </div>
+            </div>
+            {pinLockEnabled ? (
+              <Button variant="outline" size="sm" onClick={handleDisablePinLock}>Disable</Button>
+            ) : (
+              <Dialog open={pinLockDialogOpen} onOpenChange={setPinLockDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2"><Lock className="h-4 w-4" /> Enable</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2"><Shield className="h-5 w-5" /> Set App PIN Lock</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">This PIN will be required every time you visit the wallet page. After 5 failed attempts, you'll be locked out for 5 minutes.</p>
+                    <div><Label>PIN (min 4 digits)</Label>
+                      <Input type="password" value={pinLockInput} onChange={(e) => setPinLockInput(e.target.value)} placeholder="Enter PIN" maxLength={6} /></div>
+                    <div><Label>Confirm PIN</Label>
+                      <Input type="password" value={pinLockConfirm} onChange={(e) => setPinLockConfirm(e.target.value)} placeholder="Confirm PIN" maxLength={6} /></div>
+                    <Button onClick={handleEnablePinLock} className="w-full gap-2">
+                      <ShieldCheck className="h-4 w-4" /> Enable PIN Lock
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
+          <div className="p-4 rounded-lg bg-card/50 border border-border/30">
+            <div className="flex items-center gap-3">
+              <RefreshCw className="h-5 w-5 text-primary" />
+              <div>
+                <p className="font-semibold">PIN Rotation</p>
+                <p className="text-sm text-muted-foreground">Change individual wallet PINs using the <RefreshCw className="h-3 w-3 inline" /> button on each wallet card above.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </GlassCard>
     </motion.div>
   );
 };
