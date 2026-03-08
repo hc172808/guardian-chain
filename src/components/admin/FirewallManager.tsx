@@ -432,7 +432,7 @@ const IpAccessListTab = () => {
   };
 
   const deleteEntry = async (id: string) => {
-    await supabase.from('ip_access_list' as any).delete().eq('id', id);
+    await supabase.from('ip_access_list').delete().eq('id', id);
     toast({ title: 'IP entry removed' });
     fetchEntries();
   };
