@@ -87,7 +87,7 @@ export async function verifyPin(pin: string, stored: string): Promise<boolean> {
   const [saltHex, hashHex] = stored.split(':');
   const salt = hexToBuf(saltHex);
   const enc = new TextEncoder();
-  const data = concatBuffers(salt, enc.encode(pin));
+  const data = concatBuffers(salt, enc.encode(pin)) as BufferSource;
   const hash = await crypto.subtle.digest('SHA-256', data);
   return bufToHex(hash) === hashHex;
 }
