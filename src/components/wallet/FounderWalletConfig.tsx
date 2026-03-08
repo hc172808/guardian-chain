@@ -41,21 +41,7 @@ export const FounderWalletConfig = ({ onWalletConfigured }: FounderWalletConfigP
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
 
-  // Simple encryption for demo (use proper crypto in production)
-  const encryptData = (data: string, pin: string) => {
-    return btoa(data.split('').map((c, i) => 
-      String.fromCharCode(c.charCodeAt(0) ^ pin.charCodeAt(i % pin.length))
-    ).join(''));
-  };
-
-  const hashPin = (pin: string) => {
-    let hash = 0;
-    for (let i = 0; i < pin.length; i++) {
-      hash = ((hash << 5) - hash) + pin.charCodeAt(i);
-      hash = hash & hash;
-    }
-    return hash.toString(16);
-  };
+  // Encryption now uses the secure walletCrypto module
 
   const handleSaveFounderWallet = async () => {
     if (!isFounder) {
