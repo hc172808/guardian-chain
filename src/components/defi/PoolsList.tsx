@@ -399,7 +399,7 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
           </GlassCard>
           <Button className="w-full h-14 text-lg font-semibold bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             disabled={isProcessing || !isConnected}
-            onClick={() => submitTx(`Closed ${pair} pool position`, pool.tvl * 0.001, address || 'user-wallet')}>
+            onClick={() => submitTx(`Closed ${pair} pool position`, pool.tvl * 0.001, address || 'user-wallet', true)}>
             {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Closing...</span>
               : !isConnected ? 'Connect Wallet' : 'Confirm Close Pool'}
           </Button>

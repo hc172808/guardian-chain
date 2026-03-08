@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -16,9 +16,60 @@ export const StakeInterface = () => {
   const [unstakeAmount, setUnstakeAmount] = useState('');
   const [showDetails, setShowDetails] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [userBalance, setUserBalance] = useState(0);
+  const [userStaked, setUserStaked] = useState(0);
   const { user } = useAuth();
   const { address, isConnected } = useWalletConnect();
   const { toast } = useToast();
+
+  // Load user's balance and staked amount from transactions
+  useEffect(() => {
+    const loadBalances = async () => {
+      if (!user || !address) return;
+      
+      const { data: txData } = await supabase
+        .from('transactions')
+        .select('from_address, to_address, amount')
+        .eq('user_id', user.id)
+        .eq('status', 'confirmed');
+      
+      if (txData) {
+        let staked = 0;
+        let totalReceived = 0;
+        let totalSent = 0;
+        
+        txData.forEach(tx => {
+          // Track staking deposits
+          if (tx.to_address === 'staking-pool') {
+            staked += tx.amount;
+          }
+          // Track unstaking withdrawals
+          if (tx.from_address === 'staking-pool' && tx.to_address === address) {
+            staked -= tx.amount;
+          }
+          // Track general balance (received)
+          if (tx.to_address === address) {
+            totalReceived += tx.amount;
+          }
+          // Track general balance (sent, excluding staking)
+          if (tx.from_address === address && tx.to_address !== 'staking-pool') {
+            totalSent += tx.amount;
+          }
+        });
+        
+        setUserStaked(Math.max(0, staked));
+        setUserBalance(Math.max(0, totalReceived - totalSent));
+      }
+    };
+    
+    loadBalances();
+    
+    const channel = supabase
+      .channel('stake-balances')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadBalances())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, address]);
 
   const executeStake = async (type: 'stake' | 'unstake') => {
     if (!user || !address) {
@@ -27,6 +78,16 @@ export const StakeInterface = () => {
     }
     const amount = parseFloat(type === 'stake' ? stakeAmount : unstakeAmount);
     if (!amount || amount <= 0) return;
+    
+    if (type === 'stake' && amount > userBalance) {
+      toast({ title: 'Insufficient Balance', description: `You only have ${userBalance.toFixed(4)} GYD available.`, variant: 'destructive' });
+      return;
+    }
+    if (type === 'unstake' && amount > userStaked / exchangeRate) {
+      toast({ title: 'Insufficient xGYD', description: `You only have ${(userStaked / exchangeRate).toFixed(4)} xGYD staked.`, variant: 'destructive' });
+      return;
+    }
+    
     setIsProcessing(true);
     try {
       const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
@@ -58,8 +119,6 @@ export const StakeInterface = () => {
   const stakedTotal = 7439000;
   const buybacks24h = 12400;
   const exchangeRate = 1.3626;
-  const userBalance = 0;
-  const userStaked = 0;
 
   const receiveAmount = parseFloat(stakeAmount || '0') / exchangeRate;
   const unstakeReceive = parseFloat(unstakeAmount || '0') * exchangeRate;

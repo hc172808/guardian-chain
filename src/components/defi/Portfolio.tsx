@@ -71,25 +71,42 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
         const poolTxMap = new Map<string, { deposits: number; withdrawals: number; poolId: string }>();
         
         txData.forEach(tx => {
+          // Match pool-{id} pattern
           const poolMatch = tx.to_address?.match(/^pool-(.+)$/);
+          // Match liquidity-pool generic deposits
           const lpMatch = tx.to_address === 'liquidity-pool';
+          // Match staking pool
+          const stakeMatch = tx.to_address === 'staking-pool';
+          // Match swap pool
+          const swapMatch = tx.to_address === 'swap-pool';
+          // Match lock contract
+          const lockMatch = tx.to_address === 'lock-contract';
           
           if (poolMatch) {
             const poolId = poolMatch[1];
             const existing = poolTxMap.get(poolId) || { deposits: 0, withdrawals: 0, poolId };
             existing.deposits += tx.amount;
             poolTxMap.set(poolId, existing);
-          } else if (lpMatch) {
-            // Generic liquidity deposit — assign to first pool or create synthetic
+          } else if (lpMatch || lockMatch) {
             const key = 'generic-lp';
+            const existing = poolTxMap.get(key) || { deposits: 0, withdrawals: 0, poolId: key };
+            existing.deposits += tx.amount;
+            poolTxMap.set(key, existing);
+          } else if (stakeMatch) {
+            const key = 'staking';
+            const existing = poolTxMap.get(key) || { deposits: 0, withdrawals: 0, poolId: key };
+            existing.deposits += tx.amount;
+            poolTxMap.set(key, existing);
+          } else if (swapMatch) {
+            const key = 'swap-activity';
             const existing = poolTxMap.get(key) || { deposits: 0, withdrawals: 0, poolId: key };
             existing.deposits += tx.amount;
             poolTxMap.set(key, existing);
           }
           
-          // Track withdrawals
-          if (tx.from_address === address && tx.to_address === (address || 'user-wallet')) {
-            const key = 'withdrawal';
+          // Track withdrawals from pools back to user
+          if (tx.from_address === 'liquidity-pool' || tx.from_address === 'staking-pool') {
+            const key = tx.from_address === 'staking-pool' ? 'staking' : 'generic-lp';
             const existing = poolTxMap.get(key) || { deposits: 0, withdrawals: 0, poolId: key };
             existing.withdrawals += tx.amount;
             poolTxMap.set(key, existing);
