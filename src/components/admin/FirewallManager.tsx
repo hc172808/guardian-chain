@@ -105,7 +105,7 @@ const UfwRulesTab = () => {
   };
 
   const deleteRule = async (id: string) => {
-    await supabase.from('firewall_rules' as any).delete().eq('id', id);
+    await supabase.from('firewall_rules').delete().eq('id', id);
     toast({ title: 'Rule removed' });
     fetchRules();
   };
