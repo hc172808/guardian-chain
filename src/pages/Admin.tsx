@@ -77,10 +77,10 @@ const AdminContent = () => {
     
     if (usersData) setUsers(usersData);
 
-    // Fetch nodes with user emails
+    // Fetch nodes (without foreign key join since it doesn't exist)
     const { data: nodesData } = await supabase
       .from('node_installations')
-      .select('*, profiles!node_installations_user_id_fkey(email)')
+      .select('*')
       .order('created_at', { ascending: false });
     
     if (nodesData) setNodes(nodesData as unknown as NodeInstallation[]);
