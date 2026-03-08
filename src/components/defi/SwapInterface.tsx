@@ -144,31 +144,52 @@ export const SwapInterface = () => {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Load tokens from database
+  // Load tokens from database + coin logos
   useEffect(() => {
     const loadTokens = async () => {
       const { data } = await supabase
         .from('tokens')
-        .select('symbol, name, address, total_supply')
+        .select('symbol, name, address, total_supply, logo_url')
         .eq('is_active', true)
         .order('symbol');
+
+      // Get coin logos
+      const { data: logoData } = await supabase
+        .from('admin_config')
+        .select('config_key, config_value')
+        .in('config_key', ['gyds_logo', 'gyd_logo']);
+
+      const logos: Record<string, string> = {};
+      (logoData || []).forEach(c => {
+        const val = c.config_value as Record<string, string>;
+        if (val?.url) logos[c.config_key] = val.url;
+      });
+
+      const nativeWithLogos: Token[] = [
+        { symbol: 'GYD', name: 'GYDchain', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: logos['gyd_logo'] },
+        { symbol: 'GYDS', name: 'GYDSchain', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000', logo: logos['gyds_logo'] },
+      ];
 
       const dbTokens: Token[] = (data || []).map(t => ({
         symbol: t.symbol,
         name: t.name,
         balance: 0,
-        price: 0.01, // Default price for custom tokens
+        price: 0.01,
         address: t.address,
+        logo: t.logo_url || undefined,
       }));
 
       // Merge native + DB tokens, avoiding duplicates
-      const merged = [...NATIVE_TOKENS];
+      const merged = [...nativeWithLogos];
       dbTokens.forEach(t => {
         if (!merged.find(m => m.symbol === t.symbol)) {
           merged.push(t);
         }
       });
       setAllTokens(merged);
+      // Update selected tokens if they got logos
+      setPayToken(prev => merged.find(m => m.symbol === prev.symbol) || prev);
+      setReceiveToken(prev => merged.find(m => m.symbol === prev.symbol) || prev);
     };
 
     loadTokens();
