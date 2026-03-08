@@ -80,9 +80,11 @@ const generateMockTxs = () => Array.from({ length: 10 }, (_, i) => ({
 
 const TokenDetail = () => {
   const { address } = useParams<{ address: string }>();
+  const { user } = useAuth();
   const [token, setToken] = useState<TokenData | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('chart');
+  const [renouncing, setRenouncing] = useState<string | null>(null);
 
   const priceHistory = useMemo(() => generatePriceHistory(30), []);
   const holders = useMemo(() => token ? generateMockHolders(token.symbol) : [], [token]);
