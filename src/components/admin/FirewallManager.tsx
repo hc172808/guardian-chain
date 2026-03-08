@@ -258,7 +258,7 @@ const Fail2BanTab = () => {
   const handleAdd = async () => {
     if (!user || !form.jail_name) return;
     setSaving(true);
-    const { error } = await supabase.from('fail2ban_jails' as any).insert({
+    const { error } = await supabase.from('fail2ban_jails').insert({
       jail_name: form.jail_name,
       max_retries: parseInt(form.max_retries),
       ban_time: parseInt(form.ban_time),
