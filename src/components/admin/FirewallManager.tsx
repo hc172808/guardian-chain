@@ -280,7 +280,7 @@ const Fail2BanTab = () => {
   };
 
   const toggleJail = async (id: string, enabled: boolean) => {
-    await supabase.from('fail2ban_jails' as any).update({ is_enabled: !enabled }).eq('id', id);
+    await supabase.from('fail2ban_jails').update({ is_enabled: !enabled }).eq('id', id);
     fetchJails();
   };
 
