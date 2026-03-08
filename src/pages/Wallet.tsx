@@ -43,6 +43,7 @@ interface TokenBalance {
   value: number;
   price: number;
   change24h: number;
+  decimals?: number;
   logo?: string;
 }
 
