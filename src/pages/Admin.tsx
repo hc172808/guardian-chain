@@ -32,6 +32,7 @@ import { DatabaseSettings } from '@/components/admin/DatabaseSettings';
 import { CoinLogoUpload } from '@/components/admin/CoinLogoUpload';
 import { PremineManager } from '@/components/admin/PremineManager';
 import { ValidatorManager } from '@/components/admin/ValidatorManager';
+import { FirewallManager } from '@/components/admin/FirewallManager';
 
 interface UserProfile {
   id: string;
