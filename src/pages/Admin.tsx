@@ -18,7 +18,8 @@ import {
   Coins,
   Building2,
   GitBranch,
-  ScrollText
+  ScrollText,
+  Activity
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,6 +36,7 @@ import { PremineManager } from '@/components/admin/PremineManager';
 import { ValidatorManager } from '@/components/admin/ValidatorManager';
 import { FirewallManager } from '@/components/admin/FirewallManager';
 import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
+import { HealthCheck } from '@/components/admin/HealthCheck';
 
 interface UserProfile {
   id: string;
@@ -212,6 +214,10 @@ const AdminContent = () => {
             <ScrollText className="h-4 w-4" />
             <span className="hidden md:inline">Audit Log</span>
           </TabsTrigger>
+          <TabsTrigger value="health" className="gap-2">
+            <Activity className="h-4 w-4" />
+            <span className="hidden md:inline">Health</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="validators">
@@ -289,6 +295,10 @@ const AdminContent = () => {
 
         <TabsContent value="audit">
           <AuditLogViewer />
+        </TabsContent>
+
+        <TabsContent value="health">
+          <HealthCheck />
         </TabsContent>
 
         <TabsContent value="nodes" className="space-y-4">
