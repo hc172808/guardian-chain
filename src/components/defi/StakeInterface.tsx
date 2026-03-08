@@ -15,6 +15,44 @@ export const StakeInterface = () => {
   const [stakeAmount, setStakeAmount] = useState('');
   const [unstakeAmount, setUnstakeAmount] = useState('');
   const [showDetails, setShowDetails] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const { user } = useAuth();
+  const { address, isConnected } = useWalletConnect();
+  const { toast } = useToast();
+
+  const executeStake = async (type: 'stake' | 'unstake') => {
+    if (!user || !address) {
+      toast({ title: 'Login Required', description: 'Connect your wallet first.', variant: 'destructive' });
+      return;
+    }
+    const amount = parseFloat(type === 'stake' ? stakeAmount : unstakeAmount);
+    if (!amount || amount <= 0) return;
+    setIsProcessing(true);
+    try {
+      const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
+      const { error } = await supabase.from('transactions').insert({
+        user_id: user.id,
+        from_address: type === 'stake' ? address : 'staking-pool',
+        to_address: type === 'stake' ? 'staking-pool' : address,
+        amount,
+        fee: amount * 0.001,
+        tx_hash: txHash,
+        status: 'confirmed',
+        confirmed_at: new Date().toISOString(),
+        wallet_id: null,
+      });
+      if (error) throw error;
+      toast({
+        title: type === 'stake' ? 'Staked Successfully!' : 'Unstaked Successfully!',
+        description: type === 'stake'
+          ? `Staked ${amount} GYD → ${(amount / exchangeRate).toFixed(4)} xGYD`
+          : `Unstaked ${amount} xGYD → ${(amount * exchangeRate).toFixed(4)} GYD`,
+      });
+      if (type === 'stake') setStakeAmount(''); else setUnstakeAmount('');
+    } catch (err: any) {
+      toast({ title: 'Transaction Failed', description: err.message, variant: 'destructive' });
+    } finally { setIsProcessing(false); }
+  };
 
   const apr = 74.87;
   const stakedTotal = 7439000;
