@@ -33,6 +33,7 @@ import { CoinLogoUpload } from '@/components/admin/CoinLogoUpload';
 import { PremineManager } from '@/components/admin/PremineManager';
 import { ValidatorManager } from '@/components/admin/ValidatorManager';
 import { FirewallManager } from '@/components/admin/FirewallManager';
+import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 
 interface UserProfile {
   id: string;
