@@ -219,6 +219,10 @@ const AdminContent = () => {
             <Activity className="h-4 w-4" />
             <span className="hidden md:inline">Health</span>
           </TabsTrigger>
+          <TabsTrigger value="token-pricing" className="gap-2">
+            <Coins className="h-4 w-4" />
+            <span className="hidden md:inline">Pricing</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="validators">
