@@ -68,8 +68,8 @@ const UfwRulesTab = () => {
   });
 
   const fetchRules = async () => {
-    const { data } = await supabase.from('firewall_rules' as any).select('*').order('created_at', { ascending: false });
-    if (data) setRules(data as any);
+    const { data } = await supabase.from('firewall_rules').select('*').order('created_at', { ascending: false });
+    if (data) setRules(data as unknown as FirewallRule[]);
     setLoading(false);
   };
 
@@ -78,7 +78,7 @@ const UfwRulesTab = () => {
   const handleAdd = async () => {
     if (!user) return;
     setSaving(true);
-    const { error } = await supabase.from('firewall_rules' as any).insert({
+    const { error } = await supabase.from('firewall_rules').insert({
       rule_type: 'ufw',
       action: form.action,
       protocol: form.protocol,
@@ -100,12 +100,12 @@ const UfwRulesTab = () => {
   };
 
   const toggleRule = async (id: string, active: boolean) => {
-    await supabase.from('firewall_rules' as any).update({ is_active: !active }).eq('id', id);
+    await supabase.from('firewall_rules').update({ is_active: !active }).eq('id', id);
     fetchRules();
   };
 
   const deleteRule = async (id: string) => {
-    await supabase.from('firewall_rules' as any).delete().eq('id', id);
+    await supabase.from('firewall_rules').delete().eq('id', id);
     toast({ title: 'Rule removed' });
     fetchRules();
   };
@@ -248,8 +248,8 @@ const Fail2BanTab = () => {
   });
 
   const fetchJails = async () => {
-    const { data } = await supabase.from('fail2ban_jails' as any).select('*').order('created_at', { ascending: false });
-    if (data) setJails(data as any);
+    const { data } = await supabase.from('fail2ban_jails').select('*').order('created_at', { ascending: false });
+    if (data) setJails(data as unknown as Fail2BanJail[]);
     setLoading(false);
   };
 
@@ -258,7 +258,7 @@ const Fail2BanTab = () => {
   const handleAdd = async () => {
     if (!user || !form.jail_name) return;
     setSaving(true);
-    const { error } = await supabase.from('fail2ban_jails' as any).insert({
+    const { error } = await supabase.from('fail2ban_jails').insert({
       jail_name: form.jail_name,
       max_retries: parseInt(form.max_retries),
       ban_time: parseInt(form.ban_time),
@@ -280,12 +280,12 @@ const Fail2BanTab = () => {
   };
 
   const toggleJail = async (id: string, enabled: boolean) => {
-    await supabase.from('fail2ban_jails' as any).update({ is_enabled: !enabled }).eq('id', id);
+    await supabase.from('fail2ban_jails').update({ is_enabled: !enabled }).eq('id', id);
     fetchJails();
   };
 
   const deleteJail = async (id: string) => {
-    await supabase.from('fail2ban_jails' as any).delete().eq('id', id);
+    await supabase.from('fail2ban_jails').delete().eq('id', id);
     toast({ title: 'Jail removed' });
     fetchJails();
   };
@@ -404,8 +404,8 @@ const IpAccessListTab = () => {
   const [form, setForm] = useState({ ip_address: '', list_type: 'whitelist', reason: '' });
 
   const fetchEntries = async () => {
-    const { data } = await supabase.from('ip_access_list' as any).select('*').order('created_at', { ascending: false });
-    if (data) setEntries(data as any);
+    const { data } = await supabase.from('ip_access_list').select('*').order('created_at', { ascending: false });
+    if (data) setEntries(data as unknown as IpAccessEntry[]);
     setLoading(false);
   };
 
@@ -414,7 +414,7 @@ const IpAccessListTab = () => {
   const handleAdd = async () => {
     if (!user || !form.ip_address) return;
     setSaving(true);
-    const { error } = await supabase.from('ip_access_list' as any).insert({
+    const { error } = await supabase.from('ip_access_list').insert({
       ip_address: form.ip_address,
       list_type: form.list_type,
       reason: form.reason || null,
@@ -432,7 +432,7 @@ const IpAccessListTab = () => {
   };
 
   const deleteEntry = async (id: string) => {
-    await supabase.from('ip_access_list' as any).delete().eq('id', id);
+    await supabase.from('ip_access_list').delete().eq('id', id);
     toast({ title: 'IP entry removed' });
     fetchEntries();
   };
@@ -547,8 +547,8 @@ const RateLimitTab = () => {
   });
 
   const fetchRules = async () => {
-    const { data } = await supabase.from('rate_limit_rules' as any).select('*').order('created_at', { ascending: false });
-    if (data) setRules(data as any);
+    const { data } = await supabase.from('rate_limit_rules').select('*').order('created_at', { ascending: false });
+    if (data) setRules(data);
     setLoading(false);
   };
 
@@ -557,7 +557,7 @@ const RateLimitTab = () => {
   const handleAdd = async () => {
     if (!user || !form.name || !form.endpoint) return;
     setSaving(true);
-    const { error } = await supabase.from('rate_limit_rules' as any).insert({
+    const { error } = await supabase.from('rate_limit_rules').insert({
       name: form.name,
       endpoint: form.endpoint,
       requests_per_window: parseInt(form.requests_per_window),
@@ -579,12 +579,12 @@ const RateLimitTab = () => {
   };
 
   const toggleRule = async (id: string, enabled: boolean) => {
-    await supabase.from('rate_limit_rules' as any).update({ is_enabled: !enabled }).eq('id', id);
+    await supabase.from('rate_limit_rules').update({ is_enabled: !enabled }).eq('id', id);
     fetchRules();
   };
 
   const deleteRule = async (id: string) => {
-    await supabase.from('rate_limit_rules' as any).delete().eq('id', id);
+    await supabase.from('rate_limit_rules').delete().eq('id', id);
     toast({ title: 'Rule removed' });
     fetchRules();
   };
@@ -712,8 +712,8 @@ const DDoSProtectionTab = () => {
   });
 
   const fetchConfigs = async () => {
-    const { data } = await supabase.from('ddos_protection' as any).select('*').order('created_at', { ascending: false });
-    if (data) setConfigs(data as any);
+    const { data } = await supabase.from('ddos_protection').select('*').order('created_at', { ascending: false });
+    if (data) setConfigs(data);
     setLoading(false);
   };
 
@@ -722,7 +722,7 @@ const DDoSProtectionTab = () => {
   const handleAdd = async () => {
     if (!user || !form.name) return;
     setSaving(true);
-    const { error } = await supabase.from('ddos_protection' as any).insert({
+    const { error } = await supabase.from('ddos_protection').insert({
       name: form.name,
       protection_type: form.protection_type,
       threshold: parseInt(form.threshold),
@@ -742,12 +742,12 @@ const DDoSProtectionTab = () => {
   };
 
   const toggleConfig = async (id: string, enabled: boolean) => {
-    await supabase.from('ddos_protection' as any).update({ is_enabled: !enabled }).eq('id', id);
+    await supabase.from('ddos_protection').update({ is_enabled: !enabled }).eq('id', id);
     fetchConfigs();
   };
 
   const deleteConfig = async (id: string) => {
-    await supabase.from('ddos_protection' as any).delete().eq('id', id);
+    await supabase.from('ddos_protection').delete().eq('id', id);
     toast({ title: 'Protection rule removed' });
     fetchConfigs();
   };

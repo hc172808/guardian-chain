@@ -48,7 +48,7 @@ export const AuditLogViewer = () => {
   const fetchLogs = async () => {
     setLoading(true);
     let query = supabase
-      .from('audit_logs' as any)
+      .from('audit_logs')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(100);
@@ -58,7 +58,7 @@ export const AuditLogViewer = () => {
     }
 
     const { data } = await query;
-    if (data) setLogs(data as any);
+    if (data) setLogs(data as unknown as AuditEntry[]);
     setLoading(false);
   };
 
