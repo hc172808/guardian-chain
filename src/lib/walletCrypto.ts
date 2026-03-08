@@ -71,7 +71,7 @@ async function deriveKey(pin: string, salt: Uint8Array): Promise<CryptoKey> {
 export async function hashPin(pin: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const enc = new TextEncoder();
-  const data = concatBuffers(salt, enc.encode(pin));
+  const data = concatBuffers(salt, enc.encode(pin)) as BufferSource;
   const hash = await crypto.subtle.digest('SHA-256', data);
   return `${bufToHex(salt)}:${bufToHex(hash)}`;
 }
