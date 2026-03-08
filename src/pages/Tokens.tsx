@@ -230,6 +230,14 @@ const TokensPage = () => {
             )}
           </TabsContent>
 
+          <TabsContent value="watchlist">
+            <TokenWatchlist />
+          </TabsContent>
+
+          <TabsContent value="alerts">
+            <PriceAlerts />
+          </TabsContent>
+
           <TabsContent value="create">
             <TokenFactory />
           </TabsContent>
