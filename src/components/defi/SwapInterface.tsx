@@ -21,6 +21,7 @@ interface Token {
   balance: number;
   price: number;
   address?: string;
+  logo?: string;
 }
 
 // Native coins always available
