@@ -305,6 +305,9 @@ const Fail2BanTab = () => {
   const deleteJail = async (id: string) => {
     await supabase.from('fail2ban_jails').delete().eq('id', id);
     toast({ title: 'Jail removed' });
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: 'Removed Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails', target_id: id,
+    });
     fetchJails();
   };
 
