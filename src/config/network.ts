@@ -104,7 +104,7 @@ export const RPC_CONFIG = {
   fullNodeUrl: NETWORK_CONFIG.rpcUrls.primary,
   backupUrls: RPC_ENDPOINTS_LIST.backups,
   localUrls: RPC_ENDPOINTS_LIST.local,
-  wsUrl: 'wss://ws.netlifegy.com/ws',
+  wsUrl: 'wss://ws.netlifegy.com',
   timeout: 30000,
   retryAttempts: 3,
   retryDelay: 1000,
