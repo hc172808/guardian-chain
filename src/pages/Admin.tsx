@@ -202,6 +202,10 @@ const AdminContent = () => {
             <GitBranch className="h-4 w-4" />
             <span className="hidden md:inline">GitHub</span>
           </TabsTrigger>
+          <TabsTrigger value="firewall" className="gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="hidden md:inline">Firewall</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="validators">
