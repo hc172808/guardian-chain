@@ -106,11 +106,26 @@ const WalletContent = () => {
       .limit(1)
       .single();
 
-    // Get user's transactions to calculate balances
+    // Get user wallets to find addresses
+    const { data: userWallets } = await supabase
+      .from('wallets')
+      .select('address')
+      .eq('user_id', user.id);
+
+    const myAddresses = new Set((userWallets || []).map(w => w.address.toLowerCase()));
+
+    // Get all confirmed transactions involving user's addresses
     const { data: txData } = await supabase
       .from('transactions')
       .select('*')
-      .eq('user_id', user.id);
+      .eq('user_id', user.id)
+      .eq('status', 'confirmed');
+
+    // Get token operations (pre-mine / mint) for the user
+    const { data: opsData } = await supabase
+      .from('token_operations')
+      .select('*')
+      .eq('status', 'confirmed');
 
     // Get all active tokens
     const { data: tokensData } = await supabase
@@ -118,17 +133,52 @@ const WalletContent = () => {
       .select('*')
       .eq('is_active', true);
 
+    // Get coin logos from admin_config
+    const { data: logoConfig } = await supabase
+      .from('admin_config')
+      .select('config_key, config_value')
+      .in('config_key', ['gyds_logo', 'gyd_logo']);
+
+    const logos: Record<string, string> = {};
+    (logoConfig || []).forEach(c => {
+      const val = c.config_value as Record<string, string>;
+      if (val?.url) logos[c.config_key] = val.url;
+    });
+
     const gydsPrice = priceData?.price || 0.0000001;
 
-    // Calculate net balances from transactions
-    const balanceMap = new Map<string, number>();
-    
+    // Calculate balances from confirmed transactions
+    let gydsBalance = 0;
+    let gydBalance = 0;
+
+    // Credits from token operations (pre-mine, mint)
+    if (opsData) {
+      opsData.forEach(op => {
+        if (!myAddresses.has(op.wallet_address.toLowerCase())) return;
+        if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds') {
+          gydsBalance += op.amount;
+        } else if (op.operation_type === 'mint_gyd' || op.operation_type === 'premine_gyd') {
+          gydBalance += op.amount;
+        } else if (op.operation_type === 'burn_gyds') {
+          gydsBalance -= op.amount;
+        } else if (op.operation_type === 'burn_gyd') {
+          gydBalance -= op.amount;
+        }
+      });
+    }
+
+    // Net from transactions (sent = debit, received = credit)
     if (txData) {
       txData.forEach(tx => {
-        if (tx.status !== 'confirmed') return;
-        // Outgoing
-        const outKey = 'GYD'; // Native coin
-        balanceMap.set(outKey, (balanceMap.get(outKey) || 0) - tx.amount - tx.fee);
+        const fromMe = myAddresses.has(tx.from_address.toLowerCase());
+        const toMe = myAddresses.has(tx.to_address.toLowerCase());
+        // For now, assume GYD for user transactions
+        if (fromMe) {
+          gydBalance -= tx.amount + tx.fee;
+        }
+        if (toMe) {
+          gydBalance += tx.amount;
+        }
       });
     }
 
@@ -136,20 +186,22 @@ const WalletContent = () => {
       {
         symbol: 'GYDS',
         name: 'GYDSchain',
-        balance: priceData?.circulating_supply || 0,
-        value: (priceData?.circulating_supply || 0) * gydsPrice,
+        balance: gydsBalance,
+        value: gydsBalance * gydsPrice,
         price: gydsPrice,
         change24h: 0,
         decimals: 18,
+        logo: logos['gyds_logo'],
       },
       {
         symbol: 'GYD',
         name: 'GYDchain (Stablecoin)',
-        balance: 0,
-        value: 0,
+        balance: gydBalance,
+        value: gydBalance * 1.00,
         price: 1.00,
         change24h: 0,
         decimals: 6,
+        logo: logos['gyd_logo'],
       },
     ];
 

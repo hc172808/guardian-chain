@@ -21,6 +21,7 @@ interface Token {
   balance: number;
   price: number;
   address?: string;
+  logo?: string;
 }
 
 // Native coins always available
@@ -31,14 +32,18 @@ const NATIVE_TOKENS: Token[] = [
 
 const TokenSelectorButton = ({ token, onClick }: { token: Token; onClick: () => void }) => (
   <Button variant="secondary" className="gap-2 rounded-lg px-3 py-2 h-auto" onClick={onClick}>
-    <div className={cn(
-      "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
-      token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-      token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
-      "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
-    )}>
-      {token.symbol[0]}
-    </div>
+    {token.logo ? (
+      <img src={token.logo} alt={token.symbol} className="w-6 h-6 rounded-full object-cover" />
+    ) : (
+      <div className={cn(
+        "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
+        token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+        token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+        "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+      )}>
+        {token.symbol[0]}
+      </div>
+    )}
     <span className="font-semibold">{token.symbol}</span>
     <ChevronDown className="h-3 w-3 text-muted-foreground" />
   </Button>
@@ -99,14 +104,18 @@ const TokenSelector = ({
               )}
               onClick={() => { onSelect(token); onOpenChange(false); setSearch(''); }}
             >
-              <div className={cn(
-                "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-                token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
-                "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
-              )}>
-                {token.symbol[0]}
-              </div>
+              {token.logo ? (
+                <img src={token.logo} alt={token.symbol} className="w-8 h-8 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className={cn(
+                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                  token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+                  token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                  "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+                )}>
+                  {token.symbol[0]}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm">{token.symbol}</div>
                 <div className="text-xs text-muted-foreground truncate">{token.name}</div>
@@ -135,31 +144,52 @@ export const SwapInterface = () => {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Load tokens from database
+  // Load tokens from database + coin logos
   useEffect(() => {
     const loadTokens = async () => {
       const { data } = await supabase
         .from('tokens')
-        .select('symbol, name, address, total_supply')
+        .select('symbol, name, address, total_supply, logo_url')
         .eq('is_active', true)
         .order('symbol');
+
+      // Get coin logos
+      const { data: logoData } = await supabase
+        .from('admin_config')
+        .select('config_key, config_value')
+        .in('config_key', ['gyds_logo', 'gyd_logo']);
+
+      const logos: Record<string, string> = {};
+      (logoData || []).forEach(c => {
+        const val = c.config_value as Record<string, string>;
+        if (val?.url) logos[c.config_key] = val.url;
+      });
+
+      const nativeWithLogos: Token[] = [
+        { symbol: 'GYD', name: 'GYDchain', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: logos['gyd_logo'] },
+        { symbol: 'GYDS', name: 'GYDSchain', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000', logo: logos['gyds_logo'] },
+      ];
 
       const dbTokens: Token[] = (data || []).map(t => ({
         symbol: t.symbol,
         name: t.name,
         balance: 0,
-        price: 0.01, // Default price for custom tokens
+        price: 0.01,
         address: t.address,
+        logo: t.logo_url || undefined,
       }));
 
       // Merge native + DB tokens, avoiding duplicates
-      const merged = [...NATIVE_TOKENS];
+      const merged = [...nativeWithLogos];
       dbTokens.forEach(t => {
         if (!merged.find(m => m.symbol === t.symbol)) {
           merged.push(t);
         }
       });
       setAllTokens(merged);
+      // Update selected tokens if they got logos
+      setPayToken(prev => merged.find(m => m.symbol === prev.symbol) || prev);
+      setReceiveToken(prev => merged.find(m => m.symbol === prev.symbol) || prev);
     };
 
     loadTokens();
@@ -403,14 +433,18 @@ export const SwapInterface = () => {
             onClick={() => { setPayToken(token); }}
           >
             <div className="flex items-center gap-3">
-              <div className={cn(
-                "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
-                token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-                token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
-                "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
-              )}>
-                {token.symbol[0]}
-              </div>
+              {token.logo ? (
+                <img src={token.logo} alt={token.symbol} className="w-10 h-10 rounded-full object-cover" />
+              ) : (
+                <div className={cn(
+                  "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
+                  token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+                  token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                  "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+                )}>
+                  {token.symbol[0]}
+                </div>
+              )}
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">{token.symbol}</span>

@@ -28,6 +28,8 @@ import { BurnMintManager } from '@/components/admin/BurnMintManager';
 import { StablecoinManager } from '@/components/admin/StablecoinManager';
 import { SponsorManager } from '@/components/admin/SponsorManager';
 import { DatabaseSettings } from '@/components/admin/DatabaseSettings';
+import { CoinLogoUpload } from '@/components/admin/CoinLogoUpload';
+import { PremineManager } from '@/components/admin/PremineManager';
 
 interface UserProfile {
   id: string;
@@ -156,30 +158,38 @@ const AdminContent = () => {
       </div>
 
       <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-6 w-full">
+        <TabsList className="grid grid-cols-4 md:grid-cols-8 w-full">
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
-            Nodes
+            <span className="hidden md:inline">Nodes</span>
           </TabsTrigger>
           <TabsTrigger value="users" className="gap-2">
             <Users className="h-4 w-4" />
-            Users
+            <span className="hidden md:inline">Users</span>
           </TabsTrigger>
           <TabsTrigger value="tokens" className="gap-2">
             <Flame className="h-4 w-4" />
-            Burn/Mint
+            <span className="hidden md:inline">Burn/Mint</span>
           </TabsTrigger>
           <TabsTrigger value="stablecoin" className="gap-2">
             <Coins className="h-4 w-4" />
-            GYD/GYDS
+            <span className="hidden md:inline">GYD/GYDS</span>
           </TabsTrigger>
           <TabsTrigger value="sponsors" className="gap-2">
             <Building2 className="h-4 w-4" />
-            Sponsors
+            <span className="hidden md:inline">Sponsors</span>
+          </TabsTrigger>
+          <TabsTrigger value="premine" className="gap-2">
+            <Coins className="h-4 w-4" />
+            <span className="hidden md:inline">Pre-mine</span>
+          </TabsTrigger>
+          <TabsTrigger value="logos" className="gap-2">
+            <Coins className="h-4 w-4" />
+            <span className="hidden md:inline">Logos</span>
           </TabsTrigger>
           <TabsTrigger value="database" className="gap-2">
             <Key className="h-4 w-4" />
-            Database
+            <span className="hidden md:inline">Database</span>
           </TabsTrigger>
         </TabsList>
 
@@ -193,6 +203,14 @@ const AdminContent = () => {
 
         <TabsContent value="sponsors">
           <SponsorManager />
+        </TabsContent>
+
+        <TabsContent value="premine">
+          <PremineManager />
+        </TabsContent>
+
+        <TabsContent value="logos">
+          <CoinLogoUpload />
         </TabsContent>
 
         <TabsContent value="database">
