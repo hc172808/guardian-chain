@@ -38,6 +38,48 @@ export type Database = {
         }
         Relationships: []
       }
+      ddos_protection: {
+        Row: {
+          action: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_enabled: boolean
+          name: string
+          parameters: Json | null
+          protection_type: string
+          threshold: number
+          updated_at: string
+        }
+        Insert: {
+          action?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_enabled?: boolean
+          name: string
+          parameters?: Json | null
+          protection_type?: string
+          threshold?: number
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_enabled?: boolean
+          name?: string
+          parameters?: Json | null
+          protection_type?: string
+          threshold?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       documentation: {
         Row: {
           content: string
@@ -395,6 +437,51 @@ export type Database = {
           role?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      rate_limit_rules: {
+        Row: {
+          action: string
+          burst_limit: number
+          created_at: string
+          created_by: string | null
+          description: string | null
+          endpoint: string
+          id: string
+          is_enabled: boolean
+          name: string
+          requests_per_window: number
+          updated_at: string
+          window_seconds: number
+        }
+        Insert: {
+          action?: string
+          burst_limit?: number
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          endpoint: string
+          id?: string
+          is_enabled?: boolean
+          name: string
+          requests_per_window?: number
+          updated_at?: string
+          window_seconds?: number
+        }
+        Update: {
+          action?: string
+          burst_limit?: number
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          endpoint?: string
+          id?: string
+          is_enabled?: boolean
+          name?: string
+          requests_per_window?: number
+          updated_at?: string
+          window_seconds?: number
         }
         Relationships: []
       }
