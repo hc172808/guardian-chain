@@ -50,6 +50,8 @@ export const TokenPricingManager = () => {
           update_authority_fee: val.update_authority_fee ?? DEFAULTS.update_authority_fee,
           mint_authority_fee: val.mint_authority_fee ?? DEFAULTS.mint_authority_fee,
           min_liquidity: val.min_liquidity ?? DEFAULTS.min_liquidity,
+          global_max_buy_per_wallet: val.global_max_buy_per_wallet ?? DEFAULTS.global_max_buy_per_wallet,
+          global_daily_buy_limit: val.global_daily_buy_limit ?? DEFAULTS.global_daily_buy_limit,
         });
       }
       setLoading(false);
