@@ -109,6 +109,42 @@ const TokenDetail = () => {
     toast({ title: 'Address copied' });
   };
 
+  const fetchToken = async () => {
+    if (!address) return;
+    const { data } = await supabase
+      .from('tokens')
+      .select('*')
+      .eq('address', address)
+      .maybeSingle();
+    setToken(data as TokenData | null);
+    setLoading(false);
+  };
+
+  const handleRenounce = async (authorityType: 'mint' | 'freeze' | 'update') => {
+    if (!token || !user) return;
+    setRenouncing(authorityType);
+    try {
+      const updateData: Record<string, any> = {};
+      updateData[`${authorityType}_locked`] = true;
+      updateData[`${authorityType}_holder`] = null;
+
+      const { error } = await supabase
+        .from('tokens')
+        .update(updateData)
+        .eq('id', token.id)
+        .eq('creator_id', user.id);
+
+      if (error) throw error;
+
+      toast({ title: `${authorityType.charAt(0).toUpperCase() + authorityType.slice(1)} Authority Renounced`, description: 'This action is permanent and cannot be undone.' });
+      fetchToken();
+    } catch (err: any) {
+      toast({ title: 'Failed to renounce', description: err.message, variant: 'destructive' });
+    } finally {
+      setRenouncing(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
