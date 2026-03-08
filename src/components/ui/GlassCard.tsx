@@ -7,10 +7,11 @@ interface GlassCardProps {
   className?: string;
   glow?: boolean;
   hover?: boolean;
+  onClick?: () => void;
 }
 
 export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
-  ({ children, className, glow = false, hover = false }, ref) => {
+  ({ children, className, glow = false, hover = false, onClick }, ref) => {
     return (
       <motion.div
         ref={ref}
@@ -18,6 +19,7 @@ export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
         whileHover={hover ? { scale: 1.02, transition: { duration: 0.2 } } : undefined}
+        onClick={onClick}
         className={cn(
           'glass-card rounded-lg p-6',
           glow && 'border-glow',
