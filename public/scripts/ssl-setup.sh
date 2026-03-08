@@ -16,12 +16,13 @@ NC='\033[0m'
 # Configuration
 DOMAIN="${DOMAIN:-netlifegy.com}"
 EMAIL="${EMAIL:-admin@netlifegy.com}"
-SUBDOMAINS=("www" "rpc" "explorer" "vpn" "api" "ws")
+SUBDOMAINS=("www" "rpc" "rpc2" "rpc3" "explorer" "vpn" "api" "ws" "testnet-rpc")
 
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════════════════╗"
 echo "║           GYDSchain SSL/TLS Certificate Setup                         ║"
 echo "║                   Let's Encrypt Automation                            ║"
+echo "║                     netlifegy.com                                     ║"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -49,6 +50,15 @@ echo "  - $DOMAIN"
 for sub in "${SUBDOMAINS[@]}"; do
     echo "  - $sub.$DOMAIN"
 done
+echo ""
+echo -e "${CYAN}Service Mapping:${NC}"
+echo "  rpc.netlifegy.com          - Main RPC endpoint"
+echo "  rpc2.netlifegy.com         - Backup RPC #1"
+echo "  rpc3.netlifegy.com         - Backup RPC #2"
+echo "  ws.netlifegy.com           - WebSocket endpoint"
+echo "  explorer.netlifegy.com     - Block explorer"
+echo "  vpn.netlifegy.com          - WireGuard VPN server"
+echo "  testnet-rpc.netlifegy.com  - Testnet RPC"
 echo ""
 
 # Check if nginx is running

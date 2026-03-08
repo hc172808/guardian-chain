@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-echo "🚀 Starting FULL GYDS Mobile Setup (Complete Version with node.env)..."
+echo "🚀 Starting FULL GYDS Mobile Setup - netlifegy.com..."
 
 # -----------------------------
 # 1️⃣ Install dependencies
@@ -29,7 +29,16 @@ mkdir -p "$BIN" "$DATA" "$BLOCKS" "$LOGS" "$WALLET" "$WG_DIR"
 chmod 700 "$GYDS_HOME"
 
 # -----------------------------
-# 3️⃣ Install lite node if missing
+# 3️⃣ RPC Configuration
+# -----------------------------
+RPC_PRIMARY="https://rpc.netlifegy.com"
+RPC_ALL="https://rpc.netlifegy.com,https://rpc2.netlifegy.com,https://rpc3.netlifegy.com,https://localhost:8546,https://192.168.18.106:8546"
+WS_ENDPOINT="wss://ws.netlifegy.com"
+EXPLORER_URL="https://explorer.netlifegy.com"
+VPN_ENDPOINT="vpn.netlifegy.com"
+
+# -----------------------------
+# 4️⃣ Install lite node if missing
 # -----------------------------
 if [[ ! -f "$BIN/gyds-litenode" ]]; then
   echo "[!] Lite node not found, installing..."
@@ -41,7 +50,7 @@ fi
 echo "✅ Lite node installed"
 
 # -----------------------------
-# 4️⃣ Generate wallet + RPC key
+# 5️⃣ Generate wallet + RPC key
 # -----------------------------
 KEYFILE="$WALLET/node.json"
 if [[ ! -f "$KEYFILE" ]]; then
@@ -58,7 +67,7 @@ NODE_ADDRESS="$(jq -r '.address' "$KEYFILE")"
 echo "✅ Wallet & RPC key ready: $NODE_ADDRESS"
 
 # -----------------------------
-# 5️⃣ Create node.env automatically
+# 6️⃣ Create node.env automatically
 # -----------------------------
 NODE_ENV="$GYDS_HOME/node.env"
 cat > "$NODE_ENV" <<EOF
@@ -72,20 +81,28 @@ RPC_KEY=$RPC_KEY
 COINS=GYD,GYDS
 WG_DIR=$WG_DIR
 
+# Service Endpoints
+RPC_PRIMARY=$RPC_PRIMARY
+RPC_ALL=$RPC_ALL
+WS_ENDPOINT=$WS_ENDPOINT
+EXPLORER_URL=$EXPLORER_URL
+VPN_ENDPOINT=$VPN_ENDPOINT
+
 FULLNODES_WG=(
   "<FULLNODE1_PUBLIC_KEY>|<FULLNODE1_HOST>:51820"
   "<FULLNODE2_PUBLIC_KEY>|<FULLNODE2_HOST>:51820"
 )
 
 FULLNODES_RPC=(
-  "http://10.0.0.1:9545"
-  "http://10.0.0.2:9545"
+  "https://rpc.netlifegy.com"
+  "https://rpc2.netlifegy.com"
+  "https://rpc3.netlifegy.com"
 )
 EOF
 echo "✅ node.env created with CHAIN_ID=13370"
 
 # -----------------------------
-# 6️⃣ Clone React dashboard
+# 7️⃣ Clone React dashboard
 # -----------------------------
 DASH_HOME="$HOME/gyds-dashboard"
 if [[ ! -d "$DASH_HOME" ]]; then
@@ -94,7 +111,7 @@ fi
 mkdir -p "$DASH_HOME/logs"
 
 # -----------------------------
-# 7️⃣ Fix package.json and install react-scripts
+# 8️⃣ Fix package.json and install react-scripts
 # -----------------------------
 cat > "$DASH_HOME/package.json" <<'EOF'
 {
@@ -128,15 +145,17 @@ npm install
 echo "✅ Dashboard fixed and dependencies installed"
 
 # -----------------------------
-# 8️⃣ Inject RPC & WS config
+# 9️⃣ Inject RPC & WS config
 # -----------------------------
 cat > "$DASH_HOME/.env" <<EOF
-REACT_APP_RPC=http://localhost:9545
-REACT_APP_WS=ws://localhost:9546
+REACT_APP_RPC=$RPC_PRIMARY
+REACT_APP_WS=$WS_ENDPOINT
+REACT_APP_EXPLORER=$EXPLORER_URL
+REACT_APP_RPC_ALL=$RPC_ALL
 EOF
 
 # -----------------------------
-# 9️⃣ Setup Termux:Boot auto-start
+# 10️⃣ Setup Termux:Boot auto-start
 # -----------------------------
 BOOT_DIR="$HOME/storage/shared/TermuxBoot"
 mkdir -p "$BOOT_DIR"
@@ -164,7 +183,7 @@ EOF
 chmod +x "$AUTO_START"
 
 # -----------------------------
-# 10️⃣ Create manual start script
+# 11️⃣ Create manual start script
 # -----------------------------
 START_SCRIPT="$HOME/start-gyds-mobile.sh"
 cat > "$START_SCRIPT" <<EOF
@@ -188,10 +207,20 @@ EOF
 chmod +x "$START_SCRIPT"
 
 # -----------------------------
-# 11️⃣ Finish
+# 12️⃣ Finish
 # -----------------------------
 echo ""
 echo "🎉 Full mobile setup complete!"
+echo ""
+echo "Service Endpoints:"
+echo "  rpc.netlifegy.com          - Main RPC"
+echo "  rpc2.netlifegy.com         - Backup RPC #1"
+echo "  rpc3.netlifegy.com         - Backup RPC #2"
+echo "  ws.netlifegy.com           - WebSocket"
+echo "  explorer.netlifegy.com     - Block Explorer"
+echo "  vpn.netlifegy.com          - WireGuard VPN"
+echo "  testnet-rpc.netlifegy.com  - Testnet RPC"
+echo ""
 echo "- Manual start: bash $START_SCRIPT"
 echo "- Auto-start on boot: Termux:Boot enabled ($AUTO_START)"
 echo "- Open dashboard: http://127.0.0.1:3000"

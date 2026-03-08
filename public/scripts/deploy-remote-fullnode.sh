@@ -1,8 +1,8 @@
 #!/bin/bash
 #═══════════════════════════════════════════════════════════════════════════════
-#  ChainCore Remote Full Node Deployment Script
+#  GYDSchain Remote Full Node Deployment Script
 #  Deploy full nodes to remote Ubuntu 22.04 servers worldwide
-#  FOUNDER ONLY
+#  Domain: netlifegy.com - FOUNDER ONLY
 #═══════════════════════════════════════════════════════════════════════════════
 
 set -e
@@ -16,8 +16,9 @@ NC='\033[0m'
 
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════════════════╗"
-echo "║        ChainCore Remote Full Node Deployment                          ║"
+echo "║        GYDSchain Remote Full Node Deployment                          ║"
 echo "║                    FOUNDER EDITION                                    ║"
+echo "║                  netlifegy.com                                        ║"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -51,6 +52,14 @@ echo -e "  RPC Port:     $RPC_PORT"
 echo -e "  P2P Port:     $P2P_PORT"
 echo -e "  Storage:      ${STORAGE_SIZE}GB"
 echo ""
+echo -e "${CYAN}Service Endpoints:${NC}"
+echo -e "  rpc.netlifegy.com          - Main RPC"
+echo -e "  rpc2.netlifegy.com         - Backup RPC #1"
+echo -e "  rpc3.netlifegy.com         - Backup RPC #2"
+echo -e "  ws.netlifegy.com           - WebSocket"
+echo -e "  explorer.netlifegy.com     - Block Explorer"
+echo -e "  vpn.netlifegy.com          - WireGuard VPN"
+echo ""
 
 read -p "Deploy full node to this server? (y/n) " -n 1 -r
 echo
@@ -79,7 +88,7 @@ sudo /tmp/install-fullnode.sh
 EOF
 
 echo -e "${GREEN}[4/4]${NC} Starting full node..."
-ssh -i "$SSH_KEY" -p "$SSH_PORT" "$SSH_USER@$REMOTE_HOST" "sudo systemctl start chaincore-fullnode"
+ssh -i "$SSH_KEY" -p "$SSH_PORT" "$SSH_USER@$REMOTE_HOST" "sudo systemctl start gyds-fullnode"
 
 echo ""
 echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════════════╗${NC}"
@@ -91,8 +100,15 @@ echo -e "  Server:       $REMOTE_HOST"
 echo -e "  RPC Endpoint: http://$REMOTE_HOST:$RPC_PORT"
 echo -e "  P2P Port:     $P2P_PORT"
 echo ""
+echo -e "${CYAN}All RPC Endpoints:${NC}"
+echo -e "  https://rpc.netlifegy.com  (main)"
+echo -e "  https://rpc2.netlifegy.com (backup)"
+echo -e "  https://rpc3.netlifegy.com (backup)"
+echo -e "  https://localhost:8546     (local)"
+echo -e "  https://192.168.18.106:8546 (LAN)"
+echo ""
 echo -e "${CYAN}Lite nodes can connect using:${NC}"
-echo -e "  RPC_ENDPOINTS=http://$REMOTE_HOST:$RPC_PORT bash install-litenode.sh"
+echo -e "  RPC_ENDPOINTS=https://rpc.netlifegy.com bash install-litenode.sh"
 echo ""
 echo -e "${CYAN}Monitor logs:${NC}"
-echo -e "  ssh -i $SSH_KEY -p $SSH_PORT $SSH_USER@$REMOTE_HOST 'journalctl -u chaincore-fullnode -f'"
+echo -e "  ssh -i $SSH_KEY -p $SSH_PORT $SSH_USER@$REMOTE_HOST 'journalctl -u gyds-fullnode -f'"

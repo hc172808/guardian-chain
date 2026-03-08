@@ -3,37 +3,42 @@
 
 import { GENESIS_CONFIG, TOKENOMICS } from './wallets';
 
+// All RPC endpoints — main + backups + local
+export const RPC_ENDPOINTS_LIST = {
+  main: 'https://rpc.netlifegy.com',
+  backups: [
+    'https://rpc2.netlifegy.com',
+    'https://rpc3.netlifegy.com',
+  ],
+  local: [
+    'https://localhost:8546',
+    'https://192.168.18.106:8546',
+  ],
+};
+
+// All endpoints flattened for failover
+export const ALL_RPC_ENDPOINTS = [
+  RPC_ENDPOINTS_LIST.main,
+  ...RPC_ENDPOINTS_LIST.backups,
+  ...RPC_ENDPOINTS_LIST.local,
+];
+
 // Main network configuration for wallet integration
 export const NETWORK_CONFIG = {
-  // Chain ID must be unique - using 13370 for GYDS mainnet
-  // This avoids conflicts with common test networks
   chainId: 13370,
-  chainIdHex: '0x343A', // 13370 in hex
-  
-  // Network name shown in wallets
+  chainIdHex: '0x343A',
   chainName: 'GYDS Network',
-  
-  // Native currency configuration (for Trust Wallet, MetaMask, etc.)
   nativeCurrency: {
     name: TOKENOMICS.name,
     symbol: TOKENOMICS.symbol,
     decimals: TOKENOMICS.decimals,
   },
-  
-  // RPC endpoints for netlifegy.com
   rpcUrls: {
-    primary: 'https://rpc.netlifegy.com',
-    backup: [
-      'https://rpc2.netlifegy.com',
-      'https://rpc3.netlifegy.com',
-    ],
-    local: 'http://localhost:8546',
+    primary: RPC_ENDPOINTS_LIST.main,
+    backup: RPC_ENDPOINTS_LIST.backups,
+    local: RPC_ENDPOINTS_LIST.local,
   },
-  
-  // Block explorer URL
   blockExplorerUrls: ['https://explorer.netlifegy.com'],
-  
-  // Icon URLs for wallet display
   iconUrls: ['https://netlifegy.com/icon.png'],
 };
 
@@ -52,6 +57,17 @@ export const TESTNET_CONFIG = {
     local: 'http://localhost:8547',
   },
   blockExplorerUrls: ['https://testnet-explorer.netlifegy.com'],
+};
+
+// Service endpoints
+export const SERVICE_ENDPOINTS = {
+  rpc: 'https://rpc.netlifegy.com',
+  rpc2: 'https://rpc2.netlifegy.com',
+  rpc3: 'https://rpc3.netlifegy.com',
+  ws: 'wss://ws.netlifegy.com',
+  explorer: 'https://explorer.netlifegy.com',
+  vpn: 'vpn.netlifegy.com',
+  testnetRpc: 'https://testnet-rpc.netlifegy.com',
 };
 
 // EIP-3085 compatible network parameters for wallet_addEthereumChain
@@ -86,7 +102,9 @@ export const TRUST_WALLET_CONFIG = {
 // RPC configuration for connecting to full nodes
 export const RPC_CONFIG = {
   fullNodeUrl: NETWORK_CONFIG.rpcUrls.primary,
-  wsUrl: NETWORK_CONFIG.rpcUrls.primary.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws',
+  backupUrls: RPC_ENDPOINTS_LIST.backups,
+  localUrls: RPC_ENDPOINTS_LIST.local,
+  wsUrl: 'wss://ws.netlifegy.com/ws',
   timeout: 30000,
   retryAttempts: 3,
   retryDelay: 1000,
@@ -94,50 +112,34 @@ export const RPC_CONFIG = {
 
 // RPC endpoint configuration for the Go backend
 export const RPC_ENDPOINTS = {
-  // Standard Ethereum JSON-RPC methods that wallets expect
   methods: {
-    // Network info
     'eth_chainId': 'Returns the chain ID',
     'net_version': 'Returns the network ID',
     'eth_protocolVersion': 'Returns the protocol version',
     'net_listening': 'Returns true if actively listening',
     'net_peerCount': 'Returns number of peers',
-    
-    // Block info
     'eth_blockNumber': 'Returns latest block number',
     'eth_getBlockByNumber': 'Returns block by number',
     'eth_getBlockByHash': 'Returns block by hash',
-    
-    // Account info
     'eth_getBalance': 'Returns account balance',
     'eth_getTransactionCount': 'Returns account nonce',
     'eth_getCode': 'Returns code at address',
     'eth_getStorageAt': 'Returns storage at position',
-    
-    // Transaction methods
     'eth_sendRawTransaction': 'Submits signed transaction',
     'eth_getTransactionByHash': 'Returns transaction by hash',
     'eth_getTransactionReceipt': 'Returns transaction receipt',
     'eth_estimateGas': 'Estimates gas for transaction',
     'eth_gasPrice': 'Returns current gas price',
-    
-    // Call methods
     'eth_call': 'Executes call without creating transaction',
-    
-    // Subscription (WebSocket)
     'eth_subscribe': 'Subscribe to events',
     'eth_unsubscribe': 'Unsubscribe from events',
   },
-  
-  // Mining-specific methods (custom)
   miningMethods: {
     'gyds_getMiningWork': 'Get current mining work',
     'gyds_submitShare': 'Submit mining share',
     'gyds_getMiningStats': 'Get miner statistics',
     'gyds_getPoolInfo': 'Get pool information',
   },
-  
-  // Validator methods (custom)
   validatorMethods: {
     'gyds_getValidators': 'Get validator list',
     'gyds_getValidatorInfo': 'Get validator details',
@@ -148,11 +150,8 @@ export const RPC_ENDPOINTS = {
 
 // Gas configuration
 export const GAS_CONFIG = {
-  // Base gas price in wei (1 Gwei = 1e9 wei)
-  baseFeePerGas: 1000000000, // 1 Gwei
-  maxPriorityFeePerGas: 1500000000, // 1.5 Gwei
-  
-  // Gas limits for different transaction types
+  baseFeePerGas: 1000000000,
+  maxPriorityFeePerGas: 1500000000,
   gasLimits: {
     transfer: 21000,
     tokenTransfer: 65000,
@@ -208,7 +207,6 @@ export const switchToNetwork = async (isTestnet = false): Promise<boolean> => {
     });
     return true;
   } catch (error: any) {
-    // Chain not added, try to add it
     if (error.code === 4902) {
       return addNetworkToWallet(isTestnet);
     }
