@@ -32,6 +32,7 @@ import { DatabaseSettings } from '@/components/admin/DatabaseSettings';
 import { CoinLogoUpload } from '@/components/admin/CoinLogoUpload';
 import { PremineManager } from '@/components/admin/PremineManager';
 import { ValidatorManager } from '@/components/admin/ValidatorManager';
+import { FirewallManager } from '@/components/admin/FirewallManager';
 
 interface UserProfile {
   id: string;
@@ -201,6 +202,10 @@ const AdminContent = () => {
             <GitBranch className="h-4 w-4" />
             <span className="hidden md:inline">GitHub</span>
           </TabsTrigger>
+          <TabsTrigger value="firewall" className="gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="hidden md:inline">Firewall</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="validators">
@@ -270,6 +275,10 @@ const AdminContent = () => {
               </div>
             </div>
           </GlassCard>
+        </TabsContent>
+
+        <TabsContent value="firewall">
+          <FirewallManager />
         </TabsContent>
 
         <TabsContent value="nodes" className="space-y-4">

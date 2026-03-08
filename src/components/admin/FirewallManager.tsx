@@ -1,0 +1,601 @@
+import { useState, useEffect } from 'react';
+import { GlassCard } from '@/components/ui/GlassCard';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
+import {
+  Shield, Plus, Trash2, Edit, Loader2, CheckCircle, XCircle,
+  Ban, Lock, Unlock, Globe, AlertTriangle, Wifi,
+} from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from '@/components/ui/dialog';
+
+// ─── Types ───
+interface FirewallRule {
+  id: string;
+  rule_type: string;
+  action: string;
+  protocol: string;
+  port: string | null;
+  ip_address: string | null;
+  direction: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface Fail2BanJail {
+  id: string;
+  jail_name: string;
+  is_enabled: boolean;
+  max_retries: number;
+  ban_time: number;
+  find_time: number;
+  log_path: string | null;
+  filter_name: string | null;
+  action: string | null;
+  description: string | null;
+  banned_ips: string[];
+  created_at: string;
+}
+
+interface IpAccessEntry {
+  id: string;
+  ip_address: string;
+  list_type: string;
+  reason: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+// ─── UFW Rules Tab ───
+const UfwRulesTab = () => {
+  const { user } = useAuth();
+  const [rules, setRules] = useState<FirewallRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    action: 'allow', protocol: 'tcp', port: '', ip_address: '', direction: 'in', description: '',
+  });
+
+  const fetchRules = async () => {
+    const { data } = await supabase.from('firewall_rules' as any).select('*').order('created_at', { ascending: false });
+    if (data) setRules(data as any);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchRules(); }, []);
+
+  const handleAdd = async () => {
+    if (!user) return;
+    setSaving(true);
+    const { error } = await supabase.from('firewall_rules' as any).insert({
+      rule_type: 'ufw',
+      action: form.action,
+      protocol: form.protocol,
+      port: form.port || null,
+      ip_address: form.ip_address || null,
+      direction: form.direction,
+      description: form.description || null,
+      created_by: user.id,
+    });
+    if (error) {
+      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Firewall rule added' });
+      setDialogOpen(false);
+      setForm({ action: 'allow', protocol: 'tcp', port: '', ip_address: '', direction: 'in', description: '' });
+      fetchRules();
+    }
+    setSaving(false);
+  };
+
+  const toggleRule = async (id: string, active: boolean) => {
+    await supabase.from('firewall_rules' as any).update({ is_active: !active }).eq('id', id);
+    fetchRules();
+  };
+
+  const deleteRule = async (id: string) => {
+    await supabase.from('firewall_rules' as any).delete().eq('id', id);
+    toast({ title: 'Rule removed' });
+    fetchRules();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium flex items-center gap-2">
+          <Shield className="h-4 w-4 text-primary" />
+          UFW Firewall Rules
+        </h4>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> Add Rule</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>Add Firewall Rule</DialogTitle></DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Action</Label>
+                  <Select value={form.action} onValueChange={(v) => setForm({ ...form, action: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="allow">Allow</SelectItem>
+                      <SelectItem value="deny">Deny</SelectItem>
+                      <SelectItem value="reject">Reject</SelectItem>
+                      <SelectItem value="limit">Limit</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Protocol</Label>
+                  <Select value={form.protocol} onValueChange={(v) => setForm({ ...form, protocol: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="tcp">TCP</SelectItem>
+                      <SelectItem value="udp">UDP</SelectItem>
+                      <SelectItem value="any">Any</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Port</Label>
+                  <Input placeholder="e.g. 22, 80, 443" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Direction</Label>
+                  <Select value={form.direction} onValueChange={(v) => setForm({ ...form, direction: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="in">Inbound</SelectItem>
+                      <SelectItem value="out">Outbound</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Source IP (optional)</Label>
+                <Input placeholder="e.g. 192.168.1.0/24" value={form.ip_address} onChange={(e) => setForm({ ...form, ip_address: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Input placeholder="Rule description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+              </div>
+              <Button onClick={handleAdd} disabled={saving} className="w-full gap-2">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Add Rule
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Default rules info */}
+      <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
+        <p className="text-muted-foreground">
+          <strong className="text-foreground">Default policy:</strong> Deny all incoming, Allow all outgoing. 
+          Essential ports (22/SSH, 80/HTTP, 443/HTTPS, 30303/P2P, 8545/RPC) should be explicitly allowed.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      ) : rules.length === 0 ? (
+        <div className="text-center py-6 text-muted-foreground">
+          <Shield className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p>No firewall rules configured</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {rules.map((rule) => (
+            <div key={rule.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${rule.action === 'allow' ? 'bg-primary/20' : rule.action === 'deny' ? 'bg-destructive/20' : 'bg-yellow-500/20'}`}>
+                  {rule.action === 'allow' ? <CheckCircle className="h-4 w-4 text-primary" /> :
+                   rule.action === 'deny' ? <XCircle className="h-4 w-4 text-destructive" /> :
+                   <AlertTriangle className="h-4 w-4 text-yellow-500" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={rule.action === 'allow' ? 'default' : 'destructive'} className="text-xs uppercase">
+                      {rule.action}
+                    </Badge>
+                    <span className="text-sm font-mono">{rule.port || '*'}/{rule.protocol}</span>
+                    <span className="text-xs text-muted-foreground">{rule.direction === 'in' ? '← IN' : '→ OUT'}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {rule.ip_address ? `From: ${rule.ip_address}` : 'Any source'}
+                    {rule.description ? ` • ${rule.description}` : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={rule.is_active} onCheckedChange={() => toggleRule(rule.id, rule.is_active)} />
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteRule(rule.id)}>
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Fail2Ban Tab ───
+const Fail2BanTab = () => {
+  const { user } = useAuth();
+  const [jails, setJails] = useState<Fail2BanJail[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600',
+    log_path: '', filter_name: '', description: '',
+  });
+
+  const fetchJails = async () => {
+    const { data } = await supabase.from('fail2ban_jails' as any).select('*').order('created_at', { ascending: false });
+    if (data) setJails(data as any);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchJails(); }, []);
+
+  const handleAdd = async () => {
+    if (!user || !form.jail_name) return;
+    setSaving(true);
+    const { error } = await supabase.from('fail2ban_jails' as any).insert({
+      jail_name: form.jail_name,
+      max_retries: parseInt(form.max_retries),
+      ban_time: parseInt(form.ban_time),
+      find_time: parseInt(form.find_time),
+      log_path: form.log_path || null,
+      filter_name: form.filter_name || null,
+      description: form.description || null,
+      created_by: user.id,
+    });
+    if (error) {
+      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Fail2Ban jail added' });
+      setDialogOpen(false);
+      setForm({ jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600', log_path: '', filter_name: '', description: '' });
+      fetchJails();
+    }
+    setSaving(false);
+  };
+
+  const toggleJail = async (id: string, enabled: boolean) => {
+    await supabase.from('fail2ban_jails' as any).update({ is_enabled: !enabled }).eq('id', id);
+    fetchJails();
+  };
+
+  const deleteJail = async (id: string) => {
+    await supabase.from('fail2ban_jails' as any).delete().eq('id', id);
+    toast({ title: 'Jail removed' });
+    fetchJails();
+  };
+
+  const formatDuration = (seconds: number) => {
+    if (seconds >= 86400) return `${Math.floor(seconds / 86400)}d`;
+    if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h`;
+    return `${Math.floor(seconds / 60)}m`;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium flex items-center gap-2">
+          <Ban className="h-4 w-4 text-primary" />
+          Fail2Ban Jails
+        </h4>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> Add Jail</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>Add Fail2Ban Jail</DialogTitle></DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>Jail Name</Label>
+                <Input placeholder="e.g. sshd, rpc-bruteforce" value={form.jail_name} onChange={(e) => setForm({ ...form, jail_name: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label>Max Retries</Label>
+                  <Input type="number" value={form.max_retries} onChange={(e) => setForm({ ...form, max_retries: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Ban Time (s)</Label>
+                  <Input type="number" value={form.ban_time} onChange={(e) => setForm({ ...form, ban_time: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Find Time (s)</Label>
+                  <Input type="number" value={form.find_time} onChange={(e) => setForm({ ...form, find_time: e.target.value })} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Log Path</Label>
+                <Input placeholder="/var/log/auth.log" value={form.log_path} onChange={(e) => setForm({ ...form, log_path: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Filter Name</Label>
+                <Input placeholder="e.g. sshd, nginx-http-auth" value={form.filter_name} onChange={(e) => setForm({ ...form, filter_name: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Input placeholder="What this jail protects" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+              </div>
+              <Button onClick={handleAdd} disabled={saving || !form.jail_name} className="w-full gap-2">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Add Jail
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      ) : jails.length === 0 ? (
+        <div className="text-center py-6 text-muted-foreground">
+          <Ban className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p>No Fail2Ban jails configured</p>
+          <p className="text-xs mt-1">Add jails for SSH, RPC, and P2P brute-force protection</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {jails.map((jail) => (
+            <div key={jail.id} className="p-3 rounded-lg bg-secondary/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${jail.is_enabled ? 'bg-primary/20' : 'bg-muted/20'}`}>
+                    {jail.is_enabled ? <Lock className="h-4 w-4 text-primary" /> : <Unlock className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{jail.jail_name}</p>
+                    <p className="text-xs text-muted-foreground">{jail.description || 'No description'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch checked={jail.is_enabled} onCheckedChange={() => toggleJail(jail.id, jail.is_enabled)} />
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteJail(jail.id)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+              <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+                <span>Max retries: <strong className="text-foreground">{jail.max_retries}</strong></span>
+                <span>Ban: <strong className="text-foreground">{formatDuration(jail.ban_time)}</strong></span>
+                <span>Window: <strong className="text-foreground">{formatDuration(jail.find_time)}</strong></span>
+                {jail.banned_ips && jail.banned_ips.length > 0 && (
+                  <span className="text-destructive">🚫 {jail.banned_ips.length} banned</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── IP Access List Tab ───
+const IpAccessListTab = () => {
+  const { user } = useAuth();
+  const [entries, setEntries] = useState<IpAccessEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ ip_address: '', list_type: 'whitelist', reason: '' });
+
+  const fetchEntries = async () => {
+    const { data } = await supabase.from('ip_access_list' as any).select('*').order('created_at', { ascending: false });
+    if (data) setEntries(data as any);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchEntries(); }, []);
+
+  const handleAdd = async () => {
+    if (!user || !form.ip_address) return;
+    setSaving(true);
+    const { error } = await supabase.from('ip_access_list' as any).insert({
+      ip_address: form.ip_address,
+      list_type: form.list_type,
+      reason: form.reason || null,
+      created_by: user.id,
+    });
+    if (error) {
+      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: `IP ${form.list_type === 'whitelist' ? 'whitelisted' : 'blacklisted'}` });
+      setDialogOpen(false);
+      setForm({ ip_address: '', list_type: 'whitelist', reason: '' });
+      fetchEntries();
+    }
+    setSaving(false);
+  };
+
+  const deleteEntry = async (id: string) => {
+    await supabase.from('ip_access_list' as any).delete().eq('id', id);
+    toast({ title: 'IP entry removed' });
+    fetchEntries();
+  };
+
+  const whitelisted = entries.filter(e => e.list_type === 'whitelist');
+  const blacklisted = entries.filter(e => e.list_type === 'blacklist');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium flex items-center gap-2">
+          <Globe className="h-4 w-4 text-primary" />
+          IP Whitelist / Blacklist
+        </h4>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> Add IP</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle>Add IP Entry</DialogTitle></DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>IP Address / CIDR</Label>
+                <Input placeholder="e.g. 192.168.1.100 or 10.0.0.0/8" value={form.ip_address} onChange={(e) => setForm({ ...form, ip_address: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>List Type</Label>
+                <Select value={form.list_type} onValueChange={(v) => setForm({ ...form, list_type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="whitelist">✅ Whitelist (Allow)</SelectItem>
+                    <SelectItem value="blacklist">🚫 Blacklist (Block)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Reason</Label>
+                <Input placeholder="Why this IP is listed" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+              </div>
+              <Button onClick={handleAdd} disabled={saving || !form.ip_address} className="w-full gap-2">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Add Entry
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      ) : entries.length === 0 ? (
+        <div className="text-center py-6 text-muted-foreground">
+          <Globe className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p>No IP entries configured</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p className="text-sm font-medium text-primary mb-2 flex items-center gap-1">
+              <CheckCircle className="h-3 w-3" /> Whitelist ({whitelisted.length})
+            </p>
+            <div className="space-y-1">
+              {whitelisted.map((e) => (
+                <div key={e.id} className="flex items-center justify-between p-2 rounded bg-primary/5 text-sm">
+                  <div>
+                    <code className="font-mono text-xs">{e.ip_address}</code>
+                    {e.reason && <span className="text-xs text-muted-foreground ml-2">— {e.reason}</span>}
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => deleteEntry(e.id)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+              {whitelisted.length === 0 && <p className="text-xs text-muted-foreground">No entries</p>}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-destructive mb-2 flex items-center gap-1">
+              <XCircle className="h-3 w-3" /> Blacklist ({blacklisted.length})
+            </p>
+            <div className="space-y-1">
+              {blacklisted.map((e) => (
+                <div key={e.id} className="flex items-center justify-between p-2 rounded bg-destructive/5 text-sm">
+                  <div>
+                    <code className="font-mono text-xs">{e.ip_address}</code>
+                    {e.reason && <span className="text-xs text-muted-foreground ml-2">— {e.reason}</span>}
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => deleteEntry(e.id)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+              {blacklisted.length === 0 && <p className="text-xs text-muted-foreground">No entries</p>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Main Export ───
+export const FirewallManager = () => {
+  return (
+    <GlassCard className="p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-3 rounded-lg bg-primary/10">
+          <Shield className="h-6 w-6 text-primary" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-lg">Firewall & Security</h3>
+          <p className="text-sm text-muted-foreground">UFW rules, Fail2Ban jails, and IP access control</p>
+        </div>
+      </div>
+
+      <Tabs defaultValue="ufw" className="space-y-4">
+        <TabsList className="grid grid-cols-3 w-full max-w-md">
+          <TabsTrigger value="ufw" className="gap-1 text-xs">
+            <Shield className="h-3 w-3" /> UFW Rules
+          </TabsTrigger>
+          <TabsTrigger value="fail2ban" className="gap-1 text-xs">
+            <Ban className="h-3 w-3" /> Fail2Ban
+          </TabsTrigger>
+          <TabsTrigger value="iplist" className="gap-1 text-xs">
+            <Globe className="h-3 w-3" /> IP List
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="ufw"><UfwRulesTab /></TabsContent>
+        <TabsContent value="fail2ban"><Fail2BanTab /></TabsContent>
+        <TabsContent value="iplist"><IpAccessListTab /></TabsContent>
+      </Tabs>
+
+      {/* Quick reference */}
+      <div className="mt-6 p-4 rounded-lg bg-secondary/20 border border-border/50">
+        <h4 className="text-sm font-medium mb-2">🔒 Recommended Ports for Blockchain Node</h4>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+          <div className="p-2 rounded bg-secondary/30">
+            <p className="font-mono font-bold">22/TCP</p><p className="text-muted-foreground">SSH</p>
+          </div>
+          <div className="p-2 rounded bg-secondary/30">
+            <p className="font-mono font-bold">80/TCP</p><p className="text-muted-foreground">HTTP</p>
+          </div>
+          <div className="p-2 rounded bg-secondary/30">
+            <p className="font-mono font-bold">443/TCP</p><p className="text-muted-foreground">HTTPS/WSS</p>
+          </div>
+          <div className="p-2 rounded bg-secondary/30">
+            <p className="font-mono font-bold">30303/TCP+UDP</p><p className="text-muted-foreground">P2P Sync</p>
+          </div>
+          <div className="p-2 rounded bg-secondary/30">
+            <p className="font-mono font-bold">8545/TCP</p><p className="text-muted-foreground">RPC</p>
+          </div>
+          <div className="p-2 rounded bg-secondary/30">
+            <p className="font-mono font-bold">8546/TCP</p><p className="text-muted-foreground">WebSocket</p>
+          </div>
+          <div className="p-2 rounded bg-secondary/30">
+            <p className="font-mono font-bold">51820/UDP</p><p className="text-muted-foreground">WireGuard</p>
+          </div>
+          <div className="p-2 rounded bg-secondary/30">
+            <p className="font-mono font-bold">5432/TCP</p><p className="text-muted-foreground">PostgreSQL</p>
+          </div>
+        </div>
+      </div>
+    </GlassCard>
+  );
+};
