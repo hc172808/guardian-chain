@@ -37,6 +37,8 @@ interface TokenRecord {
   mint_holder: string | null;
   mint_locked: boolean;
   created_at: string;
+  is_active: boolean;
+  creator_id: string;
 }
 
 const toFeaturePanelToken = (t: TokenRecord) => ({
