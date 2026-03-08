@@ -21,6 +21,7 @@ import TokensPage from "./pages/Tokens";
 import DeFiPage from "./pages/DeFi";
 import TokenDetail from "./pages/TokenDetail";
 import NotFound from "./pages/NotFound";
+import CliReferencePage from "./pages/CliReference";
 
 const queryClient = new QueryClient();
 
