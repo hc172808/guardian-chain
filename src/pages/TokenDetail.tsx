@@ -173,11 +173,15 @@ const TokenDetail = () => {
             </Link>
             <span className="text-sm text-muted-foreground">GYDS Explorer</span>
           </div>
-          <Link to="/explorer">
-            <Button variant="outline" size="sm" className="gap-1">
-              <ExternalLink className="h-3 w-3" /> Explorer
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <WatchlistButton tokenId={token?.id} />
+            {token && <CreatePriceAlert tokenId={token.id} tokenSymbol={token.symbol} />}
+            <Link to="/explorer">
+              <Button variant="outline" size="sm" className="gap-1">
+                <ExternalLink className="h-3 w-3" /> Explorer
+              </Button>
+            </Link>
+          </div>
         </div>
       </header>
 
