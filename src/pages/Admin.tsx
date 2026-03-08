@@ -18,7 +18,8 @@ import {
   Coins,
   Building2,
   GitBranch,
-  ScrollText
+  ScrollText,
+  Activity
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
