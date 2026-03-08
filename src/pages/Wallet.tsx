@@ -162,6 +162,7 @@ const WalletContent = () => {
         value: (priceData?.circulating_supply || 0) * gydsPrice,
         price: gydsPrice,
         change24h: 0,
+        decimals: 18,
       },
       {
         symbol: 'GYD',
