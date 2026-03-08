@@ -722,7 +722,7 @@ const DDoSProtectionTab = () => {
   const handleAdd = async () => {
     if (!user || !form.name) return;
     setSaving(true);
-    const { error } = await supabase.from('ddos_protection' as any).insert({
+    const { error } = await supabase.from('ddos_protection').insert({
       name: form.name,
       protection_type: form.protection_type,
       threshold: parseInt(form.threshold),
