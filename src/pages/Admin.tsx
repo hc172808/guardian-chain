@@ -35,6 +35,7 @@ import { PremineManager } from '@/components/admin/PremineManager';
 import { ValidatorManager } from '@/components/admin/ValidatorManager';
 import { FirewallManager } from '@/components/admin/FirewallManager';
 import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
+import { HealthCheck } from '@/components/admin/HealthCheck';
 
 interface UserProfile {
   id: string;
