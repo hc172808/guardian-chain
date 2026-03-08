@@ -1,0 +1,39 @@
+# GydsChain Node Dockerfile
+# Supports: validator, fullnode, rpc modes
+FROM golang:1.21-alpine AS builder
+
+RUN apk add --no-cache git gcc musl-dev leveldb-dev
+
+WORKDIR /app
+COPY blockchain-go/go.mod blockchain-go/go.sum ./
+RUN go mod download
+
+COPY blockchain-go/ .
+RUN CGO_ENABLED=1 go build -o /gydsd ./cmd/fullnode/main.go
+RUN CGO_ENABLED=1 go build -o /litenode ./cmd/litenode/main.go
+
+FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates leveldb wireguard-tools
+
+COPY --from=builder /gydsd /usr/local/bin/gydsd
+COPY --from=builder /litenode /usr/local/bin/litenode
+
+# Default data directory
+RUN mkdir -p /var/lib/gydschain
+
+EXPOSE 8545 8546 51820/udp
+
+ENV NODE_TYPE=fullnode
+ENV DATA_DIR=/var/lib/gydschain
+ENV RPC_PORT=8546
+ENV P2P_PORT=8545
+ENV MAX_PEERS=50
+ENV STORAGE_GB=100
+
+ENTRYPOINT ["sh", "-c", "\
+  if [ \"$NODE_TYPE\" = 'litenode' ]; then \
+    litenode --rpc=${RPC_URL:-https://rpc.netlifegy.com} --datadir=$DATA_DIR; \
+  else \
+    gydsd --founder --datadir=$DATA_DIR --rpcport=$RPC_PORT --p2pport=$P2P_PORT --maxpeers=$MAX_PEERS --storage=$STORAGE_GB; \
+  fi"]

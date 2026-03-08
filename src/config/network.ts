@@ -11,8 +11,8 @@ export const RPC_ENDPOINTS_LIST = {
     'https://rpc3.netlifegy.com',
   ],
   local: [
-    'https://localhost:8546',
-    'https://192.168.18.106:8546',
+    'http://localhost:8546',
+    'http://192.168.18.106:8546',
   ],
 };
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -31,12 +31,6 @@ interface Position {
   hasWarning?: boolean;
 }
 
-const mockPositions: Position[] = [
-  { id: '1', tokenA: { symbol: 'BRGC' }, tokenB: { symbol: 'GYD' }, fee: '1.00%', balance: 125.50, pendingYield: 2.35, hasWarning: true },
-  { id: '2', tokenA: { symbol: 'BRGC' }, tokenB: { symbol: 'NETGY' }, fee: '1.00%', balance: 89.20, pendingYield: 1.15, hasWarning: true },
-  { id: '3', tokenA: { symbol: 'NETGY' }, tokenB: { symbol: 'BRCT' }, fee: '1%', balance: 280.62, pendingYield: 0.04, hasWarning: true },
-];
-
 interface PortfolioProps {
   onViewPosition?: (position: any) => void;
 }
@@ -48,13 +42,116 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [showSearch, setShowSearch] = useState(false);
   const [overlay, setOverlay] = useState<{ type: OverlayType; position: Position | null }>({ type: null, position: null });
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const { address } = useWalletConnect();
 
-  const totalValue = mockPositions.reduce((acc, p) => acc + p.balance, 0);
-  const totalPendingYield = mockPositions.reduce((acc, p) => acc + p.pendingYield, 0);
+  // Load real positions from user's liquidity transactions
+  useEffect(() => {
+    const loadPositions = async () => {
+      if (!user) { setLoading(false); return; }
+      
+      // Get user's liquidity-related transactions (deposits to pools)
+      const { data: txData } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      // Get pools the user has interacted with
+      const { data: poolsData } = await supabase
+        .from('liquidity_pools')
+        .select('*')
+        .eq('is_active', true);
+
+      if (txData && poolsData) {
+        // Build positions from pool interactions
+        const poolTxMap = new Map<string, { deposits: number; withdrawals: number; poolId: string }>();
+        
+        txData.forEach(tx => {
+          const poolMatch = tx.to_address?.match(/^pool-(.+)$/);
+          const lpMatch = tx.to_address === 'liquidity-pool';
+          
+          if (poolMatch) {
+            const poolId = poolMatch[1];
+            const existing = poolTxMap.get(poolId) || { deposits: 0, withdrawals: 0, poolId };
+            existing.deposits += tx.amount;
+            poolTxMap.set(poolId, existing);
+          } else if (lpMatch) {
+            // Generic liquidity deposit — assign to first pool or create synthetic
+            const key = 'generic-lp';
+            const existing = poolTxMap.get(key) || { deposits: 0, withdrawals: 0, poolId: key };
+            existing.deposits += tx.amount;
+            poolTxMap.set(key, existing);
+          }
+          
+          // Track withdrawals
+          if (tx.from_address === address && tx.to_address === (address || 'user-wallet')) {
+            const key = 'withdrawal';
+            const existing = poolTxMap.get(key) || { deposits: 0, withdrawals: 0, poolId: key };
+            existing.withdrawals += tx.amount;
+            poolTxMap.set(key, existing);
+          }
+        });
+
+        const realPositions: Position[] = [];
+        
+        // Map pool transactions to positions
+        poolsData.forEach(pool => {
+          const poolTx = poolTxMap.get(pool.id);
+          if (poolTx && poolTx.deposits > 0) {
+            const netBalance = poolTx.deposits - poolTx.withdrawals;
+            if (netBalance > 0) {
+              realPositions.push({
+                id: pool.id,
+                tokenA: { symbol: pool.token_a_symbol },
+                tokenB: { symbol: pool.token_b_symbol },
+                fee: `${pool.fee_tier}%`,
+                balance: netBalance,
+                pendingYield: netBalance * (pool.apr / 100 / 365),
+                hasWarning: pool.apr === 0,
+              });
+            }
+          }
+        });
+
+        // Add generic LP position if exists
+        const genericLp = poolTxMap.get('generic-lp');
+        if (genericLp && genericLp.deposits > 0) {
+          realPositions.push({
+            id: 'generic-lp',
+            tokenA: { symbol: 'GYD' },
+            tokenB: { symbol: 'GYDS' },
+            fee: '0.3%',
+            balance: genericLp.deposits,
+            pendingYield: genericLp.deposits * 0.0001,
+            hasWarning: false,
+          });
+        }
+
+        // If no real positions, show empty state
+        setPositions(realPositions);
+      }
+      setLoading(false);
+    };
+    
+    loadPositions();
+
+    // Realtime updates
+    const channel = supabase
+      .channel('portfolio-positions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadPositions())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, address]);
+
+  const totalValue = positions.reduce((acc, p) => acc + p.balance, 0);
+  const totalPendingYield = positions.reduce((acc, p) => acc + p.pendingYield, 0);
   const estimatedYield24h = totalValue * 0.0001;
 
-  const filteredPositions = mockPositions.filter(
+  const filteredPositions = positions.filter(
     (pos) =>
       pos.tokenA.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
       pos.tokenB.symbol.toLowerCase().includes(searchQuery.toLowerCase())
@@ -125,7 +222,8 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
         <p className="text-muted-foreground">Track and manage your active liquidity positions.</p>
       </div>
 
-      <Button variant="outline" className="gap-2 border-primary/50 text-primary hover:bg-primary/10" onClick={handleHarvestAll}>
+      <Button variant="outline" className="gap-2 border-primary/50 text-primary hover:bg-primary/10" onClick={handleHarvestAll}
+        disabled={totalPendingYield === 0}>
         <Sprout className="h-4 w-4" /> Harvest Yield
       </Button>
 
@@ -177,89 +275,101 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
         <span>Balance</span>
       </div>
 
-      <div className="space-y-2">
-        {filteredPositions.map((position) => (
-          <div
-            key={position.id}
-            className="flex items-center justify-between p-4 rounded-xl bg-card/50 border border-border/30 hover:border-border/60 transition-colors cursor-pointer"
-            onClick={() => openPositionDetails(position)}
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex -space-x-2">
-                <div className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 border-background z-10",
-                  position.tokenA.symbol === 'BRGC' ? "bg-gradient-to-br from-amber-500 to-amber-600 text-black" :
-                  position.tokenA.symbol === 'NETGY' ? "bg-gradient-to-br from-orange-500 to-orange-600" :
-                  "bg-gradient-to-br from-primary to-primary/50"
-                )}>
-                  {position.tokenA.symbol[0]}
+      {loading ? (
+        <GlassCard className="p-8 text-center text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+          Loading positions...
+        </GlassCard>
+      ) : filteredPositions.length === 0 ? (
+        <GlassCard className="p-8 text-center space-y-3">
+          <Wallet className="h-8 w-8 mx-auto text-muted-foreground" />
+          <p className="text-muted-foreground">No liquidity positions yet.</p>
+          <p className="text-xs text-muted-foreground">Add liquidity to pools to see your positions here.</p>
+        </GlassCard>
+      ) : (
+        <div className="space-y-2">
+          {filteredPositions.map((position) => (
+            <div
+              key={position.id}
+              className="flex items-center justify-between p-4 rounded-xl bg-card/50 border border-border/30 hover:border-border/60 transition-colors cursor-pointer"
+              onClick={() => openPositionDetails(position)}
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex -space-x-2">
+                  <div className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 border-background z-10",
+                    position.tokenA.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+                    position.tokenA.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                    "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+                  )}>
+                    {position.tokenA.symbol[0]}
+                  </div>
+                  <div className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 border-background",
+                    position.tokenB.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+                    position.tokenB.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                    "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+                  )}>
+                    {position.tokenB.symbol[0]}
+                  </div>
                 </div>
-                <div className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 border-background",
-                  position.tokenB.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-                  position.tokenB.symbol === 'NETGY' ? "bg-gradient-to-br from-purple-500 to-purple-600" :
-                  position.tokenB.symbol === 'BRCT' ? "bg-gradient-to-br from-orange-600 to-red-600" :
-                  "bg-gradient-to-br from-primary to-primary/50"
-                )}>
-                  {position.tokenB.symbol[0]}
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{position.tokenA.symbol} / {position.tokenB.symbol}</span>
+                  <Badge variant="secondary" className="text-xs font-mono flex items-center gap-1">
+                    <span className="text-muted-foreground">|||</span>
+                    {position.fee}
+                  </Badge>
+                  {position.hasWarning && <AlertTriangle className="h-4 w-4 text-amber-500" />}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold">{position.tokenA.symbol} / {position.tokenB.symbol}</span>
-                <Badge variant="secondary" className="text-xs font-mono flex items-center gap-1">
-                  <span className="text-muted-foreground">|||</span>
-                  {position.fee}
-                </Badge>
-                {position.hasWarning && <AlertTriangle className="h-4 w-4 text-amber-500" />}
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <div className="font-semibold">${position.balance.toFixed(2)}</div>
+                  <div className="text-xs text-primary">+${position.pendingYield.toFixed(2)}</div>
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                      <MoreHorizontal className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 bg-card border-border" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem className="gap-2 text-primary" onSelect={() => handleHarvest(position)}>
+                      <Sprout className="h-4 w-4" /> Harvest Yield
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handleAction('details', position)}>
+                      <FileText className="h-4 w-4" /> Position Details
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handleAction('deposit', position)}>
+                      <Plus className="h-4 w-4" /> Deposit Liquidity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handleAction('withdraw', position)}>
+                      <Minus className="h-4 w-4" /> Withdraw Liquidity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handleAction('lock', position)}>
+                      <Lock className="h-4 w-4" /> Lock Liquidity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handleAction('transfer', position)}>
+                      <ArrowLeftRight className="h-4 w-4" /> Transfer Position
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => handleAction('close', position)}>
+                      <X className="h-4 w-4" /> Close position
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="gap-2 text-muted-foreground text-xs" disabled>
+                      OPEN POSITION IN
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onSelect={() => handleAction('terminal', position)}>
+                      <Monitor className="h-4 w-4" /> Liquidity Terminal
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <div className="font-semibold">${position.balance.toFixed(2)}</div>
-                <div className="text-xs text-primary">+${position.pendingYield.toFixed(2)}</div>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={(e) => e.stopPropagation()}>
-                    <MoreHorizontal className="h-5 w-5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-card border-border" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenuItem className="gap-2 text-primary" onSelect={() => handleHarvest(position)}>
-                    <Sprout className="h-4 w-4" /> Harvest Yield
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('details', position)}>
-                    <FileText className="h-4 w-4" /> Position Details
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('deposit', position)}>
-                    <Plus className="h-4 w-4" /> Deposit Liquidity
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('withdraw', position)}>
-                    <Minus className="h-4 w-4" /> Withdraw Liquidity
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('lock', position)}>
-                    <Lock className="h-4 w-4" /> Lock Liquidity
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('transfer', position)}>
-                    <ArrowLeftRight className="h-4 w-4" /> Transfer Position
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => handleAction('close', position)}>
-                    <X className="h-4 w-4" /> Close position
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="gap-2 text-muted-foreground text-xs" disabled>
-                    OPEN POSITION IN
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="gap-2" onSelect={() => handleAction('terminal', position)}>
-                    <Monitor className="h-4 w-4" /> Liquidity Terminal
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
