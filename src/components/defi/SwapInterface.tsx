@@ -32,14 +32,18 @@ const NATIVE_TOKENS: Token[] = [
 
 const TokenSelectorButton = ({ token, onClick }: { token: Token; onClick: () => void }) => (
   <Button variant="secondary" className="gap-2 rounded-lg px-3 py-2 h-auto" onClick={onClick}>
-    <div className={cn(
-      "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
-      token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-      token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
-      "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
-    )}>
-      {token.symbol[0]}
-    </div>
+    {token.logo ? (
+      <img src={token.logo} alt={token.symbol} className="w-6 h-6 rounded-full object-cover" />
+    ) : (
+      <div className={cn(
+        "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
+        token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+        token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+        "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+      )}>
+        {token.symbol[0]}
+      </div>
+    )}
     <span className="font-semibold">{token.symbol}</span>
     <ChevronDown className="h-3 w-3 text-muted-foreground" />
   </Button>
