@@ -785,6 +785,9 @@ const DDoSProtectionTab = () => {
 
   const toggleConfig = async (id: string, enabled: boolean) => {
     await supabase.from('ddos_protection').update({ is_enabled: !enabled }).eq('id', id);
+    if (user) logAuditEvent(user.id, user.email || null, {
+      action: enabled ? 'Disabled DDoS protection' : 'Enabled DDoS protection', category: 'firewall', target_type: 'ddos_protection', target_id: id,
+    });
     fetchConfigs();
   };
 
