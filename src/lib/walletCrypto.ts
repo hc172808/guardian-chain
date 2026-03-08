@@ -16,8 +16,9 @@ const KEY_LENGTH = 256; // AES-256
 
 // ─── Helpers ──────────────────────────────────────────
 
-function bufToHex(buf: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buf))
+function bufToHex(buf: ArrayBuffer | Uint8Array): string {
+  const arr = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  return Array.from(arr)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
