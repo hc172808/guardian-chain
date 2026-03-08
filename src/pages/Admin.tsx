@@ -28,6 +28,8 @@ import { BurnMintManager } from '@/components/admin/BurnMintManager';
 import { StablecoinManager } from '@/components/admin/StablecoinManager';
 import { SponsorManager } from '@/components/admin/SponsorManager';
 import { DatabaseSettings } from '@/components/admin/DatabaseSettings';
+import { CoinLogoUpload } from '@/components/admin/CoinLogoUpload';
+import { PremineManager } from '@/components/admin/PremineManager';
 
 interface UserProfile {
   id: string;
