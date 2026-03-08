@@ -17,7 +17,8 @@ import {
   Flame,
   Coins,
   Building2,
-  GitBranch
+  GitBranch,
+  ScrollText
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
