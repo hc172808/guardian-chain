@@ -297,6 +297,10 @@ const AdminContent = () => {
           <AuditLogViewer />
         </TabsContent>
 
+        <TabsContent value="health">
+          <HealthCheck />
+        </TabsContent>
+
         <TabsContent value="nodes" className="space-y-4">
           {loading ? (
             <GlassCard className="p-6 text-center">Loading...</GlassCard>
