@@ -181,9 +181,11 @@ export const StakeInterface = () => {
           {/* Stake Button */}
           <Button
             className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
-            disabled={!stakeAmount || parseFloat(stakeAmount) <= 0}
+            disabled={isProcessing || !stakeAmount || parseFloat(stakeAmount) <= 0 || !isConnected}
+            onClick={() => executeStake('stake')}
           >
-            Stake
+            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Staking...</span>
+              : !isConnected ? 'Connect Wallet' : 'Stake'}
           </Button>
         </TabsContent>
 
