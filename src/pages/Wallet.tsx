@@ -114,6 +114,26 @@ const WalletContent = () => {
 
     const myAddresses = new Set((userWallets || []).map(w => w.address.toLowerCase()));
 
+    // For founders, also check the founder wallet config
+    const { data: founderConfig } = await supabase
+      .from('admin_config')
+      .select('config_value')
+      .eq('config_key', 'founder_wallet')
+      .maybeSingle();
+
+    if (founderConfig?.config_value) {
+      const fc = founderConfig.config_value as Record<string, string>;
+      if (fc.address) myAddresses.add(fc.address.toLowerCase());
+    }
+
+    // Also include the reserved founder address for founder users
+    if (user.email === 'netlifegy@gmail.com') {
+      myAddresses.add('0x0000000000000000000000000000000000000001');
+    }
+
+    // Also check operations created_by this user (for pre-mine tracking)
+    const isCreator = (createdBy: string | null) => createdBy === user.id;
+
     // Get all confirmed transactions involving user's addresses
     const { data: txData } = await supabase
       .from('transactions')
