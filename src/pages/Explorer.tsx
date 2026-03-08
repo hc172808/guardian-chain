@@ -79,8 +79,39 @@ const Explorer = () => {
             placeholder="Search by block height, hash, address, or token..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={async (e) => {
+              if (e.key === 'Enter' && searchQuery.startsWith('0x') && searchQuery.length > 10) {
+                // Check if it's a token address
+                const { data } = await supabase
+                  .from('tokens')
+                  .select('address')
+                  .eq('address', searchQuery)
+                  .maybeSingle();
+                if (data) {
+                  navigate(`/explorer/token/${data.address}`);
+                }
+              }
+            }}
             className="pl-10 bg-secondary/50 border-border/50 h-12 text-base"
           />
+          {searchQuery.startsWith('0x') && searchQuery.length > 10 && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <Badge variant="secondary" className="text-xs cursor-pointer hover:bg-primary/20"
+                onClick={async () => {
+                  const { data } = await supabase
+                    .from('tokens')
+                    .select('address')
+                    .eq('address', searchQuery)
+                    .maybeSingle();
+                  if (data) {
+                    navigate(`/explorer/token/${data.address}`);
+                  }
+                }}
+              >
+                Search Token →
+              </Badge>
+            </div>
+          )}
         </div>
 
         {/* Stats */}
