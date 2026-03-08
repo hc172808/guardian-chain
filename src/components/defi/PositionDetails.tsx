@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,9 +12,16 @@ import {
   ChevronDown, 
   Copy, 
   ExternalLink,
-  BarChart3
+  BarChart3,
+  Wallet,
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { useWalletConnect } from '@/hooks/useWalletConnect';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface PositionDetailsProps {
   position?: {
