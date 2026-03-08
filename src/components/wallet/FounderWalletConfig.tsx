@@ -62,15 +62,18 @@ export const FounderWalletConfig = ({ onWalletConfigured }: FounderWalletConfigP
     setLoading(true);
 
     try {
-      // Encrypt seed phrase if provided
-      const encryptedSeed = seedPhrase ? encryptData(seedPhrase, pin) : encryptData('founder-genesis-wallet', pin);
+      // Encrypt seed phrase using AES-GCM
+      const encryptedSeed = await encryptWithPin(
+        seedPhrase || 'founder-genesis-wallet', pin
+      );
+      const pinHash = await hashPin(pin);
       
       // Save to database
       const { error } = await supabase.from('wallets').upsert({
         user_id: user!.id,
         address: walletAddress.toLowerCase(),
         encrypted_seed: encryptedSeed,
-        pin_hash: hashPin(pin),
+        pin_hash: pinHash,
       }, {
         onConflict: 'user_id,address'
       });
