@@ -185,9 +185,9 @@ const WalletContent = () => {
       toast({ title: 'PINs do not match', variant: 'destructive' });
       return;
     }
-    const wallet = generateWallet();
-    const encryptedSeed = encryptSeed(wallet.seedPhrase, pin);
-    const pinHash = hashPin(pin);
+    const wallet = generateSecureWallet();
+    const encryptedSeed = await encryptWithPin(wallet.seedPhrase, pin);
+    const pinHash = await hashPin(pin);
     const { error } = await supabase.from('wallets').insert({
       user_id: user!.id, address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
     });
