@@ -48,6 +48,7 @@ const App = () => (
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/docs" element={<DocsPage />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/cli" element={<CliReferencePage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

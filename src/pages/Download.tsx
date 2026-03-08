@@ -309,7 +309,7 @@ const DownloadPage = () => {
                       <p className="text-sm text-muted-foreground mt-1">{item.desc}</p>
                     </div>
                   </div>
-                </GlassCard>
+                </div>
               ))}
             </div>
           </TabsContent>
