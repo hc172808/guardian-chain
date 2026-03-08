@@ -344,6 +344,97 @@ const WalletContent = () => {
     toast({ title: `${label} copied!` });
   };
 
+  // ─── PIN Rotation Handler ─────────────────────────────
+  const handleRotatePin = async () => {
+    if (!rotateWalletId) return;
+    if (newPin.length < 4) {
+      toast({ title: 'New PIN must be at least 4 digits', variant: 'destructive' });
+      return;
+    }
+    if (newPin !== confirmNewPin) {
+      toast({ title: 'New PINs do not match', variant: 'destructive' });
+      return;
+    }
+    setRotateLoading(true);
+    const { data } = await supabase.from('wallets').select('encrypted_seed, pin_hash').eq('id', rotateWalletId).single();
+    if (!data) {
+      toast({ title: 'Wallet not found', variant: 'destructive' });
+      setRotateLoading(false);
+      return;
+    }
+    const pinValid = await verifyPin(oldPin, data.pin_hash);
+    if (!pinValid) {
+      toast({ title: 'Current PIN is incorrect', variant: 'destructive' });
+      setRotateLoading(false);
+      return;
+    }
+    const result = await rotatePin(data.encrypted_seed, oldPin, newPin);
+    if (!result) {
+      toast({ title: 'Failed to rotate PIN', variant: 'destructive' });
+      setRotateLoading(false);
+      return;
+    }
+    const { error } = await supabase.from('wallets').update({
+      encrypted_seed: result.newEncryptedSeed,
+      pin_hash: result.newPinHash,
+    }).eq('id', rotateWalletId);
+    setRotateLoading(false);
+    if (error) {
+      toast({ title: 'Failed to save new PIN', variant: 'destructive' });
+    } else {
+      toast({ title: 'PIN rotated successfully!' });
+      setRotatePinDialogOpen(false);
+      setOldPin(''); setNewPin(''); setConfirmNewPin('');
+    }
+  };
+
+  // ─── PIN Lock Handlers ────────────────────────────────
+  const handleEnablePinLock = async () => {
+    if (pinLockInput.length < 4) {
+      toast({ title: 'PIN must be at least 4 digits', variant: 'destructive' });
+      return;
+    }
+    if (pinLockInput !== pinLockConfirm) {
+      toast({ title: 'PINs do not match', variant: 'destructive' });
+      return;
+    }
+    await enablePinLock(pinLockInput);
+    setPinLockEnabled(true);
+    setPinLockDialogOpen(false);
+    setPinLockInput(''); setPinLockConfirm('');
+    toast({ title: 'PIN lock enabled', description: 'Your wallet is now protected with a PIN lock.' });
+  };
+
+  const handleDisablePinLock = () => {
+    disablePinLock();
+    setPinLockEnabled(false);
+    toast({ title: 'PIN lock disabled' });
+  };
+
+  const handleUnlock = async () => {
+    const status = getPinLockStatus();
+    if (status.locked) {
+      const mins = Math.ceil(status.remainingMs / 60000);
+      setUnlockError(`Too many attempts. Try again in ${mins} minute(s).`);
+      return;
+    }
+    const valid = await verifyPinLock(unlockPin);
+    if (valid) {
+      setAppLocked(false);
+      setUnlockPin('');
+      setUnlockError('');
+    } else {
+      const newStatus = getPinLockStatus();
+      if (newStatus.locked) {
+        setUnlockError('Too many failed attempts. Locked for 5 minutes.');
+      } else {
+        setUnlockError(`Incorrect PIN. ${MAX_PIN_ATTEMPTS - newStatus.attempts} attempt(s) remaining.`);
+      }
+    }
+  };
+
+  const MAX_PIN_ATTEMPTS_DISPLAY = 5;
+
   const handleSendTransaction = async () => {
     if (!user || !sendTo.trim() || !sendAmount || wallets.length === 0) {
       toast({ title: 'Please fill all fields and create a wallet first', variant: 'destructive' });
