@@ -241,7 +241,7 @@ const Explorer = () => {
 
           <TabsContent value="tokens">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {tokens.map((token: any) => (
+              {tokens.filter(t => !searchQuery || t.symbol?.toLowerCase().includes(searchQuery.toLowerCase()) || t.name?.toLowerCase().includes(searchQuery.toLowerCase()) || t.address?.includes(searchQuery)).map((token: any) => (
                 <GlassCard key={token.id} className="p-4">
                   <div className="flex items-center gap-3 mb-3">
                     {token.logo_url ? (
