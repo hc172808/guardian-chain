@@ -283,6 +283,10 @@ const Fail2BanTab = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'Fail2Ban jail added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Added Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails',
+        details: { jail_name: form.jail_name, max_retries: form.max_retries, ban_time: form.ban_time },
+      });
       setDialogOpen(false);
       setForm({ jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600', log_path: '', filter_name: '', description: '' });
       fetchJails();
