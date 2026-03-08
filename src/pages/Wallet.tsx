@@ -21,12 +21,15 @@ import {
   Coins,
   ArrowUpDown,
   TrendingUp,
-  Loader2
+  Loader2,
+  Send,
+  ArrowRight
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FounderWalletConfig } from '@/components/wallet/FounderWalletConfig';
 import { cn } from '@/lib/utils';
 
@@ -101,6 +104,11 @@ const WalletContent = () => {
   const [newWalletData, setNewWalletData] = useState<{ address: string; seedPhrase: string } | null>(null);
   const [balances, setBalances] = useState<TokenBalance[]>([]);
   const [balancesLoading, setBalancesLoading] = useState(true);
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [sendAsset, setSendAsset] = useState<string>('GYD');
+  const [sendTo, setSendTo] = useState('');
+  const [sendAmount, setSendAmount] = useState('');
+  const [sendLoading, setSendLoading] = useState(false);
 
   useEffect(() => {
     fetchWallets();
@@ -262,6 +270,46 @@ const WalletContent = () => {
     toast({ title: `${label} copied!` });
   };
 
+  const handleSendTransaction = async () => {
+    if (!user || !sendTo.trim() || !sendAmount || wallets.length === 0) {
+      toast({ title: 'Please fill all fields and create a wallet first', variant: 'destructive' });
+      return;
+    }
+    const amount = parseFloat(sendAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({ title: 'Invalid amount', variant: 'destructive' });
+      return;
+    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(sendTo.trim())) {
+      toast({ title: 'Invalid address format (0x + 40 hex)', variant: 'destructive' });
+      return;
+    }
+    setSendLoading(true);
+    const fee = amount * 0.001;
+    const txHash = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const { error } = await supabase.from('transactions').insert({
+      user_id: user.id,
+      from_address: wallets[0].address,
+      to_address: sendTo.trim(),
+      amount,
+      fee,
+      tx_hash: txHash,
+      status: 'confirmed',
+      confirmed_at: new Date().toISOString(),
+      wallet_id: wallets[0].id,
+    });
+    setSendLoading(false);
+    if (error) {
+      toast({ title: 'Transaction failed', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: `Sent ${amount} ${sendAsset}`, description: `Fee: ${fee.toFixed(6)} ${sendAsset}` });
+      setSendDialogOpen(false);
+      setSendTo('');
+      setSendAmount('');
+      loadBalances();
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div className="flex items-center justify-between">
@@ -272,8 +320,50 @@ const WalletContent = () => {
           </h1>
           <p className="text-muted-foreground mt-2">Create, import, and manage your wallets</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {isFounder && <FounderWalletConfig />}
+          <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2"><Send className="h-4 w-4" /> Send</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle className="flex items-center gap-2"><Send className="h-5 w-5" /> Send Transaction</DialogTitle></DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label>Select Asset</Label>
+                  <Select value={sendAsset} onValueChange={setSendAsset}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="GYDS">GYDS — Gas & Staking (18 decimals)</SelectItem>
+                      <SelectItem value="GYD">GYD — Stablecoin (6 decimals)</SelectItem>
+                      {balances.filter(b => b.symbol !== 'GYDS' && b.symbol !== 'GYD').map(t => (
+                        <SelectItem key={t.symbol} value={t.symbol}>{t.symbol} — {t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Recipient Address</Label>
+                  <Input value={sendTo} onChange={(e) => setSendTo(e.target.value)} placeholder="0x..." />
+                </div>
+                <div>
+                  <Label>Amount ({sendAsset})</Label>
+                  <Input type="number" value={sendAmount} onChange={(e) => setSendAmount(e.target.value)} placeholder="0.00" min="0" step="any" />
+                </div>
+                {sendAmount && parseFloat(sendAmount) > 0 && (
+                  <div className="p-3 rounded-lg bg-secondary/30 text-sm space-y-1">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span>{sendAmount} {sendAsset}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Fee (0.1%)</span><span>{(parseFloat(sendAmount) * 0.001).toFixed(6)} {sendAsset}</span></div>
+                    <div className="flex justify-between font-semibold border-t border-border/50 pt-1 mt-1"><span>Total</span><span>{(parseFloat(sendAmount) * 1.001).toFixed(6)} {sendAsset}</span></div>
+                  </div>
+                )}
+                <Button onClick={handleSendTransaction} className="w-full gap-2" disabled={sendLoading}>
+                  {sendLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                  {sendLoading ? 'Sending...' : `Send ${sendAsset}`}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="gap-2"><Upload className="h-4 w-4" /> Import</Button>
