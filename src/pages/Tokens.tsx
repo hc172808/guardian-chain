@@ -192,7 +192,10 @@ const TokensPage = () => {
                               </div>
                             )}
                             <div>
-                              <h3 className="font-semibold">{token.name}</h3>
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-semibold">{token.name}</h3>
+                                {!token.is_active && <Badge variant="destructive" className="text-xs">Blocked</Badge>}
+                              </div>
                               <p className="text-sm text-muted-foreground">{token.symbol}</p>
                             </div>
                           </div>

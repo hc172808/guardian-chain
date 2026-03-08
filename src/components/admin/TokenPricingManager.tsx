@@ -139,6 +139,35 @@ export const TokenPricingManager = () => {
         </div>
       </div>
 
+      <div className="mt-6 pt-6 border-t border-border">
+        <h4 className="font-medium mb-4">Global Purchase Limits</h4>
+        <p className="text-sm text-muted-foreground mb-4">
+          These limits apply to all tokens unless overridden by per-token settings. Set to 0 for no limit.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Max Buy Per Wallet (tokens)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={pricing.global_max_buy_per_wallet}
+              onChange={(e) => setPricing({ ...pricing, global_max_buy_per_wallet: parseFloat(e.target.value) || 0 })}
+              placeholder="0 = unlimited"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Daily Buy Limit (tokens)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={pricing.global_daily_buy_limit}
+              onChange={(e) => setPricing({ ...pricing, global_daily_buy_limit: parseFloat(e.target.value) || 0 })}
+              placeholder="0 = unlimited"
+            />
+          </div>
+        </div>
+      </div>
+
       <Button onClick={save} disabled={saving} className="mt-6 gap-2">
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
         Save Pricing

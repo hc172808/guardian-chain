@@ -195,11 +195,25 @@ const WalletContent = () => {
       .select('*')
       .eq('status', 'confirmed');
 
-    // Get all active tokens
-    const { data: tokensData } = await supabase
+    // Get all active tokens + user's blocked tokens
+    const { data: activeTokens } = await supabase
       .from('tokens')
       .select('*')
       .eq('is_active', true);
+    
+    const { data: myBlockedTokens } = await supabase
+      .from('tokens')
+      .select('*')
+      .eq('is_active', false)
+      .eq('creator_id', user.id);
+    
+    // Merge active + user's blocked tokens (deduped)
+    const tokensData = [...(activeTokens || [])];
+    (myBlockedTokens || []).forEach(bt => {
+      if (!tokensData.find(t => t.id === bt.id)) {
+        tokensData.push(bt);
+      }
+    });
 
     // Get coin logos from admin_config
     const { data: logoConfig } = await supabase
