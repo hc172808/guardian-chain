@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { generateMockBlocks, Block, Transaction } from '@/lib/blockchain';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins } from 'lucide-react';
+import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
@@ -268,32 +268,52 @@ const Explorer = () => {
 
           <TabsContent value="tokens">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {tokens.filter(t => !searchQuery || t.symbol?.toLowerCase().includes(searchQuery.toLowerCase()) || t.name?.toLowerCase().includes(searchQuery.toLowerCase()) || t.address?.includes(searchQuery)).map((token: any) => (
-                <GlassCard key={token.id} className="p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    {token.logo_url ? (
-                      <img src={token.logo_url} alt={token.symbol} className="w-10 h-10 rounded-lg object-cover" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
-                        <Coins className="h-5 w-5 text-primary" />
+              {tokens.filter(t => !searchQuery || t.symbol?.toLowerCase().includes(searchQuery.toLowerCase()) || t.name?.toLowerCase().includes(searchQuery.toLowerCase()) || t.address?.includes(searchQuery)).map((token: any) => {
+                // Security score calculation
+                const getSecurityScore = () => {
+                  let score = 0;
+                  if (!token.mint_enabled || token.mint_locked) score++;
+                  if (!token.freeze_enabled || token.freeze_locked) score++;
+                  if (token.lp_lock_type === 'burned') score++;
+                  if (token.gyds_liquidity >= 100) score++;
+                  if (score >= 4) return { label: 'Safe', color: 'bg-primary/20 text-primary border-primary/30' };
+                  if (score >= 2) return { label: 'Caution', color: 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30' };
+                  return { label: 'Risky', color: 'bg-destructive/20 text-destructive border-destructive/30' };
+                };
+                const security = getSecurityScore();
+
+                return (
+                  <Link key={token.id} to={`/explorer/token/${token.address}`} className="block">
+                    <GlassCard className="p-4 hover:border-primary/50 transition-colors cursor-pointer">
+                      <div className="flex items-center gap-3 mb-3">
+                        {token.logo_url ? (
+                          <img src={token.logo_url} alt={token.symbol} className="w-10 h-10 rounded-lg object-cover" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
+                            <Coins className="h-5 w-5 text-primary" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold">{token.name}</h3>
+                          <p className="text-sm text-muted-foreground">{token.symbol}</p>
+                        </div>
+                        <Badge variant="outline" className={cn("text-xs gap-1", security.color)}>
+                          {security.label === 'Safe' ? <Shield className="h-3 w-3" /> : security.label === 'Caution' ? <AlertTriangle className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                          {security.label}
+                        </Badge>
                       </div>
-                    )}
-                    <div>
-                      <h3 className="font-semibold">{token.name}</h3>
-                      <p className="text-sm text-muted-foreground">{token.symbol}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Supply</span><span>{Number(token.total_supply).toLocaleString()}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Liquidity</span><span className="text-primary">{Number(token.gyds_liquidity).toLocaleString()} GYDS</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">LP</span>
-                      <Badge variant="outline" className="text-xs">{token.lp_lock_type === 'burned' ? 'Burned' : 'Time-Locked'}</Badge>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground font-mono mt-2 truncate">{token.address}</p>
-                  <Link to={`/explorer/token/${token.address}`} className="mt-2 inline-block text-xs text-primary hover:underline">View Details →</Link>
-                </GlassCard>
-              ))}
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between"><span className="text-muted-foreground">Supply</span><span>{Number(token.total_supply).toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Liquidity</span><span className="text-primary">{Number(token.gyds_liquidity).toLocaleString()} GYDS</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">LP</span>
+                          <Badge variant="outline" className="text-xs">{token.lp_lock_type === 'burned' ? 'Burned 🔥' : 'Time-Locked'}</Badge>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground font-mono mt-2 truncate">{token.address}</p>
+                    </GlassCard>
+                  </Link>
+                );
+              })}
               {tokens.length === 0 && (
                 <div className="col-span-full text-center py-12 text-muted-foreground">
                   <Coins className="h-12 w-12 mx-auto mb-3 opacity-50" />

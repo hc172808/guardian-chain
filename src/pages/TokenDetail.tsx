@@ -5,11 +5,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
-import { ArrowLeft, Copy, ExternalLink, Users, ArrowUpRight, ArrowDownLeft, TrendingUp, Coins, Shield, Lock, Unlock, Flame, Edit, Plus, Clock, User, Pause, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, Copy, ExternalLink, Users, ArrowUpRight, ArrowDownLeft, TrendingUp, Coins, Shield, Lock, Unlock, Flame, Edit, Plus, Clock, User, Pause, CheckCircle, XCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 interface TokenData {
   id: string;
@@ -76,31 +80,59 @@ const generateMockTxs = () => Array.from({ length: 10 }, (_, i) => ({
 
 const TokenDetail = () => {
   const { address } = useParams<{ address: string }>();
+  const { user } = useAuth();
   const [token, setToken] = useState<TokenData | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('chart');
+  const [renouncing, setRenouncing] = useState<string | null>(null);
 
   const priceHistory = useMemo(() => generatePriceHistory(30), []);
   const holders = useMemo(() => token ? generateMockHolders(token.symbol) : [], [token]);
   const txs = useMemo(() => generateMockTxs(), []);
 
   useEffect(() => {
-    const fetch = async () => {
-      if (!address) return;
-      const { data } = await supabase
-        .from('tokens')
-        .select('*')
-        .eq('address', address)
-        .maybeSingle();
-      setToken(data as TokenData | null);
-      setLoading(false);
-    };
-    fetch();
+    fetchToken();
   }, [address]);
 
   const copyAddress = () => {
     navigator.clipboard.writeText(address || '');
     toast({ title: 'Address copied' });
+  };
+
+  const fetchToken = async () => {
+    if (!address) return;
+    const { data } = await supabase
+      .from('tokens')
+      .select('*')
+      .eq('address', address)
+      .maybeSingle();
+    setToken(data as TokenData | null);
+    setLoading(false);
+  };
+
+  const handleRenounce = async (authorityType: 'mint' | 'freeze' | 'update') => {
+    if (!token || !user) return;
+    setRenouncing(authorityType);
+    try {
+      const updateData: Record<string, any> = {};
+      updateData[`${authorityType}_locked`] = true;
+      updateData[`${authorityType}_holder`] = null;
+
+      const { error } = await supabase
+        .from('tokens')
+        .update(updateData)
+        .eq('id', token.id)
+        .eq('creator_id', user.id);
+
+      if (error) throw error;
+
+      toast({ title: `${authorityType.charAt(0).toUpperCase() + authorityType.slice(1)} Authority Renounced`, description: 'This action is permanent and cannot be undone.' });
+      fetchToken();
+    } catch (err: any) {
+      toast({ title: 'Failed to renounce', description: err.message, variant: 'destructive' });
+    } finally {
+      setRenouncing(null);
+    }
   };
 
   if (loading) {
@@ -211,9 +243,9 @@ const TokenDetail = () => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {[
-              { name: 'Mint Authority', icon: Plus, enabled: token.mint_enabled, locked: token.mint_locked, holder: token.mint_holder, desc: 'Can create new tokens', fee: '200 GYDS' },
-              { name: 'Freeze Authority', icon: Pause, enabled: token.freeze_enabled, locked: token.freeze_locked, holder: token.freeze_holder, desc: 'Can freeze/unfreeze addresses', fee: '50 GYDS' },
-              { name: 'Update Authority', icon: Edit, enabled: token.update_enabled, locked: token.update_locked, holder: token.update_holder, desc: 'Can modify token metadata', fee: '25 GYDS' },
+              { name: 'Mint Authority', key: 'mint' as const, icon: Plus, enabled: token.mint_enabled, locked: token.mint_locked, holder: token.mint_holder, desc: 'Can create new tokens', fee: '200 GYDS' },
+              { name: 'Freeze Authority', key: 'freeze' as const, icon: Pause, enabled: token.freeze_enabled, locked: token.freeze_locked, holder: token.freeze_holder, desc: 'Can freeze/unfreeze addresses', fee: '50 GYDS' },
+              { name: 'Update Authority', key: 'update' as const, icon: Edit, enabled: token.update_enabled, locked: token.update_locked, holder: token.update_holder, desc: 'Can modify token metadata', fee: '25 GYDS' },
             ].map((auth) => (
               <div key={auth.name} className="p-3 rounded-lg bg-secondary/30 space-y-2">
                 <div className="flex items-center justify-between">
@@ -246,6 +278,34 @@ const TokenDetail = () => {
                   <p className="text-xs text-primary/70 flex items-center gap-1">
                     <CheckCircle className="h-3 w-3" /> Permanently renounced
                   </p>
+                )}
+                {/* Renounce button - only for creator with active authority */}
+                {auth.enabled && !auth.locked && user && token.creator_id === user.id && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" size="sm" className="w-full mt-1 gap-1 text-xs h-7" disabled={renouncing === auth.key}>
+                        {renouncing === auth.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Lock className="h-3 w-3" />}
+                        Renounce {auth.name}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                          <AlertTriangle className="h-5 w-5 text-destructive" />
+                          Renounce {auth.name}?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This action is <strong>permanent and irreversible</strong>. Once renounced, the {auth.key} authority can never be restored. This will be recorded on-chain.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleRenounce(auth.key)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                          Yes, Permanently Renounce
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
               </div>
             ))}
