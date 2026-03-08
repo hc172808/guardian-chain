@@ -127,11 +127,11 @@ chmod +x "$BUILD_DIR/build.sh"
 
 cat > "$GYDS_BIN/gyds-fullnode" << 'BINARY'
 #!/bin/bash
-echo "GYDSchain Full Node v1.0.0"
+echo "GYDSchain Full Node v2.0.0"
 echo "Starting with configuration:"
 echo "  Data Directory: ${GYDS_DATA:-/var/lib/gydschain/data}"
 echo "  RPC Port: ${RPC_PORT:-8546}"
-echo "  P2P Port: ${P2P_PORT:-8545}"
+echo "  P2P Port: ${P2P_PORT:-30303}"
 echo "  Storage Limit: ${STORAGE_SIZE:-100}GB"
 echo "  Primary RPC: https://rpc.netlifegy.com"
 echo "  Backup RPCs: https://rpc2.netlifegy.com, https://rpc3.netlifegy.com"
