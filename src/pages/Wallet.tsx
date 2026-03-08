@@ -746,9 +746,36 @@ const WalletContent = () => {
                         )}
                       </DialogContent>
                     </Dialog>
-                    <Button size="sm" variant="destructive" onClick={() => handleDeleteWallet(wallet.id)}>
+                    <Button size="sm" variant="outline" onClick={() => handleDeleteWallet(wallet.id)} className="text-destructive hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </Button>
+                    <Dialog open={rotatePinDialogOpen && rotateWalletId === wallet.id} onOpenChange={(open) => {
+                      setRotatePinDialogOpen(open);
+                      if (!open) { setOldPin(''); setNewPin(''); setConfirmNewPin(''); }
+                    }}>
+                      <DialogTrigger asChild>
+                        <Button size="sm" variant="outline" onClick={() => setRotateWalletId(wallet.id)}>
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle className="flex items-center gap-2"><RefreshCw className="h-5 w-5" /> Change Wallet PIN</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div><Label>Current PIN</Label>
+                            <Input type="password" value={oldPin} onChange={(e) => setOldPin(e.target.value)} placeholder="Enter current PIN" maxLength={6} /></div>
+                          <div><Label>New PIN (min 4 digits)</Label>
+                            <Input type="password" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder="Enter new PIN" maxLength={6} /></div>
+                          <div><Label>Confirm New PIN</Label>
+                            <Input type="password" value={confirmNewPin} onChange={(e) => setConfirmNewPin(e.target.value)} placeholder="Confirm new PIN" maxLength={6} /></div>
+                          <Button onClick={handleRotatePin} className="w-full gap-2" disabled={rotateLoading}>
+                            {rotateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            {rotateLoading ? 'Rotating...' : 'Change PIN'}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                 </div>
               </GlassCard>
