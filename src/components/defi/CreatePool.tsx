@@ -103,6 +103,11 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
         <h2 className="font-semibold flex items-center gap-2">
           <Droplets className="h-4 w-4 text-primary" /> Token Pair
         </h2>
+        {walletTokens.length > 0 && (
+          <div className="text-xs text-muted-foreground">
+            Your tokens: {walletTokens.join(', ')}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label>Token A</Label>
@@ -110,7 +115,9 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
               <SelectTrigger className="bg-secondary/30"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {allTokens.map(t => (
-                  <SelectItem key={t} value={t} disabled={t === form.tokenB}>{t}</SelectItem>
+                  <SelectItem key={t} value={t} disabled={t === form.tokenB}>
+                    {t} {walletTokens.includes(t) ? '(owned)' : ''}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -121,7 +128,9 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
               <SelectTrigger className="bg-secondary/30"><SelectValue placeholder="Select token" /></SelectTrigger>
               <SelectContent>
                 {allTokens.map(t => (
-                  <SelectItem key={t} value={t} disabled={t === form.tokenA}>{t}</SelectItem>
+                  <SelectItem key={t} value={t} disabled={t === form.tokenA}>
+                    {t} {walletTokens.includes(t) ? '(owned)' : ''}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
