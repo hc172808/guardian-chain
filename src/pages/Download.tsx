@@ -299,7 +299,7 @@ const DownloadPage = () => {
                 { title: 'Token Factory', desc: 'Create custom tokens on GYDSchain with configurable supply and authorities.', icon: Rocket, link: '/tokens' },
                 { title: 'Testnet Faucet', desc: 'Get test tokens for development. Rate-limited: 100 GYDS/request, 1 req/hour.', icon: Globe, link: '#' },
               ].map((item, i) => (
-                <GlassCard key={i} className="p-5 cursor-pointer hover:border-primary/50 transition-colors" onClick={() => navigate(item.link)}>
+                <div key={i} className="glass-card rounded-lg p-5 cursor-pointer hover:border-primary/50 transition-colors" onClick={() => navigate(item.link)}>
                   <div className="flex items-start gap-4">
                     <div className="p-3 rounded-lg bg-primary/20">
                       <item.icon className="h-5 w-5 text-primary" />
