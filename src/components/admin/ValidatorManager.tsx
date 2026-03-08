@@ -88,8 +88,17 @@ export const ValidatorManager = () => {
   };
 
   const handleDelete = async (id: string) => {
+    const { user: currentUser } = { user };
     await supabase.from('network_validators').delete().eq('id', id);
     toast({ title: 'Validator removed' });
+    if (user) {
+      logAuditEvent(user.id, user.email || null, {
+        action: 'Removed validator',
+        category: 'validator',
+        target_type: 'network_validators',
+        target_id: id,
+      });
+    }
     fetchValidators();
   };
 
