@@ -1,11 +1,13 @@
 import { Layout } from '@/components/layout/Layout';
 import { TokenFactory } from '@/components/token/TokenFactory';
 import { TokenFeaturePanel } from '@/components/token/TokenFeaturePanel';
+import { TokenWatchlist } from '@/components/token/TokenWatchlist';
+import { PriceAlerts } from '@/components/token/PriceAlerts';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { motion } from 'framer-motion';
-import { Coins, Plus, Eye, Search, AlertTriangle, ArrowLeftRight, Loader2, Shield } from 'lucide-react';
+import { Coins, Plus, Eye, Search, AlertTriangle, ArrowLeftRight, Loader2, Shield, Star, Bell } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
@@ -119,6 +121,8 @@ const TokensPage = () => {
         <Tabs defaultValue="browse" className="space-y-6">
           <TabsList className="bg-secondary/50">
             <TabsTrigger value="browse" className="gap-2"><Eye className="h-4 w-4" /> Browse Tokens</TabsTrigger>
+            {user && <TabsTrigger value="watchlist" className="gap-2"><Star className="h-4 w-4" /> Watchlist</TabsTrigger>}
+            {user && <TabsTrigger value="alerts" className="gap-2"><Bell className="h-4 w-4" /> Price Alerts</TabsTrigger>}
             {user && <TabsTrigger value="create" className="gap-2"><Plus className="h-4 w-4" /> Create Token</TabsTrigger>}
           </TabsList>
 
@@ -224,6 +228,14 @@ const TokensPage = () => {
                 <TokenFeaturePanel token={selectedToken} />
               </motion.div>
             )}
+          </TabsContent>
+
+          <TabsContent value="watchlist">
+            <TokenWatchlist />
+          </TabsContent>
+
+          <TabsContent value="alerts">
+            <PriceAlerts />
           </TabsContent>
 
           <TabsContent value="create">

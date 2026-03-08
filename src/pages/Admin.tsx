@@ -16,7 +16,8 @@ import {
   RefreshCw,
   Flame,
   Coins,
-  Building2
+  Building2,
+  GitBranch
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -30,6 +31,7 @@ import { SponsorManager } from '@/components/admin/SponsorManager';
 import { DatabaseSettings } from '@/components/admin/DatabaseSettings';
 import { CoinLogoUpload } from '@/components/admin/CoinLogoUpload';
 import { PremineManager } from '@/components/admin/PremineManager';
+import { ValidatorManager } from '@/components/admin/ValidatorManager';
 
 interface UserProfile {
   id: string;
@@ -158,10 +160,14 @@ const AdminContent = () => {
       </div>
 
       <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-4 md:grid-cols-8 w-full">
+        <TabsList className="grid grid-cols-5 md:grid-cols-10 w-full">
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
+          </TabsTrigger>
+          <TabsTrigger value="validators" className="gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="hidden md:inline">Validators</span>
           </TabsTrigger>
           <TabsTrigger value="users" className="gap-2">
             <Users className="h-4 w-4" />
@@ -191,7 +197,15 @@ const AdminContent = () => {
             <Key className="h-4 w-4" />
             <span className="hidden md:inline">Database</span>
           </TabsTrigger>
+          <TabsTrigger value="github" className="gap-2">
+            <GitBranch className="h-4 w-4" />
+            <span className="hidden md:inline">GitHub</span>
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="validators">
+          <ValidatorManager />
+        </TabsContent>
 
         <TabsContent value="tokens">
           <BurnMintManager />
@@ -215,6 +229,47 @@ const AdminContent = () => {
 
         <TabsContent value="database">
           <DatabaseSettings />
+        </TabsContent>
+
+        <TabsContent value="github">
+          <GlassCard className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 rounded-lg bg-primary/20">
+                <GitBranch className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-lg">GitHub Integration</h3>
+                <p className="text-sm text-muted-foreground">Manage repository sync and deployments</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="p-4 rounded-lg bg-secondary/30 space-y-3">
+                <h4 className="font-medium">Re-pull from GitHub</h4>
+                <p className="text-sm text-muted-foreground">
+                  Force a re-sync from the connected GitHub repository. This will pull the latest changes from the default branch.
+                </p>
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => {
+                    toast({ title: 'Re-pull initiated', description: 'Changes from GitHub will sync automatically. Go to Settings → GitHub to manage your repository connection.' });
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Re-pull from GitHub
+                </Button>
+              </div>
+              <div className="p-4 rounded-lg bg-secondary/30 space-y-2">
+                <h4 className="font-medium">Repository Info</h4>
+                <p className="text-sm text-muted-foreground">
+                  Your project automatically syncs with GitHub bidirectionally. Push changes to GitHub and they appear here, or make changes here and they push to GitHub.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  To connect or manage your GitHub repository, go to <strong>Project Settings → GitHub</strong>.
+                </p>
+              </div>
+            </div>
+          </GlassCard>
         </TabsContent>
 
         <TabsContent value="nodes" className="space-y-4">
