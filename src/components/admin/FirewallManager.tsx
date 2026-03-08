@@ -712,8 +712,8 @@ const DDoSProtectionTab = () => {
   });
 
   const fetchConfigs = async () => {
-    const { data } = await supabase.from('ddos_protection' as any).select('*').order('created_at', { ascending: false });
-    if (data) setConfigs(data as any);
+    const { data } = await supabase.from('ddos_protection').select('*').order('created_at', { ascending: false });
+    if (data) setConfigs(data);
     setLoading(false);
   };
 
