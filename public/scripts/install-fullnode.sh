@@ -143,16 +143,37 @@ BINARY
 
 chmod +x "$GYDS_BIN/gyds-fullnode"
 
-echo -e "${GREEN}[6/8]${NC} Configuring firewall..."
+echo -e "${GREEN}[6/8]${NC} Configuring firewall & Fail2Ban..."
 ufw --force reset >/dev/null 2>&1
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow ssh >/dev/null
-ufw allow "$P2P_PORT/tcp" comment 'GYDSchain P2P' >/dev/null
+ufw limit ssh/tcp >/dev/null
+ufw allow 80/tcp comment 'HTTP' >/dev/null
+ufw allow 443/tcp comment 'HTTPS' >/dev/null
+ufw allow "$P2P_PORT/tcp" comment 'GYDSchain P2P TCP' >/dev/null
+ufw allow "$P2P_PORT/udp" comment 'GYDSchain P2P UDP' >/dev/null
 ufw allow "$RPC_PORT/tcp" comment 'GYDSchain RPC' >/dev/null
 ufw allow 51820/udp comment 'WireGuard VPN' >/dev/null
 ufw --force enable >/dev/null
-echo -e "  Ports opened: SSH, ${P2P_PORT} (P2P), ${RPC_PORT} (RPC), 51820 (WireGuard)"
+echo -e "  Ports: SSH(rate-limited), 80, 443, ${P2P_PORT}, ${RPC_PORT}, 51820"
+
+# Fail2Ban
+cat > /etc/fail2ban/jail.d/gydschain.conf << 'FAIL2BAN'
+[sshd]
+enabled = true
+maxretry = 5
+bantime = 3600
+
+[gyds-rpc]
+enabled = true
+maxretry = 20
+bantime = 1800
+findtime = 300
+FAIL2BAN
+systemctl enable fail2ban >/dev/null 2>&1
+systemctl restart fail2ban >/dev/null 2>&1
+echo -e "  Fail2Ban enabled for SSH and RPC"
 
 echo -e "${GREEN}[7/8]${NC} Creating systemd service..."
 cat > /etc/systemd/system/gyds-fullnode.service << EOF
