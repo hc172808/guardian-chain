@@ -889,6 +889,32 @@ const WalletContent = () => {
               </div>
             </div>
           </div>
+          {/* Biometric Unlock */}
+          {biometricAvailable && (
+            <div className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/30">
+              <div className="flex items-center gap-3">
+                <Fingerprint className={cn("h-5 w-5", biometricEnabled ? "text-green-500" : "text-muted-foreground")} />
+                <div>
+                  <p className="font-semibold">Biometric Unlock</p>
+                  <p className="text-sm text-muted-foreground">
+                    {biometricEnabled
+                      ? 'Fingerprint or face unlock enabled'
+                      : 'Use fingerprint or face to unlock wallet'}
+                  </p>
+                </div>
+              </div>
+              {biometricEnabled ? (
+                <Button variant="outline" size="sm" onClick={handleDisableBiometric}>Disable</Button>
+              ) : (
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleEnableBiometric} disabled={!pinLockEnabled}>
+                  <Fingerprint className="h-4 w-4" /> Enable
+                </Button>
+              )}
+            </div>
+          )}
+          {biometricAvailable && !pinLockEnabled && !biometricEnabled && (
+            <p className="text-xs text-muted-foreground pl-1">Enable PIN lock first to use biometric unlock.</p>
+          )}
         </div>
       </GlassCard>
     </motion.div>
