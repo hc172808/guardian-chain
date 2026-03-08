@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
-import { Users, Shield, TrendingUp, Award, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Users, Shield, TrendingUp, Award, CheckCircle, XCircle, Loader2, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { DelegateModal } from '@/components/validators/DelegateModal';
+import { MyDelegations } from '@/components/validators/MyDelegations';
 
 interface Validator {
   id: string;
@@ -20,20 +24,22 @@ interface Validator {
 }
 
 const Validators = () => {
+  const { user } = useAuth();
   const [validators, setValidators] = useState<Validator[]>([]);
   const [loading, setLoading] = useState(true);
+  const [delegateTarget, setDelegateTarget] = useState<Validator | null>(null);
+  const [delegateOpen, setDelegateOpen] = useState(false);
 
-  useEffect(() => {
-    const fetch = async () => {
-      const { data } = await supabase
-        .from('network_validators')
-        .select('*')
-        .order('stake', { ascending: false });
-      if (data) setValidators(data as unknown as Validator[]);
-      setLoading(false);
-    };
-    fetch();
-  }, []);
+  const fetchValidators = async () => {
+    const { data } = await supabase
+      .from('network_validators')
+      .select('*')
+      .order('stake', { ascending: false });
+    if (data) setValidators(data as unknown as Validator[]);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchValidators(); }, []);
 
   const totalStake = validators.reduce((acc, v) => acc + Number(v.stake), 0);
   const activeValidators = validators.filter(v => v.is_active);
@@ -49,7 +55,7 @@ const Validators = () => {
             <Users className="w-8 h-8 text-primary" />
             Validators
           </h1>
-          <p className="text-muted-foreground mt-2">PoS validators securing the network</p>
+          <p className="text-muted-foreground mt-2">PoS validators securing the network — delegate GYDS to earn rewards</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -83,6 +89,11 @@ const Validators = () => {
           </GlassCard>
         </div>
 
+        {/* My Delegations - only for logged-in users */}
+        {user && (
+          <MyDelegations validators={validators} onUpdate={fetchValidators} />
+        )}
+
         <GlassCard className="p-0 overflow-hidden">
           <div className="p-4 border-b border-border/50 flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
@@ -109,6 +120,7 @@ const Validators = () => {
                     <th className="text-right p-4 text-sm font-medium text-muted-foreground">Stake %</th>
                     <th className="text-right p-4 text-sm font-medium text-muted-foreground">Blocks</th>
                     <th className="text-right p-4 text-sm font-medium text-muted-foreground">Uptime</th>
+                    {user && <th className="text-right p-4 text-sm font-medium text-muted-foreground">Action</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -174,6 +186,20 @@ const Validators = () => {
                           {Number(validator.uptime).toFixed(2)}%
                         </span>
                       </td>
+                      {user && (
+                        <td className="p-4 text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 text-xs"
+                            disabled={!validator.is_active || validator.is_jailed}
+                            onClick={() => { setDelegateTarget(validator); setDelegateOpen(true); }}
+                          >
+                            <ArrowUpRight className="h-3 w-3" />
+                            Delegate
+                          </Button>
+                        </td>
+                      )}
                     </motion.tr>
                   ))}
                 </tbody>
@@ -202,6 +228,13 @@ const Validators = () => {
             </div>
           </div>
         </GlassCard>
+
+        <DelegateModal
+          open={delegateOpen}
+          onOpenChange={setDelegateOpen}
+          validator={delegateTarget}
+          onSuccess={fetchValidators}
+        />
       </motion.div>
     </Layout>
   );
