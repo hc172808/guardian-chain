@@ -2,7 +2,7 @@ import { ReactNode, forwardRef } from 'react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 
-interface GlassCardProps {
+interface GlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
   className?: string;
   glow?: boolean;
