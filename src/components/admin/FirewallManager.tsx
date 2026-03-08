@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import {
   Shield, Plus, Trash2, Edit, Loader2, CheckCircle, XCircle,
-  Ban, Lock, Unlock, Globe, AlertTriangle, Wifi,
+  Ban, Lock, Unlock, Globe, AlertTriangle, Wifi, Gauge, Zap, Timer,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
