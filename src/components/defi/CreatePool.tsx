@@ -19,13 +19,14 @@ interface CreatePoolProps {
   onBack: () => void;
 }
 
-const NATIVE_TOKENS = ['GYD', 'GYDS', 'NLGR'];
+const NATIVE_TOKENS = ['GYD', 'GYDS'];
 
 export const CreatePool = ({ onBack }: CreatePoolProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [customTokens, setCustomTokens] = useState<{ symbol: string; address: string }[]>([]);
+  const [walletTokens, setWalletTokens] = useState<string[]>([]);
   const [form, setForm] = useState({
     tokenA: 'GYD',
     tokenB: '',
@@ -38,11 +39,21 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
     const loadTokens = async () => {
       const { data } = await supabase.from('tokens').select('symbol, address').eq('is_active', true);
       if (data) setCustomTokens(data);
+
+      // Load tokens user owns (created or has balance)
+      if (user) {
+        const { data: userTokens } = await supabase
+          .from('tokens')
+          .select('symbol')
+          .eq('creator_id', user.id)
+          .eq('is_active', true);
+        if (userTokens) setWalletTokens(userTokens.map(t => t.symbol));
+      }
     };
     loadTokens();
-  }, []);
+  }, [user]);
 
-  const allTokens = [...NATIVE_TOKENS, ...customTokens.map(t => t.symbol)];
+  const allTokens = [...new Set([...NATIVE_TOKENS, ...customTokens.map(t => t.symbol)])];
 
   const handleSubmit = async () => {
     if (!user) {
@@ -92,6 +103,11 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
         <h2 className="font-semibold flex items-center gap-2">
           <Droplets className="h-4 w-4 text-primary" /> Token Pair
         </h2>
+        {walletTokens.length > 0 && (
+          <div className="text-xs text-muted-foreground">
+            Your tokens: {walletTokens.join(', ')}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label>Token A</Label>
@@ -99,7 +115,9 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
               <SelectTrigger className="bg-secondary/30"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {allTokens.map(t => (
-                  <SelectItem key={t} value={t} disabled={t === form.tokenB}>{t}</SelectItem>
+                  <SelectItem key={t} value={t} disabled={t === form.tokenB}>
+                    {t} {walletTokens.includes(t) ? '(owned)' : ''}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -110,7 +128,9 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
               <SelectTrigger className="bg-secondary/30"><SelectValue placeholder="Select token" /></SelectTrigger>
               <SelectContent>
                 {allTokens.map(t => (
-                  <SelectItem key={t} value={t} disabled={t === form.tokenA}>{t}</SelectItem>
+                  <SelectItem key={t} value={t} disabled={t === form.tokenA}>
+                    {t} {walletTokens.includes(t) ? '(owned)' : ''}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

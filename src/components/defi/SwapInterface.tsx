@@ -331,11 +331,66 @@ export const SwapInterface = () => {
     }
 
     const amount = parseFloat(payAmount);
+    const receiveAmt = parseFloat(receiveAmount || '0');
     if (!amount || amount <= 0) return;
+
+    // Check balance
+    if (amount > payToken.balance) {
+      toast({ title: 'Insufficient Balance', description: `You only have ${payToken.balance.toFixed(4)} ${payToken.symbol}`, variant: 'destructive' });
+      return;
+    }
 
     setIsSwapping(true);
 
     try {
+      // ── Enforce token purchase limits ──
+      if (receiveToken.address && !receiveToken.address.startsWith('0x000000000000000000000000000000000000000')) {
+        const { data: limitsConfig } = await supabase
+          .from('admin_config')
+          .select('config_value')
+          .eq('config_key', `token_limits_${receiveToken.address}`)
+          .maybeSingle();
+
+        if (limitsConfig?.config_value) {
+          const limits = limitsConfig.config_value as Record<string, number>;
+          const maxBuy = limits.max_buy_per_wallet || Infinity;
+          const dailyLimit = limits.daily_buy_limit || Infinity;
+
+          // Check wallet cap
+          const currentHolding = receiveToken.balance || 0;
+          if (currentHolding + receiveAmt > maxBuy) {
+            toast({
+              title: 'Wallet Cap Reached',
+              description: `Max holding is ${maxBuy.toLocaleString()} ${receiveToken.symbol}. You already have ${currentHolding.toLocaleString()}.`,
+              variant: 'destructive',
+            });
+            setIsSwapping(false);
+            return;
+          }
+
+          // Check daily buy limit
+          const oneDayAgo = new Date(Date.now() - 86400000).toISOString();
+          const { data: recentBuys } = await supabase
+            .from('transactions')
+            .select('amount')
+            .eq('user_id', user.id)
+            .eq('to_address', 'swap-pool')
+            .eq('status', 'confirmed')
+            .gte('created_at', oneDayAgo);
+
+          const totalBoughtToday = (recentBuys || []).reduce((sum, tx) => sum + tx.amount, 0);
+          if (totalBoughtToday + receiveAmt > dailyLimit) {
+            toast({
+              title: 'Daily Limit Reached',
+              description: `You can buy max ${dailyLimit.toLocaleString()} ${receiveToken.symbol} per day. Already bought ${totalBoughtToday.toLocaleString()} today.`,
+              variant: 'destructive',
+            });
+            setIsSwapping(false);
+            return;
+          }
+        }
+      }
+
       const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
 
       const { error } = await supabase.from('transactions').insert({
