@@ -74,6 +74,12 @@ export const ValidatorManager = () => {
       toast({ title: 'Failed', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: editingId ? 'Validator updated' : 'Validator added' });
+      logAuditEvent(user.id, user.email || null, {
+        action: editingId ? 'Updated validator' : 'Added validator',
+        category: 'validator',
+        target_type: 'network_validators',
+        details: { address: form.address, name: form.name, stake: form.stake },
+      });
       setDialogOpen(false);
       resetForm();
       fetchValidators();
