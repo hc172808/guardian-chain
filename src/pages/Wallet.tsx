@@ -43,6 +43,7 @@ interface TokenBalance {
   value: number;
   price: number;
   change24h: number;
+  decimals?: number;
   logo?: string;
 }
 
@@ -161,6 +162,7 @@ const WalletContent = () => {
         value: (priceData?.circulating_supply || 0) * gydsPrice,
         price: gydsPrice,
         change24h: 0,
+        decimals: 18,
       },
       {
         symbol: 'GYD',
@@ -169,6 +171,7 @@ const WalletContent = () => {
         value: 0,
         price: 1.00,
         change24h: 0,
+        decimals: 6,
       },
     ];
 
@@ -368,6 +371,7 @@ const WalletContent = () => {
                     </div>
                     <p className="text-xs text-muted-foreground font-mono">
                       ${token.price < 1 ? token.price.toFixed(7) : token.price.toFixed(2)} per token
+                      {token.decimals !== undefined && <span className="ml-2 text-muted-foreground/60">({token.decimals} decimals)</span>}
                     </p>
                   </div>
                 </div>
