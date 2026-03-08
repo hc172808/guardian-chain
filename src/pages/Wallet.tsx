@@ -82,6 +82,7 @@ import {
 import { Fingerprint } from 'lucide-react';
 
 const WalletContent = () => {
+  const navigate = useNavigate();
   const { user, isFounder } = useAuth();
   const { toast } = useToast();
   const [wallets, setWallets] = useState<WalletData[]>([]);
