@@ -1,39 +1,175 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, ArrowUpDown, Settings2, Wallet, ExternalLink, Copy, Loader2 } from 'lucide-react';
+import { RefreshCw, ArrowUpDown, Settings2, Wallet, ExternalLink, Copy, Loader2, ChevronDown, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { RecentSwaps } from './RecentSwaps';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 
 interface Token {
   symbol: string;
   name: string;
   balance: number;
   price: number;
+  address?: string;
 }
 
-const tokens: Token[] = [
-  { symbol: 'GYD', name: 'NetlifeGY', balance: 1.0103, price: 86.802 },
-  { symbol: 'GYDS', name: 'NetlifeGY Stable', balance: 0, price: 1.00 },
-  { symbol: 'NLGR', name: 'NetlifeGY Rewards', balance: 0, price: 0.7837 },
+// Native coins always available
+const NATIVE_TOKENS: Token[] = [
+  { symbol: 'GYD', name: 'GYDchain', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001' },
+  { symbol: 'GYDS', name: 'GYDSchain', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000' },
 ];
+
+const TokenSelectorButton = ({ token, onClick }: { token: Token; onClick: () => void }) => (
+  <Button variant="secondary" className="gap-2 rounded-lg px-3 py-2 h-auto" onClick={onClick}>
+    <div className={cn(
+      "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
+      token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+      token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+      "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+    )}>
+      {token.symbol[0]}
+    </div>
+    <span className="font-semibold">{token.symbol}</span>
+    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+  </Button>
+);
+
+const TokenSelector = ({
+  tokens,
+  selectedToken,
+  otherToken,
+  onSelect,
+  open,
+  onOpenChange,
+  children,
+}: {
+  tokens: Token[];
+  selectedToken: Token;
+  otherToken: Token;
+  onSelect: (token: Token) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: React.ReactNode;
+}) => {
+  const [search, setSearch] = useState('');
+
+  const filtered = tokens.filter(t =>
+    t.symbol !== otherToken.symbol &&
+    (t.symbol.toLowerCase().includes(search.toLowerCase()) ||
+     t.name.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent className="w-72 p-0" align="end">
+        <div className="p-3 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search tokens..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-8 h-9 bg-secondary/30"
+              autoFocus
+            />
+          </div>
+        </div>
+        <div className="max-h-64 overflow-y-auto p-1">
+          {filtered.length === 0 ? (
+            <p className="text-center text-sm text-muted-foreground py-4">No tokens found</p>
+          ) : filtered.map(token => (
+            <button
+              key={token.symbol}
+              className={cn(
+                "w-full flex items-center gap-3 p-2.5 rounded-lg text-left transition-colors",
+                token.symbol === selectedToken.symbol
+                  ? "bg-primary/10 text-primary"
+                  : "hover:bg-secondary/50"
+              )}
+              onClick={() => { onSelect(token); onOpenChange(false); setSearch(''); }}
+            >
+              <div className={cn(
+                "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+                token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+              )}>
+                {token.symbol[0]}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-sm">{token.symbol}</div>
+                <div className="text-xs text-muted-foreground truncate">{token.name}</div>
+              </div>
+              <span className="text-xs font-mono text-muted-foreground">${token.price < 1 ? token.price.toFixed(7) : token.price.toFixed(2)}</span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 export const SwapInterface = () => {
   const [payAmount, setPayAmount] = useState('');
   const [receiveAmount, setReceiveAmount] = useState('');
-  const [payToken, setPayToken] = useState(tokens[0]);
-  const [receiveToken, setReceiveToken] = useState(tokens[1]);
+  const [allTokens, setAllTokens] = useState<Token[]>(NATIVE_TOKENS);
+  const [payToken, setPayToken] = useState<Token>(NATIVE_TOKENS[0]);
+  const [receiveToken, setReceiveToken] = useState<Token>(NATIVE_TOKENS[1]);
   const [slippage, setSlippage] = useState(0.5);
   const [isSwapping, setIsSwapping] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
 
   const { address, isConnected } = useWalletConnect();
   const { user } = useAuth();
   const { toast } = useToast();
+
+  // Load tokens from database
+  useEffect(() => {
+    const loadTokens = async () => {
+      const { data } = await supabase
+        .from('tokens')
+        .select('symbol, name, address, total_supply')
+        .eq('is_active', true)
+        .order('symbol');
+
+      const dbTokens: Token[] = (data || []).map(t => ({
+        symbol: t.symbol,
+        name: t.name,
+        balance: 0,
+        price: 0.01, // Default price for custom tokens
+        address: t.address,
+      }));
+
+      // Merge native + DB tokens, avoiding duplicates
+      const merged = [...NATIVE_TOKENS];
+      dbTokens.forEach(t => {
+        if (!merged.find(m => m.symbol === t.symbol)) {
+          merged.push(t);
+        }
+      });
+      setAllTokens(merged);
+    };
+
+    loadTokens();
+
+    const channel = supabase
+      .channel('swap-tokens')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tokens' }, () => loadTokens())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const handleSwapTokens = () => {
     const temp = payToken;
@@ -43,7 +179,6 @@ export const SwapInterface = () => {
     setReceiveAmount(payAmount);
   };
 
-  // Calculate receive amount based on exchange rate
   const handlePayAmountChange = (value: string) => {
     setPayAmount(value);
     if (value && parseFloat(value) > 0) {
@@ -69,7 +204,7 @@ export const SwapInterface = () => {
   const payValue = parseFloat(payAmount || '0') * payToken.price;
   const receiveValue = parseFloat(receiveAmount || '0') * receiveToken.price;
   const exchangeRate = useMemo(() => payToken.price / receiveToken.price, [payToken.price, receiveToken.price]);
-  const fee = payValue * 0.003; // 0.3% fee
+  const fee = payValue * 0.003;
 
   const executeSwap = async () => {
     if (!user || !address) {
@@ -162,12 +297,16 @@ export const SwapInterface = () => {
             onChange={(e) => handlePayAmountChange(e.target.value)}
             className="border-0 bg-transparent text-3xl font-light p-0 h-auto focus-visible:ring-0 placeholder:text-muted-foreground/50"
           />
-          <Button variant="secondary" className="gap-2 rounded-lg px-4 py-2 h-auto">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-xs font-bold">
-              {payToken.symbol[0]}
-            </div>
-            <span className="font-semibold">{payToken.symbol}</span>
-          </Button>
+          <TokenSelector
+            tokens={allTokens}
+            selectedToken={payToken}
+            otherToken={receiveToken}
+            onSelect={setPayToken}
+            open={payOpen}
+            onOpenChange={setPayOpen}
+          >
+            <TokenSelectorButton token={payToken} onClick={() => setPayOpen(true)} />
+          </TokenSelector>
         </div>
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>${payValue.toFixed(2)}</span>
@@ -201,18 +340,22 @@ export const SwapInterface = () => {
             onChange={(e) => handleReceiveAmountChange(e.target.value)}
             className="border-0 bg-transparent text-3xl font-light p-0 h-auto focus-visible:ring-0 placeholder:text-muted-foreground/50"
           />
-          <Button variant="secondary" className="gap-2 rounded-lg px-4 py-2 h-auto">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-xs font-bold text-black">
-              {receiveToken.symbol[0]}
-            </div>
-            <span className="font-semibold">{receiveToken.symbol}</span>
-          </Button>
+          <TokenSelector
+            tokens={allTokens}
+            selectedToken={receiveToken}
+            otherToken={payToken}
+            onSelect={setReceiveToken}
+            open={receiveOpen}
+            onOpenChange={setReceiveOpen}
+          >
+            <TokenSelectorButton token={receiveToken} onClick={() => setReceiveOpen(true)} />
+          </TokenSelector>
         </div>
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>${receiveValue.toFixed(2)}</span>
           <div className="flex items-center gap-1">
             <Wallet className="h-3 w-3" />
-            <span>{receiveToken.balance}</span>
+            <span>{receiveToken.balance.toFixed(4)}</span>
           </div>
         </div>
       </div>
@@ -222,7 +365,7 @@ export const SwapInterface = () => {
         <div className="rounded-xl border border-border/50 bg-card/30 p-3 space-y-2 text-sm">
           <div className="flex justify-between text-muted-foreground">
             <span>Rate</span>
-            <span className="font-mono">1 {payToken.symbol} = {exchangeRate.toFixed(4)} {receiveToken.symbol}</span>
+            <span className="font-mono">1 {payToken.symbol} = {exchangeRate.toFixed(exchangeRate < 1 ? 7 : 4)} {receiveToken.symbol}</span>
           </div>
           <div className="flex justify-between text-muted-foreground">
             <span>Fee (0.3%)</span>
@@ -250,12 +393,14 @@ export const SwapInterface = () => {
         )}
       </Button>
 
-      {/* Token List */}
+      {/* Available Tokens */}
       <div className="space-y-2 pt-4">
-        {tokens.map((token) => (
+        <h3 className="text-sm font-medium text-muted-foreground px-1">Available Tokens</h3>
+        {allTokens.map((token) => (
           <div
             key={token.symbol}
             className="flex items-center justify-between p-3 rounded-xl hover:bg-secondary/50 cursor-pointer transition-colors"
+            onClick={() => { setPayToken(token); }}
           >
             <div className="flex items-center gap-3">
               <div className={cn(
@@ -269,18 +414,20 @@ export const SwapInterface = () => {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">{token.symbol}</span>
-                  <span className="text-muted-foreground">{token.name}</span>
+                  <span className="text-muted-foreground text-sm">{token.name}</span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="font-mono bg-secondary/50 px-2 py-0.5 rounded">
-                    {token.symbol.slice(0, 4)}...{token.symbol.slice(-4)}
-                  </span>
-                  <Copy className="h-3 w-3" />
-                  <ExternalLink className="h-3 w-3" />
-                </div>
+                {token.address && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-mono bg-secondary/50 px-2 py-0.5 rounded">
+                      {token.address.slice(0, 6)}...{token.address.slice(-4)}
+                    </span>
+                    <Copy className="h-3 w-3" />
+                    <ExternalLink className="h-3 w-3" />
+                  </div>
+                )}
               </div>
             </div>
-            <span className="font-mono">${token.price.toFixed(token.price < 1 ? 4 : 2)}</span>
+            <span className="font-mono">${token.price < 1 ? token.price.toFixed(7) : token.price.toFixed(2)}</span>
           </div>
         ))}
       </div>
