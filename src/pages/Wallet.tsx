@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { motion } from 'framer-motion';
 import { 
   Wallet as WalletIcon, 
@@ -23,7 +24,11 @@ import {
   TrendingUp,
   Loader2,
   Send,
-  ArrowRight
+  ArrowRight,
+  RefreshCw,
+  Shield,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -56,6 +61,12 @@ import {
   verifyPin,
   encryptWithPin,
   decryptWithPin,
+  rotatePin,
+  enablePinLock,
+  disablePinLock,
+  isPinLockEnabled,
+  verifyPinLock,
+  getPinLockStatus,
 } from '@/lib/walletCrypto';
 
 const WalletContent = () => {
@@ -79,6 +90,23 @@ const WalletContent = () => {
   const [sendTo, setSendTo] = useState('');
   const [sendAmount, setSendAmount] = useState('');
   const [sendLoading, setSendLoading] = useState(false);
+
+  // PIN rotation state
+  const [rotatePinDialogOpen, setRotatePinDialogOpen] = useState(false);
+  const [rotateWalletId, setRotateWalletId] = useState<string | null>(null);
+  const [oldPin, setOldPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmNewPin, setConfirmNewPin] = useState('');
+  const [rotateLoading, setRotateLoading] = useState(false);
+
+  // PIN lock state
+  const [pinLockEnabled, setPinLockEnabled] = useState(isPinLockEnabled());
+  const [pinLockDialogOpen, setPinLockDialogOpen] = useState(false);
+  const [pinLockInput, setPinLockInput] = useState('');
+  const [pinLockConfirm, setPinLockConfirm] = useState('');
+  const [appLocked, setAppLocked] = useState(isPinLockEnabled());
+  const [unlockPin, setUnlockPin] = useState('');
+  const [unlockError, setUnlockError] = useState('');
 
   useEffect(() => {
     fetchWallets();
@@ -316,6 +344,97 @@ const WalletContent = () => {
     toast({ title: `${label} copied!` });
   };
 
+  // ─── PIN Rotation Handler ─────────────────────────────
+  const handleRotatePin = async () => {
+    if (!rotateWalletId) return;
+    if (newPin.length < 4) {
+      toast({ title: 'New PIN must be at least 4 digits', variant: 'destructive' });
+      return;
+    }
+    if (newPin !== confirmNewPin) {
+      toast({ title: 'New PINs do not match', variant: 'destructive' });
+      return;
+    }
+    setRotateLoading(true);
+    const { data } = await supabase.from('wallets').select('encrypted_seed, pin_hash').eq('id', rotateWalletId).single();
+    if (!data) {
+      toast({ title: 'Wallet not found', variant: 'destructive' });
+      setRotateLoading(false);
+      return;
+    }
+    const pinValid = await verifyPin(oldPin, data.pin_hash);
+    if (!pinValid) {
+      toast({ title: 'Current PIN is incorrect', variant: 'destructive' });
+      setRotateLoading(false);
+      return;
+    }
+    const result = await rotatePin(data.encrypted_seed, oldPin, newPin);
+    if (!result) {
+      toast({ title: 'Failed to rotate PIN', variant: 'destructive' });
+      setRotateLoading(false);
+      return;
+    }
+    const { error } = await supabase.from('wallets').update({
+      encrypted_seed: result.newEncryptedSeed,
+      pin_hash: result.newPinHash,
+    }).eq('id', rotateWalletId);
+    setRotateLoading(false);
+    if (error) {
+      toast({ title: 'Failed to save new PIN', variant: 'destructive' });
+    } else {
+      toast({ title: 'PIN rotated successfully!' });
+      setRotatePinDialogOpen(false);
+      setOldPin(''); setNewPin(''); setConfirmNewPin('');
+    }
+  };
+
+  // ─── PIN Lock Handlers ────────────────────────────────
+  const handleEnablePinLock = async () => {
+    if (pinLockInput.length < 4) {
+      toast({ title: 'PIN must be at least 4 digits', variant: 'destructive' });
+      return;
+    }
+    if (pinLockInput !== pinLockConfirm) {
+      toast({ title: 'PINs do not match', variant: 'destructive' });
+      return;
+    }
+    await enablePinLock(pinLockInput);
+    setPinLockEnabled(true);
+    setPinLockDialogOpen(false);
+    setPinLockInput(''); setPinLockConfirm('');
+    toast({ title: 'PIN lock enabled', description: 'Your wallet is now protected with a PIN lock.' });
+  };
+
+  const handleDisablePinLock = () => {
+    disablePinLock();
+    setPinLockEnabled(false);
+    toast({ title: 'PIN lock disabled' });
+  };
+
+  const handleUnlock = async () => {
+    const status = getPinLockStatus();
+    if (status.locked) {
+      const mins = Math.ceil(status.remainingMs / 60000);
+      setUnlockError(`Too many attempts. Try again in ${mins} minute(s).`);
+      return;
+    }
+    const valid = await verifyPinLock(unlockPin);
+    if (valid) {
+      setAppLocked(false);
+      setUnlockPin('');
+      setUnlockError('');
+    } else {
+      const newStatus = getPinLockStatus();
+      if (newStatus.locked) {
+        setUnlockError('Too many failed attempts. Locked for 5 minutes.');
+      } else {
+        setUnlockError(`Incorrect PIN. ${MAX_PIN_ATTEMPTS_DISPLAY - newStatus.attempts} attempt(s) remaining.`);
+      }
+    }
+  };
+
+  const MAX_PIN_ATTEMPTS_DISPLAY = 5;
+
   const handleSendTransaction = async () => {
     if (!user || !sendTo.trim() || !sendAmount || wallets.length === 0) {
       toast({ title: 'Please fill all fields and create a wallet first', variant: 'destructive' });
@@ -355,6 +474,34 @@ const WalletContent = () => {
       loadBalances();
     }
   };
+
+  // ─── PIN Lock Screen ───────────────────────────────────
+  if (appLocked) {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center min-h-[60vh]">
+        <GlassCard className="p-8 max-w-sm w-full text-center">
+          <ShieldAlert className="h-16 w-16 mx-auto text-primary mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Wallet Locked</h2>
+          <p className="text-muted-foreground mb-6">Enter your PIN to access your wallet</p>
+          <div className="space-y-4">
+            <Input
+              type="password"
+              value={unlockPin}
+              onChange={(e) => { setUnlockPin(e.target.value); setUnlockError(''); }}
+              placeholder="Enter PIN"
+              maxLength={6}
+              className="text-center text-lg tracking-widest"
+              onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
+            />
+            {unlockError && <p className="text-sm text-destructive">{unlockError}</p>}
+            <Button onClick={handleUnlock} className="w-full gap-2">
+              <Lock className="h-4 w-4" /> Unlock
+            </Button>
+          </div>
+        </GlassCard>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -599,9 +746,36 @@ const WalletContent = () => {
                         )}
                       </DialogContent>
                     </Dialog>
-                    <Button size="sm" variant="destructive" onClick={() => handleDeleteWallet(wallet.id)}>
+                    <Button size="sm" variant="outline" onClick={() => handleDeleteWallet(wallet.id)} className="text-destructive hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </Button>
+                    <Dialog open={rotatePinDialogOpen && rotateWalletId === wallet.id} onOpenChange={(open) => {
+                      setRotatePinDialogOpen(open);
+                      if (!open) { setOldPin(''); setNewPin(''); setConfirmNewPin(''); }
+                    }}>
+                      <DialogTrigger asChild>
+                        <Button size="sm" variant="outline" onClick={() => setRotateWalletId(wallet.id)}>
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle className="flex items-center gap-2"><RefreshCw className="h-5 w-5" /> Change Wallet PIN</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div><Label>Current PIN</Label>
+                            <Input type="password" value={oldPin} onChange={(e) => setOldPin(e.target.value)} placeholder="Enter current PIN" maxLength={6} /></div>
+                          <div><Label>New PIN (min 4 digits)</Label>
+                            <Input type="password" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder="Enter new PIN" maxLength={6} /></div>
+                          <div><Label>Confirm New PIN</Label>
+                            <Input type="password" value={confirmNewPin} onChange={(e) => setConfirmNewPin(e.target.value)} placeholder="Confirm new PIN" maxLength={6} /></div>
+                          <Button onClick={handleRotatePin} className="w-full gap-2" disabled={rotateLoading}>
+                            {rotateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            {rotateLoading ? 'Rotating...' : 'Change PIN'}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                 </div>
               </GlassCard>
@@ -609,6 +783,65 @@ const WalletContent = () => {
           )}
         </div>
       </div>
+      {/* Security Settings */}
+      <GlassCard className="p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Shield className="h-6 w-6 text-primary" />
+          <h2 className="text-xl font-bold">Security Settings</h2>
+        </div>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/30">
+            <div className="flex items-center gap-3">
+              {pinLockEnabled ? (
+                <ShieldCheck className="h-5 w-5 text-green-500" />
+              ) : (
+                <ShieldAlert className="h-5 w-5 text-muted-foreground" />
+              )}
+              <div>
+                <p className="font-semibold">App PIN Lock</p>
+                <p className="text-sm text-muted-foreground">
+                  {pinLockEnabled
+                    ? 'PIN required to access wallet page'
+                    : 'Protect your wallet with a PIN on each visit'}
+                </p>
+              </div>
+            </div>
+            {pinLockEnabled ? (
+              <Button variant="outline" size="sm" onClick={handleDisablePinLock}>Disable</Button>
+            ) : (
+              <Dialog open={pinLockDialogOpen} onOpenChange={setPinLockDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2"><Lock className="h-4 w-4" /> Enable</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2"><Shield className="h-5 w-5" /> Set App PIN Lock</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">This PIN will be required every time you visit the wallet page. After 5 failed attempts, you'll be locked out for 5 minutes.</p>
+                    <div><Label>PIN (min 4 digits)</Label>
+                      <Input type="password" value={pinLockInput} onChange={(e) => setPinLockInput(e.target.value)} placeholder="Enter PIN" maxLength={6} /></div>
+                    <div><Label>Confirm PIN</Label>
+                      <Input type="password" value={pinLockConfirm} onChange={(e) => setPinLockConfirm(e.target.value)} placeholder="Confirm PIN" maxLength={6} /></div>
+                    <Button onClick={handleEnablePinLock} className="w-full gap-2">
+                      <ShieldCheck className="h-4 w-4" /> Enable PIN Lock
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
+          <div className="p-4 rounded-lg bg-card/50 border border-border/30">
+            <div className="flex items-center gap-3">
+              <RefreshCw className="h-5 w-5 text-primary" />
+              <div>
+                <p className="font-semibold">PIN Rotation</p>
+                <p className="text-sm text-muted-foreground">Change individual wallet PINs using the <RefreshCw className="h-3 w-3 inline" /> button on each wallet card above.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </GlassCard>
     </motion.div>
   );
 };
