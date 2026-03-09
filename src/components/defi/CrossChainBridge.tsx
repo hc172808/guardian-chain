@@ -11,6 +11,8 @@ import { useCoinGeckoPrices } from '@/hooks/useCoinGeckoPrices';
 import { useNetworkDetection } from '@/hooks/useNetworkDetection';
 import { supabase } from '@/integrations/supabase/client';
 import { BridgeHistory } from './BridgeHistory';
+import { PriceSparkline } from './PriceSparkline';
+import { BridgeFeeComparison } from './BridgeFeeComparison';
 import {
   Select,
   SelectContent,
