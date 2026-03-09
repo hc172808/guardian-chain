@@ -105,9 +105,9 @@ export const BridgeHistory = () => {
                   Bridge → GYDS
                 </span>
                 {tx.status === 'confirmed' ? (
-                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                  <CheckCircle2 className="h-3 w-3 text-emerald-500" />
                 ) : (
-                  <Clock className="h-3 w-3 text-yellow-500" />
+                  <Clock className="h-3 w-3 text-amber-500" />
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
