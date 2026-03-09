@@ -280,6 +280,16 @@ export const CrossChainBridge = () => {
         </div>
       )}
 
+      {/* Fee Comparison */}
+      <BridgeFeeComparison
+        chains={EXTERNAL_CHAINS}
+        prices={prices}
+        amount={amount}
+        gydsPrice={gydsPrice}
+        onSelectChain={handleChainChange}
+        selectedChainId={sourceChain.id}
+      />
+
       {/* Bridge Status */}
       {bridgeStatus.stage !== 'idle' && (
         <div className={cn(
