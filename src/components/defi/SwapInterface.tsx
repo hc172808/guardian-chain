@@ -442,6 +442,24 @@ export const SwapInterface = () => {
 
   return (
     <div className="space-y-4">
+      {/* Swap Mode Tabs */}
+      <Tabs defaultValue="swap" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 mb-4">
+          <TabsTrigger value="swap" className="gap-2">
+            <ArrowUpDown className="h-4 w-4" />
+            Swap
+          </TabsTrigger>
+          <TabsTrigger value="bridge" className="gap-2">
+            <Globe className="h-4 w-4" />
+            Cross-Chain
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="bridge" className="mt-0">
+          <CrossChainBridge />
+        </TabsContent>
+
+        <TabsContent value="swap" className="mt-0 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
