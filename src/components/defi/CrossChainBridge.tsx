@@ -190,6 +190,7 @@ export const CrossChainBridge = () => {
                       {chain.logo}
                     </div>
                     <span>{chain.name}</span>
+                    <PriceSparkline coinId={chain.id} width={48} height={16} />
                     <span className="text-muted-foreground text-xs">
                       ${prices[chain.id]?.toLocaleString() || '...'}
                     </span>
