@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Droplets, Briefcase, ArrowLeftRight, Layers, Rocket } from 'lucide-react';
+import { Droplets, Briefcase, ArrowLeftRight, Layers, Rocket, Link2 } from 'lucide-react';
 
 interface DeFiBottomNavProps {
   activeTab: string;
