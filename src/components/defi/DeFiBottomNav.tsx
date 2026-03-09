@@ -12,6 +12,7 @@ const navItems = [
   { id: 'swap', icon: ArrowLeftRight, label: 'Swap' },
   { id: 'stake', icon: Layers, label: 'Stake' },
   { id: 'launchpad', icon: Rocket, label: 'Launch' },
+  { id: 'bridge', icon: Link2, label: 'Bridge' },
 ];
 
 export const DeFiBottomNav = ({ activeTab, onTabChange }: DeFiBottomNavProps) => {
