@@ -2,18 +2,25 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, ArrowUpDown, Settings2, Wallet, ExternalLink, Copy, Loader2, ChevronDown, Search } from 'lucide-react';
+import { RefreshCw, ArrowUpDown, Settings2, Wallet, ExternalLink, Copy, Loader2, ChevronDown, Search, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { RecentSwaps } from './RecentSwaps';
+import { CrossChainBridge } from './CrossChainBridge';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
 
 interface Token {
   symbol: string;
@@ -442,6 +449,24 @@ export const SwapInterface = () => {
 
   return (
     <div className="space-y-4">
+      {/* Swap Mode Tabs */}
+      <Tabs defaultValue="swap" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 mb-4">
+          <TabsTrigger value="swap" className="gap-2">
+            <ArrowUpDown className="h-4 w-4" />
+            Swap
+          </TabsTrigger>
+          <TabsTrigger value="bridge" className="gap-2">
+            <Globe className="h-4 w-4" />
+            Cross-Chain
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="bridge" className="mt-0">
+          <CrossChainBridge />
+        </TabsContent>
+
+        <TabsContent value="swap" className="mt-0 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
@@ -623,6 +648,8 @@ export const SwapInterface = () => {
       </div>
       {/* Recent Swaps History */}
       <RecentSwaps />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
