@@ -6,6 +6,7 @@ import { Portfolio } from '@/components/defi/Portfolio';
 import { StakeInterface } from '@/components/defi/StakeInterface';
 import { Launchpad } from '@/components/defi/Launchpad';
 import { PositionDetails } from '@/components/defi/PositionDetails';
+import { CrossChainBridge } from '@/components/defi/CrossChainBridge';
 import { DeFiBottomNav } from '@/components/defi/DeFiBottomNav';
 import { WalletConnectBar } from '@/components/defi/WalletConnectBar';
 
@@ -30,6 +31,8 @@ const DeFiPage = () => {
         return <StakeInterface />;
       case 'launchpad':
         return <Launchpad />;
+      case 'bridge':
+        return <CrossChainBridge />;
       case 'position':
         return <PositionDetails position={selectedPosition} />;
       default:

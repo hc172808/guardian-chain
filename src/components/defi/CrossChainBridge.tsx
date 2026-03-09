@@ -11,6 +11,8 @@ import { useCoinGeckoPrices } from '@/hooks/useCoinGeckoPrices';
 import { useNetworkDetection } from '@/hooks/useNetworkDetection';
 import { supabase } from '@/integrations/supabase/client';
 import { BridgeHistory } from './BridgeHistory';
+import { PriceSparkline } from './PriceSparkline';
+import { BridgeFeeComparison } from './BridgeFeeComparison';
 import {
   Select,
   SelectContent,
@@ -188,6 +190,7 @@ export const CrossChainBridge = () => {
                       {chain.logo}
                     </div>
                     <span>{chain.name}</span>
+                    <PriceSparkline coinId={chain.id} width={48} height={16} />
                     <span className="text-muted-foreground text-xs">
                       ${prices[chain.id]?.toLocaleString() || '...'}
                     </span>
@@ -276,6 +279,16 @@ export const CrossChainBridge = () => {
           </div>
         </div>
       )}
+
+      {/* Fee Comparison */}
+      <BridgeFeeComparison
+        chains={EXTERNAL_CHAINS}
+        prices={prices}
+        amount={amount}
+        gydsPrice={gydsPrice}
+        onSelectChain={handleChainChange}
+        selectedChainId={sourceChain.id}
+      />
 
       {/* Bridge Status */}
       {bridgeStatus.stage !== 'idle' && (
