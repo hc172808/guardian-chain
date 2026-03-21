@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Full Node Installation Script
 #  For Ubuntu 22.04 LTS - FOUNDER ONLY
@@ -29,8 +29,8 @@ STORAGE_SIZE="${STORAGE_SIZE:-100}"
 RPC_PRIMARY="https://rpc.netlifegy.com"
 RPC_BACKUP_1="https://rpc2.netlifegy.com"
 RPC_BACKUP_2="https://rpc3.netlifegy.com"
-RPC_LOCAL="http://localhost:8546"
-RPC_LAN="http://192.168.18.106:8546"
+RPC_LOCAL="${GYDS_RPC_LOCAL:-http://localhost:8546}"
+RPC_LAN="${GYDS_RPC_LAN:-}"
 WS_ENDPOINT="wss://ws.netlifegy.com"
 
 echo -e "${CYAN}"
@@ -240,8 +240,8 @@ max_peers = 50
 primary = "$RPC_PRIMARY"
 # Backup RPC endpoints (failover)
 backup = ["$RPC_BACKUP_1", "$RPC_BACKUP_2"]
-# Local endpoints
-local = ["$RPC_LOCAL", "$RPC_LAN"]
+# Local endpoints (LAN endpoint optional — set GYDS_RPC_LAN to enable)
+local = ["$RPC_LOCAL"${RPC_LAN:+, \"$RPC_LAN\"}]
 
 [websocket]
 endpoint = "$WS_ENDPOINT"

@@ -8,6 +8,8 @@ interface BlockchainWebSocketState {
   latestTransactions: Transaction[];
   pendingTransactions: Transaction[];
   error: string | null;
+  reconnecting: boolean;
+  gaveUp: boolean;
 }
 
 interface WebSocketMessage {
@@ -22,6 +24,8 @@ export const useBlockchainWebSocket = () => {
     latestTransactions: [],
     pendingTransactions: [],
     error: null,
+    reconnecting: false,
+    gaveUp: false,
   });
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -99,15 +103,22 @@ export const useBlockchainWebSocket = () => {
 
       wsRef.current.onclose = () => {
         console.log('WebSocket disconnected');
-        setState(prev => ({ ...prev, isConnected: false }));
         
-        // Attempt reconnection
         if (reconnectAttempts.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+          setState(prev => ({ ...prev, isConnected: false, reconnecting: true, gaveUp: false }));
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttempts.current++;
             connect();
           }, delay);
+        } else {
+          setState(prev => ({
+            ...prev,
+            isConnected: false,
+            reconnecting: false,
+            gaveUp: true,
+            error: 'Connection to blockchain node lost. Please refresh to reconnect.',
+          }));
         }
       };
 
@@ -117,6 +128,7 @@ export const useBlockchainWebSocket = () => {
           ...prev, 
           error: 'Failed to connect to blockchain node',
           isConnected: false,
+          reconnecting: false,
         }));
       };
     } catch (err) {

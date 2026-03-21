@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GydsChain SSL/TLS Certificate Setup v2.0
 # Automated Let's Encrypt provisioning for netlifegy.com
 # Includes: DNS validation, HSTS, OCSP stapling, auto-renewal
@@ -13,7 +13,12 @@ NC='\033[0m'
 
 # Configuration
 DOMAIN="${DOMAIN:-netlifegy.com}"
-EMAIL="${EMAIL:-admin@netlifegy.com}"
+EMAIL="${GYDS_SSL_EMAIL:-${EMAIL:-}}"
+if [[ -z "$EMAIL" ]]; then
+    echo -e "${RED}Error: SSL email is required. Set GYDS_SSL_EMAIL or EMAIL.${NC}"
+    echo "  export GYDS_SSL_EMAIL=admin@netlifegy.com"
+    exit 1
+fi
 SUBDOMAINS=("www" "rpc" "rpc2" "rpc3" "explorer" "vpn" "api" "ws" "testnet-rpc")
 
 echo -e "${CYAN}"

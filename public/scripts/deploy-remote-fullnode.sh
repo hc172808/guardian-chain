@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GydsChain Remote Full Node Deployment v2.0
 # Deploy full nodes to remote Ubuntu servers
 # Domain: netlifegy.com | Chain ID: 13370 | FOUNDER ONLY

@@ -1,15 +1,32 @@
-# GydsChain Node Dockerfile v2.1.0
+# GydsChain Node Dockerfile v2.2.0
 # Supports: validator, fullnode, rpc, litenode modes
 # Includes: security hardening, health checks, fail2ban
+#
+# PREREQUISITE: Place your Go source in blockchain-go/ at the project root.
+#   blockchain-go/go.mod
+#   blockchain-go/go.sum
+#   blockchain-go/cmd/fullnode/main.go
+#   blockchain-go/cmd/litenode/main.go
+#
+# Build from project root:
+#   docker build -f public/docker/Dockerfile.node -t gyds-node .
+#
+# Or via docker compose (run from project root):
+#   INDEXER_DB_PASSWORD=$(openssl rand -hex 16) docker compose -f public/docker/docker-compose.yml up -d
+
+ARG GO_SOURCE_DIR=blockchain-go
+
 FROM golang:1.22-alpine AS builder
 
 RUN apk add --no-cache git gcc musl-dev leveldb-dev make
 
 WORKDIR /app
-COPY blockchain-go/go.mod blockchain-go/go.sum ./
+
+ARG GO_SOURCE_DIR
+COPY ${GO_SOURCE_DIR}/go.mod ${GO_SOURCE_DIR}/go.sum ./
 RUN go mod download
 
-COPY blockchain-go/ .
+COPY ${GO_SOURCE_DIR}/ .
 RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o /gydsd ./cmd/fullnode/main.go
 RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o /litenode ./cmd/litenode/main.go
 
@@ -32,17 +49,14 @@ COPY --from=builder /litenode /usr/local/bin/litenode
 # Create non-root user
 RUN addgroup -S gydschain && adduser -S gydschain -G gydschain
 
-# Default data directory
+# Default data and log directories
 RUN mkdir -p /var/lib/gydschain /var/log/gydschain /etc/gydschain \
     && chown -R gydschain:gydschain /var/lib/gydschain /var/log/gydschain /etc/gydschain
 
 # Fail2Ban config for RPC brute-force protection
 RUN mkdir -p /etc/fail2ban/jail.d && \
-    echo '[gyds-rpc]' > /etc/fail2ban/jail.d/gyds-rpc.conf && \
-    echo 'enabled = true' >> /etc/fail2ban/jail.d/gyds-rpc.conf && \
-    echo 'maxretry = 10' >> /etc/fail2ban/jail.d/gyds-rpc.conf && \
-    echo 'bantime = 3600' >> /etc/fail2ban/jail.d/gyds-rpc.conf && \
-    echo 'findtime = 300' >> /etc/fail2ban/jail.d/gyds-rpc.conf
+    printf '[gyds-rpc]\nenabled = true\nmaxretry = 10\nbantime = 3600\nfindtime = 300\n' \
+    > /etc/fail2ban/jail.d/gyds-rpc.conf
 
 EXPOSE 8545 8546 30303 30303/udp 51820/udp
 
@@ -55,13 +69,15 @@ ENV STORAGE_GB=100
 ENV CHAIN_ID=13370
 ENV LOG_LEVEL=info
 
+USER gydschain
+
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD curl -sf http://localhost:${RPC_PORT}/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -sf "http://localhost:${RPC_PORT}/health" || exit 1
 
 ENTRYPOINT ["tini", "--"]
-CMD ["sh", "-c", "\
-  if [ \"$NODE_TYPE\" = 'litenode' ]; then \
+CMD ["sh", "-c", \
+  "if [ \"$NODE_TYPE\" = 'litenode' ]; then \
     exec litenode \
       --rpc=${RPC_URL:-https://rpc.netlifegy.com} \
       --rpc-failover=${RPC_FAILOVER:-https://rpc2.netlifegy.com,https://rpc3.netlifegy.com} \
@@ -71,7 +87,6 @@ CMD ["sh", "-c", "\
       --log-level=$LOG_LEVEL; \
   else \
     exec gydsd \
-      --founder \
       --datadir=$DATA_DIR \
       --rpcport=$RPC_PORT \
       --p2pport=$P2P_PORT \

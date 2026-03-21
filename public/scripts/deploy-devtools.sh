@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GydsChain Developer Tools Deployment v2.0
 # Deploys: Testnet validator, development environment
 # Domain: testnet-rpc.netlifegy.com | Testnet Chain ID: 13371

@@ -1,6 +1,10 @@
-# GydsChain Production Stack v2.1
-# Usage: docker compose -f docker-compose.prod.yml --env-file .env.production up -d
-# Requires: .env.production (copy from ../scripts/.env.example)
+# GydsChain Production Stack v2.2.0
+# Usage (from project root):
+#   cp public/scripts/.env.example .env.production
+#   # Fill in .env.production with real values
+#   docker compose -f public/docker/docker-compose.prod.yml --env-file .env.production up -d
+#
+# Prerequisite: blockchain-go/ directory must exist at project root with Go source.
 
 services:
   # ═══════════════════════════════════════
@@ -9,8 +13,8 @@ services:
 
   validator:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.node
+      context: ../..
+      dockerfile: public/docker/Dockerfile.node
     container_name: gyds-validator-prod
     env_file: .env.production
     environment:
@@ -27,7 +31,7 @@ services:
       - validator-logs:/var/log/gydschain
       - ./validator-key:/etc/gydschain/validator-key:ro
     ports:
-      - "${GYDS_RPC_PORT:-8545}:8545"
+      - "8545:8545"
       - "8546:8546"
       - "${GYDS_P2P_PORT:-30303}:30303"
       - "${GYDS_P2P_PORT:-30303}:30303/udp"
@@ -53,8 +57,8 @@ services:
 
   fullnode:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.node
+      context: ../..
+      dockerfile: public/docker/Dockerfile.node
     container_name: gyds-fullnode-prod
     env_file: .env.production
     environment:
@@ -95,8 +99,8 @@ services:
 
   rpc-primary:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.node
+      context: ../..
+      dockerfile: public/docker/Dockerfile.node
     container_name: gyds-rpc-primary
     env_file: .env.production
     environment:
@@ -130,8 +134,8 @@ services:
 
   rpc-backup:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.node
+      context: ../..
+      dockerfile: public/docker/Dockerfile.node
     container_name: gyds-rpc-backup
     env_file: .env.production
     environment:
@@ -164,10 +168,13 @@ services:
 
   explorer:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.explorer
+      context: ../..
+      dockerfile: public/docker/Dockerfile.explorer
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+        VITE_SUPABASE_PROJECT_ID: ${VITE_SUPABASE_PROJECT_ID}
     container_name: gyds-explorer-prod
-    env_file: .env.production
     ports:
       - "${EXPLORER_PORT:-3000}:80"
     restart: unless-stopped
@@ -181,9 +188,14 @@ services:
         limits:
           cpus: '1'
           memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27-alpine
     container_name: gyds-nginx-prod
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -208,12 +220,12 @@ services:
     environment:
       POSTGRES_DB: "${POSTGRES_DB:-gydschain}"
       POSTGRES_USER: indexer
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.production}"
     volumes:
       - indexer-data:/var/lib/postgresql/data
       - ./init-indexer.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     restart: unless-stopped
     networks:
       - gydsnet-prod
@@ -235,7 +247,7 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     restart: unless-stopped
     networks:
       - gydsnet-prod

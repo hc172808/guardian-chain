@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GydsChain Lite Node Installation Script v2.0
 # For Ubuntu/Debian/macOS - PUBLIC ACCESS
 # Domain: netlifegy.com | Chain ID: 13370
@@ -20,8 +20,8 @@ CHAIN_ID=13370
 # Network endpoints (failover)
 RPC_PRIMARY="${RPC_ENDPOINTS:-https://rpc.netlifegy.com}"
 RPC_FAILOVER="${RPC_FAILOVER:-https://rpc2.netlifegy.com,https://rpc3.netlifegy.com}"
-RPC_LOCAL="http://localhost:8546"
-RPC_LAN="http://192.168.18.106:8546"
+RPC_LOCAL="${GYDS_RPC_LOCAL:-http://localhost:8546}"
+RPC_LAN="${GYDS_RPC_LAN:-}"
 WS_ENDPOINT="${WS_ENDPOINT:-wss://ws.netlifegy.com}"
 
 STORAGE_SIZE="${STORAGE_SIZE:-10}"
@@ -129,7 +129,7 @@ version = "$GYDS_VERSION"
 primary = "$RPC_PRIMARY"
 failover = ["$(echo $RPC_FAILOVER | sed 's/,/", "/g')"]
 local = "$RPC_LOCAL"
-lan = "$RPC_LAN"
+${RPC_LAN:+lan = "$RPC_LAN"}
 max_retries = 3
 timeout_seconds = 30
 enable_failover = true

@@ -1,6 +1,14 @@
-# GydsChain Complete Stack v2.1.0
-# Usage: docker compose up -d
-# Deploy specific: docker compose up -d validator fullnode rpc
+# GydsChain Complete Stack v2.2.0
+# Usage (run from project root):
+#   INDEXER_DB_PASSWORD=$(openssl rand -hex 16) docker compose -f public/docker/docker-compose.yml up -d
+#
+# Deploy specific services:
+#   docker compose -f public/docker/docker-compose.yml up -d validator fullnode rpc
+#
+# IMPORTANT: Never use the default changeme password in production.
+# Always set INDEXER_DB_PASSWORD before first run.
+#
+# Prerequisite: blockchain-go/ directory must exist at project root with Go source.
 
 services:
   # ═══════════════════════════════════════
@@ -9,8 +17,8 @@ services:
 
   validator:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.node
+      context: ../..
+      dockerfile: public/docker/Dockerfile.node
     container_name: gyds-validator
     environment:
       NODE_TYPE: fullnode
@@ -43,12 +51,13 @@ services:
       test: ["CMD", "curl", "-sf", "http://localhost:8546/health"]
       interval: 30s
       timeout: 10s
+      start_period: 60s
       retries: 3
 
   fullnode:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.node
+      context: ../..
+      dockerfile: public/docker/Dockerfile.node
     container_name: gyds-fullnode
     environment:
       NODE_TYPE: fullnode
@@ -79,8 +88,8 @@ services:
 
   rpc:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.node
+      context: ../..
+      dockerfile: public/docker/Dockerfile.node
     container_name: gyds-rpc
     environment:
       NODE_TYPE: fullnode
@@ -110,8 +119,8 @@ services:
 
   litenode:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.node
+      context: ../..
+      dockerfile: public/docker/Dockerfile.node
     container_name: gyds-litenode
     environment:
       NODE_TYPE: litenode
@@ -134,8 +143,12 @@ services:
 
   explorer:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.explorer
+      context: ../..
+      dockerfile: public/docker/Dockerfile.explorer
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+        VITE_SUPABASE_PROJECT_ID: ${VITE_SUPABASE_PROJECT_ID}
     container_name: gyds-explorer
     ports:
       - "3000:80"
@@ -150,6 +163,11 @@ services:
         limits:
           cpus: '1'
           memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   indexer:
     image: postgres:16-alpine
@@ -157,12 +175,14 @@ services:
     environment:
       POSTGRES_DB: gydschain_indexer
       POSTGRES_USER: indexer
-      POSTGRES_PASSWORD: ${INDEXER_DB_PASSWORD:-changeme}
+      # REQUIRED: Set INDEXER_DB_PASSWORD before running.
+      # Generate with: openssl rand -hex 16
+      POSTGRES_PASSWORD: ${INDEXER_DB_PASSWORD:?INDEXER_DB_PASSWORD must be set. Run: export INDEXER_DB_PASSWORD=$(openssl rand -hex 16)}
     volumes:
       - indexer-data:/var/lib/postgresql/data
       - ./init-indexer.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     restart: unless-stopped
     networks:
       - gydsnet
@@ -178,13 +198,13 @@ services:
       retries: 5
 
   # ═══════════════════════════════════════
-  # DEVTOOLS
+  # DEVTOOLS (testnet)
   # ═══════════════════════════════════════
 
   testnet-validator:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.node
+      context: ../..
+      dockerfile: public/docker/Dockerfile.node
     container_name: gyds-testnet
     environment:
       NODE_TYPE: fullnode

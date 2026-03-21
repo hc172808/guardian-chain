@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GydsChain Node Installer v2.1.0
 # Usage: bash install-node.sh [validator|fullnode|rpc|litenode]
 # Domain: netlifegy.com | Chain ID: 13370
@@ -16,8 +16,8 @@ BACKUP_RPC_1="https://rpc2.netlifegy.com"
 BACKUP_RPC_2="https://rpc3.netlifegy.com"
 WS_ENDPOINT="wss://ws.netlifegy.com"
 VPN_SERVER="vpn.netlifegy.com"
-LOCAL_RPC="http://localhost:8546"
-LOCAL_LAN="http://192.168.18.106:8546"
+LOCAL_RPC="${GYDS_RPC_LOCAL:-http://localhost:8546}"
+LOCAL_LAN="${GYDS_RPC_LAN:-}"
 CHAIN_ID=13370
 
 # Colors
@@ -156,9 +156,9 @@ BACKUP_RPC_1=${BACKUP_RPC_1}
 BACKUP_RPC_2=${BACKUP_RPC_2}
 WS_ENDPOINT=${WS_ENDPOINT}
 
-# Local Node
+# Local Node RPC (LAN optional — set GYDS_RPC_LAN env var to enable)
 LOCAL_RPC=${LOCAL_RPC}
-LOCAL_LAN=${LOCAL_LAN}
+${LOCAL_LAN:+LOCAL_LAN=${LOCAL_LAN}}
 
 # Network
 P2P_PORT=30303
