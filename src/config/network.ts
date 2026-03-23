@@ -12,7 +12,7 @@ export const RPC_ENDPOINTS_LIST = {
   ],
   local: [
     'http://localhost:8546',
-    'http://192.168.18.106:8546',
+    ...(import.meta.env.VITE_LOCAL_RPC_URL ? [import.meta.env.VITE_LOCAL_RPC_URL as string] : []),
   ],
 };
 

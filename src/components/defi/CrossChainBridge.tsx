@@ -86,8 +86,8 @@ export const CrossChainBridge = () => {
       const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
 
       const { error } = await supabase.from('token_operations').insert({
-        operation_type: 'bridge_mint_gyds',
-        wallet_address: address,
+        operation_type: 'mint',
+        wallet_address: `bridge:${address}`,
         amount: receivedGyds,
         usdt_amount: netUsdValue,
         tx_hash: txHash,

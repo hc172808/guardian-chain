@@ -137,8 +137,8 @@ export const SponsorFunding = ({ sponsor, open, onOpenChange, onUpdate }: Sponso
 
       // Log the operation
       await supabase.from('token_operations').insert({
-        operation_type: operation === 'deposit' ? 'sponsor_deposit' : 'sponsor_withdraw',
-        wallet_address: sponsor.address,
+        operation_type: operation === 'deposit' ? 'mint' : 'burn',
+        wallet_address: `sponsor:${sponsor.id}`,
         amount: parseFloat(amount),
         status: 'completed',
       });

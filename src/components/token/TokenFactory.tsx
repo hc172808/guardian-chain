@@ -8,8 +8,10 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { useWalletConnect } from '@/hooks/useWalletConnect';
+import { getUserAddresses, computeUserBalances } from '@/lib/balances';
 import { 
-  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart
+  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart, Wallet
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -56,11 +58,13 @@ const DEFAULT_PRICING: AdminPricing = {
 export const TokenFactory = () => {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { address } = useWalletConnect();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [pricing, setPricing] = useState<AdminPricing>(DEFAULT_PRICING);
+  const [userGydsBalance, setUserGydsBalance] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [params, setParams] = useState<TokenCreationParams>({
@@ -72,9 +76,9 @@ export const TokenFactory = () => {
     dailyBuyLimit: '5000',
   });
 
-  // Load admin pricing from config
+  // Load admin pricing and user GYDS balance
   useEffect(() => {
-    const loadPricing = async () => {
+    const loadData = async () => {
       const { data } = await supabase
         .from('admin_config')
         .select('config_value')
@@ -90,9 +94,15 @@ export const TokenFactory = () => {
           min_liquidity: val.min_liquidity ?? DEFAULT_PRICING.min_liquidity,
         });
       }
+
+      if (user) {
+        const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
+        const { gydsBalance } = await computeUserBalances(user.id, myAddresses);
+        setUserGydsBalance(gydsBalance);
+      }
     };
-    loadPricing();
-  }, []);
+    loadData();
+  }, [user, address]);
 
   const calculateTotalFees = () => {
     let total = pricing.deployment_fee;
@@ -142,6 +152,17 @@ export const TokenFactory = () => {
       return;
     }
 
+    // Check GYDS balance
+    const totalRequired = calculateTotalGyds();
+    if (userGydsBalance < totalRequired) {
+      toast({
+        title: 'Insufficient GYDS Balance',
+        description: `You need ${totalRequired.toLocaleString()} GYDS but only have ${userGydsBalance.toLocaleString()} GYDS. Ask an admin to mint GYDS to your wallet.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setCreating(true);
     try {
       let logoUrl: string | null = null;
@@ -157,9 +178,10 @@ export const TokenFactory = () => {
         logoUrl = urlData.publicUrl;
       }
 
-      const address = '0x' + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+      const tokenAddress = '0x' + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+      const walletAddr = address || `user:${user.id}`;
 
-      const { error } = await supabase.from('tokens').insert({
+      const { data: newToken, error } = await supabase.from('tokens').insert({
         creator_id: user.id,
         name: params.name,
         symbol: params.symbol,
@@ -174,14 +196,39 @@ export const TokenFactory = () => {
         freeze_enabled: params.authorities.freeze,
         update_enabled: params.authorities.update,
         mint_enabled: params.authorities.mint,
-        address,
-      });
+        address: tokenAddress,
+      }).select('id').single();
 
       if (error) throw error;
 
+      const tokenId = newToken?.id;
+
+      // Deduct GYDS fee (record as burn operation)
+      await supabase.from('token_operations').insert({
+        operation_type: 'burn',
+        wallet_address: walletAddr.toLowerCase(),
+        amount: totalRequired,
+        tx_hash: '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+        status: 'confirmed',
+        created_by: user.id,
+        usdt_amount: 0,
+      });
+
+      // Set creator as first holder with full initial supply
+      if (tokenId) {
+        await supabase.from('admin_config').upsert({
+          config_key: `token_holders_${tokenId}`,
+          config_value: {
+            count: 1,
+            holders: [{ address: walletAddr, amount: parseFloat(params.initialSupply), label: 'Creator' }],
+          } as any,
+          updated_by: user.id,
+        }, { onConflict: 'config_key' });
+      }
+
       // Store purchase limits in admin_config keyed by token address
       await supabase.from('admin_config').upsert({
-        config_key: `token_limits_${address}`,
+        config_key: `token_limits_${tokenAddress}`,
         config_value: {
           max_buy_per_wallet: maxBuy,
           daily_buy_limit: dailyLimit,
@@ -189,7 +236,12 @@ export const TokenFactory = () => {
         updated_by: user.id,
       }, { onConflict: 'config_key' });
 
-      toast({ title: 'Token Created!', description: `${params.name} (${params.symbol}) is now live on the marketplace.` });
+      // Refresh balance
+      const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
+      const { gydsBalance } = await computeUserBalances(user.id, myAddresses);
+      setUserGydsBalance(gydsBalance);
+
+      toast({ title: 'Token Created!', description: `${params.name} (${params.symbol}) is now live. You are the first holder with ${parseFloat(params.initialSupply).toLocaleString()} ${params.symbol}.` });
       setDialogOpen(false);
       resetForm();
     } catch (error: any) {

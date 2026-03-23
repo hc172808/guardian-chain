@@ -38,7 +38,7 @@ export const PremineManager = () => {
 
     if (gyds > 0) {
       operations.push({
-        operation_type: 'premine_gyds',
+        operation_type: 'mint',
         amount: gyds,
         wallet_address: targetAddress.toLowerCase(),
         tx_hash: txHash(),
@@ -50,9 +50,9 @@ export const PremineManager = () => {
 
     if (gyd > 0) {
       operations.push({
-        operation_type: 'premine_gyd',
+        operation_type: 'mint',
         amount: gyd,
-        wallet_address: targetAddress.toLowerCase(),
+        wallet_address: `gyd:${targetAddress.toLowerCase()}`,
         tx_hash: txHash(),
         status: 'confirmed',
         created_by: user.id,

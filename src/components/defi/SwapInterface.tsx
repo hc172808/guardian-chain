@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, ArrowUpDown, Settings2, Wallet, ExternalLink, Copy, Loader2, ChevronDown, Search, Globe } from 'lucide-react';
+import { RefreshCw, ArrowUpDown, Settings2, Wallet, ExternalLink, Copy, Loader2, ChevronDown, Search, Globe, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/contexts/AuthContext';
@@ -10,6 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { RecentSwaps } from './RecentSwaps';
 import { CrossChainBridge } from './CrossChainBridge';
+import { getUserAddresses, computeUserBalances } from '@/lib/balances';
 import {
   Popover,
   PopoverContent,
@@ -32,9 +33,10 @@ interface Token {
 }
 
 // Native coins always available
+// GYDS = native fee coin (0x000...0000) | GYD = stablecoin (0x000...0001)
 const NATIVE_TOKENS: Token[] = [
-  { symbol: 'GYD', name: 'GYDchain', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001' },
-  { symbol: 'GYDS', name: 'GYDSchain', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000' },
+  { symbol: 'GYDS', name: 'GYDS Native Coin', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000' },
+  { symbol: 'GYD', name: 'GYD Stablecoin', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001' },
 ];
 
 const TokenSelectorButton = ({ token, onClick }: { token: Token; onClick: () => void }) => (
@@ -186,82 +188,16 @@ export const SwapInterface = () => {
       let gydBalance = 0;
 
       if (user) {
-        // Get user wallets
-        const { data: userWallets } = await supabase
-          .from('wallets')
-          .select('address')
-          .eq('user_id', user.id);
+        const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
+        const balances = await computeUserBalances(user.id, myAddresses);
+        gydsBalance = balances.gydsBalance;
+        gydBalance = balances.gydBalance;
 
-        const myAddresses = new Set((userWallets || []).map(w => w.address.toLowerCase()));
-
-        // Check founder wallet config
-        const { data: founderConfig } = await supabase
-          .from('admin_config')
-          .select('config_value')
-          .eq('config_key', 'founder_wallet')
-          .maybeSingle();
-
-        if (founderConfig?.config_value) {
-          const fc = founderConfig.config_value as Record<string, string>;
-          if (fc.address) myAddresses.add(fc.address.toLowerCase());
-        }
-
-        // Include reserved founder address for founder users
-        if (user.email === 'netlifegy@gmail.com') {
-          myAddresses.add('0x0000000000000000000000000000000000000001');
-        }
-
-        const isCreator = (createdBy: string | null) => createdBy === user.id;
-
-        // Get confirmed transactions
-        const { data: txData } = await supabase
-          .from('transactions')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('status', 'confirmed');
-
-        // Get token operations
-        const { data: opsData } = await supabase
-          .from('token_operations')
-          .select('*')
-          .eq('status', 'confirmed');
-
-        // Credits from token operations
-        if (opsData) {
-          opsData.forEach(op => {
-            const addressMatch = myAddresses.has(op.wallet_address.toLowerCase());
-            const creatorMatch = isCreator(op.created_by);
-            if (!addressMatch && !creatorMatch) return;
-            if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds' || op.operation_type === 'mint') {
-              gydsBalance += op.amount;
-            } else if (op.operation_type === 'mint_gyd' || op.operation_type === 'premine_gyd') {
-              gydBalance += op.amount;
-            } else if (op.operation_type === 'burn_gyds' || op.operation_type === 'burn') {
-              gydsBalance -= op.amount;
-            } else if (op.operation_type === 'burn_gyd') {
-              gydBalance -= op.amount;
-            }
-          });
-        }
-
-        // Net from transactions
-        if (txData) {
-          txData.forEach(tx => {
-            const fromMe = myAddresses.has(tx.from_address.toLowerCase());
-            const toMe = myAddresses.has(tx.to_address.toLowerCase());
-            if (fromMe) {
-              gydBalance -= tx.amount + tx.fee;
-            }
-            if (toMe) {
-              gydBalance += tx.amount;
-            }
-          });
-        }
       }
 
       const nativeWithLogos: Token[] = [
-        { symbol: 'GYD', name: 'GYDchain', balance: gydBalance, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: logos['gyd_logo'] },
-        { symbol: 'GYDS', name: 'GYDSchain', balance: gydsBalance, price: gydsPrice, address: '0x0000000000000000000000000000000000000000', logo: logos['gyds_logo'] },
+        { symbol: 'GYDS', name: 'GYDS Native Coin', balance: gydsBalance, price: gydsPrice, address: '0x0000000000000000000000000000000000000000', logo: logos['gyds_logo'] },
+        { symbol: 'GYD', name: 'GYD Stablecoin', balance: gydBalance, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: logos['gyd_logo'] },
       ];
 
       const dbTokens: Token[] = (data || []).map(t => ({

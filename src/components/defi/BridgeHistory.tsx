@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Badge } from '@/components/ui/badge';
+import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowRight, CheckCircle2, Clock, ExternalLink } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface BridgeTransaction {
@@ -18,6 +18,7 @@ interface BridgeTransaction {
 
 export const BridgeHistory = () => {
   const { user } = useAuth();
+  const { address } = useWalletConnect();
   const [transactions, setTransactions] = useState<BridgeTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -29,31 +30,28 @@ export const BridgeHistory = () => {
       const { data, error } = await supabase
         .from('token_operations')
         .select('*')
-        .eq('operation_type', 'bridge_mint_gyds')
+        .eq('operation_type', 'mint')
         .eq('created_by', user.id)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(50);
 
       if (!error && data) {
-        setTransactions(data);
+        const bridgeOnly = (data as BridgeTransaction[]).filter((op) =>
+          op.wallet_address.startsWith('bridge:'),
+        );
+        setTransactions(bridgeOnly);
       }
       setIsLoading(false);
     };
 
     loadHistory();
 
-    // Subscribe to real-time updates
     const channel = supabase
       .channel('bridge-history')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'token_operations',
-          filter: `operation_type=eq.bridge_mint_gyds`,
-        },
-        () => loadHistory()
+        { event: 'INSERT', schema: 'public', table: 'token_operations' },
+        () => loadHistory(),
       )
       .subscribe();
 
