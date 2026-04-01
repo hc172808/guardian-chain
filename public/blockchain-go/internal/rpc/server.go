@@ -89,7 +89,7 @@ func (s *Server) RegisterDBHandlers(store *database.PgStore) {
 
 // Start starts the RPC server
 func (s *Server) Start() error {
-	mux := http.NewServeMux()
+	mux := s.mux
 	
 	// Main RPC endpoint
 	mux.HandleFunc("/", s.handleRPC)
