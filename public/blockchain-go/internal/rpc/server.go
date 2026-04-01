@@ -75,9 +75,16 @@ func NewServer(chain *blockchain.Blockchain, pos *consensus.PoSEngine, mining *m
 		chain:       chain,
 		pos:         pos,
 		mining:      mining,
+		mux:         http.NewServeMux(),
 		clients:     make(map[string]*Client),
 		rateLimiter: NewRateLimiter(config.RateLimitPerSecond),
 	}, nil
+}
+
+// RegisterDBHandlers registers PostgreSQL-backed REST endpoints on the server
+func (s *Server) RegisterDBHandlers(store *database.PgStore) {
+	h := NewDBHandlers(store)
+	h.RegisterRoutes(s.mux)
 }
 
 // Start starts the RPC server
