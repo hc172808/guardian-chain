@@ -3,6 +3,7 @@
 package main
 
 import (
+	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -12,10 +13,13 @@ import (
 
 	"chaincore/internal/blockchain"
 	"chaincore/internal/consensus"
+	"chaincore/internal/database"
 	"chaincore/internal/mining"
 	"chaincore/internal/network"
 	"chaincore/internal/rpc"
 	"chaincore/internal/storage"
+
+	_ "github.com/jackc/pgx/v5/stdlib" // pgx driver for database/sql
 )
 
 var (
