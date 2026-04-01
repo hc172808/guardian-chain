@@ -2,7 +2,7 @@
 
 import { NETWORK_CONFIG } from '@/config/network';
 
-const RPC_BASE = NETWORK_CONFIG.rpcUrl || 'http://localhost:8546';
+const RPC_BASE = NETWORK_CONFIG.rpcUrls?.primary || 'http://localhost:8546';
 
 export interface RPCBlock {
   height: number;
