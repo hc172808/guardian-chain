@@ -11,6 +11,7 @@ import (
 
 	"chaincore/internal/blockchain"
 	"chaincore/internal/consensus"
+	"chaincore/internal/database"
 	"chaincore/internal/mining"
 )
 
