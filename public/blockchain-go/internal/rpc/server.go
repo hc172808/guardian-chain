@@ -31,6 +31,7 @@ type Server struct {
 	pos         *consensus.PoSEngine
 	mining      *mining.Distributor
 	httpServer  *http.Server
+	mux         *http.ServeMux
 	clients     map[string]*Client
 	rateLimiter *RateLimiter
 	mu          sync.RWMutex

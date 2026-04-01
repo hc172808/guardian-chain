@@ -116,6 +116,26 @@ func main() {
 		log.Fatalf("Failed to initialize P2P network: %v", err)
 	}
 
+	// Initialize PostgreSQL persistent storage
+	pgCfg := database.PgConfigFromEnv()
+	sqlDB, err := sql.Open("pgx", pgCfg.ConnString())
+	if err != nil {
+		log.Printf("WARNING: PostgreSQL unavailable, running without persistence: %v", err)
+	}
+	var pgStore *database.PgStore
+	if sqlDB != nil {
+		sqlDB.SetMaxOpenConns(25)
+		sqlDB.SetMaxIdleConns(5)
+		store, err := database.NewPgStore(sqlDB)
+		if err != nil {
+			log.Printf("WARNING: PostgreSQL migration failed: %v", err)
+		} else {
+			pgStore = store
+			defer pgStore.Close()
+			log.Println("PostgreSQL persistent storage initialized")
+		}
+	}
+
 	// Initialize RPC server for lite nodes
 	rpcConfig := rpc.Config{
 		Port:               *rpcPortFlag,
@@ -128,6 +148,11 @@ func main() {
 	rpcServer, err := rpc.NewServer(chain, posEngine, miningDistributor, rpcConfig)
 	if err != nil {
 		log.Fatalf("Failed to initialize RPC server: %v", err)
+	}
+
+	// Register PostgreSQL-backed REST endpoints
+	if pgStore != nil {
+		rpcServer.RegisterDBHandlers(pgStore)
 	}
 
 	// Start all services
