@@ -178,6 +178,12 @@ const Explorer = () => {
               {pendingTransactions.length > 0 && <Badge variant="secondary" className="ml-1 bg-neon-amber/20 text-neon-amber">{pendingTransactions.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="tokens" className="gap-2"><Coins className="w-4 h-4" /> Tokens</TabsTrigger>
+            <TabsTrigger value="node-db" className="gap-2">
+              <Database className="w-4 h-4" /> Node DB
+              {dbHealthy !== null && (
+                <span className={cn("w-2 h-2 rounded-full ml-1", dbHealthy ? "bg-neon-emerald" : "bg-destructive")} />
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="blocks">
