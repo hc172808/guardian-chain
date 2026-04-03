@@ -3,13 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Block, Transaction } from '@/lib/blockchain';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle } from 'lucide-react';
+import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchLatestBlocks, fetchLatestTransactions, fetchDBHealth, RPCBlock, RPCTransaction } from '@/lib/rpcClient';
 
 // Standalone explorer - no Layout wrapper, no auth required
 const Explorer = () => {
