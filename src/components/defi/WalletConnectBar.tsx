@@ -65,11 +65,11 @@ export const WalletConnectBar = () => {
           const addressMatch = myAddresses.has(op.wallet_address.toLowerCase());
           const creatorMatch = isCreator(op.created_by);
           if (!addressMatch && !creatorMatch) return;
-          if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds' || op.operation_type === 'mint') {
+          if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds' || op.operation_type === 'mint' || op.operation_type === 'bridge_mint_gyds') {
             gyds += op.amount;
           } else if (op.operation_type === 'mint_gyd' || op.operation_type === 'premine_gyd') {
             gyd += op.amount;
-          } else if (op.operation_type === 'burn_gyds' || op.operation_type === 'burn') {
+          } else if (op.operation_type === 'burn_gyds' || op.operation_type === 'burn' || op.operation_type === 'bridge_burn_gyds') {
             gyds -= op.amount;
           } else if (op.operation_type === 'burn_gyd') {
             gyd -= op.amount;

@@ -3,13 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Block, Transaction } from '@/lib/blockchain';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle } from 'lucide-react';
+import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchLatestBlocks, fetchLatestTransactions, fetchDBHealth, RPCBlock, RPCTransaction } from '@/lib/rpcClient';
 
 // Standalone explorer - no Layout wrapper, no auth required
 const Explorer = () => {
@@ -18,6 +19,9 @@ const Explorer = () => {
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [tokens, setTokens] = useState<any[]>([]);
+  const [rpcBlocks, setRpcBlocks] = useState<RPCBlock[]>([]);
+  const [rpcTransactions, setRpcTransactions] = useState<RPCTransaction[]>([]);
+  const [dbHealthy, setDbHealthy] = useState<boolean | null>(null);
 
   const { isConnected, latestBlock, latestTransactions, pendingTransactions, error } = useBlockchainWebSocket();
 
@@ -36,6 +40,21 @@ const Explorer = () => {
       if (data) setTokens(data);
     };
     fetchTokens();
+
+    // Fetch from Go node RPC
+    const fetchRpcData = async () => {
+      const [b, t, h] = await Promise.all([
+        fetchLatestBlocks(50),
+        fetchLatestTransactions(50),
+        fetchDBHealth(),
+      ]);
+      setRpcBlocks(b);
+      setRpcTransactions(t);
+      setDbHealthy(h);
+    };
+    fetchRpcData();
+    const interval = setInterval(fetchRpcData, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const filteredBlocks = blocks.filter(block =>
@@ -159,6 +178,12 @@ const Explorer = () => {
               {pendingTransactions.length > 0 && <Badge variant="secondary" className="ml-1 bg-neon-amber/20 text-neon-amber">{pendingTransactions.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="tokens" className="gap-2"><Coins className="w-4 h-4" /> Tokens</TabsTrigger>
+            <TabsTrigger value="node-db" className="gap-2">
+              <Database className="w-4 h-4" /> Node DB
+              {dbHealthy !== null && (
+                <span className={cn("w-2 h-2 rounded-full ml-1", dbHealthy ? "bg-neon-emerald" : "bg-destructive")} />
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="blocks">
@@ -320,6 +345,82 @@ const Explorer = () => {
                   <p>No tokens created yet</p>
                 </div>
               )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="node-db">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* RPC Blocks */}
+              <GlassCard className="p-0 overflow-hidden">
+                <div className="p-4 border-b border-border/50 flex items-center justify-between">
+                  <h3 className="font-semibold flex items-center gap-2"><Database className="w-4 h-4 text-primary" /> PostgreSQL Blocks</h3>
+                  <Badge variant="outline" className={cn("text-xs", dbHealthy ? "text-neon-emerald border-neon-emerald/30" : "text-destructive border-destructive/30")}>
+                    {dbHealthy ? 'DB Online' : 'DB Offline'}
+                  </Badge>
+                </div>
+                <div className="divide-y divide-border/30 max-h-[500px] overflow-y-auto">
+                  {rpcBlocks.length > 0 ? rpcBlocks.map((block, i) => (
+                    <motion.div key={block.hash} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
+                      className="p-4 hover:bg-secondary/30 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-primary/10"><Blocks className="w-4 h-4 text-primary" /></div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-bold text-primary">#{block.height.toLocaleString()}</span>
+                            <span className="text-xs text-muted-foreground">{block.tx_count} txs</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground font-mono mt-1 truncate">{block.hash}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-mono text-muted-foreground">{block.gas_used}/{block.gas_limit} gas</p>
+                          <p className="text-xs text-muted-foreground">{new Date(block.timestamp).toLocaleTimeString()}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )) : (
+                    <div className="p-8 text-center text-muted-foreground">
+                      <Database className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>{dbHealthy === false ? 'Node database offline' : 'No blocks from node DB'}</p>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+
+              {/* RPC Transactions */}
+              <GlassCard className="p-0 overflow-hidden">
+                <div className="p-4 border-b border-border/50">
+                  <h3 className="font-semibold flex items-center gap-2"><Activity className="w-4 h-4 text-primary" /> PostgreSQL Transactions</h3>
+                </div>
+                <div className="divide-y divide-border/30 max-h-[500px] overflow-y-auto">
+                  {rpcTransactions.length > 0 ? rpcTransactions.map((tx, i) => (
+                    <motion.div key={tx.hash} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
+                      className="p-4 hover:bg-secondary/30 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className={cn("p-2 rounded-lg", tx.status === 'confirmed' ? 'bg-neon-emerald/10' : 'bg-neon-amber/10')}>
+                          {tx.status === 'confirmed' ? <CheckCircle className="w-4 h-4 text-neon-emerald" /> : <Clock className="w-4 h-4 text-neon-amber" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-mono text-muted-foreground truncate">{tx.hash}</p>
+                          <div className="flex items-center gap-2 mt-1 text-xs">
+                            <span className="font-mono truncate max-w-[80px]">{tx.from_addr?.slice(0, 8)}...</span>
+                            <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                            <span className="font-mono truncate max-w-[80px]">{tx.to_addr?.slice(0, 8)}...</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-primary">{tx.amount} {tx.coin_type || 'GYDS'}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(tx.timestamp).toLocaleTimeString()}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )) : (
+                    <div className="p-8 text-center text-muted-foreground">
+                      <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>No transactions from node DB</p>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
             </div>
           </TabsContent>
         </Tabs>
