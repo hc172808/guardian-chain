@@ -40,6 +40,21 @@ const Explorer = () => {
       if (data) setTokens(data);
     };
     fetchTokens();
+
+    // Fetch from Go node RPC
+    const fetchRpcData = async () => {
+      const [b, t, h] = await Promise.all([
+        fetchLatestBlocks(50),
+        fetchLatestTransactions(50),
+        fetchDBHealth(),
+      ]);
+      setRpcBlocks(b);
+      setRpcTransactions(t);
+      setDbHealthy(h);
+    };
+    fetchRpcData();
+    const interval = setInterval(fetchRpcData, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const filteredBlocks = blocks.filter(block =>
