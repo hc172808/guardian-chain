@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Droplets, Briefcase, ArrowLeftRight, Layers, Rocket, Link2 } from 'lucide-react';
+import { Droplets, Briefcase, ArrowLeftRight, Layers, Rocket, Link2, Undo2 } from 'lucide-react';
 
 interface DeFiBottomNavProps {
   activeTab: string;
@@ -13,6 +13,7 @@ const navItems = [
   { id: 'stake', icon: Layers, label: 'Stake' },
   { id: 'launchpad', icon: Rocket, label: 'Launch' },
   { id: 'bridge', icon: Link2, label: 'Bridge' },
+  { id: 'reverse-bridge', icon: Undo2, label: 'Sell' },
 ];
 
 export const DeFiBottomNav = ({ activeTab, onTabChange }: DeFiBottomNavProps) => {

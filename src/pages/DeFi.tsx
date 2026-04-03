@@ -34,6 +34,8 @@ const DeFiPage = () => {
         return <Launchpad />;
       case 'bridge':
         return <CrossChainBridge />;
+      case 'reverse-bridge':
+        return <ReverseBridge />;
       case 'position':
         return <PositionDetails position={selectedPosition} />;
       default:
