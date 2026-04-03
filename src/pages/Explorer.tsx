@@ -347,6 +347,82 @@ const Explorer = () => {
               )}
             </div>
           </TabsContent>
+
+          <TabsContent value="node-db">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* RPC Blocks */}
+              <GlassCard className="p-0 overflow-hidden">
+                <div className="p-4 border-b border-border/50 flex items-center justify-between">
+                  <h3 className="font-semibold flex items-center gap-2"><Database className="w-4 h-4 text-primary" /> PostgreSQL Blocks</h3>
+                  <Badge variant="outline" className={cn("text-xs", dbHealthy ? "text-neon-emerald border-neon-emerald/30" : "text-destructive border-destructive/30")}>
+                    {dbHealthy ? 'DB Online' : 'DB Offline'}
+                  </Badge>
+                </div>
+                <div className="divide-y divide-border/30 max-h-[500px] overflow-y-auto">
+                  {rpcBlocks.length > 0 ? rpcBlocks.map((block, i) => (
+                    <motion.div key={block.hash} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
+                      className="p-4 hover:bg-secondary/30 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-primary/10"><Blocks className="w-4 h-4 text-primary" /></div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-bold text-primary">#{block.height.toLocaleString()}</span>
+                            <span className="text-xs text-muted-foreground">{block.tx_count} txs</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground font-mono mt-1 truncate">{block.hash}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-mono text-muted-foreground">{block.gas_used}/{block.gas_limit} gas</p>
+                          <p className="text-xs text-muted-foreground">{new Date(block.timestamp).toLocaleTimeString()}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )) : (
+                    <div className="p-8 text-center text-muted-foreground">
+                      <Database className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>{dbHealthy === false ? 'Node database offline' : 'No blocks from node DB'}</p>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+
+              {/* RPC Transactions */}
+              <GlassCard className="p-0 overflow-hidden">
+                <div className="p-4 border-b border-border/50">
+                  <h3 className="font-semibold flex items-center gap-2"><Activity className="w-4 h-4 text-primary" /> PostgreSQL Transactions</h3>
+                </div>
+                <div className="divide-y divide-border/30 max-h-[500px] overflow-y-auto">
+                  {rpcTransactions.length > 0 ? rpcTransactions.map((tx, i) => (
+                    <motion.div key={tx.hash} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
+                      className="p-4 hover:bg-secondary/30 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className={cn("p-2 rounded-lg", tx.status === 'confirmed' ? 'bg-neon-emerald/10' : 'bg-neon-amber/10')}>
+                          {tx.status === 'confirmed' ? <CheckCircle className="w-4 h-4 text-neon-emerald" /> : <Clock className="w-4 h-4 text-neon-amber" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-mono text-muted-foreground truncate">{tx.hash}</p>
+                          <div className="flex items-center gap-2 mt-1 text-xs">
+                            <span className="font-mono truncate max-w-[80px]">{tx.from_addr?.slice(0, 8)}...</span>
+                            <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                            <span className="font-mono truncate max-w-[80px]">{tx.to_addr?.slice(0, 8)}...</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-primary">{tx.amount} {tx.coin_type || 'GYDS'}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(tx.timestamp).toLocaleTimeString()}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )) : (
+                    <div className="p-8 text-center text-muted-foreground">
+                      <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>No transactions from node DB</p>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+            </div>
+          </TabsContent>
         </Tabs>
 
         {/* Footer */}
