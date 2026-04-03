@@ -1,0 +1,2 @@
+ALTER TABLE public.token_operations DROP CONSTRAINT token_operations_operation_type_check;
+ALTER TABLE public.token_operations ADD CONSTRAINT token_operations_operation_type_check CHECK (operation_type = ANY (ARRAY['burn'::text, 'mint'::text, 'premine_gyds'::text, 'premine_gyd'::text, 'mint_gyds'::text, 'mint_gyd'::text, 'burn_gyds'::text, 'burn_gyd'::text, 'bridge_mint_gyds'::text]));
