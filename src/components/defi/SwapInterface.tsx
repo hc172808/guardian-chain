@@ -516,7 +516,7 @@ export const SwapInterface = () => {
             open={payOpen}
             onOpenChange={setPayOpen}
           >
-            <TokenSelectorButton token={payToken} onClick={() => setPayOpen(true)} />
+            <TokenSelectorButton token={payToken} />
           </TokenSelector>
         </div>
         <div className="flex items-center justify-between text-sm text-muted-foreground">
