@@ -37,7 +37,7 @@ const NATIVE_TOKENS: Token[] = [
   { symbol: 'GYDS', name: 'GYDSchain', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000' },
 ];
 
-const TokenSelectorButton = ({ token, onClick }: { token: Token; onClick: () => void }) => (
+const TokenSelectorButton = ({ token, onClick }: { token: Token; onClick?: () => void }) => (
   <Button variant="secondary" className="gap-2 rounded-lg px-3 py-2 h-auto" onClick={onClick}>
     {token.logo ? (
       <img src={token.logo} alt={token.symbol} className="w-6 h-6 rounded-full object-cover" />
@@ -516,7 +516,7 @@ export const SwapInterface = () => {
             open={payOpen}
             onOpenChange={setPayOpen}
           >
-            <TokenSelectorButton token={payToken} onClick={() => setPayOpen(true)} />
+            <TokenSelectorButton token={payToken} />
           </TokenSelector>
         </div>
         <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -559,7 +559,7 @@ export const SwapInterface = () => {
             open={receiveOpen}
             onOpenChange={setReceiveOpen}
           >
-            <TokenSelectorButton token={receiveToken} onClick={() => setReceiveOpen(true)} />
+            <TokenSelectorButton token={receiveToken} />
           </TokenSelector>
         </div>
         <div className="flex items-center justify-between text-sm text-muted-foreground">
