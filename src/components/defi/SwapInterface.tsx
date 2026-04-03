@@ -559,7 +559,7 @@ export const SwapInterface = () => {
             open={receiveOpen}
             onOpenChange={setReceiveOpen}
           >
-            <TokenSelectorButton token={receiveToken} onClick={() => setReceiveOpen(true)} />
+            <TokenSelectorButton token={receiveToken} />
           </TokenSelector>
         </div>
         <div className="flex items-center justify-between text-sm text-muted-foreground">
