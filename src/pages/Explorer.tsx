@@ -19,6 +19,9 @@ const Explorer = () => {
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [tokens, setTokens] = useState<any[]>([]);
+  const [rpcBlocks, setRpcBlocks] = useState<RPCBlock[]>([]);
+  const [rpcTransactions, setRpcTransactions] = useState<RPCTransaction[]>([]);
+  const [dbHealthy, setDbHealthy] = useState<boolean | null>(null);
 
   const { isConnected, latestBlock, latestTransactions, pendingTransactions, error } = useBlockchainWebSocket();
 
