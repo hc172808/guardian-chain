@@ -91,6 +91,50 @@ const TokenDetail = () => {
     fetchToken();
   }, [address]);
 
+  // Fetch token holders from token_operations
+  useEffect(() => {
+    if (!token) return;
+    const fetchHolders = async () => {
+      // For native GYDS/GYD, count unique wallet addresses with confirmed operations
+      const { data: ops } = await supabase
+        .from('token_operations')
+        .select('wallet_address, amount, operation_type, created_by')
+        .eq('status', 'confirmed');
+
+      if (!ops) return;
+
+      // Aggregate balances per wallet address
+      const balanceMap = new Map<string, number>();
+
+      ops.forEach(op => {
+        const addr = op.wallet_address.toLowerCase();
+        const current = balanceMap.get(addr) || 0;
+
+        if (['mint_gyds', 'premine_gyds', 'mint', 'bridge_mint_gyds', 'mint_gyd', 'premine_gyd'].includes(op.operation_type)) {
+          balanceMap.set(addr, current + op.amount);
+        } else if (['burn_gyds', 'burn', 'bridge_burn_gyds', 'burn_gyd'].includes(op.operation_type)) {
+          balanceMap.set(addr, current - op.amount);
+        }
+      });
+
+      // Filter to holders with positive balance
+      const totalSupply = token.total_supply || 1;
+      const holderList = Array.from(balanceMap.entries())
+        .filter(([_, balance]) => balance > 0)
+        .map(([addr, balance]) => ({
+          address: addr,
+          balance,
+          pct: (balance / totalSupply) * 100,
+        }))
+        .sort((a, b) => b.balance - a.balance)
+        .slice(0, 50);
+
+      setHolders(holderList);
+    };
+
+    fetchHolders();
+  }, [token]);
+
   const copyAddress = () => {
     navigator.clipboard.writeText(address || '');
     toast({ title: 'Address copied' });
