@@ -8,6 +8,7 @@ import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { getUserBalances } from '@/lib/balanceCalculator';
 import { RecentSwaps } from './RecentSwaps';
 import { CrossChainBridge } from './CrossChainBridge';
 import {
