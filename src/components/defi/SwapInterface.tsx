@@ -186,82 +186,14 @@ export const SwapInterface = () => {
 
       const gydsPrice = priceData?.price || 0.0000001;
 
-      // Calculate real balances if user is logged in
+      // Calculate real balances using centralized calculator
       let gydsBalance = 0;
       let gydBalance = 0;
 
       if (user) {
-        // Get user wallets
-        const { data: userWallets } = await supabase
-          .from('wallets')
-          .select('address')
-          .eq('user_id', user.id);
-
-        const myAddresses = new Set((userWallets || []).map(w => w.address.toLowerCase()));
-
-        // Check founder wallet config
-        const { data: founderConfig } = await supabase
-          .from('admin_config')
-          .select('config_value')
-          .eq('config_key', 'founder_wallet')
-          .maybeSingle();
-
-        if (founderConfig?.config_value) {
-          const fc = founderConfig.config_value as Record<string, string>;
-          if (fc.address) myAddresses.add(fc.address.toLowerCase());
-        }
-
-        // Include reserved founder address for founder users
-        if (user.email === 'netlifegy@gmail.com') {
-          myAddresses.add('0x0000000000000000000000000000000000000001');
-        }
-
-        const isCreator = (createdBy: string | null) => createdBy === user.id;
-
-        // Get confirmed transactions
-        const { data: txData } = await supabase
-          .from('transactions')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('status', 'confirmed');
-
-        // Get token operations
-        const { data: opsData } = await supabase
-          .from('token_operations')
-          .select('*')
-          .eq('status', 'confirmed');
-
-        // Credits from token operations
-        if (opsData) {
-          opsData.forEach(op => {
-            const addressMatch = myAddresses.has(op.wallet_address.toLowerCase());
-            const creatorMatch = isCreator(op.created_by);
-            if (!addressMatch && !creatorMatch) return;
-            if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds' || op.operation_type === 'mint') {
-              gydsBalance += op.amount;
-            } else if (op.operation_type === 'mint_gyd' || op.operation_type === 'premine_gyd') {
-              gydBalance += op.amount;
-            } else if (op.operation_type === 'burn_gyds' || op.operation_type === 'burn') {
-              gydsBalance -= op.amount;
-            } else if (op.operation_type === 'burn_gyd') {
-              gydBalance -= op.amount;
-            }
-          });
-        }
-
-        // Net from transactions
-        if (txData) {
-          txData.forEach(tx => {
-            const fromMe = myAddresses.has(tx.from_address.toLowerCase());
-            const toMe = myAddresses.has(tx.to_address.toLowerCase());
-            if (fromMe) {
-              gydBalance -= tx.amount + tx.fee;
-            }
-            if (toMe) {
-              gydBalance += tx.amount;
-            }
-          });
-        }
+        const balances = await getUserBalances(user.id);
+        gydsBalance = balances.gyds;
+        gydBalance = balances.gyd;
       }
 
       const nativeWithLogos: Token[] = [
