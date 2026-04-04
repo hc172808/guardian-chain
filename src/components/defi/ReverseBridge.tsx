@@ -62,13 +62,8 @@ export const ReverseBridge = () => {
     };
     loadBalance();
   }, [user, address]);
-        });
-      }
-      setGydsBalance(Math.max(0, bal));
-      setLoadingBalance(false);
-    };
-    loadBalance();
-  }, [user, address]);
+
+
 
   const handleChainChange = (chainId: string) => {
     const chain = EXTERNAL_CHAINS.find(c => c.id === chainId);
