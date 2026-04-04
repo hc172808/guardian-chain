@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import { getUserBalances } from '@/lib/balanceCalculator';
 
 export const WalletConnectBar = () => {
   const { address, isConnected, isConnecting, connect, disconnect } = useWalletConnect();
@@ -18,74 +19,7 @@ export const WalletConnectBar = () => {
     if (!user || !isConnected) return;
 
     const loadBalances = async () => {
-      // Get user wallets
-      const { data: userWallets } = await supabase
-        .from('wallets')
-        .select('address')
-        .eq('user_id', user.id);
-
-      const myAddresses = new Set((userWallets || []).map(w => w.address.toLowerCase()));
-
-      // Check founder wallet
-      const { data: founderConfig } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', 'founder_wallet')
-        .maybeSingle();
-
-      if (founderConfig?.config_value) {
-        const fc = founderConfig.config_value as Record<string, string>;
-        if (fc.address) myAddresses.add(fc.address.toLowerCase());
-      }
-
-      if (user.email === 'netlifegy@gmail.com') {
-        myAddresses.add('0x0000000000000000000000000000000000000001');
-      }
-
-      const isCreator = (createdBy: string | null) => createdBy === user.id;
-
-      // Get confirmed transactions
-      const { data: txData } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'confirmed');
-
-      // Get token operations
-      const { data: opsData } = await supabase
-        .from('token_operations')
-        .select('*')
-        .eq('status', 'confirmed');
-
-      let gyds = 0;
-      let gyd = 0;
-
-      if (opsData) {
-        opsData.forEach(op => {
-          const addressMatch = myAddresses.has(op.wallet_address.toLowerCase());
-          const creatorMatch = isCreator(op.created_by);
-          if (!addressMatch && !creatorMatch) return;
-          if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds' || op.operation_type === 'mint' || op.operation_type === 'bridge_mint_gyds') {
-            gyds += op.amount;
-          } else if (op.operation_type === 'mint_gyd' || op.operation_type === 'premine_gyd') {
-            gyd += op.amount;
-          } else if (op.operation_type === 'burn_gyds' || op.operation_type === 'burn' || op.operation_type === 'bridge_burn_gyds') {
-            gyds -= op.amount;
-          } else if (op.operation_type === 'burn_gyd') {
-            gyd -= op.amount;
-          }
-        });
-      }
-
-      if (txData) {
-        txData.forEach(tx => {
-          const fromMe = myAddresses.has(tx.from_address.toLowerCase());
-          const toMe = myAddresses.has(tx.to_address.toLowerCase());
-          if (fromMe) gyd -= tx.amount + tx.fee;
-          if (toMe) gyd += tx.amount;
-        });
-      }
-
+      const { gyd, gyds } = await getUserBalances(user.id);
       setGydBalance(gyd);
       setGydsBalance(gyds);
     };

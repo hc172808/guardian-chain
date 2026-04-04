@@ -50,41 +50,20 @@ export const ReverseBridge = () => {
   const destPrice = prices[destChain.id] || 1;
   const receivedAmount = destPrice > 0 ? netUsdValue / destPrice : 0;
 
-  // Load GYDS balance from token_operations
+  // Load GYDS balance using centralized calculator
   useEffect(() => {
     if (!user || !address) return;
     const loadBalance = async () => {
       setLoadingBalance(true);
-      const { data: wallets } = await supabase
-        .from('wallets')
-        .select('address')
-        .eq('user_id', user.id);
-
-      const myAddresses = new Set((wallets || []).map(w => w.address.toLowerCase()));
-      if (address) myAddresses.add(address.toLowerCase());
-
-      const { data: ops } = await supabase
-        .from('token_operations')
-        .select('*')
-        .eq('status', 'confirmed');
-
-      let bal = 0;
-      if (ops) {
-        ops.forEach(op => {
-          const match = myAddresses.has(op.wallet_address.toLowerCase()) || op.created_by === user.id;
-          if (!match) return;
-          if (['mint_gyds', 'premine_gyds', 'mint', 'bridge_mint_gyds'].includes(op.operation_type)) {
-            bal += op.amount;
-          } else if (['burn_gyds', 'burn', 'bridge_burn_gyds'].includes(op.operation_type)) {
-            bal -= op.amount;
-          }
-        });
-      }
-      setGydsBalance(Math.max(0, bal));
+      const { getUserBalances } = await import('@/lib/balanceCalculator');
+      const { gyds } = await getUserBalances(user.id);
+      setGydsBalance(gyds);
       setLoadingBalance(false);
     };
     loadBalance();
   }, [user, address]);
+
+
 
   const handleChainChange = (chainId: string) => {
     const chain = EXTERNAL_CHAINS.find(c => c.id === chainId);
