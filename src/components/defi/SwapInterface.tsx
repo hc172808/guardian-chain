@@ -37,7 +37,6 @@ const NATIVE_TOKENS: Token[] = [
   { symbol: 'GYDS', name: 'GYDSchain', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000' },
 ];
 
-import React from 'react';
 
 const TokenSelectorButton = React.forwardRef<HTMLButtonElement, { token: Token; onClick?: () => void }>(
   ({ token, onClick, ...props }, ref) => (
