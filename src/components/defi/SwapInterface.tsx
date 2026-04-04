@@ -37,24 +37,29 @@ const NATIVE_TOKENS: Token[] = [
   { symbol: 'GYDS', name: 'GYDSchain', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000' },
 ];
 
-const TokenSelectorButton = ({ token, onClick }: { token: Token; onClick?: () => void }) => (
-  <Button variant="secondary" className="gap-2 rounded-lg px-3 py-2 h-auto" onClick={onClick}>
-    {token.logo ? (
-      <img src={token.logo} alt={token.symbol} className="w-6 h-6 rounded-full object-cover" />
-    ) : (
-      <div className={cn(
-        "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
-        token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-        token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
-        "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
-      )}>
-        {token.symbol[0]}
-      </div>
-    )}
-    <span className="font-semibold">{token.symbol}</span>
-    <ChevronDown className="h-3 w-3 text-muted-foreground" />
-  </Button>
+import React from 'react';
+
+const TokenSelectorButton = React.forwardRef<HTMLButtonElement, { token: Token; onClick?: () => void }>(
+  ({ token, onClick, ...props }, ref) => (
+    <Button ref={ref} variant="secondary" className="gap-2 rounded-lg px-3 py-2 h-auto" onClick={onClick} {...props}>
+      {token.logo ? (
+        <img src={token.logo} alt={token.symbol} className="w-6 h-6 rounded-full object-cover" />
+      ) : (
+        <div className={cn(
+          "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
+          token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+          token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+          "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
+        )}>
+          {token.symbol[0]}
+        </div>
+      )}
+      <span className="font-semibold">{token.symbol}</span>
+      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+    </Button>
+  )
 );
+TokenSelectorButton.displayName = 'TokenSelectorButton';
 
 const TokenSelector = ({
   tokens,
