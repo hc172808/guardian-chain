@@ -13,6 +13,7 @@ import {
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import { getNetworkStats } from '@/lib/blockchainApi';
 
 interface NetworkStatsData {
   blockHeight: number;
@@ -35,9 +36,22 @@ export const LiveNetworkStats = () => {
     posFinality: 99.99,
   });
 
-  // Fetch real stats from DB
+  // Fetch real stats from blockchain API + DB fallback
   useEffect(() => {
     const fetchStats = async () => {
+      // Try blockchain API first (Go RPC)
+      try {
+        const rpcStats = await getNetworkStats();
+        setStats(prev => ({
+          ...prev,
+          blockHeight: rpcStats.blockHeight,
+          networkHashRate: 0,
+        }));
+      } catch {
+        // RPC offline, continue with DB stats
+      }
+
+      // DB stats for validators/miners/txs
       const [validatorsRes, minersRes, txRes] = await Promise.all([
         supabase.from('network_validators').select('id', { count: 'exact' }).eq('is_active', true),
         supabase.from('node_installations').select('hash_rate', { count: 'exact' }).eq('is_online', true),
@@ -51,10 +65,12 @@ export const LiveNetworkStats = () => {
         activeValidators: validatorsRes.count || 0,
         activeMiners: minersRes.count || 0,
         totalTxs24h: txRes.count || 0,
-        networkHashRate: totalHash / 1e12, // Convert to TH/s
+        networkHashRate: totalHash / 1e12,
       }));
     };
     fetchStats();
+    const interval = setInterval(fetchStats, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   // Update block height from WebSocket
