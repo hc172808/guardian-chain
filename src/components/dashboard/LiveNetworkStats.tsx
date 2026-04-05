@@ -13,6 +13,7 @@ import {
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import { getNetworkStats } from '@/lib/blockchainApi';
 
 interface NetworkStatsData {
   blockHeight: number;
