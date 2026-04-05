@@ -42,16 +42,28 @@ const Explorer = () => {
     };
     fetchTokens();
 
-    // Fetch from Go node RPC
+    // Fetch from blockchain API (edge function → Go RPC)
     const fetchRpcData = async () => {
-      const [b, t, h] = await Promise.all([
-        fetchLatestBlocks(50),
-        fetchLatestTransactions(50),
-        fetchDBHealth(),
-      ]);
-      setRpcBlocks(b);
-      setRpcTransactions(t);
-      setDbHealthy(h);
+      try {
+        const [blocksRes, txsRes, healthRes] = await Promise.all([
+          getBlocks(50).catch(() => ({ blocks: [], count: 0, source: 'error' })),
+          getTransactions(50).catch(() => ({ transactions: [], count: 0, source: 'error' })),
+          getHealth().catch(() => ({ rpc: 'down', indexerDb: 'down' })),
+        ]);
+        setRpcBlocks(blocksRes.blocks as unknown as RPCBlock[]);
+        setRpcTransactions(txsRes.transactions as unknown as RPCTransaction[]);
+        setDbHealthy(healthRes.rpc === 'ok');
+      } catch {
+        // Also try legacy rpcClient as fallback
+        const [b, t, h] = await Promise.all([
+          fetchLatestBlocks(50),
+          fetchLatestTransactions(50),
+          fetchDBHealth(),
+        ]);
+        setRpcBlocks(b);
+        setRpcTransactions(t);
+        setDbHealthy(h);
+      }
     };
     fetchRpcData();
     const interval = setInterval(fetchRpcData, 10000);

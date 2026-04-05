@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { getBlocks } from '@/lib/blockchainApi';
 
 interface RecentTx {
   id: string;
