@@ -1,4 +1,7 @@
-import { corsHeaders } from '@supabase/supabase-js/cors'
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
 
 const RPC_ENDPOINT = Deno.env.get('GYDS_RPC_ENDPOINT') || 'http://rpc.netlifegy.com:8545'
 const INDEXER_DB = Deno.env.get('GYDS_INDEXER_DB_URL')
