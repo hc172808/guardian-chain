@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchLatestBlocks, fetchLatestTransactions, fetchDBHealth, RPCBlock, RPCTransaction } from '@/lib/rpcClient';
+import { getBlocks, getTransactions, getHealth } from '@/lib/blockchainApi';
 
 // Standalone explorer - no Layout wrapper, no auth required
 const Explorer = () => {
