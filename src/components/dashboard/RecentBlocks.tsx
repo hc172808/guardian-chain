@@ -23,8 +23,28 @@ export const RecentBlocks = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetch = async () => {
-      // Show recent confirmed transactions as "blocks" activity
+    const fetchData = async () => {
+      // Try blockchain API (Go RPC → PostgreSQL) first
+      try {
+        const res = await getBlocks(8);
+        if (res.blocks.length > 0) {
+          const mapped = res.blocks.map((b: any) => ({
+            id: b.hash || b.id || String(b.height),
+            from_address: b.proposer_addr || b.proposerAddr || '0x0',
+            to_address: '0x0',
+            amount: b.tx_count || 0,
+            status: 'confirmed',
+            created_at: b.timestamp,
+            block_height: b.height || b.number,
+            tx_hash: b.hash,
+          }));
+          setTransactions(mapped);
+          setLoading(false);
+          return;
+        }
+      } catch {}
+
+      // Fallback to Supabase
       const { data } = await supabase
         .from('transactions')
         .select('*')
@@ -33,7 +53,7 @@ export const RecentBlocks = () => {
       if (data) setTransactions(data as RecentTx[]);
       setLoading(false);
     };
-    fetch();
+    fetchData();
   }, []);
 
   return (
