@@ -66,11 +66,11 @@ cd /tmp
 if [ -d "gydschain-build" ]; then rm -rf gydschain-build; fi
 mkdir gydschain-build && cd gydschain-build
 
-if [ -d "/opt/gydschain-repo/blockchain-go" ]; then
-    cp -r /opt/gydschain-repo/blockchain-go/* .
+if [ -d "/opt/gydschain-chain/blockchain-go" ]; then
+    cp -r /opt/gydschain-chain/blockchain-go/* .
 else
     echo -e "${YELLOW}⚠️  Source not found. Clone repo first:${NC}"
-    echo "    git clone https://github.com/gydschain/gydschain-complete.git /opt/gydschain-repo"
+    echo "    git clone https://github.com/hc172808/guardian-chain.git /opt/gydschain-chain"
     exit 1
 fi
 
