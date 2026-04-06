@@ -1,14 +1,50 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const RPC_ENDPOINT = Deno.env.get('GYDS_RPC_ENDPOINT') || 'http://rpc.netlifegy.com:8545'
-const INDEXER_DB = Deno.env.get('GYDS_INDEXER_DB_URL')
+const ENV_RPC = Deno.env.get('GYDS_RPC_ENDPOINT') || 'http://rpc.netlifegy.com:8545'
+const ENV_INDEXER_DB = Deno.env.get('GYDS_INDEXER_DB_URL')
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
+const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+
+// Cache admin-configured endpoints (refresh every 60s)
+let cachedRpc: string | null = null
+let cachedIndexerDb: string | null = null
+let cacheTime = 0
+
+async function getEndpoints(): Promise<{ rpc: string; indexerDb: string | undefined }> {
+  const now = Date.now()
+  if (cachedRpc && now - cacheTime < 60_000) {
+    return { rpc: cachedRpc, indexerDb: cachedIndexerDb || ENV_INDEXER_DB || undefined }
+  }
+  try {
+    const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    const { data } = await sb
+      .from('admin_config')
+      .select('config_value')
+      .eq('config_key', 'rpc_endpoints')
+      .single()
+    if (data?.config_value) {
+      const cfg = data.config_value as { rpc_endpoint?: string; indexer_db_url?: string }
+      cachedRpc = cfg.rpc_endpoint || ENV_RPC
+      cachedIndexerDb = cfg.indexer_db_url || null
+    } else {
+      cachedRpc = ENV_RPC
+    }
+  } catch {
+    cachedRpc = ENV_RPC
+  }
+  cacheTime = now
+  return { rpc: cachedRpc!, indexerDb: cachedIndexerDb || ENV_INDEXER_DB || undefined }
+}
 
 // JSON-RPC helper
 async function rpcCall(method: string, params: unknown[] = []): Promise<unknown> {
-  const res = await fetch(RPC_ENDPOINT, {
+  const { rpc } = await getEndpoints()
+  const res = await fetch(rpc, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
