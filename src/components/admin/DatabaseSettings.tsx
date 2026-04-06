@@ -59,6 +59,7 @@ export const DatabaseSettings = () => {
 
   useEffect(() => {
     fetchConfig();
+    fetchRpcConfig();
   }, []);
 
   const fetchConfig = async () => {
