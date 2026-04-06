@@ -16,6 +16,8 @@ interface TokenPricing {
   min_liquidity: number;
   global_max_buy_per_wallet: number;
   global_daily_buy_limit: number;
+  website_hosting_fee: number;
+  website_max_size_mb: number;
 }
 
 const DEFAULTS: TokenPricing = {
@@ -26,6 +28,8 @@ const DEFAULTS: TokenPricing = {
   min_liquidity: 100,
   global_max_buy_per_wallet: 0,
   global_daily_buy_limit: 0,
+  website_hosting_fee: 500,
+  website_max_size_mb: 5,
 };
 
 export const TokenPricingManager = () => {
