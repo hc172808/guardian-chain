@@ -27,6 +27,11 @@ interface DatabaseConfig {
   username?: string;
 }
 
+interface RpcConfig {
+  rpc_endpoint: string;
+  indexer_db_url: string;
+}
+
 export const DatabaseSettings = () => {
   const { isFounder } = useAuth();
   const { toast } = useToast();
