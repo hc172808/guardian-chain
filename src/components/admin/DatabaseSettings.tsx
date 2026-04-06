@@ -80,6 +80,36 @@ export const DatabaseSettings = () => {
     setLoading(false);
   };
 
+  const fetchRpcConfig = async () => {
+    const { data } = await supabase
+      .from('admin_config')
+      .select('config_value')
+      .eq('config_key', 'rpc_endpoints')
+      .single();
+    
+    if (data?.config_value) {
+      const cfg = data.config_value as unknown as RpcConfig;
+      setRpcConfig(cfg);
+    }
+  };
+
+  const handleSaveRpc = async () => {
+    setSavingRpc(true);
+    const { error } = await supabase
+      .from('admin_config')
+      .upsert({
+        config_key: 'rpc_endpoints',
+        config_value: JSON.parse(JSON.stringify(rpcConfig)),
+      }, { onConflict: 'config_key' });
+
+    if (error) {
+      toast({ title: 'Failed to save RPC config', variant: 'destructive' });
+    } else {
+      toast({ title: 'RPC endpoints saved!' });
+    }
+    setSavingRpc(false);
+  };
+
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
