@@ -27,6 +27,11 @@ interface DatabaseConfig {
   username?: string;
 }
 
+interface RpcConfig {
+  rpc_endpoint: string;
+  indexer_db_url: string;
+}
+
 export const DatabaseSettings = () => {
   const { isFounder } = useAuth();
   const { toast } = useToast();
@@ -35,6 +40,12 @@ export const DatabaseSettings = () => {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   
+  const [rpcConfig, setRpcConfig] = useState<RpcConfig>({
+    rpc_endpoint: 'http://rpc.netlifegy.com:8545',
+    indexer_db_url: '',
+  });
+  const [savingRpc, setSavingRpc] = useState(false);
+
   const [config, setConfig] = useState<DatabaseConfig>({
     type: 'cloud',
     enabled: true
@@ -48,6 +59,7 @@ export const DatabaseSettings = () => {
 
   useEffect(() => {
     fetchConfig();
+    fetchRpcConfig();
   }, []);
 
   const fetchConfig = async () => {
@@ -66,6 +78,36 @@ export const DatabaseSettings = () => {
       if (cfg.username) setExternalUser(cfg.username);
     }
     setLoading(false);
+  };
+
+  const fetchRpcConfig = async () => {
+    const { data } = await supabase
+      .from('admin_config')
+      .select('config_value')
+      .eq('config_key', 'rpc_endpoints')
+      .single();
+    
+    if (data?.config_value) {
+      const cfg = data.config_value as unknown as RpcConfig;
+      setRpcConfig(cfg);
+    }
+  };
+
+  const handleSaveRpc = async () => {
+    setSavingRpc(true);
+    const { error } = await supabase
+      .from('admin_config')
+      .upsert({
+        config_key: 'rpc_endpoints',
+        config_value: JSON.parse(JSON.stringify(rpcConfig)),
+      }, { onConflict: 'config_key' });
+
+    if (error) {
+      toast({ title: 'Failed to save RPC config', variant: 'destructive' });
+    } else {
+      toast({ title: 'RPC endpoints saved!' });
+    }
+    setSavingRpc(false);
   };
 
   const handleTestConnection = async () => {
@@ -132,11 +174,50 @@ export const DatabaseSettings = () => {
   }
 
   return (
-    <GlassCard className="p-6">
-      <div className="flex items-center gap-2 mb-6">
-        <Database className="h-5 w-5 text-primary" />
-        <h3 className="font-semibold">Database Configuration</h3>
-      </div>
+    <div className="space-y-6">
+      {/* RPC Endpoint Configuration */}
+      <GlassCard className="p-6">
+        <div className="flex items-center gap-2 mb-6">
+          <Server className="h-5 w-5 text-primary" />
+          <h3 className="font-semibold">Blockchain RPC Configuration</h3>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <Label>RPC Endpoint</Label>
+            <Input
+              value={rpcConfig.rpc_endpoint}
+              onChange={(e) => setRpcConfig({ ...rpcConfig, rpc_endpoint: e.target.value })}
+              placeholder="http://rpc.netlifegy.com:8545"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              The Go RPC node URL used by the blockchain API proxy
+            </p>
+          </div>
+          <div>
+            <Label>Indexer Database URL</Label>
+            <Input
+              type="password"
+              value={rpcConfig.indexer_db_url}
+              onChange={(e) => setRpcConfig({ ...rpcConfig, indexer_db_url: e.target.value })}
+              placeholder="postgresql://user:pass@host:5432/indexer"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              PostgreSQL connection string for the block indexer
+            </p>
+          </div>
+          <Button onClick={handleSaveRpc} disabled={savingRpc} className="w-full gap-2">
+            {savingRpc ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {savingRpc ? 'Saving...' : 'Save RPC Configuration'}
+          </Button>
+        </div>
+      </GlassCard>
+
+      {/* Database Configuration */}
+      <GlassCard className="p-6">
+        <div className="flex items-center gap-2 mb-6">
+          <Database className="h-5 w-5 text-primary" />
+          <h3 className="font-semibold">Database Configuration</h3>
+        </div>
 
       <div className="space-y-6">
         {/* Cloud Toggle */}
@@ -255,6 +336,7 @@ export const DatabaseSettings = () => {
           {saving ? 'Saving...' : 'Save Configuration'}
         </Button>
       </div>
-    </GlassCard>
+      </GlassCard>
+    </div>
   );
 };
