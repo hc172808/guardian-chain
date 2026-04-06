@@ -56,11 +56,11 @@ async function rpcCall(method: string, params: unknown[] = []): Promise<unknown>
 
 // PostgreSQL query helper (uses indexer DB)
 async function dbQuery(query: string, params: unknown[] = []): Promise<unknown[]> {
-  if (!INDEXER_DB) throw new Error('GYDS_INDEXER_DB_URL not configured')
+  const { indexerDb } = await getEndpoints()
+  if (!indexerDb) throw new Error('Indexer DB not configured')
 
-  // Use dynamic import for postgres
   const { default: postgres } = await import('https://deno.land/x/postgresjs@v3.4.4/mod.js')
-  const sql = postgres(INDEXER_DB, { max: 1 })
+  const sql = postgres(indexerDb, { max: 1 })
   try {
     const result = await sql.unsafe(query, params as any[])
     return result
