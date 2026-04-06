@@ -336,6 +336,7 @@ export const DatabaseSettings = () => {
           {saving ? 'Saving...' : 'Save Configuration'}
         </Button>
       </div>
-    </GlassCard>
+      </GlassCard>
+    </div>
   );
 };
