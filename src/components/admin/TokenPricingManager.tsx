@@ -56,6 +56,8 @@ export const TokenPricingManager = () => {
           min_liquidity: val.min_liquidity ?? DEFAULTS.min_liquidity,
           global_max_buy_per_wallet: val.global_max_buy_per_wallet ?? DEFAULTS.global_max_buy_per_wallet,
           global_daily_buy_limit: val.global_daily_buy_limit ?? DEFAULTS.global_daily_buy_limit,
+          website_hosting_fee: val.website_hosting_fee ?? DEFAULTS.website_hosting_fee,
+          website_max_size_mb: val.website_max_size_mb ?? DEFAULTS.website_max_size_mb,
         });
       }
       setLoading(false);
@@ -140,6 +142,35 @@ export const TokenPricingManager = () => {
             value={pricing.mint_authority_fee}
             onChange={(e) => setPricing({ ...pricing, mint_authority_fee: parseFloat(e.target.value) || 0 })}
           />
+        </div>
+      </div>
+
+      <div className="mt-6 pt-6 border-t border-border">
+        <h4 className="font-medium mb-4">Website Hosting</h4>
+        <p className="text-sm text-muted-foreground mb-4">
+          Token creators can upload an HTML file to host a mini-website for their token. Set the fee and max file size.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Hosting Fee (GYDS)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={pricing.website_hosting_fee}
+              onChange={(e) => setPricing({ ...pricing, website_hosting_fee: parseFloat(e.target.value) || 0 })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Max File Size (MB)</Label>
+            <Input
+              type="number"
+              min={1}
+              max={5}
+              value={pricing.website_max_size_mb}
+              onChange={(e) => setPricing({ ...pricing, website_max_size_mb: Math.min(5, Math.max(1, parseFloat(e.target.value) || 1)) })}
+            />
+            <p className="text-xs text-muted-foreground">Between 1 and 5 MB</p>
+          </div>
         </div>
       </div>
 
