@@ -5,11 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { 
-  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart
+  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart, Globe, FileCode
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -35,6 +36,12 @@ interface TokenCreationParams {
   timelockDays: number;
   maxBuyPerWallet: string;
   dailyBuyLimit: string;
+  description: string;
+  website: string;
+  twitter: string;
+  telegram: string;
+  facebook: string;
+  discord: string;
 }
 
 interface AdminPricing {
@@ -43,6 +50,8 @@ interface AdminPricing {
   update_authority_fee: number;
   mint_authority_fee: number;
   min_liquidity: number;
+  website_hosting_fee: number;
+  website_max_size_mb: number;
 }
 
 const DEFAULT_PRICING: AdminPricing = {
@@ -51,6 +60,8 @@ const DEFAULT_PRICING: AdminPricing = {
   update_authority_fee: 25,
   mint_authority_fee: 200,
   min_liquidity: 100,
+  website_hosting_fee: 500,
+  website_max_size_mb: 5,
 };
 
 export const TokenFactory = () => {
@@ -60,8 +71,11 @@ export const TokenFactory = () => {
   const [creating, setCreating] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [siteFile, setSiteFile] = useState<File | null>(null);
+  const [wantsHosting, setWantsHosting] = useState(false);
   const [pricing, setPricing] = useState<AdminPricing>(DEFAULT_PRICING);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const siteInputRef = useRef<HTMLInputElement>(null);
   
   const [params, setParams] = useState<TokenCreationParams>({
     name: '', symbol: '', decimals: 18, initialSupply: '1000000',
@@ -70,9 +84,14 @@ export const TokenFactory = () => {
     lpLockType: 'burn', timelockDays: 365,
     maxBuyPerWallet: '10000',
     dailyBuyLimit: '5000',
+    description: '',
+    website: '',
+    twitter: '',
+    telegram: '',
+    facebook: '',
+    discord: '',
   });
 
-  // Load admin pricing from config
   useEffect(() => {
     const loadPricing = async () => {
       const { data } = await supabase
@@ -88,6 +107,8 @@ export const TokenFactory = () => {
           update_authority_fee: val.update_authority_fee ?? DEFAULT_PRICING.update_authority_fee,
           mint_authority_fee: val.mint_authority_fee ?? DEFAULT_PRICING.mint_authority_fee,
           min_liquidity: val.min_liquidity ?? DEFAULT_PRICING.min_liquidity,
+          website_hosting_fee: val.website_hosting_fee ?? DEFAULT_PRICING.website_hosting_fee,
+          website_max_size_mb: val.website_max_size_mb ?? DEFAULT_PRICING.website_max_size_mb,
         });
       }
     };
@@ -99,6 +120,7 @@ export const TokenFactory = () => {
     if (params.authorities.freeze) total += pricing.freeze_authority_fee;
     if (params.authorities.update) total += pricing.update_authority_fee;
     if (params.authorities.mint) total += pricing.mint_authority_fee;
+    if (wantsHosting && siteFile) total += pricing.website_hosting_fee;
     return total;
   };
 
@@ -113,6 +135,21 @@ export const TokenFactory = () => {
     }
     setLogoFile(file);
     setLogoPreview(URL.createObjectURL(file));
+  };
+
+  const handleSiteSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const maxBytes = pricing.website_max_size_mb * 1024 * 1024;
+    if (file.size > maxBytes) {
+      toast({ title: `HTML file must be under ${pricing.website_max_size_mb}MB`, variant: 'destructive' });
+      return;
+    }
+    if (!file.name.endsWith('.html') && !file.name.endsWith('.htm')) {
+      toast({ title: 'Only .html or .htm files are allowed', variant: 'destructive' });
+      return;
+    }
+    setSiteFile(file);
   };
 
   const handleCreateToken = async () => {
@@ -157,6 +194,18 @@ export const TokenFactory = () => {
         logoUrl = urlData.publicUrl;
       }
 
+      // Upload HTML site file if provided
+      let hostedSiteUrl: string | null = null;
+      if (wantsHosting && siteFile) {
+        const sitePath = `${user.id}/${params.symbol.toLowerCase()}-${Date.now()}/index.html`;
+        const { error: siteUploadError } = await supabase.storage
+          .from('token-sites')
+          .upload(sitePath, siteFile, { upsert: true, contentType: 'text/html' });
+        if (siteUploadError) throw siteUploadError;
+        const { data: siteUrlData } = supabase.storage.from('token-sites').getPublicUrl(sitePath);
+        hostedSiteUrl = siteUrlData.publicUrl;
+      }
+
       const address = '0x' + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 
       const { error } = await supabase.from('tokens').insert({
@@ -175,11 +224,18 @@ export const TokenFactory = () => {
         update_enabled: params.authorities.update,
         mint_enabled: params.authorities.mint,
         address,
+        description: params.description || null,
+        website: params.website || null,
+        twitter: params.twitter || null,
+        telegram: params.telegram || null,
+        facebook: params.facebook || null,
+        discord: params.discord || null,
+        hosted_site_url: hostedSiteUrl,
+        hosted_site_fee_paid: wantsHosting && siteFile ? pricing.website_hosting_fee : 0,
       });
 
       if (error) throw error;
 
-      // Store purchase limits in admin_config keyed by token address
       await supabase.from('admin_config').upsert({
         config_key: `token_limits_${address}`,
         config_value: {
@@ -207,9 +263,17 @@ export const TokenFactory = () => {
       lpLockType: 'burn', timelockDays: 365,
       maxBuyPerWallet: '10000',
       dailyBuyLimit: '5000',
+      description: '',
+      website: '',
+      twitter: '',
+      telegram: '',
+      facebook: '',
+      discord: '',
     });
     setLogoFile(null);
     setLogoPreview(null);
+    setSiteFile(null);
+    setWantsHosting(false);
   };
 
   return (
@@ -310,12 +374,104 @@ export const TokenFactory = () => {
                       <Input type="number" min={0} max={18} value={params.decimals} onChange={(e) => setParams({ ...params, decimals: parseInt(e.target.value) })} />
                     </div>
                   </div>
+
+                  {/* Description */}
+                  <div className="space-y-2">
+                    <Label>Description</Label>
+                    <Textarea
+                      placeholder="Describe your token, its purpose, and use cases..."
+                      value={params.description}
+                      onChange={(e) => setParams({ ...params, description: e.target.value })}
+                      maxLength={2000}
+                      rows={3}
+                    />
+                    <p className="text-xs text-muted-foreground">{params.description.length}/2000 characters</p>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              {/* Social Links & Website */}
+              <AccordionItem value="socials">
+                <AccordionTrigger>
+                  <div className="flex items-center gap-2"><Badge variant="outline">2</Badge> Website & Socials</div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-4 pt-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2"><Globe className="h-4 w-4" /> Website URL</Label>
+                    <Input placeholder="https://mytoken.com" value={params.website} onChange={(e) => setParams({ ...params, website: e.target.value })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Twitter / X</Label>
+                      <Input placeholder="https://x.com/mytoken" value={params.twitter} onChange={(e) => setParams({ ...params, twitter: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Telegram</Label>
+                      <Input placeholder="https://t.me/mytoken" value={params.telegram} onChange={(e) => setParams({ ...params, telegram: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Facebook</Label>
+                      <Input placeholder="https://facebook.com/mytoken" value={params.facebook} onChange={(e) => setParams({ ...params, facebook: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Discord</Label>
+                      <Input placeholder="https://discord.gg/mytoken" value={params.discord} onChange={(e) => setParams({ ...params, discord: e.target.value })} />
+                    </div>
+                  </div>
+
+                  {/* HTML Website Hosting */}
+                  <div className="mt-4 p-4 rounded-lg border border-border/50 bg-secondary/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <FileCode className="h-4 w-4 text-primary" />
+                        <div>
+                          <p className="font-medium text-sm">Host a Website</p>
+                          <p className="text-xs text-muted-foreground">Upload an HTML file (max {pricing.website_max_size_mb}MB) • {pricing.website_hosting_fee} GYDS</p>
+                        </div>
+                      </div>
+                      <Switch checked={wantsHosting} onCheckedChange={setWantsHosting} />
+                    </div>
+                    
+                    {wantsHosting && (
+                      <div className="space-y-2">
+                        <div
+                          onClick={() => siteInputRef.current?.click()}
+                          className="border-2 border-dashed border-border hover:border-primary/50 rounded-lg p-4 cursor-pointer text-center transition-colors"
+                        >
+                          {siteFile ? (
+                            <div className="flex items-center justify-center gap-2">
+                              <FileCode className="h-5 w-5 text-primary" />
+                              <span className="text-sm font-medium">{siteFile.name}</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {(siteFile.size / 1024 / 1024).toFixed(2)} MB
+                              </Badge>
+                            </div>
+                          ) : (
+                            <div>
+                              <Upload className="h-6 w-6 mx-auto text-muted-foreground mb-1" />
+                              <p className="text-sm text-muted-foreground">Click to upload .html file</p>
+                              <p className="text-xs text-muted-foreground">Max {pricing.website_max_size_mb}MB</p>
+                            </div>
+                          )}
+                        </div>
+                        <input
+                          ref={siteInputRef}
+                          type="file"
+                          accept=".html,.htm"
+                          onChange={handleSiteSelect}
+                          className="hidden"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </AccordionContent>
               </AccordionItem>
 
               <AccordionItem value="limits">
                 <AccordionTrigger>
-                  <div className="flex items-center gap-2"><Badge variant="outline">2</Badge> Purchase Limits</div>
+                  <div className="flex items-center gap-2"><Badge variant="outline">3</Badge> Purchase Limits</div>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pt-4">
                   <p className="text-sm text-muted-foreground">Set limits to prevent whale accumulation and ensure fair distribution.</p>
@@ -350,7 +506,6 @@ export const TokenFactory = () => {
                     </div>
                   </div>
 
-                  {/* Preview */}
                   <div className="p-3 rounded-lg bg-secondary/30 space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Max wallet holding</span>
@@ -372,7 +527,7 @@ export const TokenFactory = () => {
 
               <AccordionItem value="liquidity">
                 <AccordionTrigger>
-                  <div className="flex items-center gap-2"><Badge variant="outline">3</Badge> GYDS Liquidity</div>
+                  <div className="flex items-center gap-2"><Badge variant="outline">4</Badge> GYDS Liquidity</div>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pt-4">
                   <div className="space-y-2">
@@ -402,7 +557,7 @@ export const TokenFactory = () => {
 
               <AccordionItem value="authorities">
                 <AccordionTrigger>
-                  <div className="flex items-center gap-2"><Badge variant="outline">4</Badge> Authorities (Optional)</div>
+                  <div className="flex items-center gap-2"><Badge variant="outline">5</Badge> Authorities (Optional)</div>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pt-4">
                   <p className="text-sm text-muted-foreground">Authorities can be renounced later. Extra GYDS fees apply.</p>
@@ -440,6 +595,7 @@ export const TokenFactory = () => {
                 {params.authorities.freeze && <div className="flex justify-between"><span className="text-muted-foreground">Freeze Authority</span><span>{pricing.freeze_authority_fee} GYDS</span></div>}
                 {params.authorities.update && <div className="flex justify-between"><span className="text-muted-foreground">Update Authority</span><span>{pricing.update_authority_fee} GYDS</span></div>}
                 {params.authorities.mint && <div className="flex justify-between"><span className="text-muted-foreground">Mint Authority</span><span>{pricing.mint_authority_fee} GYDS</span></div>}
+                {wantsHosting && siteFile && <div className="flex justify-between"><span className="text-muted-foreground">Website Hosting</span><span>{pricing.website_hosting_fee} GYDS</span></div>}
                 <div className="flex justify-between"><span className="text-muted-foreground">LP Liquidity</span><span>{params.gydsLiquidity} GYDS</span></div>
                 <div className="border-t pt-2 flex justify-between font-bold"><span>Total Required</span><span className="text-primary">{calculateTotalGyds().toLocaleString()} GYDS</span></div>
               </div>

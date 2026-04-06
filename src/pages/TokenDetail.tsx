@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
-import { ArrowLeft, Copy, ExternalLink, Users, ArrowUpRight, ArrowDownLeft, TrendingUp, Coins, Shield, Lock, Unlock, Flame, Edit, Plus, Clock, User, Pause, CheckCircle, XCircle, AlertTriangle, Loader2, Star } from 'lucide-react';
+import { ArrowLeft, Copy, ExternalLink, Users, ArrowUpRight, ArrowDownLeft, TrendingUp, Coins, Shield, Lock, Unlock, Flame, Edit, Plus, Clock, User, Pause, CheckCircle, XCircle, AlertTriangle, Loader2, Star, Globe, FileCode } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
@@ -41,6 +41,13 @@ interface TokenData {
   update_holder: string | null;
   is_active: boolean;
   created_at: string;
+  description: string | null;
+  website: string | null;
+  twitter: string | null;
+  telegram: string | null;
+  facebook: string | null;
+  discord: string | null;
+  hosted_site_url: string | null;
 }
 
 // Price history based on token creation date
@@ -260,6 +267,51 @@ const TokenDetail = () => {
                 </span>
               </div>
             </div>
+
+            {/* Description */}
+            {token.description && (
+              <p className="text-sm text-muted-foreground mt-3">{token.description}</p>
+            )}
+
+            {/* Social Links */}
+            {(token.website || token.twitter || token.telegram || token.facebook || token.discord || token.hosted_site_url) && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {token.website && (
+                  <a href={token.website} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" className="gap-1 text-xs h-7">
+                      <Globe className="h-3 w-3" /> Website
+                    </Button>
+                  </a>
+                )}
+                {token.hosted_site_url && (
+                  <a href={token.hosted_site_url} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" className="gap-1 text-xs h-7">
+                      <FileCode className="h-3 w-3" /> Hosted Site
+                    </Button>
+                  </a>
+                )}
+                {token.twitter && (
+                  <a href={token.twitter} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" className="text-xs h-7">𝕏 Twitter</Button>
+                  </a>
+                )}
+                {token.telegram && (
+                  <a href={token.telegram} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" className="text-xs h-7">✈ Telegram</Button>
+                  </a>
+                )}
+                {token.facebook && (
+                  <a href={token.facebook} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" className="text-xs h-7">ⓕ Facebook</Button>
+                  </a>
+                )}
+                {token.discord && (
+                  <a href={token.discord} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" className="text-xs h-7">🎮 Discord</Button>
+                  </a>
+                )}
+              </div>
+            )}
           </GlassCard>
         </motion.div>
 

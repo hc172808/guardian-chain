@@ -26,7 +26,7 @@ async function dbQuery(query: string, params: unknown[] = []): Promise<unknown[]
   const { default: postgres } = await import('https://deno.land/x/postgresjs@v3.4.4/mod.js')
   const sql = postgres(INDEXER_DB, { max: 1 })
   try {
-    const result = await sql.unsafe(query, params)
+    const result = await sql.unsafe(query, params as any[])
     return result
   } finally {
     await sql.end()
@@ -198,8 +198,8 @@ Deno.serve(async (req) => {
     }
 
     return errorResponse('Not found', 404)
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('blockchain-api error:', err)
-    return errorResponse(err.message || 'Internal error', 500)
+    return errorResponse(err instanceof Error ? err.message : 'Internal error', 500)
   }
 })
