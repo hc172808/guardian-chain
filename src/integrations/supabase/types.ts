@@ -741,10 +741,15 @@ export type Database = {
           created_at: string
           creator_id: string
           decimals: number
+          description: string | null
+          discord: string | null
+          facebook: string | null
           freeze_enabled: boolean
           freeze_holder: string | null
           freeze_locked: boolean
           gyds_liquidity: number
+          hosted_site_fee_paid: number | null
+          hosted_site_url: string | null
           id: string
           is_active: boolean
           logo_url: string | null
@@ -755,11 +760,14 @@ export type Database = {
           mint_locked: boolean
           name: string
           symbol: string
+          telegram: string | null
           total_supply: number
+          twitter: string | null
           update_enabled: boolean
           update_holder: string | null
           update_locked: boolean
           updated_at: string
+          website: string | null
         }
         Insert: {
           address: string
@@ -767,10 +775,15 @@ export type Database = {
           created_at?: string
           creator_id: string
           decimals?: number
+          description?: string | null
+          discord?: string | null
+          facebook?: string | null
           freeze_enabled?: boolean
           freeze_holder?: string | null
           freeze_locked?: boolean
           gyds_liquidity?: number
+          hosted_site_fee_paid?: number | null
+          hosted_site_url?: string | null
           id?: string
           is_active?: boolean
           logo_url?: string | null
@@ -781,11 +794,14 @@ export type Database = {
           mint_locked?: boolean
           name: string
           symbol: string
+          telegram?: string | null
           total_supply: number
+          twitter?: string | null
           update_enabled?: boolean
           update_holder?: string | null
           update_locked?: boolean
           updated_at?: string
+          website?: string | null
         }
         Update: {
           address?: string
@@ -793,10 +809,15 @@ export type Database = {
           created_at?: string
           creator_id?: string
           decimals?: number
+          description?: string | null
+          discord?: string | null
+          facebook?: string | null
           freeze_enabled?: boolean
           freeze_holder?: string | null
           freeze_locked?: boolean
           gyds_liquidity?: number
+          hosted_site_fee_paid?: number | null
+          hosted_site_url?: string | null
           id?: string
           is_active?: boolean
           logo_url?: string | null
@@ -807,11 +828,14 @@ export type Database = {
           mint_locked?: boolean
           name?: string
           symbol?: string
+          telegram?: string | null
           total_supply?: number
+          twitter?: string | null
           update_enabled?: boolean
           update_holder?: string | null
           update_locked?: boolean
           updated_at?: string
+          website?: string | null
         }
         Relationships: []
       }
