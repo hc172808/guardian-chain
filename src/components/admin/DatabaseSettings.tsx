@@ -40,6 +40,12 @@ export const DatabaseSettings = () => {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   
+  const [rpcConfig, setRpcConfig] = useState<RpcConfig>({
+    rpc_endpoint: 'http://rpc.netlifegy.com:8545',
+    indexer_db_url: '',
+  });
+  const [savingRpc, setSavingRpc] = useState(false);
+
   const [config, setConfig] = useState<DatabaseConfig>({
     type: 'cloud',
     enabled: true
