@@ -148,7 +148,7 @@ Deno.serve(async (req) => {
 
       // Try indexer DB first, fallback to RPC
       try {
-        if (INDEXER_DB) {
+        const _ep = await getEndpoints(); if (_ep.indexerDb) {
           const blocks = await dbQuery(
             'SELECT * FROM blocks ORDER BY height DESC LIMIT $1',
             [Math.min(limit, 100)]
@@ -187,7 +187,7 @@ Deno.serve(async (req) => {
     if (path === '/transactions' && req.method === 'GET') {
       const limit = parseInt(url.searchParams.get('limit') || '20')
       try {
-        if (INDEXER_DB) {
+        const _ep = await getEndpoints(); if (_ep.indexerDb) {
           const txs = await dbQuery(
             'SELECT * FROM transactions ORDER BY block_height DESC, timestamp DESC LIMIT $1',
             [Math.min(limit, 100)]
@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
         rpcOk = true
       } catch {}
       try {
-        if (INDEXER_DB) {
+        const _ep = await getEndpoints(); if (_ep.indexerDb) {
           await dbQuery('SELECT 1')
           dbOk = true
         }
