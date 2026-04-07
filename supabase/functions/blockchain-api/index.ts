@@ -5,7 +5,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const ENV_RPC = Deno.env.get('GYDS_RPC_ENDPOINT') || 'http://rpc.netlifegy.com:8545'
+function ensureScheme(url: string): string {
+  if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+    return `http://${url}`
+  }
+  return url
+}
+const ENV_RPC = ensureScheme(Deno.env.get('GYDS_RPC_ENDPOINT') || 'http://rpc.netlifegy.com:8545')
 const ENV_INDEXER_DB = Deno.env.get('GYDS_INDEXER_DB_URL')
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -29,7 +35,7 @@ async function getEndpoints(): Promise<{ rpc: string; indexerDb: string | undefi
       .single()
     if (data?.config_value) {
       const cfg = data.config_value as { rpc_endpoint?: string; indexer_db_url?: string }
-      cachedRpc = cfg.rpc_endpoint || ENV_RPC
+      cachedRpc = ensureScheme(cfg.rpc_endpoint || '') || ENV_RPC
       cachedIndexerDb = cfg.indexer_db_url || null
     } else {
       cachedRpc = ENV_RPC
