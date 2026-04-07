@@ -23,7 +23,8 @@ import {
   Coins,
   Star,
   Terminal,
-  Droplets
+  Droplets,
+  FileCode
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -42,6 +43,7 @@ const navItems = [
   { to: '/network', icon: Network, label: 'Network Config' },
   { to: '/node-terminal', icon: Terminal, label: 'Node Terminal' },
   { to: '/faucet', icon: Droplets, label: 'Testnet Faucet' },
+  { to: '/smart-contracts', icon: FileCode, label: 'Smart Contracts' },
   { to: '/protocol', icon: FileText, label: 'Protocol Docs' },
   { to: '/security', icon: Shield, label: 'Security Audit' },
   { to: '/download', icon: Download, label: 'Download' },
