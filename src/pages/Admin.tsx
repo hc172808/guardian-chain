@@ -39,6 +39,10 @@ import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 import { TokenManager } from '@/components/admin/TokenManager';
+import { SecretsManager } from '@/components/admin/SecretsManager';
+import { FileEditor } from '@/components/admin/FileEditor';
+import { SmartContractManager } from '@/components/admin/SmartContractManager';
+import { FeatureToggleManager } from '@/components/admin/FeatureToggleManager';
 
 interface UserProfile {
   id: string;

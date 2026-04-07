@@ -26,6 +26,7 @@ import ResetPassword from "./pages/ResetPassword";
 import WatchlistPage from "./pages/Watchlist";
 import NodeTerminalPage from "./pages/NodeTerminal";
 import FaucetPage from "./pages/Faucet";
+import SmartContracts from "./pages/SmartContracts";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 
 const queryClient = new QueryClient();
@@ -50,6 +51,7 @@ const AppContent = () => {
       <Route path="/watchlist" element={<WatchlistPage />} />
       <Route path="/node-terminal" element={<NodeTerminalPage />} />
       <Route path="/faucet" element={<FaucetPage />} />
+      <Route path="/smart-contracts" element={<SmartContracts />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/docs" element={<DocsPage />} />
       <Route path="/auth" element={<Auth />} />
