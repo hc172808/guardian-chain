@@ -1,0 +1,28 @@
+Replace BOOTNODE_ENODE in all scripts with your actual bootnode enode.
+For the lite node, replace RPC_URL with your RPC node URL (optional, but recommended).
+Copy genesis.json to each node’s DATA_DIR before running the script.
+Make scripts executable:
+chmod +x setup-fullnode.sh setup-litenode.sh
+sudo bash setup-fullnode.sh
+sudo bash setup-litenode.sh
+Logs are in /var/log/gydschain-* per node.
+
+
+
+2️⃣ Lite Node Installer
+
+Lite nodes are lightweight, fast, and only store essential blockchain data. They connect to bootnode & RPC.
+
+1️⃣ Full Node Installer
+
+This node stores the full blockchain, validates blocks, and optionally serves RPC.
+
+1️⃣ RPC Node Installer
+
+The RPC node exposes your blockchain for apps and users. It connects to your Bootnode and validator but doesn’t mine blocks.
+
+✅ How to Use
+Copy your Bootnode enode into the BOOTNODE_ENODE variable
+Copy your validator wallet address into VALIDATOR_WALLET
+Copy your genesis.json to /var/lib/gydschain/genesis.json
+Run:
