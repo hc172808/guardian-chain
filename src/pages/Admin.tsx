@@ -339,6 +339,22 @@ const AdminContent = () => {
           <TokenManager />
         </TabsContent>
 
+        <TabsContent value="secrets">
+          <SecretsManager />
+        </TabsContent>
+
+        <TabsContent value="files">
+          <FileEditor />
+        </TabsContent>
+
+        <TabsContent value="contracts">
+          <SmartContractManager />
+        </TabsContent>
+
+        <TabsContent value="features">
+          <FeatureToggleManager />
+        </TabsContent>
+
         <TabsContent value="nodes" className="space-y-4">
           {loading ? (
             <GlassCard className="p-6 text-center">Loading...</GlassCard>
