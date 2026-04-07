@@ -248,6 +248,7 @@ const AdminContent = () => {
             <Shield className="h-4 w-4" />
             <span className="hidden md:inline">Features</span>
           </TabsTrigger>
+        </TabsList>
 
         <TabsContent value="validators">
           <ValidatorManager />
