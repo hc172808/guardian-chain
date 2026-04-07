@@ -39,6 +39,10 @@ import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 import { TokenManager } from '@/components/admin/TokenManager';
+import { SecretsManager } from '@/components/admin/SecretsManager';
+import { FileEditor } from '@/components/admin/FileEditor';
+import { SmartContractManager } from '@/components/admin/SmartContractManager';
+import { FeatureToggleManager } from '@/components/admin/FeatureToggleManager';
 
 interface UserProfile {
   id: string;
@@ -228,6 +232,22 @@ const AdminContent = () => {
             <Coins className="h-4 w-4" />
             <span className="hidden md:inline">Tokens</span>
           </TabsTrigger>
+          <TabsTrigger value="secrets" className="gap-2">
+            <Key className="h-4 w-4" />
+            <span className="hidden md:inline">Secrets</span>
+          </TabsTrigger>
+          <TabsTrigger value="files" className="gap-2">
+            <Server className="h-4 w-4" />
+            <span className="hidden md:inline">Files</span>
+          </TabsTrigger>
+          <TabsTrigger value="contracts" className="gap-2">
+            <GitBranch className="h-4 w-4" />
+            <span className="hidden md:inline">Contracts</span>
+          </TabsTrigger>
+          <TabsTrigger value="features" className="gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="hidden md:inline">Features</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="validators">
@@ -317,6 +337,22 @@ const AdminContent = () => {
 
         <TabsContent value="token-mgmt">
           <TokenManager />
+        </TabsContent>
+
+        <TabsContent value="secrets">
+          <SecretsManager />
+        </TabsContent>
+
+        <TabsContent value="files">
+          <FileEditor />
+        </TabsContent>
+
+        <TabsContent value="contracts">
+          <SmartContractManager />
+        </TabsContent>
+
+        <TabsContent value="features">
+          <FeatureToggleManager />
         </TabsContent>
 
         <TabsContent value="nodes" className="space-y-4">

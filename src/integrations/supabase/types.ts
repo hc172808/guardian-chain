@@ -77,6 +77,48 @@ export type Database = {
         }
         Relationships: []
       }
+      contract_templates: {
+        Row: {
+          abi: Json | null
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          parameters: Json | null
+          solidity_code: string
+          updated_at: string
+        }
+        Insert: {
+          abi?: Json | null
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          parameters?: Json | null
+          solidity_code: string
+          updated_at?: string
+        }
+        Update: {
+          abi?: Json | null
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          parameters?: Json | null
+          solidity_code?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ddos_protection: {
         Row: {
           action: string
@@ -196,6 +238,39 @@ export type Database = {
           jail_name?: string
           log_path?: string | null
           max_retries?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      feature_toggles: {
+        Row: {
+          admin_only: boolean
+          created_at: string
+          description: string | null
+          feature_key: string
+          feature_name: string
+          id: string
+          is_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          admin_only?: boolean
+          created_at?: string
+          description?: string | null
+          feature_key: string
+          feature_name: string
+          id?: string
+          is_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          admin_only?: boolean
+          created_at?: string
+          description?: string | null
+          feature_key?: string
+          feature_name?: string
+          id?: string
+          is_enabled?: boolean
           updated_at?: string
         }
         Relationships: []
@@ -523,6 +598,71 @@ export type Database = {
           window_seconds?: number
         }
         Relationships: []
+      }
+      smart_contracts: {
+        Row: {
+          abi: Json | null
+          bytecode: string | null
+          constructor_args: Json | null
+          contract_address: string | null
+          created_at: string
+          deploy_tx_hash: string | null
+          deployed_at: string | null
+          description: string | null
+          id: string
+          is_verified: boolean
+          name: string
+          source_code: string
+          status: string
+          template_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          abi?: Json | null
+          bytecode?: string | null
+          constructor_args?: Json | null
+          contract_address?: string | null
+          created_at?: string
+          deploy_tx_hash?: string | null
+          deployed_at?: string | null
+          description?: string | null
+          id?: string
+          is_verified?: boolean
+          name: string
+          source_code: string
+          status?: string
+          template_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          abi?: Json | null
+          bytecode?: string | null
+          constructor_args?: Json | null
+          contract_address?: string | null
+          created_at?: string
+          deploy_tx_hash?: string | null
+          deployed_at?: string | null
+          description?: string | null
+          id?: string
+          is_verified?: boolean
+          name?: string
+          source_code?: string
+          status?: string
+          template_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "smart_contracts_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "contract_templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       token_launches: {
         Row: {
