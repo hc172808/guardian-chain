@@ -35,7 +35,7 @@ async function getEndpoints(): Promise<{ rpc: string; indexerDb: string | undefi
       .single()
     if (data?.config_value) {
       const cfg = data.config_value as { rpc_endpoint?: string; indexer_db_url?: string }
-      cachedRpc = cfg.rpc_endpoint || ENV_RPC
+      cachedRpc = ensureScheme(cfg.rpc_endpoint || '') || ENV_RPC
       cachedIndexerDb = cfg.indexer_db_url || null
     } else {
       cachedRpc = ENV_RPC
