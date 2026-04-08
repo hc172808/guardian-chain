@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// NodeType defines node type
+// NodeType represents node type
 type NodeType int
 
 const (
@@ -19,7 +19,7 @@ const (
 	LiteNode
 )
 
-// Config holds P2P settings
+// Config holds P2P network configuration
 type Config struct {
 	Port           int
 	MaxPeers       int
@@ -42,7 +42,7 @@ type Peer struct {
 	conn      net.Conn
 }
 
-// MessageType defines P2P message types
+// MessageType defines message types
 type MessageType int
 
 const (
@@ -67,7 +67,7 @@ type Message struct {
 	To      string
 }
 
-// MessageHandler is a callback for messages
+// MessageHandler function type
 type MessageHandler func(*Message) error
 
 // P2PNetwork manages P2P connections
@@ -75,19 +75,19 @@ type P2PNetwork struct {
 	config     Config
 	nodeID     string
 	peers      map[string]*Peer
+	listener   net.Listener
 	messagesCh chan *Message
 	handlers   map[MessageType]MessageHandler
-	listener   net.Listener
 	mu         sync.RWMutex
 	ctx        context.Context
 	cancel     context.CancelFunc
 }
 
-// NewP2PNetwork creates a P2P network instance
-func NewP2PNetwork(cfg Config) *P2PNetwork {
+// NewP2PNetwork creates a new P2P network
+func NewP2PNetwork(config Config) *P2PNetwork {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &P2PNetwork{
-		config:     cfg,
+		config:     config,
 		nodeID:     generateNodeID(),
 		peers:      make(map[string]*Peer),
 		messagesCh: make(chan *Message, 1000),
@@ -97,7 +97,7 @@ func NewP2PNetwork(cfg Config) *P2PNetwork {
 	}
 }
 
-// Start runs the P2P network
+// Start starts the P2P network
 func (n *P2PNetwork) Start() error {
 	addr := fmt.Sprintf("0.0.0.0:%d", n.config.Port)
 	listener, err := net.Listen("tcp", addr)
@@ -108,13 +108,13 @@ func (n *P2PNetwork) Start() error {
 
 	go n.acceptConnections()
 	go n.processMessages()
-	go n.connectBootstrap()
+	go n.connectBootstrapNodes()
 	go n.peerDiscoveryLoop()
 
 	return nil
 }
 
-// Stop gracefully stops the P2P network
+// Stop stops the P2P network
 func (n *P2PNetwork) Stop() {
 	n.cancel()
 	if n.listener != nil {
@@ -122,8 +122,8 @@ func (n *P2PNetwork) Stop() {
 	}
 
 	n.mu.Lock()
-	for _, p := range n.peers {
-		p.conn.Close()
+	for _, peer := range n.peers {
+		peer.conn.Close()
 	}
 	n.mu.Unlock()
 }
@@ -144,9 +144,9 @@ func (n *P2PNetwork) acceptConnections() {
 	}
 }
 
-// handleConnection performs handshake and starts peer listener
+// handleConnection performs handshake and manages peer messages
 func (n *P2PNetwork) handleConnection(conn net.Conn) {
-	peer, err := n.handshake(conn)
+	peer, err := n.performHandshake(conn)
 	if err != nil {
 		conn.Close()
 		return
@@ -161,14 +161,15 @@ func (n *P2PNetwork) handleConnection(conn net.Conn) {
 	n.peers[peer.ID] = peer
 	n.mu.Unlock()
 
-	go n.listenPeer(peer)
+	go n.handlePeerMessages(peer)
 }
 
-// handshake exchanges IDs
-func (n *P2PNetwork) handshake(conn net.Conn) (*Peer, error) {
+// performHandshake exchanges node IDs
+func (n *P2PNetwork) performHandshake(conn net.Conn) (*Peer, error) {
 	peer := &Peer{
 		ID:        generateNodeID(),
 		Address:   conn.RemoteAddr().String(),
+		NodeType:  FullNode,
 		Connected: time.Now(),
 		LastSeen:  time.Now(),
 		conn:      conn,
@@ -176,35 +177,36 @@ func (n *P2PNetwork) handshake(conn net.Conn) (*Peer, error) {
 	return peer, nil
 }
 
-// listenPeer reads messages from a peer
-func (n *P2PNetwork) listenPeer(p *Peer) {
-	defer n.removePeer(p.ID)
+// handlePeerMessages reads messages from a peer
+func (n *P2PNetwork) handlePeerMessages(peer *Peer) {
+	defer n.removePeer(peer.ID)
 
 	buffer := make([]byte, 1024*1024)
+
 	for {
 		select {
 		case <-n.ctx.Done():
 			return
 		default:
-			p.conn.SetReadDeadline(time.Now().Add(time.Minute))
-			nBytes, err := p.conn.Read(buffer)
+			peer.conn.SetReadDeadline(time.Now().Add(time.Minute))
+			nBytes, err := peer.conn.Read(buffer)
 			if err != nil {
 				return
 			}
-			p.BytesRecv += uint64(nBytes)
-			p.LastSeen = time.Now()
+			peer.BytesRecv += uint64(nBytes)
+			peer.LastSeen = time.Now()
 
 			msg, err := parseMessage(buffer[:nBytes])
 			if err != nil {
 				continue
 			}
-			msg.From = p.ID
+			msg.From = peer.ID
 			n.messagesCh <- msg
 		}
 	}
 }
 
-// processMessages dispatches messages to handlers
+// processMessages dispatches incoming messages to handlers
 func (n *P2PNetwork) processMessages() {
 	for {
 		select {
@@ -218,73 +220,78 @@ func (n *P2PNetwork) processMessages() {
 	}
 }
 
-// RegisterHandler registers a message callback
+// RegisterHandler registers a message handler
 func (n *P2PNetwork) RegisterHandler(msgType MessageType, handler MessageHandler) {
 	n.handlers[msgType] = handler
 }
 
-// BroadcastBlock announces a new block
-func (n *P2PNetwork) BroadcastBlock(hash []byte) {
-	msg := &Message{
+// BroadcastBlock sends block to all peers
+func (n *P2PNetwork) BroadcastBlock(blockHash []byte) {
+	n.broadcast(&Message{
 		Type:    MsgBlockAnnounce,
-		Payload: hash,
-	}
-	n.broadcast(msg)
+		Payload: blockHash,
+	})
 }
 
-// BroadcastTx announces a new transaction
-func (n *P2PNetwork) BroadcastTx(hash []byte) {
-	msg := &Message{
+// BroadcastTx sends transaction to all peers
+func (n *P2PNetwork) BroadcastTx(txHash []byte) {
+	n.broadcast(&Message{
 		Type:    MsgTxAnnounce,
-		Payload: hash,
-	}
-	n.broadcast(msg)
+		Payload: txHash,
+	})
 }
 
-// broadcast sends a message to all peers
+// broadcast sends message to all peers
 func (n *P2PNetwork) broadcast(msg *Message) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	for _, p := range n.peers {
-		go n.sendPeer(p, msg)
+	for _, peer := range n.peers {
+		go n.sendToPeer(peer, msg)
 	}
 }
 
-// sendPeer sends a message to a specific peer
-func (n *P2PNetwork) sendPeer(p *Peer, msg *Message) {
-	if p.conn != nil {
-		data := append([]byte{byte(msg.Type)}, msg.Payload...)
-		p.conn.Write(data)
-		p.BytesSent += uint64(len(data))
+// sendToPeer sends message to a single peer
+func (n *P2PNetwork) sendToPeer(peer *Peer, msg *Message) error {
+	if peer.conn == nil {
+		return errors.New("peer connection is nil")
 	}
+	data := append([]byte{byte(msg.Type)}, msg.Payload...)
+	_, err := peer.conn.Write(data)
+	if err == nil {
+		peer.BytesSent += uint64(len(data))
+	}
+	return err
 }
 
-// connectBootstrap connects to bootstrap nodes
-func (n *P2PNetwork) connectBootstrap() {
+// connectBootstrapNodes connects to configured bootstrap nodes
+func (n *P2PNetwork) connectBootstrapNodes() {
 	for _, addr := range n.config.BootstrapNodes {
-		go n.connectPeer(addr)
+		go n.connectToPeer(addr)
 	}
 }
 
-// connectPeer initiates a TCP connection
-func (n *P2PNetwork) connectPeer(addr string) error {
+// connectToPeer dials and connects to a peer
+func (n *P2PNetwork) connectToPeer(addr string) error {
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return err
 	}
-	peer, err := n.handshake(conn)
+
+	peer, err := n.performHandshake(conn)
 	if err != nil {
 		conn.Close()
 		return err
 	}
+
 	n.mu.Lock()
 	n.peers[peer.ID] = peer
 	n.mu.Unlock()
-	go n.listenPeer(peer)
+
+	go n.handlePeerMessages(peer)
 	return nil
 }
 
-// peerDiscoveryLoop periodically requests peers
+// peerDiscoveryLoop periodically requests peer lists
 func (n *P2PNetwork) peerDiscoveryLoop() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -298,7 +305,7 @@ func (n *P2PNetwork) peerDiscoveryLoop() {
 	}
 }
 
-// discoverPeers requests peers from network
+// discoverPeers broadcasts discovery messages
 func (n *P2PNetwork) discoverPeers() {
 	n.mu.RLock()
 	if len(n.peers) >= n.config.MaxPeers {
@@ -306,15 +313,16 @@ func (n *P2PNetwork) discoverPeers() {
 		return
 	}
 	n.mu.RUnlock()
+
 	n.broadcast(&Message{Type: MsgPeerDiscovery})
 }
 
-// removePeer removes a peer
+// removePeer removes a peer from map
 func (n *P2PNetwork) removePeer(id string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if p, ok := n.peers[id]; ok && p.conn != nil {
-		p.conn.Close()
+	if peer, ok := n.peers[id]; ok && peer.conn != nil {
+		peer.conn.Close()
 	}
 	delete(n.peers, id)
 }
@@ -323,28 +331,28 @@ func (n *P2PNetwork) removePeer(id string) {
 func (n *P2PNetwork) GetPeers() []*Peer {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	result := []*Peer{}
+	list := make([]*Peer, 0, len(n.peers))
 	for _, p := range n.peers {
-		result = append(result, p)
+		list = append(list, p)
 	}
-	return result
+	return list
 }
 
-// GetPeerCount returns the peer count
+// GetPeerCount returns connected peer count
 func (n *P2PNetwork) GetPeerCount() int {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return len(n.peers)
 }
 
-// ================= Helper Functions =================
-
+// generateNodeID returns a random 32-byte node ID
 func generateNodeID() string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
+// parseMessage deserializes raw data into Message
 func parseMessage(data []byte) (*Message, error) {
 	if len(data) < 1 {
 		return nil, errors.New("empty message")
