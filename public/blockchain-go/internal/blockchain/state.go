@@ -5,10 +5,10 @@ import (
 	"math/big"
 	"sync"
 
-	"chaincore/internal/storage"
+	"github.com/hc172808/guardian-chain/internal/blockchain/storage"
 )
 
-// Account represents a dual-coin account
+// Account represents an account with dual-coin balances
 type Account struct {
 	Address     [20]byte
 	Nonce       uint64
@@ -16,18 +16,16 @@ type Account struct {
 	BalanceGYD  *big.Int
 	CodeHash    [32]byte
 	Storage     map[[32]byte][32]byte
-
-	StakedGYDS *big.Int
-	StakeTime  uint64
+	StakedGYDS  *big.Int
+	StakeTime   uint64
 }
 
-// StateDB manages accounts and blockchain state
+// StateDB manages the blockchain state
 type StateDB struct {
-	db       storage.Database
-	accounts map[[20]byte]*Account
-	dirty    map[[20]byte]bool
-	mu       sync.RWMutex
-
+	db         storage.Database
+	accounts   map[[20]byte]*Account
+	dirty      map[[20]byte]bool
+	mu         sync.RWMutex
 	snapshots  []stateSnapshot
 	nextSnapID int
 }
@@ -43,12 +41,11 @@ func NewStateDB(db storage.Database) *StateDB {
 		db:        db,
 		accounts:  make(map[[20]byte]*Account),
 		dirty:     make(map[[20]byte]bool),
-		snapshots: []stateSnapshot{},
+		snapshots: make([]stateSnapshot, 0),
 	}
 }
 
-// ========== Account Operations ==========
-
+// GetAccount retrieves or creates an account
 func (s *StateDB) GetAccount(addr [20]byte) *Account {
 	s.mu.RLock()
 	if acc, ok := s.accounts[addr]; ok {
@@ -59,36 +56,29 @@ func (s *StateDB) GetAccount(addr [20]byte) *Account {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	if acc, ok := s.accounts[addr]; ok {
 		return acc
 	}
-	acc := s.loadOrCreateAccount(addr)
-	s.accounts[addr] = acc
-	return acc
-}
 
-func (s *StateDB) loadOrCreateAccount(addr [20]byte) *Account {
-	key := append([]byte("account:"), addr[:]...)
-	data, err := s.db.Get(key)
-	if err == nil && data != nil {
-		return s.deserializeAccount(data)
-	}
-	return &Account{
+	acc := &Account{
 		Address:     addr,
 		Nonce:       0,
 		BalanceGYDS: big.NewInt(0),
 		BalanceGYD:  big.NewInt(0),
-		StakedGYDS:  big.NewInt(0),
 		Storage:     make(map[[32]byte][32]byte),
+		StakedGYDS:  big.NewInt(0),
 	}
+	s.accounts[addr] = acc
+	return acc
 }
 
-// ========== GYDS Operations ==========
+// ========== GYDS Balance Operations ==========
 
 func (s *StateDB) SetBalanceGYDS(addr [20]byte, amount *big.Int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.getOrCreateAccount(addr)
+	acc := s.GetAccount(addr)
 	acc.BalanceGYDS = new(big.Int).Set(amount)
 	s.dirty[addr] = true
 }
@@ -96,7 +86,7 @@ func (s *StateDB) SetBalanceGYDS(addr [20]byte, amount *big.Int) {
 func (s *StateDB) AddBalanceGYDS(addr [20]byte, amount *big.Int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.getOrCreateAccount(addr)
+	acc := s.GetAccount(addr)
 	acc.BalanceGYDS.Add(acc.BalanceGYDS, amount)
 	s.dirty[addr] = true
 }
@@ -104,9 +94,9 @@ func (s *StateDB) AddBalanceGYDS(addr [20]byte, amount *big.Int) {
 func (s *StateDB) SubBalanceGYDS(addr [20]byte, amount *big.Int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.getOrCreateAccount(addr)
+	acc := s.GetAccount(addr)
 	if acc.BalanceGYDS.Cmp(amount) < 0 {
-		return errors.New("insufficient GYDS")
+		return errors.New("insufficient GYDS balance")
 	}
 	acc.BalanceGYDS.Sub(acc.BalanceGYDS, amount)
 	s.dirty[addr] = true
@@ -116,18 +106,19 @@ func (s *StateDB) SubBalanceGYDS(addr [20]byte, amount *big.Int) error {
 func (s *StateDB) GetBalanceGYDS(addr [20]byte) *big.Int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if acc, ok := s.accounts[addr]; ok {
+	acc := s.accounts[addr]
+	if acc != nil {
 		return new(big.Int).Set(acc.BalanceGYDS)
 	}
 	return big.NewInt(0)
 }
 
-// ========== GYD Operations ==========
+// ========== GYD Balance Operations ==========
 
 func (s *StateDB) SetBalanceGYD(addr [20]byte, amount *big.Int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.getOrCreateAccount(addr)
+	acc := s.GetAccount(addr)
 	acc.BalanceGYD = new(big.Int).Set(amount)
 	s.dirty[addr] = true
 }
@@ -135,7 +126,7 @@ func (s *StateDB) SetBalanceGYD(addr [20]byte, amount *big.Int) {
 func (s *StateDB) AddBalanceGYD(addr [20]byte, amount *big.Int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.getOrCreateAccount(addr)
+	acc := s.GetAccount(addr)
 	acc.BalanceGYD.Add(acc.BalanceGYD, amount)
 	s.dirty[addr] = true
 }
@@ -143,9 +134,9 @@ func (s *StateDB) AddBalanceGYD(addr [20]byte, amount *big.Int) {
 func (s *StateDB) SubBalanceGYD(addr [20]byte, amount *big.Int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.getOrCreateAccount(addr)
+	acc := s.GetAccount(addr)
 	if acc.BalanceGYD.Cmp(amount) < 0 {
-		return errors.New("insufficient GYD")
+		return errors.New("insufficient GYD balance")
 	}
 	acc.BalanceGYD.Sub(acc.BalanceGYD, amount)
 	s.dirty[addr] = true
@@ -155,24 +146,25 @@ func (s *StateDB) SubBalanceGYD(addr [20]byte, amount *big.Int) error {
 func (s *StateDB) GetBalanceGYD(addr [20]byte) *big.Int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if acc, ok := s.accounts[addr]; ok {
+	acc := s.accounts[addr]
+	if acc != nil {
 		return new(big.Int).Set(acc.BalanceGYD)
 	}
 	return big.NewInt(0)
 }
 
-// ========== Staking Operations ==========
+// ========== Staking ==========
 
-func (s *StateDB) Stake(addr [20]byte, amount *big.Int, ts uint64) error {
+func (s *StateDB) Stake(addr [20]byte, amount *big.Int, timestamp uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.getOrCreateAccount(addr)
+	acc := s.GetAccount(addr)
 	if acc.BalanceGYDS.Cmp(amount) < 0 {
-		return errors.New("insufficient GYDS")
+		return errors.New("insufficient GYDS for staking")
 	}
 	acc.BalanceGYDS.Sub(acc.BalanceGYDS, amount)
 	acc.StakedGYDS.Add(acc.StakedGYDS, amount)
-	acc.StakeTime = ts
+	acc.StakeTime = timestamp
 	s.dirty[addr] = true
 	return nil
 }
@@ -180,7 +172,7 @@ func (s *StateDB) Stake(addr [20]byte, amount *big.Int, ts uint64) error {
 func (s *StateDB) Unstake(addr [20]byte, amount *big.Int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.getOrCreateAccount(addr)
+	acc := s.GetAccount(addr)
 	if acc.StakedGYDS.Cmp(amount) < 0 {
 		return errors.New("insufficient staked GYDS")
 	}
@@ -193,18 +185,19 @@ func (s *StateDB) Unstake(addr [20]byte, amount *big.Int) error {
 func (s *StateDB) GetStakedGYDS(addr [20]byte) *big.Int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if acc, ok := s.accounts[addr]; ok {
+	acc := s.accounts[addr]
+	if acc != nil {
 		return new(big.Int).Set(acc.StakedGYDS)
 	}
 	return big.NewInt(0)
 }
 
-// ========== Nonce Operations ==========
+// ========== Nonce ==========
 
 func (s *StateDB) IncrementNonce(addr [20]byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.getOrCreateAccount(addr)
+	acc := s.GetAccount(addr)
 	acc.Nonce++
 	s.dirty[addr] = true
 }
@@ -212,7 +205,8 @@ func (s *StateDB) IncrementNonce(addr [20]byte) {
 func (s *StateDB) GetNonce(addr [20]byte) uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if acc, ok := s.accounts[addr]; ok {
+	acc := s.accounts[addr]
+	if acc != nil {
 		return acc.Nonce
 	}
 	return 0
@@ -222,37 +216,12 @@ func (s *StateDB) ValidateNonce(addr [20]byte, nonce uint64) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	acc := s.accounts[addr]
-	if acc == nil {
-		if nonce != 0 {
-			return errors.New("first tx must have nonce 0")
-		}
-		return nil
+	if acc == nil && nonce != 0 {
+		return errors.New("first transaction must have nonce 0")
 	}
-	if nonce != acc.Nonce {
+	if acc != nil && nonce != acc.Nonce {
 		return errors.New("invalid nonce")
 	}
-	return nil
-}
-
-// ========== Persistence ==========
-
-func (s *StateDB) Commit() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	batch := s.db.NewBatch()
-	for addr := range s.dirty {
-		acc := s.accounts[addr]
-		data := s.serializeAccount(acc)
-		key := append([]byte("account:"), addr[:]...)
-		if err := batch.Put(key, data); err != nil {
-			return err
-		}
-	}
-	if err := batch.Write(); err != nil {
-		return err
-	}
-	s.dirty = make(map[[20]byte]bool)
 	return nil
 }
 
@@ -261,16 +230,11 @@ func (s *StateDB) Commit() error {
 func (s *StateDB) Snapshot() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	id := s.nextSnapID
 	s.nextSnapID++
-
-	snap := stateSnapshot{
-		id:       id,
-		accounts: make(map[[20]byte]*Account),
-	}
-	for addr, acc := range s.accounts {
-		snap.accounts[addr] = s.copyAccount(acc)
+	snap := stateSnapshot{id: id, accounts: make(map[[20]byte]*Account)}
+	for k, v := range s.accounts {
+		snap.accounts[k] = copyAccount(v)
 	}
 	s.snapshots = append(s.snapshots, snap)
 	return id
@@ -279,8 +243,7 @@ func (s *StateDB) Snapshot() int {
 func (s *StateDB) RevertToSnapshot(id int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	idx := -1
+	var idx int = -1
 	for i, snap := range s.snapshots {
 		if snap.id == id {
 			idx = i
@@ -290,7 +253,6 @@ func (s *StateDB) RevertToSnapshot(id int) {
 	if idx == -1 {
 		return
 	}
-
 	s.accounts = s.snapshots[idx].accounts
 	s.snapshots = s.snapshots[:idx]
 	s.dirty = make(map[[20]byte]bool)
@@ -299,24 +261,8 @@ func (s *StateDB) RevertToSnapshot(id int) {
 	}
 }
 
-// ========== Helpers ==========
-
-func (s *StateDB) getOrCreateAccount(addr [20]byte) *Account {
-	if acc, ok := s.accounts[addr]; ok {
-		return acc
-	}
-	acc := &Account{
-		Address:     addr,
-		BalanceGYDS: big.NewInt(0),
-		BalanceGYD:  big.NewInt(0),
-		StakedGYDS:  big.NewInt(0),
-		Storage:     make(map[[32]byte][32]byte),
-	}
-	s.accounts[addr] = acc
-	return acc
-}
-
-func (s *StateDB) copyAccount(acc *Account) *Account {
+// Helper function
+func copyAccount(acc *Account) *Account {
 	newAcc := &Account{
 		Address:     acc.Address,
 		Nonce:       acc.Nonce,
@@ -331,25 +277,4 @@ func (s *StateDB) copyAccount(acc *Account) *Account {
 		newAcc.Storage[k] = v
 	}
 	return newAcc
-}
-
-func (s *StateDB) serializeAccount(acc *Account) []byte {
-	data := []byte{}
-	data = append(data, acc.Address[:]...)
-	data = append(data, acc.BalanceGYDS.Bytes()...)
-	data = append(data, acc.BalanceGYD.Bytes()...)
-	data = append(data, acc.StakedGYDS.Bytes()...)
-	return data
-}
-
-func (s *StateDB) deserializeAccount(data []byte) *Account {
-	var addr [20]byte
-	copy(addr[:], data[:20])
-	return &Account{
-		Address:     addr,
-		BalanceGYDS: new(big.Int).SetBytes(data[20:]),
-		BalanceGYD:  big.NewInt(0),
-		StakedGYDS:  big.NewInt(0),
-		Storage:     make(map[[32]byte][32]byte),
-	}
 }
