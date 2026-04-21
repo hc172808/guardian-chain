@@ -2,7 +2,4 @@ module chaincore
 
 go 1.22
 
-require (
-	github.com/syndtr/goleveldb v1.0.0
-	golang.org/x/crypto v0.17.0
-)
+require golang.org/x/net v0.10.0

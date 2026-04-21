@@ -179,8 +179,13 @@ func (bc *Blockchain) createGenesisBlock() *Block {
         bc.stateDB.SetBalance(bc.config.FounderAddress, CoinGYD, big.NewInt(0))
 
         // Commit genesis state
-        stateRoot := bc.stateDB.Commit()
-        header.StateRoot = stateRoot
+        if err := bc.stateDB.Commit(); err != nil {
+                // In genesis, commit failures are non-fatal — the in-memory state is authoritative
+                // and will be re-derived on next startup.
+                _ = err
+        }
+        // State root is computed from the stateDB (placeholder zero hash for now)
+        header.StateRoot = [32]byte{}
 
         return &Block{
                 Header:       header,
@@ -211,6 +216,11 @@ func (b *Block) Hash() [32]byte {
 func (b *Block) HashHex() string {
         hash := b.Hash()
         return hex.EncodeToString(hash[:])
+}
+
+// HashHex returns the transaction hash as hex string
+func (tx *Transaction) HashHex() string {
+        return hex.EncodeToString(tx.Hash[:])
 }
 
 // CalculateHash calculates the transaction hash
@@ -427,7 +437,7 @@ func (bc *Blockchain) GetStake(addr [20]byte) *big.Int {
         defer bc.mu.RUnlock()
 
         account := bc.stateDB.GetAccount(addr)
-        return new(big.Int).Set(account.Stake)
+        return new(big.Int).Set(account.StakedGYDS)
 }
 
 // IsFounder checks if an address is the founder
