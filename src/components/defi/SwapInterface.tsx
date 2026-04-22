@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { RecentSwaps } from './RecentSwaps';
 import { CrossChainBridge } from './CrossChainBridge';
 import { getUserAddresses, computeUserBalances } from '@/lib/balances';
+import { NetworkStatusBanner } from '@/components/network/NetworkStatusBanner';
 import {
   Popover,
   PopoverContent,
@@ -360,25 +361,19 @@ export const SwapInterface = () => {
         }
       }
 
-      const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-
-      const { error } = await supabase.from('transactions').insert({
-        user_id: user.id,
-        from_address: address,
-        to_address: 'swap-pool',
+      const { submitTransaction } = await import('@/lib/mempool');
+      const result = await submitTransaction({
+        userId: user.id,
+        fromAddress: address,
+        toAddress: 'swap-pool',
         amount,
         fee: amount * 0.003,
-        tx_hash: txHash,
-        status: 'confirmed',
-        confirmed_at: new Date().toISOString(),
-        wallet_id: null,
+        symbol: payToken.symbol,
       });
 
-      if (error) throw error;
-
       toast({
-        title: 'Swap Successful!',
-        description: `Swapped ${amount} ${payToken.symbol} for ${receiveAmount} ${receiveToken.symbol}`,
+        title: 'Swap submitted to mempool',
+        description: `Tx ${result.txHash.slice(0, 10)}... pending. ${result.liveNodes} node(s) will mine it into the next block.`,
       });
 
       setPayAmount('');
@@ -416,6 +411,7 @@ export const SwapInterface = () => {
         </TabsContent>
 
         <TabsContent value="swap" className="mt-0 space-y-4">
+      <NetworkStatusBanner />
       {/* Header */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">

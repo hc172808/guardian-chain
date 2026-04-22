@@ -159,20 +159,18 @@ export const CrossChainBridge = () => {
       setBridgeStatus({ stage: 'bridging', message: `Bridging from ${sourceChain.name} to GYDS Network...` });
       await new Promise(r => setTimeout(r, 3000));
 
-      setBridgeStatus({ stage: 'minting', message: `Minting ${receivedGyds.toLocaleString()} GYDS...` });
-      const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
+      setBridgeStatus({ stage: 'minting', message: `Submitting ${receivedGyds.toLocaleString()} GYDS bridge tx to mempool...` });
 
-      const { error } = await supabase.from('token_operations').insert({
-        operation_type: 'mint',
-        wallet_address: `bridge:${address}`,
+      const { submitTransaction } = await import('@/lib/mempool');
+      const result = await submitTransaction({
+        userId: user.id,
+        fromAddress: 'bridge',
+        toAddress: address,
         amount: receivedGyds,
-        usdt_amount: netUsdValue,
-        tx_hash: txHash,
-        status: 'confirmed',
-        created_by: user.id,
+        fee: 0,
+        symbol: 'GYDS',
       });
-
-      if (error) throw error;
+      const txHash = result.txHash;
 
       await new Promise(r => setTimeout(r, 1500));
 

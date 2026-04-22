@@ -43,7 +43,8 @@ import { NodeInstaller } from '@/components/admin/NodeInstaller';
 import { AdminConsole } from '@/components/admin/AdminConsole';
 import { ComponentVisibility } from '@/components/admin/ComponentVisibility';
 import { MainnetPromotion } from '@/components/admin/MainnetPromotion';
-import { Terminal as TerminalIcon, EyeOff, Rocket } from 'lucide-react';
+import { MiningPoolAdmin } from '@/components/admin/MiningPoolAdmin';
+import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe } from 'lucide-react';
 
 interface UserProfile {
   id: string;
@@ -172,7 +173,7 @@ const AdminContent = () => {
       </div>
 
       <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-5 md:[grid-template-columns:repeat(14,minmax(0,1fr))] w-full">
+        <TabsList className="grid grid-cols-5 md:[grid-template-columns:repeat(15,minmax(0,1fr))] w-full">
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
@@ -249,7 +250,15 @@ const AdminContent = () => {
             <Rocket className="h-4 w-4" />
             <span className="hidden md:inline">Promotion</span>
           </TabsTrigger>
+          <TabsTrigger value="pools" className="gap-2" data-testid="tab-pools">
+            <Pickaxe className="h-4 w-4" />
+            <span className="hidden md:inline">Pools</span>
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="pools">
+          <MiningPoolAdmin />
+        </TabsContent>
 
         <TabsContent value="installer">
           <NodeInstaller />

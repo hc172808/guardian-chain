@@ -12,6 +12,7 @@ import { RequireAuth } from '@/components/auth/RequireAuth';
 import { WireGuardStatus } from '@/components/wireguard/WireGuardStatus';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { MiningPoolInterface } from '@/components/mining/MiningPoolInterface';
+import { MiningPoolsList } from '@/components/mining/MiningPoolsList';
 import { ProfitabilityCalculator } from '@/components/mining/ProfitabilityCalculator';
 import { MiningProcess } from '@/components/mining/MiningProcess';
 import { createMiningClient, MiningEngine } from '@/lib/miningClient';
@@ -132,15 +133,15 @@ const MiningContent = () => {
         <WireGuardStatus onConnected={handleVpnConnection} />
 
         {/* Main Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab === 'mine' ? 'pools' : activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="pools" className="flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              Pools
+            </TabsTrigger>
             <TabsTrigger value="mine" className="flex items-center gap-2">
               <Pickaxe className="w-4 h-4" />
-              Mining Pool
-            </TabsTrigger>
-            <TabsTrigger value="pool" className="flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Pool Stats
+              Mining Engine
             </TabsTrigger>
             <TabsTrigger value="calculator" className="flex items-center gap-2">
               <Calculator className="w-4 h-4" />
@@ -152,11 +153,11 @@ const MiningContent = () => {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="mine" className="mt-6">
-            <MiningPoolInterface />
+          <TabsContent value="pools" className="mt-6">
+            <MiningPoolsList />
           </TabsContent>
 
-          <TabsContent value="pool" className="mt-6">
+          <TabsContent value="mine" className="mt-6">
             <MiningPoolInterface />
           </TabsContent>
 
