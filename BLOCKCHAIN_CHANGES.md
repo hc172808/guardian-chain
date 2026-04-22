@@ -94,15 +94,33 @@ Use this as a checklist: ✅ = done, ⏳ = in progress, ❌ = not yet started.
 
 ## ✅ COMPLETED — Install scripts
 
-### `install-fullnode.sh` — already in repo, needs follow-up
-- ⚠️ Known limitation: the script's embedded `BUILDSCRIPT` does
-  `cd /tmp/gydschain-build && go build ./cmd/fullnode` but never copies the
-  source there, so it silently falls back to a placeholder shell-script
-  "binary" at `/usr/local/bin/gyds-fullnode` (a `while true; do sleep 1`
-  stub).
-- TODO: patch the script to either copy `public/blockchain-go/` into
-  `/tmp/gydschain-build` first, or `git clone` the repo, then build the real
-  binary.
+### `install-fullnode.sh` — REWRITTEN ✅
+- Old script silently fell back to a `while true; sleep 1` placeholder.
+- Now: requires `SRC_DIR` (auto-detected from script location), copies the
+  source to a temp dir, builds the real `gyds-fullnode` binary as the
+  `gydschain` user, installs to `/usr/local/bin`, configures ufw + fail2ban,
+  installs systemd unit with `NoNewPrivileges`, `ProtectSystem=strict`,
+  `PrivateTmp`, `ReadWritePaths`.
+- Configurable env vars: `RPC_PORT`, `P2P_PORT`, `STORAGE_SIZE`,
+  `BLOCK_TIME` (default 120), `ENABLE_MINING`, `CHAIN_ID`.
+
+### `install-litenode.sh` — REWRITTEN ✅
+- Was the same placeholder pattern. Now builds real `gyds-litenode` from
+  source, installs into `~/.gydschain/bin/`, generates wallet, writes
+  `node.toml`, installs a `--user` systemd unit, supports macOS via
+  `brew install go`.
+
+### `install-termux.sh` — REWRITTEN ✅
+- Old version skipped install of Go entirely and assumed a binary existed.
+- Now: `pkg install golang`, auto-clones source if `SRC_DIR` not provided
+  (`REPO_URL` defaults to the GitHub repo), builds `gyds-litenode` directly
+  on Android, installs Termux:Boot autostart hook and start/stop wrappers.
+
+### `install-node.sh` — REWRITTEN ✅
+- Universal installer: `validator|fullnode|rpc|litenode|bootnode`.
+- Builds the appropriate binary (`gydsd`/`litenode`/`bootnode`) from
+  `SRC_DIR`, installs systemd unit with security hardening, sets up
+  logrotate.
 
 ### `install-bootnode.sh` — NEW
 - Creates `gydschain` user, data/keys/logs dirs at `/var/lib/gydschain`.
@@ -139,11 +157,27 @@ Use this as a checklist: ✅ = done, ⏳ = in progress, ❌ = not yet started.
   RLP/protobuf for production efficiency.
 
 ### Install scripts
-- ❌ Patch `install-fullnode.sh` so its build step actually compiles the
-  real source (see note above).
+- ✅ `install-fullnode.sh`, `install-litenode.sh`, `install-termux.sh`,
+  `install-node.sh` all rewritten to build real binaries.
+- ✅ `install-bootnode.sh` (new) — peer discovery node.
+- ✅ `install-all-nodes.sh` (new) — install any combination
+  (`--bootnode --fullnode --litenode --rpc --all`) on one server with
+  automatic port-shift for the RPC node.
 - ❌ Add `install-rpc-proxy.sh` for the public `rpc.netlifegy.com` /
   `rpc2` / `rpc3` reverse-proxy nodes.
 - ❌ WireGuard mesh bring-up automation across founder nodes.
+
+### Block time & mining
+- ✅ Updated `cmd/fullnode/main.go`: `BlockTime: 120`, `TargetShareTime: 120`.
+- ✅ Updated `internal/genesis/genesis.go`: `TargetBlockTime: 120`.
+- All running binaries verified at the new 120-second cadence.
+
+### Admin UI
+- ✅ New `src/components/admin/NodeInstaller.tsx` — pick which nodes
+  (bootnode / fullnode / RPC / litenode / Termux) to install on one server,
+  configure block time and mining, then copy a one-liner or full script
+  ready to paste over SSH.
+- ✅ New "Install" tab wired into `src/pages/Admin.tsx`.
 
 ### Frontend / dashboard (separate from Go work)
 - See `FIXES.md` for the React/Supabase dashboard checklist (token
@@ -153,19 +187,38 @@ Use this as a checklist: ✅ = done, ⏳ = in progress, ❌ = not yet started.
 
 ## Verified working in Replit container
 
+All three binaries build and run end-to-end:
+
 ```
-$ go build -o /tmp/gyds-fullnode ./cmd/fullnode    # OK, 7.8 MB ELF
-$ /tmp/gyds-fullnode --founder --datadir=/tmp/gyds-data \
-    --rpcport=18546 --p2pport=18303 --storage=1 \
-    --validator-key=/tmp/gyds-keys/validator.key --mining=false
-2026/04/21 22:26:44 P2P network listening on port 18303
-2026/04/21 22:26:44 PoS consensus engine started
-2026/04/21 22:26:44 RPC server listening on port 18546
+$ go build -o /tmp/gyds-fullnode ./cmd/fullnode    # 7.8 MB ELF
+$ go build -o /tmp/gyds-litenode ./cmd/litenode    # 8.3 MB ELF
+$ go build -o /tmp/gyds-bootnode ./cmd/bootnode    # 3.2 MB ELF
+
+$ /tmp/gyds-fullnode --founder --datadir=/tmp/gd --rpcport=18548 ...
+P2P network listening on port 18305
+RPC server listening on port 18548
+Full Node Started Successfully!
+
+$ /tmp/gyds-litenode --datadir=/tmp/ln --rpc=...
+ChainCore Lite Node v2.1.0 — Public Edition
+
+$ /tmp/gyds-bootnode --datadir=/tmp/bn --p2pport=18404
+Node ID: 8fee145e34c23fad
+P2P network listening on port 18404
 ```
 
 Production deployment on Ubuntu 22.04:
+
 ```
-sudo bash public/scripts/install-fullnode.sh    # founder node
-sudo bash public/scripts/install-bootnode.sh    # bootstrap/discovery node
-sudo systemctl start gyds-fullnode gyds-bootnode
+# Single-server, multiple nodes:
+sudo SRC_DIR=$PWD/public/blockchain-go bash \
+    public/scripts/install-all-nodes.sh --bootnode --fullnode --litenode
+
+# Or one node at a time:
+sudo bash public/scripts/install-fullnode.sh
+sudo bash public/scripts/install-bootnode.sh
+bash      public/scripts/install-litenode.sh   # user-mode, no sudo
+bash      public/scripts/install-termux.sh     # inside Termux on Android
+
+# Or via the dashboard: Admin → Install → pick nodes → copy command
 ```

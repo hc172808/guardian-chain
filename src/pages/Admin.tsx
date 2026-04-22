@@ -39,6 +39,7 @@ import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 import { TokenManager } from '@/components/admin/TokenManager';
+import { NodeInstaller } from '@/components/admin/NodeInstaller';
 
 interface UserProfile {
   id: string;
@@ -167,7 +168,7 @@ const AdminContent = () => {
       </div>
 
       <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-5 md:grid-cols-10 w-full">
+        <TabsList className="grid grid-cols-5 md:grid-cols-11 w-full">
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
@@ -228,7 +229,15 @@ const AdminContent = () => {
             <Coins className="h-4 w-4" />
             <span className="hidden md:inline">Tokens</span>
           </TabsTrigger>
+          <TabsTrigger value="installer" className="gap-2" data-testid="tab-installer">
+            <Server className="h-4 w-4" />
+            <span className="hidden md:inline">Install</span>
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="installer">
+          <NodeInstaller />
+        </TabsContent>
 
         <TabsContent value="validators">
           <ValidatorManager />

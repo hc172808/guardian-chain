@@ -70,7 +70,7 @@ func main() {
         // Initialize blockchain
         chainConfig := blockchain.Config{
                 ChainID:           13370, // GYDS Mainnet Chain ID
-                BlockTime:         12,    // 12 seconds
+                BlockTime:         120,   // 120 seconds (2 minutes)
                 MaxBlockSize:      2 * 1024 * 1024, // 2MB
                 MinGasPrice:       1000000000, // 1 Gwei
                 ValidatorMinStake: bigIntFromString("32000000000000000000"), // 32 ETH equivalent
@@ -98,7 +98,7 @@ func main() {
         // Initialize mining reward distributor (PoW for rewards only)
         miningConfig := mining.Config{
                 Enabled:              *enableMining,
-                TargetShareTime:      10, // 10 seconds
+                TargetShareTime:      120, // 120 seconds (mining block time)
                 MaxSharesPerMinute:   100,
                 SessionRewardCap:     bigIntFromString("1000000000000000000"),  // 1 token per session
                 DailyAddressCap:      bigIntFromString("10000000000000000000"), // 10 tokens per day

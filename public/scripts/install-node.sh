@@ -1,227 +1,158 @@
 #!/usr/bin/env bash
-# GydsChain Node Installer v2.1.0
-# Usage: bash install-node.sh [validator|fullnode|rpc|litenode]
-# Domain: netlifegy.com | Chain ID: 13370
-set -e
+#═══════════════════════════════════════════════════════════════════════════════
+#  GYDSchain Universal Node Installer
+#  Usage:  sudo bash install-node.sh [validator|fullnode|rpc|litenode|bootnode]
+#  Builds REAL binaries from public/blockchain-go/ source.
+#  Chain ID: 13370  |  Domain: netlifegy.com
+#═══════════════════════════════════════════════════════════════════════════════
+set -euo pipefail
 
 NODE_TYPE="${1:-fullnode}"
+case "$NODE_TYPE" in
+  validator|fullnode|rpc|litenode|bootnode) ;;
+  *) echo "Usage: $0 [validator|fullnode|rpc|litenode|bootnode]"; exit 1 ;;
+esac
+
 INSTALL_DIR="/opt/gydschain"
 DATA_DIR="/var/lib/gydschain"
 LOG_DIR="/var/log/gydschain"
 SERVICE_NAME="gydschain-${NODE_TYPE}"
+GO_VERSION="${GO_VERSION:-1.22.5}"
 
-# ─── Network Configuration ───────────────────────────────────
+CHAIN_ID="${CHAIN_ID:-13370}"
+BLOCK_TIME="${BLOCK_TIME:-120}"
+P2P_PORT="${P2P_PORT:-30303}"
+RPC_PORT="${RPC_PORT:-8546}"
+
 PRIMARY_RPC="https://rpc.netlifegy.com"
 BACKUP_RPC_1="https://rpc2.netlifegy.com"
 BACKUP_RPC_2="https://rpc3.netlifegy.com"
 WS_ENDPOINT="wss://ws.netlifegy.com"
-VPN_SERVER="vpn.netlifegy.com"
-LOCAL_RPC="${GYDS_RPC_LOCAL:-http://localhost:8546}"
-LOCAL_LAN="${GYDS_RPC_LAN:-}"
-CHAIN_ID=13370
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+SRC_DIR="${SRC_DIR:-$(cd "$(dirname "$0")/../blockchain-go" 2>/dev/null && pwd || echo "")}"
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
+log()  { echo -e "${GREEN}[+]${NC} $*"; }
+err()  { echo -e "${RED}[✗]${NC} $*" >&2; }
 
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════╗"
-echo "║         GydsChain Node Installer v2.0                    ║"
-echo "║         Node Type: ${NODE_TYPE}                          ║"
-echo "║         Chain ID:  ${CHAIN_ID}                           ║"
-echo "║         Domain:    netlifegy.com                         ║"
+echo "║   GYDSchain Node Installer (${NODE_TYPE})                 "
+echo "║   Chain ID: ${CHAIN_ID}  |  Block: ${BLOCK_TIME}s         "
 echo "╚═══════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-# Check OS
-if ! grep -q "Ubuntu\|Debian" /etc/os-release 2>/dev/null; then
-    echo -e "${YELLOW}⚠️  Warning: Designed for Ubuntu/Debian. Proceeding anyway...${NC}"
-fi
+[[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
+[[ -n "$SRC_DIR" && -d "$SRC_DIR" ]] || { err "Set SRC_DIR=/path/to/blockchain-go"; exit 1; }
 
-# Check root
-if [[ $EUID -ne 0 ]]; then
-   echo -e "${RED}Error: Run as root (sudo bash install-node.sh)${NC}"
-   exit 1
-fi
-
-# ─── Step 1: Install dependencies ────────────────────────────
-echo -e "${GREEN}[1/8]${NC} Installing dependencies..."
+# ─── 1. Deps ──────────────────────────────────────────────────────
+log "[1/8] Installing apt packages..."
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq \
-    golang-go git build-essential libleveldb-dev \
-    wireguard-tools curl jq \
-    ufw fail2ban iptables \
-    logrotate
+apt-get install -y -qq build-essential git curl wget jq openssl ufw fail2ban iptables logrotate ca-certificates
 
-# ─── Step 2: Create directories ──────────────────────────────
-echo -e "${GREEN}[2/8]${NC} Creating directories..."
+# ─── 2. Go ────────────────────────────────────────────────────────
+log "[2/8] Installing Go ${GO_VERSION}..."
+if ! command -v go >/dev/null || [[ "$(go version | awk '{print $3}')" != "go${GO_VERSION}" ]]; then
+  cd /tmp
+  wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -O go.tgz
+  rm -rf /usr/local/go && tar -C /usr/local -xzf go.tgz && rm go.tgz
+  ln -sf /usr/local/go/bin/go    /usr/local/bin/go
+  ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+fi
+
+# ─── 3. Dirs ──────────────────────────────────────────────────────
+log "[3/8] Creating directories..."
 mkdir -p "$INSTALL_DIR" "$DATA_DIR" "$LOG_DIR" "$INSTALL_DIR/keys"
 
-# ─── Step 3: Build from source ───────────────────────────────
-echo -e "${GREEN}[3/8]${NC} Building GydsChain node..."
-cd /tmp
-if [ -d "gydschain-build" ]; then rm -rf gydschain-build; fi
-mkdir gydschain-build && cd gydschain-build
+# ─── 4. Build the right binary(ies) ────────────────────────────────
+log "[4/8] Building from ${SRC_DIR}..."
+BUILD_TMP="$(mktemp -d)"
+cp -r "$SRC_DIR" "$BUILD_TMP/blockchain-go"
+pushd "$BUILD_TMP/blockchain-go" >/dev/null
+go mod download
+case "$NODE_TYPE" in
+  validator|fullnode|rpc) go build -ldflags="-s -w" -o "$INSTALL_DIR/gydsd"     ./cmd/fullnode ;;
+  litenode)               go build -ldflags="-s -w" -o "$INSTALL_DIR/litenode"  ./cmd/litenode ;;
+  bootnode)               go build -ldflags="-s -w" -o "$INSTALL_DIR/bootnode"  ./cmd/bootnode ;;
+esac
+popd >/dev/null
+rm -rf "$BUILD_TMP"
 
-if [ -d "/opt/gydschain-repo/blockchain-go" ]; then
-    cp -r /opt/gydschain-repo/blockchain-go/* .
-else
-    echo -e "${YELLOW}⚠️  Source not found. Clone repo first:${NC}"
-    echo "    git clone https://github.com/gydschain/gydschain-complete.git /opt/gydschain-repo"
-    exit 1
-fi
-
-go build -ldflags="-s -w" -o "$INSTALL_DIR/gydsd" ./cmd/fullnode/main.go
-go build -ldflags="-s -w" -o "$INSTALL_DIR/litenode" ./cmd/litenode/main.go
-
-# ─── Step 4: Configure firewall (UFW) ────────────────────────
-echo -e "${GREEN}[4/8]${NC} Configuring firewall..."
-ufw --force reset >/dev/null 2>&1
+# ─── 5. Firewall ──────────────────────────────────────────────────
+log "[5/8] Configuring ufw..."
+ufw --force reset >/dev/null 2>&1 || true
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
-ufw allow ssh comment 'SSH' >/dev/null
+ufw allow ssh >/dev/null
+ufw limit ssh/tcp >/dev/null
 ufw allow 80/tcp comment 'HTTP' >/dev/null
 ufw allow 443/tcp comment 'HTTPS' >/dev/null
-ufw allow 30303/tcp comment 'P2P TCP' >/dev/null
-ufw allow 30303/udp comment 'P2P UDP' >/dev/null
-ufw allow 8546/tcp comment 'RPC' >/dev/null
-ufw allow 8545/tcp comment 'RPC Alt' >/dev/null
+ufw allow ${P2P_PORT}/tcp comment 'GYDS P2P TCP' >/dev/null
+ufw allow ${P2P_PORT}/udp comment 'GYDS P2P UDP' >/dev/null
+case "$NODE_TYPE" in
+  validator|fullnode|rpc) ufw allow ${RPC_PORT}/tcp comment 'GYDS RPC' >/dev/null ;;
+  bootnode) ;; # no RPC for bootnodes
+esac
 ufw allow 51820/udp comment 'WireGuard' >/dev/null
-# Rate limit SSH
-ufw limit ssh/tcp >/dev/null
 ufw --force enable >/dev/null
-echo -e "  UFW enabled with SSH rate limiting"
 
-# ─── Step 5: Configure Fail2Ban ──────────────────────────────
-echo -e "${GREEN}[5/8]${NC} Configuring Fail2Ban..."
-cat > /etc/fail2ban/jail.d/gydschain.conf << 'EOF'
+# ─── 6. fail2ban ──────────────────────────────────────────────────
+log "[6/8] Configuring fail2ban..."
+cat > /etc/fail2ban/jail.d/gydschain.conf <<EOF
 [sshd]
 enabled = true
 maxretry = 5
 bantime = 3600
-findtime = 600
-
-[gyds-rpc]
-enabled = true
-port = 8545,8546
-maxretry = 20
-bantime = 1800
-findtime = 300
-logpath = /var/log/gydschain/rpc.log
-filter = gyds-rpc
-
-[gyds-p2p]
-enabled = true
-port = 30303
-maxretry = 50
-bantime = 600
-findtime = 60
-logpath = /var/log/gydschain/p2p.log
-filter = gyds-p2p
 EOF
+systemctl enable fail2ban >/dev/null 2>&1 && systemctl restart fail2ban >/dev/null 2>&1 || true
 
-# Create fail2ban filters
-mkdir -p /etc/fail2ban/filter.d
-cat > /etc/fail2ban/filter.d/gyds-rpc.conf << 'EOF'
-[Definition]
-failregex = ^.*RPC rate limit exceeded from <HOST>.*$
-ignoreregex =
-EOF
+# ─── 7. Build exec command + systemd unit ─────────────────────────
+log "[7/8] Installing systemd service: ${SERVICE_NAME}..."
+KEY_FILE="$INSTALL_DIR/keys/${NODE_TYPE}.key"
+[[ -f "$KEY_FILE" ]] || { openssl rand -hex 32 > "$KEY_FILE"; chmod 600 "$KEY_FILE"; }
 
-cat > /etc/fail2ban/filter.d/gyds-p2p.conf << 'EOF'
-[Definition]
-failregex = ^.*P2P connection rejected from <HOST>.*$
-ignoreregex =
-EOF
-
-systemctl enable fail2ban >/dev/null 2>&1
-systemctl restart fail2ban >/dev/null 2>&1
-echo -e "  Fail2Ban enabled for SSH, RPC, and P2P"
-
-# ─── Step 6: Create environment file ─────────────────────────
-echo -e "${GREEN}[6/8]${NC} Creating configuration..."
-cat > "$INSTALL_DIR/node.env" << EOF
-# GydsChain Node Configuration v2.0
-NODE_TYPE=${NODE_TYPE}
-CHAIN_ID=${CHAIN_ID}
-DATA_DIR=${DATA_DIR}
-LOG_DIR=${LOG_DIR}
-
-# RPC Endpoints (failover order)
-PRIMARY_RPC=${PRIMARY_RPC}
-BACKUP_RPC_1=${BACKUP_RPC_1}
-BACKUP_RPC_2=${BACKUP_RPC_2}
-WS_ENDPOINT=${WS_ENDPOINT}
-
-# Local Node RPC (LAN optional — set GYDS_RPC_LAN env var to enable)
-LOCAL_RPC=${LOCAL_RPC}
-${LOCAL_LAN:+LOCAL_LAN=${LOCAL_LAN}}
-
-# Network
-P2P_PORT=30303
-RPC_PORT=8546
-MAX_PEERS=50
-STORAGE_GB=100
-
-# Security
-RATE_LIMIT_RPC=100
-RATE_LIMIT_WINDOW=60
-MAX_CONNECTIONS=200
-
-# VPN
-VPN_SERVER=${VPN_SERVER}
-
-# Logging
-LOG_LEVEL=info
-EOF
-
-# ─── Step 7: Create systemd service ──────────────────────────
-echo -e "${GREEN}[7/8]${NC} Creating systemd service..."
 case "$NODE_TYPE" in
-    validator|fullnode)
-        EXEC_CMD="$INSTALL_DIR/gydsd --founder --datadir=$DATA_DIR --rpcport=8546 --p2pport=30303 --maxpeers=50 --storage=100 --chain-id=$CHAIN_ID --log-level=info"
-        ;;
-    rpc)
-        EXEC_CMD="$INSTALL_DIR/gydsd --founder --datadir=$DATA_DIR --rpcport=8546 --p2pport=30303 --maxpeers=100 --storage=50 --chain-id=$CHAIN_ID --log-level=info"
-        ;;
-    litenode)
-        EXEC_CMD="$INSTALL_DIR/litenode --rpc=$PRIMARY_RPC --rpc-failover=$BACKUP_RPC_1,$BACKUP_RPC_2 --ws=$WS_ENDPOINT --datadir=$DATA_DIR --chain-id=$CHAIN_ID"
-        ;;
+  validator|fullnode)
+    EXEC_CMD="$INSTALL_DIR/gydsd --founder --datadir=$DATA_DIR --rpcport=$RPC_PORT --p2pport=$P2P_PORT --maxpeers=50 --storage=100 --validator-key=$KEY_FILE --mining"
+    ;;
+  rpc)
+    EXEC_CMD="$INSTALL_DIR/gydsd --founder --datadir=$DATA_DIR --rpcport=$RPC_PORT --p2pport=$P2P_PORT --maxpeers=100 --storage=50 --validator-key=$KEY_FILE --mining=false"
+    ;;
+  litenode)
+    EXEC_CMD="$INSTALL_DIR/litenode --rpc=$PRIMARY_RPC --rpc-failover=$BACKUP_RPC_1,$BACKUP_RPC_2 --ws=$WS_ENDPOINT --datadir=$DATA_DIR --chain-id=$CHAIN_ID"
+    ;;
+  bootnode)
+    EXEC_CMD="$INSTALL_DIR/bootnode --datadir=$DATA_DIR --p2pport=$P2P_PORT --maxpeers=100 --node-key=$KEY_FILE --chain-id=$CHAIN_ID"
+    ;;
 esac
 
-cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
+cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
 [Unit]
-Description=GydsChain ${NODE_TYPE} Node
+Description=GYDSchain ${NODE_TYPE} node
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-EnvironmentFile=${INSTALL_DIR}/node.env
+WorkingDirectory=${INSTALL_DIR}
 ExecStart=${EXEC_CMD}
 Restart=always
-RestartSec=5
+RestartSec=10
 LimitNOFILE=65535
-StandardOutput=append:${LOG_DIR}/node.log
-StandardError=append:${LOG_DIR}/error.log
-
-# Security hardening
+StandardOutput=append:${LOG_DIR}/${NODE_TYPE}.log
+StandardError=append:${LOG_DIR}/${NODE_TYPE}-error.log
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=${DATA_DIR} ${LOG_DIR}
+ReadWritePaths=${DATA_DIR} ${LOG_DIR} ${INSTALL_DIR}
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# ─── Step 8: Configure log rotation ─────────────────────────
-echo -e "${GREEN}[8/8]${NC} Configuring log rotation..."
-cat > /etc/logrotate.d/gydschain << EOF
-${LOG_DIR}/*.log {
+cat > /etc/logrotate.d/gydschain-${NODE_TYPE} <<EOF
+${LOG_DIR}/${NODE_TYPE}*.log {
     daily
     rotate 14
     compress
@@ -229,43 +160,23 @@ ${LOG_DIR}/*.log {
     missingok
     notifempty
     create 0640 root root
-    postrotate
-        systemctl reload ${SERVICE_NAME} 2>/dev/null || true
-    endscript
 }
 EOF
 
 systemctl daemon-reload
-systemctl enable ${SERVICE_NAME}
-systemctl start ${SERVICE_NAME}
+systemctl enable ${SERVICE_NAME} >/dev/null 2>&1
+systemctl restart ${SERVICE_NAME} || true
 
-echo ""
-echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ✅ GydsChain ${NODE_TYPE} installed successfully!       ║${NC}"
-echo -e "${GREEN}╚═══════════════════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "${CYAN}Configuration:${NC}"
-echo -e "  Service:    ${SERVICE_NAME}"
-echo -e "  Data:       ${DATA_DIR}"
-echo -e "  Logs:       ${LOG_DIR}"
-echo -e "  Config:     ${INSTALL_DIR}/node.env"
-echo -e "  Chain ID:   ${CHAIN_ID}"
-echo ""
-echo -e "${CYAN}Security:${NC}"
-echo -e "  UFW:        Enabled (SSH rate-limited)"
-echo -e "  Fail2Ban:   Active for SSH, RPC, P2P"
-echo -e "  Ports:      22, 80, 443, 8545, 8546, 30303, 51820"
-echo ""
-echo -e "${CYAN}Service Endpoints:${NC}"
-echo -e "  rpc.netlifegy.com          - Main RPC"
-echo -e "  rpc2.netlifegy.com         - Backup RPC #1"
-echo -e "  rpc3.netlifegy.com         - Backup RPC #2"
-echo -e "  ws.netlifegy.com           - WebSocket"
-echo -e "  explorer.netlifegy.com     - Block Explorer"
-echo -e "  vpn.netlifegy.com          - WireGuard VPN"
-echo -e "  testnet-rpc.netlifegy.com  - Testnet RPC"
-echo ""
-echo -e "${CYAN}Commands:${NC}"
-echo -e "  systemctl status ${SERVICE_NAME}"
-echo -e "  journalctl -u ${SERVICE_NAME} -f"
-echo -e "  fail2ban-client status"
+log "[8/8] Done."
+
+cat <<EOF
+
+╔═══════════════════════════════════════════════════════════╗
+║  ✅ GYDSchain ${NODE_TYPE} installed                       
+╚═══════════════════════════════════════════════════════════╝
+  Service:  ${SERVICE_NAME}
+  Logs:     ${LOG_DIR}/${NODE_TYPE}.log
+  Data:     ${DATA_DIR}
+  Manage:   systemctl status ${SERVICE_NAME}
+            journalctl -u ${SERVICE_NAME} -f
+EOF
