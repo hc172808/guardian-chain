@@ -15,6 +15,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { readAllTokenNetworkStates, TokenNetworkState } from '@/lib/tokenPromotion';
 
 interface TokenRecord {
   id: string;
@@ -62,6 +63,7 @@ const toFeaturePanelToken = (t: TokenRecord) => ({
 const TokensPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [tokens, setTokens] = useState<TokenRecord[]>([]);
+  const [networkStates, setNetworkStates] = useState<Map<string, TokenNetworkState>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedToken, setSelectedToken] = useState<ReturnType<typeof toFeaturePanelToken> | null>(null);
   const { user } = useAuth();
@@ -78,6 +80,8 @@ const TokensPage = () => {
         t.is_active || (user && t.creator_id === user.id)
       );
       setTokens(filtered as unknown as TokenRecord[]);
+      const states = await readAllTokenNetworkStates();
+      setNetworkStates(states);
       setLoading(false);
     };
     fetchTokens();
@@ -192,8 +196,16 @@ const TokensPage = () => {
                               </div>
                             )}
                             <div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="font-semibold">{token.name}</h3>
+                                {(() => {
+                                  const net = networkStates.get(token.id)?.network_type ?? 'devnet';
+                                  return net === 'mainnet' ? (
+                                    <Badge className="text-xs bg-emerald-500/20 text-emerald-300 border-emerald-500/40" data-testid={`badge-network-${token.id}`}>MAINNET</Badge>
+                                  ) : (
+                                    <Badge className="text-xs bg-amber-500/20 text-amber-300 border-amber-500/40" data-testid={`badge-network-${token.id}`}>DEVNET</Badge>
+                                  );
+                                })()}
                                 {!token.is_active && <Badge variant="destructive" className="text-xs">Blocked</Badge>}
                               </div>
                               <p className="text-sm text-muted-foreground">{token.symbol}</p>

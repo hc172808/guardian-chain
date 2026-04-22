@@ -10,8 +10,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { getUserAddresses, computeUserBalances } from '@/lib/balances';
-import { 
-  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart, Wallet
+import {
+  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart, Rocket
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -19,12 +19,14 @@ import {
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from '@/components/ui/accordion';
-
-interface TokenAuthority {
-  freeze: boolean;
-  update: boolean;
-  mint: boolean;
-}
+import {
+  ALL_AUTHORITIES,
+  AuthorityKey,
+  TokenFactoryPricing,
+  DEFAULT_PRICING,
+  normalizePricing,
+} from '@/lib/tokenAuthorities';
+import { writeTokenNetworkState, computeMarketCapUsd } from '@/lib/tokenPromotion';
 
 interface TokenCreationParams {
   name: string;
@@ -32,28 +34,13 @@ interface TokenCreationParams {
   decimals: number;
   initialSupply: string;
   gydsLiquidity: string;
-  authorities: TokenAuthority;
+  authorities: Partial<Record<AuthorityKey, boolean>>;
+  transferFeeBps: string; // for transfer_fee authority
   lpLockType: 'burn' | 'timelock';
   timelockDays: number;
   maxBuyPerWallet: string;
   dailyBuyLimit: string;
 }
-
-interface AdminPricing {
-  deployment_fee: number;
-  freeze_authority_fee: number;
-  update_authority_fee: number;
-  mint_authority_fee: number;
-  min_liquidity: number;
-}
-
-const DEFAULT_PRICING: AdminPricing = {
-  deployment_fee: 100,
-  freeze_authority_fee: 50,
-  update_authority_fee: 25,
-  mint_authority_fee: 200,
-  min_liquidity: 100,
-};
 
 export const TokenFactory = () => {
   const { toast } = useToast();
@@ -63,14 +50,15 @@ export const TokenFactory = () => {
   const [creating, setCreating] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [pricing, setPricing] = useState<AdminPricing>(DEFAULT_PRICING);
+  const [pricing, setPricing] = useState<TokenFactoryPricing>(DEFAULT_PRICING);
   const [userGydsBalance, setUserGydsBalance] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [params, setParams] = useState<TokenCreationParams>({
     name: '', symbol: '', decimals: 18, initialSupply: '1000000',
     gydsLiquidity: '1000',
-    authorities: { freeze: false, update: false, mint: false },
+    authorities: {},
+    transferFeeBps: '0',
     lpLockType: 'burn', timelockDays: 365,
     maxBuyPerWallet: '10000',
     dailyBuyLimit: '5000',
@@ -84,16 +72,7 @@ export const TokenFactory = () => {
         .select('config_value')
         .eq('config_key', 'token_factory_pricing')
         .maybeSingle();
-      if (data?.config_value) {
-        const val = data.config_value as Record<string, number>;
-        setPricing({
-          deployment_fee: val.deployment_fee ?? DEFAULT_PRICING.deployment_fee,
-          freeze_authority_fee: val.freeze_authority_fee ?? DEFAULT_PRICING.freeze_authority_fee,
-          update_authority_fee: val.update_authority_fee ?? DEFAULT_PRICING.update_authority_fee,
-          mint_authority_fee: val.mint_authority_fee ?? DEFAULT_PRICING.mint_authority_fee,
-          min_liquidity: val.min_liquidity ?? DEFAULT_PRICING.min_liquidity,
-        });
-      }
+      setPricing(normalizePricing(data?.config_value));
 
       if (user) {
         const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
@@ -104,15 +83,19 @@ export const TokenFactory = () => {
     loadData();
   }, [user, address]);
 
-  const calculateTotalFees = () => {
-    let total = pricing.deployment_fee;
-    if (params.authorities.freeze) total += pricing.freeze_authority_fee;
-    if (params.authorities.update) total += pricing.update_authority_fee;
-    if (params.authorities.mint) total += pricing.mint_authority_fee;
-    return total;
-  };
+  // Authorities the admin currently lets users enable
+  const enabledAuthorities = ALL_AUTHORITIES.filter((a) => pricing.authorities[a.key]?.enabled);
 
+  const calculateAuthorityFees = () =>
+    enabledAuthorities
+      .filter((a) => params.authorities[a.key])
+      .reduce((sum, a) => sum + (pricing.authorities[a.key].fee || 0), 0);
+
+  const calculateTotalFees = () => pricing.deployment_fee + calculateAuthorityFees();
   const calculateTotalGyds = () => calculateTotalFees() + parseFloat(params.gydsLiquidity || '0');
+
+  const toggleAuthority = (key: AuthorityKey, value: boolean) =>
+    setParams({ ...params, authorities: { ...params.authorities, [key]: value } });
 
   const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -190,18 +173,40 @@ export const TokenFactory = () => {
         gyds_liquidity: parseFloat(params.gydsLiquidity),
         logo_url: logoUrl,
         lp_lock_type: params.lpLockType === 'burn' ? 'burned' : 'timelocked',
-        lp_unlock_time: params.lpLockType === 'timelock' 
-          ? new Date(Date.now() + params.timelockDays * 86400000).toISOString() 
+        lp_unlock_time: params.lpLockType === 'timelock'
+          ? new Date(Date.now() + params.timelockDays * 86400000).toISOString()
           : null,
-        freeze_enabled: params.authorities.freeze,
-        update_enabled: params.authorities.update,
-        mint_enabled: params.authorities.mint,
+        freeze_enabled: !!params.authorities.freeze,
+        update_enabled: !!params.authorities.update,
+        mint_enabled:   !!params.authorities.mint,
         address: tokenAddress,
       }).select('id').single();
 
       if (error) throw error;
 
       const tokenId = newToken?.id;
+
+      // Persist devnet network state + extended authorities (single source of truth
+      // until the network_type / extra_authorities columns are migrated upstream).
+      if (tokenId) {
+        const extra: Record<string, boolean | number> = {};
+        for (const a of enabledAuthorities) {
+          if (params.authorities[a.key]) extra[a.key] = true;
+        }
+        if (params.authorities.transfer_fee) {
+          extra.transfer_fee_bps = parseInt(params.transferFeeBps || '0') || 0;
+        }
+        const initialMc = computeMarketCapUsd(
+          { id: tokenId, total_supply: parseFloat(params.initialSupply), gyds_liquidity: parseFloat(params.gydsLiquidity) },
+          pricing.mainnet_promotion.gyds_price_usd,
+        );
+        await writeTokenNetworkState(tokenId, {
+          network_type: 'devnet',
+          mainnet_promoted_at: null,
+          market_cap_usd: initialMc,
+          extra_authorities: extra,
+        }, user.id);
+      }
 
       // Deduct GYDS fee (record as burn operation)
       await supabase.from('token_operations').insert({
@@ -241,7 +246,10 @@ export const TokenFactory = () => {
       const { gydsBalance } = await computeUserBalances(user.id, myAddresses);
       setUserGydsBalance(gydsBalance);
 
-      toast({ title: 'Token Created!', description: `${params.name} (${params.symbol}) is now live. You are the first holder with ${parseFloat(params.initialSupply).toLocaleString()} ${params.symbol}.` });
+      toast({
+        title: `Token Created on Devnet!`,
+        description: `${params.name} (${params.symbol}) is live on devnet. It will auto-promote to mainnet after ${pricing.mainnet_promotion.min_age_days} days once it reaches $${pricing.mainnet_promotion.min_market_cap_usd.toLocaleString()} market cap.`,
+      });
       setDialogOpen(false);
       resetForm();
     } catch (error: any) {
@@ -255,7 +263,8 @@ export const TokenFactory = () => {
     setParams({
       name: '', symbol: '', decimals: 18, initialSupply: '1000000',
       gydsLiquidity: '1000',
-      authorities: { freeze: false, update: false, mint: false },
+      authorities: {},
+      transferFeeBps: '0',
       lpLockType: 'burn', timelockDays: 365,
       maxBuyPerWallet: '10000',
       dailyBuyLimit: '5000',
@@ -454,46 +463,88 @@ export const TokenFactory = () => {
 
               <AccordionItem value="authorities">
                 <AccordionTrigger>
-                  <div className="flex items-center gap-2"><Badge variant="outline">4</Badge> Authorities (Optional)</div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">4</Badge> Authorities (Optional)
+                    <Badge variant="outline" className="ml-2">{enabledAuthorities.length} available</Badge>
+                  </div>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pt-4">
-                  <p className="text-sm text-muted-foreground">Authorities can be renounced later. Extra GYDS fees apply.</p>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
-                      <div>
-                        <p className="font-medium">Freeze Authority</p>
-                        <p className="text-xs text-muted-foreground">Pause/unpause transfers • +{pricing.freeze_authority_fee} GYDS</p>
-                      </div>
-                      <Switch checked={params.authorities.freeze} onCheckedChange={(checked) => setParams({ ...params, authorities: { ...params.authorities, freeze: checked } })} />
+                  <p className="text-sm text-muted-foreground">
+                    Only authorities the admin has enabled can be added. Each one adds a GYDS fee.
+                  </p>
+                  {enabledAuthorities.length === 0 ? (
+                    <div className="p-4 rounded-lg bg-secondary/30 text-sm text-muted-foreground text-center">
+                      The admin has not enabled any optional authorities. Your token will launch with no extra authorities.
                     </div>
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
-                      <div>
-                        <p className="font-medium">Update Authority</p>
-                        <p className="text-xs text-muted-foreground">Modify metadata • +{pricing.update_authority_fee} GYDS</p>
-                      </div>
-                      <Switch checked={params.authorities.update} onCheckedChange={(checked) => setParams({ ...params, authorities: { ...params.authorities, update: checked } })} />
+                  ) : (
+                    <div className="space-y-3">
+                      {enabledAuthorities.map((a) => {
+                        const fee = pricing.authorities[a.key].fee;
+                        const isOn = !!params.authorities[a.key];
+                        return (
+                          <div
+                            key={a.key}
+                            className={`p-3 rounded-lg ${a.warning ? 'border border-amber-500/30 bg-amber-500/5' : 'bg-secondary/30'}`}
+                            data-testid={`authority-row-${a.key}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-medium flex items-center gap-2">
+                                  {a.label}
+                                  {a.warning && <AlertTriangle className="h-3 w-3 text-amber-500" />}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{a.description} • +{fee} GYDS</p>
+                                {a.warning && <p className="text-xs text-amber-500/80 mt-1">{a.warning}</p>}
+                              </div>
+                              <Switch
+                                data-testid={`switch-authority-${a.key}`}
+                                checked={isOn}
+                                onCheckedChange={(v) => toggleAuthority(a.key, v)}
+                              />
+                            </div>
+                            {a.key === 'transfer_fee' && isOn && (
+                              <div className="mt-3 space-y-1">
+                                <Label className="text-xs">Fee in basis points (100 bps = 1%)</Label>
+                                <Input
+                                  data-testid="input-transfer-fee-bps"
+                                  type="number" min={0} max={10000}
+                                  value={params.transferFeeBps}
+                                  onChange={(e) => setParams({ ...params, transferFeeBps: e.target.value })}
+                                  placeholder="0"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="flex items-center justify-between p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
-                      <div>
-                        <p className="font-medium flex items-center gap-2">Mint Authority <AlertTriangle className="h-3 w-3 text-amber-500" /></p>
-                        <p className="text-xs text-muted-foreground">Create new tokens • +{pricing.mint_authority_fee} GYDS</p>
-                      </div>
-                      <Switch checked={params.authorities.mint} onCheckedChange={(checked) => setParams({ ...params, authorities: { ...params.authorities, mint: checked } })} />
-                    </div>
-                  </div>
+                  )}
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
+
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+              <Rocket className="h-4 w-4 text-amber-500 shrink-0" />
+              <p className="text-xs text-muted-foreground">
+                Your token launches on <span className="font-semibold text-amber-400">DEVNET</span>.
+                It will auto-promote to <span className="font-semibold">MAINNET</span> after{' '}
+                <span className="font-semibold">{pricing.mainnet_promotion.min_age_days} days</span> once it reaches{' '}
+                <span className="font-semibold">${pricing.mainnet_promotion.min_market_cap_usd.toLocaleString()}</span> market cap.
+              </p>
+            </div>
 
             <GlassCard className="p-4">
               <h4 className="font-medium mb-3">Cost Summary</h4>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-muted-foreground">Deployment Fee</span><span>{pricing.deployment_fee} GYDS</span></div>
-                {params.authorities.freeze && <div className="flex justify-between"><span className="text-muted-foreground">Freeze Authority</span><span>{pricing.freeze_authority_fee} GYDS</span></div>}
-                {params.authorities.update && <div className="flex justify-between"><span className="text-muted-foreground">Update Authority</span><span>{pricing.update_authority_fee} GYDS</span></div>}
-                {params.authorities.mint && <div className="flex justify-between"><span className="text-muted-foreground">Mint Authority</span><span>{pricing.mint_authority_fee} GYDS</span></div>}
+                {enabledAuthorities.filter((a) => params.authorities[a.key]).map((a) => (
+                  <div key={a.key} className="flex justify-between">
+                    <span className="text-muted-foreground">{a.label}</span>
+                    <span>{pricing.authorities[a.key].fee} GYDS</span>
+                  </div>
+                ))}
                 <div className="flex justify-between"><span className="text-muted-foreground">LP Liquidity</span><span>{params.gydsLiquidity} GYDS</span></div>
-                <div className="border-t pt-2 flex justify-between font-bold"><span>Total Required</span><span className="text-primary">{calculateTotalGyds().toLocaleString()} GYDS</span></div>
+                <div className="border-t pt-2 flex justify-between font-bold"><span>Total Required</span><span className="text-primary" data-testid="text-total-gyds">{calculateTotalGyds().toLocaleString()} GYDS</span></div>
               </div>
             </GlassCard>
 
