@@ -17,14 +17,20 @@ import {
   Info
 } from 'lucide-react';
 import { useState } from 'react';
-import { 
-  NETWORK_CONFIG, 
-  TESTNET_CONFIG, 
-  addNetworkToWallet, 
+import {
+  NETWORK_CONFIG,
+  TESTNET_CONFIG,
+  DEVNET_CONFIG,
+  NETWORK_BY_KIND,
+  NetworkKind,
+  addNetworkToWallet,
   switchToNetwork,
   hasEthereumProvider,
-  GAS_CONFIG 
+  getEthereumProvider,
+  isMobile,
+  GAS_CONFIG,
 } from '@/config/network';
+import { AlertTriangle, Smartphone } from 'lucide-react';
 import { TOKENOMICS } from '@/config/wallets';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -43,17 +49,17 @@ const NetworkPage = () => {
     });
   };
 
-  const handleAddNetwork = async (isTestnet: boolean) => {
+  const handleAddNetwork = async (kind: NetworkKind) => {
     setIsAdding(true);
     try {
-      await addNetworkToWallet(isTestnet);
+      await addNetworkToWallet(kind);
       toast({
         title: 'Network Added!',
-        description: `${isTestnet ? 'GYDS Testnet' : 'GYDS Network'} has been added to your wallet`,
+        description: `${NETWORK_BY_KIND[kind].chainName} has been added to your wallet`,
       });
     } catch (error: any) {
       toast({
-        title: 'Error',
+        title: 'Could not add network',
         description: error.message || 'Failed to add network',
         variant: 'destructive',
       });
@@ -62,54 +68,72 @@ const NetworkPage = () => {
     }
   };
 
-  const handleSwitchNetwork = async (isTestnet: boolean) => {
+  const handleSwitchNetwork = async (kind: NetworkKind) => {
     try {
-      await switchToNetwork(isTestnet);
+      await switchToNetwork(kind);
       toast({
         title: 'Switched!',
-        description: `Now connected to ${isTestnet ? 'GYDS Testnet' : 'GYDS Network'}`,
+        description: `Now connected to ${NETWORK_BY_KIND[kind].chainName}`,
       });
     } catch (error: any) {
       toast({
-        title: 'Error',
+        title: 'Could not switch network',
         description: error.message || 'Failed to switch network',
         variant: 'destructive',
       });
     }
   };
 
-  const NetworkCard = ({ 
-    config, 
-    isTestnet 
-  }: { 
-    config: typeof NETWORK_CONFIG | typeof TESTNET_CONFIG; 
-    isTestnet: boolean;
-  }) => (
+  // Friendly label for the detected wallet, used in the banner.
+  const detectedWalletName = (): string => {
+    const p = getEthereumProvider() as any;
+    if (!p) return '';
+    if (p.isMetaMask) return 'MetaMask';
+    if (p.isTrust) return 'Trust Wallet';
+    if (p.isPhantom) return 'Phantom';
+    if (p.isCoinbaseWallet) return 'Coinbase Wallet';
+    return 'EVM wallet';
+  };
+
+  const accent: Record<NetworkKind, { bg: string; fg: string; label: string }> = {
+    mainnet: { bg: 'bg-primary/20',     fg: 'text-primary',     label: 'Mainnet' },
+    testnet: { bg: 'bg-amber-500/20',   fg: 'text-amber-400',   label: 'Testnet' },
+    devnet:  { bg: 'bg-violet-500/20',  fg: 'text-violet-400',  label: 'Devnet'  },
+  };
+
+  const NetworkCard = ({
+    kind,
+  }: {
+    kind: NetworkKind;
+  }) => {
+    const config = NETWORK_BY_KIND[kind];
+    const a = accent[kind];
+    return (
     <GlassCard className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className={`p-3 rounded-xl ${isTestnet ? 'bg-amber-500/20' : 'bg-primary/20'}`}>
-            <Globe className={`h-6 w-6 ${isTestnet ? 'text-amber-400' : 'text-primary'}`} />
+          <div className={`p-3 rounded-xl ${a.bg}`}>
+            <Globe className={`h-6 w-6 ${a.fg}`} />
           </div>
           <div>
             <h3 className="text-xl font-bold">{config.chainName}</h3>
-            <Badge variant="outline" className="mt-1">
-              {isTestnet ? 'Testnet' : 'Mainnet'}
-            </Badge>
+            <Badge variant="outline" className="mt-1">{a.label}</Badge>
           </div>
         </div>
         <div className="flex gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={() => handleSwitchNetwork(isTestnet)}
+            onClick={() => handleSwitchNetwork(kind)}
+            data-testid={`button-switch-${kind}`}
           >
             Switch
           </Button>
           <Button
             size="sm"
-            onClick={() => handleAddNetwork(isTestnet)}
+            onClick={() => handleAddNetwork(kind)}
             disabled={isAdding}
+            data-testid={`button-add-${kind}`}
           >
             <Wallet className="h-4 w-4 mr-2" />
             Add to Wallet
@@ -150,7 +174,7 @@ const NetworkPage = () => {
           onCopy={() => copyToClipboard(config.rpcUrls.primary, 'RPC URL')}
           copied={copiedField === 'RPC URL'}
         />
-        {'backup' in config.rpcUrls && config.rpcUrls.backup?.map((url, i) => (
+        {Array.isArray((config.rpcUrls as any).backup) && (config.rpcUrls as any).backup?.map((url: string, i: number) => (
           <InfoRow
             key={i}
             label={`Backup RPC ${i + 1}`}
@@ -167,7 +191,8 @@ const NetworkPage = () => {
         />
       </div>
     </GlassCard>
-  );
+    );
+  };
 
   return (
     <Layout>
@@ -188,6 +213,51 @@ const NetworkPage = () => {
           </div>
         </div>
 
+        {/* Wallet detection status */}
+        {hasEthereumProvider() ? (
+          <GlassCard className="p-4 border-emerald-500/30 bg-emerald-500/5">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-500/20"><Wallet className="h-5 w-5 text-emerald-400" /></div>
+              <div className="flex-1">
+                <p className="font-medium text-emerald-300" data-testid="text-wallet-detected">
+                  Detected: {detectedWalletName()}
+                </p>
+                <p className="text-xs text-muted-foreground">Use the buttons below to add Mainnet, Testnet, or Devnet to it.</p>
+              </div>
+            </div>
+          </GlassCard>
+        ) : (
+          <GlassCard className="p-4 border-amber-500/40 bg-amber-500/5" data-testid="banner-no-wallet">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-400 mt-0.5" />
+              <div className="flex-1 space-y-2">
+                <p className="font-semibold text-amber-300">No EVM wallet detected in this browser</p>
+                {isMobile() ? (
+                  <div className="text-sm text-muted-foreground space-y-2">
+                    <p className="flex items-center gap-2"><Smartphone className="h-4 w-4" /> On mobile, the wallet's in-app browser must load this page:</p>
+                    <ul className="list-disc list-inside space-y-1 ml-2 text-xs">
+                      <li><strong>MetaMask</strong> → bottom tab "Browser" → enter this site URL</li>
+                      <li><strong>Trust Wallet</strong> → bottom tab "DApps" → search bar → paste URL</li>
+                      <li><strong>Phantom</strong> → bottom tab "Browser" → make sure Ethereum is enabled in Settings</li>
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    <p>Install one of:</p>
+                    <ul className="list-disc list-inside ml-2 text-xs space-y-1">
+                      <li><a className="text-primary underline" href="https://metamask.io/download/" target="_blank" rel="noreferrer">MetaMask</a> (most common)</li>
+                      <li><a className="text-primary underline" href="https://trustwallet.com/browser-extension" target="_blank" rel="noreferrer">Trust Wallet extension</a></li>
+                      <li><a className="text-primary underline" href="https://phantom.app/download" target="_blank" rel="noreferrer">Phantom</a> (enable Ethereum in Settings → Active Networks)</li>
+                    </ul>
+                    <p className="text-xs">Then refresh this page. If a wallet is installed but not detected, unlock it and check that the extension is allowed on this site.</p>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">You can always add the network manually using the details further down.</p>
+              </div>
+            </div>
+          </GlassCard>
+        )}
+
         {/* Quick Add Section */}
         <GlassCard className="p-6 bg-gradient-to-r from-primary/10 to-transparent border-primary/30">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -198,38 +268,35 @@ const NetworkPage = () => {
               <div>
                 <h2 className="text-xl font-bold">Quick Add to Wallet</h2>
                 <p className="text-muted-foreground text-sm">
-                  {hasEthereumProvider()
-                    ? 'Click the button to automatically add GYDS Network to your wallet'
-                    : 'Install MetaMask or Trust Wallet first, or add the network manually using the details below'}
+                  Add Mainnet, Testnet, or Devnet to your wallet with one click.
                 </p>
               </div>
             </div>
-            <Button
-              size="lg"
-              onClick={() => handleAddNetwork(false)}
-              disabled={isAdding}
-              className="gap-2"
-            >
-              <Wallet className="h-5 w-5" />
-              {hasEthereumProvider() ? 'Add GYDS Network' : 'Add GYDS Network'}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button size="lg" onClick={() => handleAddNetwork('mainnet')} disabled={isAdding} className="gap-2" data-testid="button-quick-add-mainnet">
+                <Wallet className="h-5 w-5" /> Add Mainnet
+              </Button>
+              <Button size="lg" variant="outline" onClick={() => handleAddNetwork('testnet')} disabled={isAdding} className="gap-2" data-testid="button-quick-add-testnet">
+                <Wallet className="h-5 w-5" /> Add Testnet
+              </Button>
+              <Button size="lg" variant="outline" onClick={() => handleAddNetwork('devnet')} disabled={isAdding} className="gap-2 border-violet-500/40 text-violet-300 hover:bg-violet-500/10" data-testid="button-quick-add-devnet">
+                <Wallet className="h-5 w-5" /> Add Devnet
+              </Button>
+            </div>
           </div>
         </GlassCard>
 
         {/* Network Tabs */}
         <Tabs defaultValue="mainnet">
           <TabsList className="mb-4">
-            <TabsTrigger value="mainnet">Mainnet</TabsTrigger>
-            <TabsTrigger value="testnet">Testnet</TabsTrigger>
+            <TabsTrigger value="mainnet" data-testid="tab-mainnet">Mainnet</TabsTrigger>
+            <TabsTrigger value="testnet" data-testid="tab-testnet">Testnet</TabsTrigger>
+            <TabsTrigger value="devnet" data-testid="tab-devnet">Devnet</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="mainnet">
-            <NetworkCard config={NETWORK_CONFIG} isTestnet={false} />
-          </TabsContent>
-
-          <TabsContent value="testnet">
-            <NetworkCard config={TESTNET_CONFIG} isTestnet={true} />
-          </TabsContent>
+          <TabsContent value="mainnet"><NetworkCard kind="mainnet" /></TabsContent>
+          <TabsContent value="testnet"><NetworkCard kind="testnet" /></TabsContent>
+          <TabsContent value="devnet"><NetworkCard kind="devnet" /></TabsContent>
         </Tabs>
 
         {/* Manual Configuration */}

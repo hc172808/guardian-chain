@@ -1,5 +1,5 @@
 // GYDS Blockchain Network Configuration
-// Compatible with Trust Wallet, MetaMask, and EIP-3085 standard
+// Compatible with Trust Wallet, MetaMask, Phantom (EVM), and any EIP-3085 wallet.
 
 import { GENESIS_CONFIG, TOKENOMICS } from './wallets';
 
@@ -16,14 +16,16 @@ export const RPC_ENDPOINTS_LIST = {
   ],
 };
 
-// All endpoints flattened for failover
 export const ALL_RPC_ENDPOINTS = [
   RPC_ENDPOINTS_LIST.main,
   ...RPC_ENDPOINTS_LIST.backups,
   ...RPC_ENDPOINTS_LIST.local,
 ];
 
-// Main network configuration for wallet integration
+// ── Network kinds ───────────────────────────────────────────────────────────
+export type NetworkKind = 'mainnet' | 'testnet' | 'devnet';
+
+// Mainnet
 export const NETWORK_CONFIG = {
   chainId: 13370,
   chainIdHex: '0x343A',
@@ -42,22 +44,41 @@ export const NETWORK_CONFIG = {
   iconUrls: ['https://netlifegy.com/icon.png'],
 };
 
-// Testnet configuration
+// Testnet
 export const TESTNET_CONFIG = {
   chainId: 13371,
   chainIdHex: '0x343B',
   chainName: 'GYDS Testnet',
-  nativeCurrency: {
-    name: 'Test GYDS',
-    symbol: 'tGYDS',
-    decimals: 18,
-  },
+  nativeCurrency: { name: 'Test GYDS', symbol: 'tGYDS', decimals: 18 },
   rpcUrls: {
     primary: 'https://testnet-rpc.netlifegy.com',
-    local: 'http://localhost:8547',
+    backup: [] as string[],
+    local: ['http://localhost:8547'],
   },
   blockExplorerUrls: ['https://testnet-explorer.netlifegy.com'],
+  iconUrls: [] as string[],
 };
+
+// Devnet — for token launches before they're promoted to mainnet
+export const DEVNET_CONFIG = {
+  chainId: 13372,
+  chainIdHex: '0x343C',
+  chainName: 'GYDS Devnet',
+  nativeCurrency: { name: 'Dev GYDS', symbol: 'dGYDS', decimals: 18 },
+  rpcUrls: {
+    primary: 'https://devnet-rpc.netlifegy.com',
+    backup: [] as string[],
+    local: ['http://localhost:8548'],
+  },
+  blockExplorerUrls: ['https://devnet-explorer.netlifegy.com'],
+  iconUrls: [] as string[],
+};
+
+export const NETWORK_BY_KIND = {
+  mainnet: NETWORK_CONFIG,
+  testnet: TESTNET_CONFIG,
+  devnet: DEVNET_CONFIG,
+} as const;
 
 // Service endpoints
 export const SERVICE_ENDPOINTS = {
@@ -68,28 +89,138 @@ export const SERVICE_ENDPOINTS = {
   explorer: 'https://explorer.netlifegy.com',
   vpn: 'vpn.netlifegy.com',
   testnetRpc: 'https://testnet-rpc.netlifegy.com',
+  devnetRpc: 'https://devnet-rpc.netlifegy.com',
 };
 
-// EIP-3085 compatible network parameters for wallet_addEthereumChain
-export const getNetworkParams = (isTestnet = false) => {
-  const config = isTestnet ? TESTNET_CONFIG : NETWORK_CONFIG;
-  
-  const rpcUrls = [config.rpcUrls.primary];
-  if ('backup' in config.rpcUrls && Array.isArray(config.rpcUrls.backup)) {
-    rpcUrls.push(...config.rpcUrls.backup);
-  }
-  
+// EIP-3085 params for wallet_addEthereumChain
+export const getNetworkParams = (kind: NetworkKind = 'mainnet') => {
+  const config = NETWORK_BY_KIND[kind];
+  const rpcUrls = [config.rpcUrls.primary, ...(config.rpcUrls.backup ?? [])];
   return {
     chainId: config.chainIdHex,
     chainName: config.chainName,
     nativeCurrency: config.nativeCurrency,
     rpcUrls,
     blockExplorerUrls: config.blockExplorerUrls,
-    iconUrls: 'iconUrls' in config ? config.iconUrls : [],
+    iconUrls: config.iconUrls ?? [],
   };
 };
 
-// Trust Wallet specific configuration
+// ── Provider discovery ──────────────────────────────────────────────────────
+//
+// Old code only checked window.ethereum, which misses:
+//   • Phantom EVM (exposed at window.phantom?.ethereum)
+//   • EIP-6963 multi-provider wallets that don't always inject window.ethereum
+//   • Mobile wallets that only inject inside their own in-app browser
+//
+// We now scan every known location and return the first usable provider.
+
+type EIP1193 = {
+  request: (args: { method: string; params?: any[] }) => Promise<any>;
+  on?: (event: string, callback: (...args: any[]) => void) => void;
+  removeListener?: (event: string, callback: (...args: any[]) => void) => void;
+  isMetaMask?: boolean;
+  isTrust?: boolean;
+  isPhantom?: boolean;
+  isCoinbaseWallet?: boolean;
+};
+
+const eip6963Providers: { info: { name: string; rdns: string }; provider: EIP1193 }[] = [];
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('eip6963:announceProvider', (event: any) => {
+    if (event?.detail?.provider) eip6963Providers.push(event.detail);
+  });
+  // Ask any wallet that supports EIP-6963 to announce itself.
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+}
+
+export const getEthereumProvider = (): EIP1193 | null => {
+  if (typeof window === 'undefined') return null;
+
+  // 1) Standard MetaMask / Trust / Brave / etc.
+  if ((window as any).ethereum) {
+    const eth = (window as any).ethereum as EIP1193 & { providers?: EIP1193[] };
+    if (Array.isArray(eth.providers) && eth.providers.length) {
+      return (
+        eth.providers.find((p) => p.isMetaMask) ??
+        eth.providers.find((p) => p.isTrust) ??
+        eth.providers[0]
+      );
+    }
+    return eth;
+  }
+
+  // 2) Phantom EVM
+  const phantomEth = (window as any).phantom?.ethereum as EIP1193 | undefined;
+  if (phantomEth) return phantomEth;
+
+  // 3) Trust Wallet's dedicated injection
+  const trust = (window as any).trustwallet as EIP1193 | undefined;
+  if (trust) return trust;
+
+  // 4) EIP-6963 announced providers
+  if (eip6963Providers.length) return eip6963Providers[0].provider;
+
+  return null;
+};
+
+export const hasEthereumProvider = (): boolean => !!getEthereumProvider();
+
+// Mobile in-app browser detection — useful for the user-facing error.
+export const isMobile = (): boolean =>
+  typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+
+const noWalletError = (): Error => {
+  const mobile = isMobile();
+  return new Error(
+    mobile
+      ? 'No EVM wallet found in this browser. On mobile, open this site INSIDE your wallet app (MetaMask → Browser tab, Trust Wallet → DApps, Phantom → Browser). Once the page is loaded inside the wallet app, the "Add Network" button will work.'
+      : 'No EVM wallet detected. Install MetaMask, Trust Wallet (Brave Wallet), or Phantom (with EVM enabled), then refresh this page. If a wallet is installed, make sure its extension is unlocked and enabled for this site.',
+  );
+};
+
+// Add network to whichever wallet we found.
+export const addNetworkToWallet = async (kind: NetworkKind = 'mainnet'): Promise<boolean> => {
+  const provider = getEthereumProvider();
+  if (!provider) throw noWalletError();
+
+  try {
+    await provider.request({ method: 'wallet_addEthereumChain', params: [getNetworkParams(kind)] });
+    return true;
+  } catch (error: any) {
+    if (error?.code === 4001) throw new Error('You rejected the request in your wallet.');
+    throw error;
+  }
+};
+
+// Switch to a network (auto-add if missing).
+export const switchToNetwork = async (kind: NetworkKind = 'mainnet'): Promise<boolean> => {
+  const provider = getEthereumProvider();
+  if (!provider) throw noWalletError();
+
+  const cfg = NETWORK_BY_KIND[kind];
+  try {
+    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: cfg.chainIdHex }] });
+    return true;
+  } catch (error: any) {
+    if (error?.code === 4902) return addNetworkToWallet(kind);
+    throw error;
+  }
+};
+
+export const isOnGYDSNetwork = async (): Promise<boolean> => {
+  const provider = getEthereumProvider();
+  if (!provider) return false;
+  try {
+    const chainId = await provider.request({ method: 'eth_chainId' });
+    return [NETWORK_CONFIG.chainIdHex, TESTNET_CONFIG.chainIdHex, DEVNET_CONFIG.chainIdHex].includes(chainId);
+  } catch {
+    return false;
+  }
+};
+
+// Trust Wallet specific configuration (legacy export — kept for backwards-compat)
 export const TRUST_WALLET_CONFIG = {
   chainId: NETWORK_CONFIG.chainId,
   name: NETWORK_CONFIG.chainName,
@@ -99,7 +230,6 @@ export const TRUST_WALLET_CONFIG = {
   blockExplorerUrl: NETWORK_CONFIG.blockExplorerUrls[0],
 };
 
-// RPC configuration for connecting to full nodes
 export const RPC_CONFIG = {
   fullNodeUrl: NETWORK_CONFIG.rpcUrls.primary,
   backupUrls: RPC_ENDPOINTS_LIST.backups,
@@ -110,7 +240,6 @@ export const RPC_CONFIG = {
   retryDelay: 1000,
 };
 
-// RPC endpoint configuration for the Go backend
 export const RPC_ENDPOINTS = {
   methods: {
     'eth_chainId': 'Returns the chain ID',
@@ -148,7 +277,6 @@ export const RPC_ENDPOINTS = {
   },
 };
 
-// Gas configuration
 export const GAS_CONFIG = {
   baseFeePerGas: 1000000000,
   maxPriorityFeePerGas: 1500000000,
@@ -160,83 +288,10 @@ export const GAS_CONFIG = {
   },
 };
 
-// Check if an Ethereum provider (MetaMask, Trust Wallet) is available
-export const hasEthereumProvider = (): boolean => {
-  return typeof window !== 'undefined' && !!window.ethereum;
-};
-
-// Helper to add network to wallet (MetaMask, Trust Wallet, etc.)
-export const addNetworkToWallet = async (isTestnet = false): Promise<boolean> => {
-  if (!hasEthereumProvider()) {
-    throw new Error(
-      'No Ethereum wallet detected. Please install MetaMask or Trust Wallet first, then refresh this page. ' +
-      'You can also add the network manually using the details below.'
-    );
-  }
-
-  const params = getNetworkParams(isTestnet);
-  
-  try {
-    await window.ethereum!.request({
-      method: 'wallet_addEthereumChain',
-      params: [params],
-    });
-    return true;
-  } catch (error: any) {
-    if (error.code === 4001) {
-      throw new Error('User rejected the request');
-    }
-    throw error;
-  }
-};
-
-// Helper to switch to GYDS network
-export const switchToNetwork = async (isTestnet = false): Promise<boolean> => {
-  if (!hasEthereumProvider()) {
-    throw new Error(
-      'No Ethereum wallet detected. Install MetaMask or Trust Wallet, then refresh this page.'
-    );
-  }
-
-  const chainIdHex = isTestnet ? TESTNET_CONFIG.chainIdHex : NETWORK_CONFIG.chainIdHex;
-  
-  try {
-    await window.ethereum!.request({
-      method: 'wallet_switchEthereumChain',
-      params: [{ chainId: chainIdHex }],
-    });
-    return true;
-  } catch (error: any) {
-    if (error.code === 4902) {
-      return addNetworkToWallet(isTestnet);
-    }
-    throw error;
-  }
-};
-
-// Check if currently on GYDS network
-export const isOnGYDSNetwork = async (): Promise<boolean> => {
-  if (!hasEthereumProvider()) {
-    return false;
-  }
-  
-  try {
-    const chainId = await window.ethereum!.request({ method: 'eth_chainId' });
-    return chainId === NETWORK_CONFIG.chainIdHex || chainId === TESTNET_CONFIG.chainIdHex;
-  } catch {
-    return false;
-  }
-};
-
-// Ethereum window type extension
 declare global {
   interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: any[] }) => Promise<any>;
-      on: (event: string, callback: (...args: any[]) => void) => void;
-      removeListener: (event: string, callback: (...args: any[]) => void) => void;
-      isMetaMask?: boolean;
-      isTrust?: boolean;
-    };
+    ethereum?: EIP1193 & { providers?: EIP1193[] };
+    phantom?: { ethereum?: EIP1193 };
+    trustwallet?: EIP1193;
   }
 }
