@@ -40,6 +40,9 @@ import { HealthCheck } from '@/components/admin/HealthCheck';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 import { TokenManager } from '@/components/admin/TokenManager';
 import { NodeInstaller } from '@/components/admin/NodeInstaller';
+import { AdminConsole } from '@/components/admin/AdminConsole';
+import { ComponentVisibility } from '@/components/admin/ComponentVisibility';
+import { Terminal as TerminalIcon, EyeOff } from 'lucide-react';
 
 interface UserProfile {
   id: string;
@@ -168,7 +171,7 @@ const AdminContent = () => {
       </div>
 
       <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-5 md:grid-cols-11 w-full">
+        <TabsList className="grid grid-cols-5 md:grid-cols-13 w-full">
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
@@ -233,10 +236,26 @@ const AdminContent = () => {
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Install</span>
           </TabsTrigger>
+          <TabsTrigger value="console" className="gap-2" data-testid="tab-console">
+            <TerminalIcon className="h-4 w-4" />
+            <span className="hidden md:inline">Console</span>
+          </TabsTrigger>
+          <TabsTrigger value="visibility" className="gap-2" data-testid="tab-visibility">
+            <EyeOff className="h-4 w-4" />
+            <span className="hidden md:inline">Visibility</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="installer">
           <NodeInstaller />
+        </TabsContent>
+
+        <TabsContent value="console">
+          <AdminConsole />
+        </TabsContent>
+
+        <TabsContent value="visibility">
+          <ComponentVisibility />
         </TabsContent>
 
         <TabsContent value="validators">

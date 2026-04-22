@@ -277,9 +277,22 @@ export const SwapInterface = () => {
     const receiveAmt = parseFloat(receiveAmount || '0');
     if (!amount || amount <= 0) return;
 
-    // Check balance
+    // Check balance — the user MUST hold the source token in their wallet.
+    // Zero-balance wallets cannot swap, even for tiny amounts.
+    if (!payToken.balance || payToken.balance <= 0) {
+      toast({
+        title: `No ${payToken.symbol} in wallet`,
+        description: `Your wallet holds 0 ${payToken.symbol}. Acquire some first (faucet, bridge, or transfer in) before swapping.`,
+        variant: 'destructive',
+      });
+      return;
+    }
     if (amount > payToken.balance) {
-      toast({ title: 'Insufficient Balance', description: `You only have ${payToken.balance.toFixed(4)} ${payToken.symbol}`, variant: 'destructive' });
+      toast({
+        title: 'Insufficient Balance',
+        description: `You only have ${payToken.balance.toFixed(6)} ${payToken.symbol}, but tried to swap ${amount}.`,
+        variant: 'destructive',
+      });
       return;
     }
 

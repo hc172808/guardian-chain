@@ -63,15 +63,92 @@ export const CrossChainBridge = () => {
     if (chain) setSourceChain(chain);
   };
 
+  // Verify the user actually owns the required source-chain coin in a real wallet
+  // (window.ethereum for EVM chains, window.solana / Phantom for Solana).
+  // Returns { ok, balance, error } — ok=false aborts the bridge with a toast.
+  const verifySourceWallet = async (
+    chain: typeof EXTERNAL_CHAINS[number],
+    requiredAmount: number
+  ): Promise<{ ok: boolean; balance: number; error?: string }> => {
+    try {
+      if (chain.id === 'solana') {
+        const sol = (window as any).solana;
+        if (!sol || !sol.isPhantom) {
+          return { ok: false, balance: 0, error: 'Phantom wallet not detected. Install Phantom to bridge from Solana.' };
+        }
+        if (!sol.isConnected) {
+          await sol.connect();
+        }
+        const pub = sol.publicKey?.toString();
+        if (!pub) return { ok: false, balance: 0, error: 'Phantom wallet did not return a public key.' };
+        const rpc = 'https://api.mainnet-beta.solana.com';
+        const resp = await fetch(rpc, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [pub] }),
+        });
+        const j = await resp.json();
+        const lamports = j?.result?.value ?? 0;
+        const sourceBalance = lamports / 1e9;
+        if (sourceBalance < requiredAmount) {
+          return { ok: false, balance: sourceBalance, error: `You only have ${sourceBalance.toFixed(6)} SOL in this Phantom wallet. Need ${requiredAmount}.` };
+        }
+        return { ok: true, balance: sourceBalance };
+      }
+
+      // EVM chains (Ethereum, BNB Chain, Polygon)
+      const eth = (window as any).ethereum;
+      if (!eth) {
+        return { ok: false, balance: 0, error: `MetaMask (or other EVM wallet) not detected. Install one to bridge from ${chain.name}.` };
+      }
+      // Request accounts and switch to the required chain
+      const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
+      if (!accounts?.length) return { ok: false, balance: 0, error: 'EVM wallet did not return any accounts.' };
+      const chainHex = '0x' + chain.chainId.toString(16);
+      try {
+        await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainHex }] });
+      } catch (switchErr: any) {
+        if (switchErr?.code !== 4902) {
+          return { ok: false, balance: 0, error: `Please switch your wallet to ${chain.name} (chain id ${chain.chainId}).` };
+        }
+      }
+      const balanceHex: string = await eth.request({
+        method: 'eth_getBalance',
+        params: [accounts[0], 'latest'],
+      });
+      const sourceBalance = parseInt(balanceHex, 16) / 1e18;
+      if (sourceBalance < requiredAmount) {
+        return { ok: false, balance: sourceBalance, error: `You only have ${sourceBalance.toFixed(6)} ${chain.symbol} in this wallet on ${chain.name}. Need ${requiredAmount}.` };
+      }
+      return { ok: true, balance: sourceBalance };
+    } catch (e: any) {
+      return { ok: false, balance: 0, error: e?.message || 'Wallet verification failed.' };
+    }
+  };
+
   const handleBridge = async () => {
     if (!user || !address) {
-      toast({ title: 'Connect Wallet', description: 'Please connect your wallet first.', variant: 'destructive' });
+      toast({ title: 'Connect Wallet', description: 'Please connect your GYDS wallet first.', variant: 'destructive' });
       return;
     }
 
     const amountNum = parseFloat(amount);
     if (!amountNum || amountNum <= 0) {
       toast({ title: 'Invalid Amount', description: 'Please enter a valid amount.', variant: 'destructive' });
+      return;
+    }
+
+    // ── REAL on-chain check: require the required source coin in the user's wallet ──
+    setBridgeStatus({ stage: 'confirming', message: `Verifying you own ${amountNum} ${sourceChain.symbol} on ${sourceChain.name}...` });
+    const verify = await verifySourceWallet(sourceChain, amountNum);
+    if (!verify.ok) {
+      setBridgeStatus({ stage: 'error', message: verify.error || 'Wallet verification failed.' });
+      toast({
+        title: `Insufficient ${sourceChain.symbol}`,
+        description: verify.error,
+        variant: 'destructive',
+      });
+      setTimeout(() => setBridgeStatus({ stage: 'idle', message: '' }), 4000);
       return;
     }
 
