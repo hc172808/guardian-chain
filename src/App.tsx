@@ -27,6 +27,7 @@ import WatchlistPage from "./pages/Watchlist";
 import NodeTerminalPage from "./pages/NodeTerminal";
 import FaucetPage from "./pages/Faucet";
 import SmartContracts from "./pages/SmartContracts";
+import { RequireAuth } from "./components/auth/RequireAuth";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 
 const queryClient = new QueryClient();
@@ -49,10 +50,10 @@ const AppContent = () => {
       <Route path="/transactions" element={<TransactionsPage />} />
       <Route path="/network" element={<NetworkPage />} />
       <Route path="/watchlist" element={<WatchlistPage />} />
-      <Route path="/node-terminal" element={<NodeTerminalPage />} />
+      <Route path="/node-terminal" element={<RequireAuth requiredRole="admin"><NodeTerminalPage /></RequireAuth>} />
       <Route path="/faucet" element={<FaucetPage />} />
-      <Route path="/smart-contracts" element={<SmartContracts />} />
-      <Route path="/admin" element={<AdminPage />} />
+      <Route path="/smart-contracts" element={<RequireAuth><SmartContracts /></RequireAuth>} />
+      <Route path="/admin" element={<RequireAuth requiredRole="admin"><AdminPage /></RequireAuth>} />
       <Route path="/docs" element={<DocsPage />} />
       <Route path="/auth" element={<Auth />} />
       <Route path="/cli" element={<CliReferencePage />} />
