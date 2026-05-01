@@ -17,9 +17,11 @@ import { MiningProcess } from '@/components/mining/MiningProcess';
 import { createMiningClient, MiningEngine } from '@/lib/miningClient';
 import { Badge } from '@/components/ui/badge';
 import { BookOpen } from 'lucide-react';
+import { useMiningConfig } from '@/hooks/useMiningConfig';
 
 const MiningContent = () => {
   const { user } = useAuth();
+  const { config: miningConfig } = useMiningConfig();
   const [isVpnConnected, setIsVpnConnected] = useState(false);
   const [selectedAlgorithm, setSelectedAlgorithm] = useState<MiningAlgorithm>('randomx');
   const [isMining, setIsMining] = useState(false);
@@ -76,7 +78,7 @@ const MiningContent = () => {
               Mining
             </h1>
             <p className="text-muted-foreground mt-2 text-sm">
-              Production mining • Block time: 120s • WireGuard VPN required
+              Production mining • Block time: {miningConfig.block_time_seconds}s • WireGuard VPN required
             </p>
           </div>
           
