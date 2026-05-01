@@ -69,7 +69,7 @@
 
 | # | Priority | Task | Notes |
 |---|----------|------|-------|
-| MIN-1 | 🟡 | Move block time to `admin_config.mining_config` | Currently `120s` is a hardcoded string in `Mining.tsx` (line 79) and `MiningPoolInterface.tsx` (line 243). Add `{ block_time_seconds, base_reward, halving_blocks, pool_fee_default }` config row + admin UI tab. |
+| MIN-1 | ✅ | Move block time to `admin_config.mining_config` | New `useMiningConfig` hook reads `{ block_time_seconds, base_reward, halving_blocks, pool_fee_default }` from `admin_config.mining_config` (defaults preserved). Wired into `Mining.tsx` header and `MiningPoolInterface.tsx` pool stats — no more hardcoded `120s`. Realtime-subscribed so admin edits propagate live. |
 | MIN-2 | 🟡 | Audit reward distribution writes | Confirm pool payouts insert `token_operations` rows from the `mining_pool` reserved wallet (`0x…0002`) and respect the balance trigger; add tests for split between solo miner and pool. |
 | MIN-3 | 🟢 | Per-miner stats persistence | `MiningStats` currently in-memory only; persist to a `mining_sessions` table so the user can see lifetime hashes / earnings across reloads. |
 
@@ -93,6 +93,10 @@
 | ADM-1 | ✅ | Secure server-side console panel | `AdminConsolePanel.tsx` — 7 whitelisted commands (`node:status`, `audit:tail`, `config:reseed-defaults`, `nodes:purge-rejected`, `transactions:cancel-stale`, `featureflags:reset`, `bootnodes:rotate`); every run inserted into `audit_logs` with category `admin_console`. |
 | ADM-2 | ✅ | One-click multi-service deploy UI | `DeployServicesPanel.tsx` — picks fullnode / litenode / bootnode / termux, generates a chained `curl … \| sudo bash` command, copy + script-download buttons. |
 | ADM-3 | ✅ | Component-visibility matrix | `network_features.hidden_components: string[]` — chosen via the new card in `NetworkFeaturesManager`; `Sidebar.tsx` filters its `navItems` (founders/admins always see everything). |
+| ADM-4 | ✅ | Edge Function secrets manager (admin) | `SecretsManager.tsx` — list / add / edit / remove secrets stored in `admin_config.edge_secrets`; values masked, save-all UX. Consumed by `blockchain-api` edge function (`GYDS_RPC_ENDPOINT`). |
+| ADM-5 | ✅ | Project file browser + editor (admin) | `FileEditor.tsx` — full-tree browser of `public/blockchain-go/` with in-place text editing, save back to repo path. Founder/admin only. |
+| ADM-6 | ✅ | Smart-contract template manager (admin) | `SmartContractManager.tsx` — admin can add/edit/remove `contract_templates` (GRC-20, GRC-721, Staking, Multi-Sig); deploys exposed at `/smart-contracts`. |
+| ADM-7 | ✅ | Feature toggle manager (admin) | `FeatureToggleManager.tsx` + `feature_toggles` table — per-feature enable/disable + admin-only flag (DeFi, Mining, Token Factory, Smart Contracts, etc.). |
 
 ---
 
