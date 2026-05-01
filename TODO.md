@@ -188,7 +188,7 @@
 |---|----------|------|-------|
 | SEC-1 | ✅ | Wallet key backup procedure documented | `public/docs/wallet-backup.md` — manual + GPG + systemd-timer + restore-verify + key-rotation steps |
 | SEC-2 | ✅ | Genesis block verification on node start | `internal/blockchain/genesis_verify.go` — `VerifyAndPersistGenesis()` persists hash on first boot, refuses to start on mismatch; wired into `cmd/fullnode/main.go` before any service starts |
-| SEC-3 | 🟢 | Admin panel routes guarded by `role = 'admin'` or `'founder'` RLS check on the frontend | Currently relies only on Supabase RLS |
+| SEC-3 | ✅ | Admin/sensitive routes guarded by role on the frontend | `/admin` and `/node-terminal` wrapped in `<RequireAuth requiredRole="admin">`; `/smart-contracts` wrapped in `<RequireAuth>`. Non-admins are redirected to `/`. RLS still enforces server-side. |
 | SEC-4 | 🟢 | Rate-limit Faucet server-side (Supabase RLS or edge function) | Client-side cooldown is bypassable |
 
 ---
