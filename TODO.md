@@ -69,7 +69,7 @@
 
 | # | Priority | Task | Notes |
 |---|----------|------|-------|
-| MIN-1 | 🟡 | Move block time to `admin_config.mining_config` | Currently `120s` is a hardcoded string in `Mining.tsx` (line 79) and `MiningPoolInterface.tsx` (line 243). Add `{ block_time_seconds, base_reward, halving_blocks, pool_fee_default }` config row + admin UI tab. |
+| MIN-1 | ✅ | Move block time to `admin_config.mining_config` | New `useMiningConfig` hook reads `{ block_time_seconds, base_reward, halving_blocks, pool_fee_default }` from `admin_config.mining_config` (defaults preserved). Wired into `Mining.tsx` header and `MiningPoolInterface.tsx` pool stats — no more hardcoded `120s`. Realtime-subscribed so admin edits propagate live. |
 | MIN-2 | 🟡 | Audit reward distribution writes | Confirm pool payouts insert `token_operations` rows from the `mining_pool` reserved wallet (`0x…0002`) and respect the balance trigger; add tests for split between solo miner and pool. |
 | MIN-3 | 🟢 | Per-miner stats persistence | `MiningStats` currently in-memory only; persist to a `mining_sessions` table so the user can see lifetime hashes / earnings across reloads. |
 
