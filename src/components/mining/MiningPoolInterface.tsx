@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useMiningConfig } from '@/hooks/useMiningConfig';
 
 interface PoolStats {
   totalHashRate: number;
@@ -61,6 +62,7 @@ interface RewardDistribution {
 }
 
 export const MiningPoolInterface = () => {
+  const { config: miningConfig } = useMiningConfig();
   const [poolStats, setPoolStats] = useState<PoolStats>({
     totalHashRate: 0,
     activeMiners: 0,
@@ -240,7 +242,7 @@ export const MiningPoolInterface = () => {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Block Time</span>
-              <span className="font-mono">120s</span>
+              <span className="font-mono">{miningConfig.block_time_seconds}s</span>
             </div>
           </div>
         </GlassCard>
