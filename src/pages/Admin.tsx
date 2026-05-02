@@ -484,8 +484,11 @@ const AdminTabsBody = () => {
             ))
           )}
         </TabsContent>
+
+        <TabsContent value="authorities">
+          <AuthoritiesManager />
+        </TabsContent>
       </Tabs>
-    </motion.div>
   );
 };
 
