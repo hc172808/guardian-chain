@@ -50,6 +50,8 @@
 | BC-5 | 🟡 | Apply BC migration to production Supabase | `20260424110000_token_ledger_and_balance_check.sql` — adds `token_id` FK, extends operation_type CHECK, installs balance trigger |
 | BC-6 | 🟢 | Add per-token transfer UI (token send button) | Currently only the global wallet Send works for GYDS/GYD; custom-token transfers between wallets need their own action that writes `token_transfer` ops |
 | BC-7 | 🟢 | Block-confirmation status (pending → confirmed via real RPC) | All inserts currently mark `status='confirmed'` immediately; integrate Go fullnode RPC to flip status only after block inclusion |
+| BC-8 | ✅ | Fix Burn (constraint violation) | `BurnMintManager` was inserting legacy `operation_type='burn'`/`'mint'` which the active CHECK constraint rejects (only `burn_gyds`/`mint_gyds`/etc. allowed). Switched both `handleBurnUsdt` and `handleMint` to `burn_gyds` / `mint_gyds`. Burn flow now succeeds end-to-end. |
+| BC-9 | ✅ | New wallets always start at 0 balance | `getUserBalances` no longer credits a user just because they're the `created_by` of a `token_operations` row. Balances now derive **strictly** from `wallet_address ∈ user.wallets`. A freshly created wallet has no inbound ops/txs, so `gyd = gyds = 0` until something is sent to its address — fixes phantom balances inherited from admin actions. |
 
 ---
 
