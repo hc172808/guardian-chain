@@ -29,6 +29,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import { AuthoritiesStatusWidget } from '@/components/admin/AuthoritiesStatusWidget';
 
 const navItems = [
   { to: '/', icon: BarChart3, label: 'Dashboard' },
@@ -189,6 +190,11 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
 
             {/* Network Status */}
             <div className="p-4 border-t border-sidebar-border">
+              {(isFounder || isAdmin) && (
+                <div className="mb-3">
+                  <AuthoritiesStatusWidget />
+                </div>
+              )}
               <div className="glass-card p-4 rounded-lg mb-3">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-2 h-2 rounded-full bg-neon-emerald animate-pulse" />

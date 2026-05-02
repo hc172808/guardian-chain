@@ -43,6 +43,8 @@ import { SecretsManager } from '@/components/admin/SecretsManager';
 import { FileEditor } from '@/components/admin/FileEditor';
 import { SmartContractManager } from '@/components/admin/SmartContractManager';
 import { FeatureToggleManager } from '@/components/admin/FeatureToggleManager';
+import { AuthoritiesManager } from '@/components/admin/AuthoritiesManager';
+import { useSearchParams } from 'react-router-dom';
 
 interface UserProfile {
   id: string;
@@ -170,8 +172,24 @@ const AdminContent = () => {
         </GlassCard>
       </div>
 
-      <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-5 md:grid-cols-10 w-full">
+      <ControlledTabs />
+    </motion.div>
+  );
+
+  function ControlledTabs() {
+    const [searchParams, setSearchParams] = useSearchParams();
+    const tab = searchParams.get('tab') || 'nodes';
+    return (
+      <Tabs
+        value={tab}
+        onValueChange={(v) => { const p = new URLSearchParams(searchParams); p.set('tab', v); setSearchParams(p); }}
+        className="space-y-4"
+      >
+        <TabsList className="grid grid-cols-5 md:grid-cols-11 w-full">
+          <TabsTrigger value="authorities" className="gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="hidden md:inline">Authorities</span>
+          </TabsTrigger>
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
@@ -465,9 +483,13 @@ const AdminContent = () => {
             ))
           )}
         </TabsContent>
+
+        <TabsContent value="authorities">
+          <AuthoritiesManager />
+        </TabsContent>
       </Tabs>
-    </motion.div>
-  );
+    );
+  }
 };
 
 const AdminPage = () => (
