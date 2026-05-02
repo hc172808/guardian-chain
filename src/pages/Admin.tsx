@@ -172,20 +172,19 @@ const AdminContent = () => {
         </GlassCard>
       </div>
 
-      <AdminTabsBody />
+      <ControlledTabs />
     </motion.div>
   );
-};
 
-const AdminTabsBody = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get('tab') || 'nodes';
-  return (
-    <Tabs
-      value={tab}
-      onValueChange={(v) => { const p = new URLSearchParams(searchParams); p.set('tab', v); setSearchParams(p); }}
-      className="space-y-4"
-    >
+  function ControlledTabs() {
+    const [searchParams, setSearchParams] = useSearchParams();
+    const tab = searchParams.get('tab') || 'nodes';
+    return (
+      <Tabs
+        value={tab}
+        onValueChange={(v) => { const p = new URLSearchParams(searchParams); p.set('tab', v); setSearchParams(p); }}
+        className="space-y-4"
+      >
         <TabsList className="grid grid-cols-5 md:grid-cols-11 w-full">
           <TabsTrigger value="authorities" className="gap-2">
             <Shield className="h-4 w-4" />
@@ -489,7 +488,8 @@ const AdminTabsBody = () => {
           <AuthoritiesManager />
         </TabsContent>
       </Tabs>
-  );
+    );
+  }
 };
 
 const AdminPage = () => (
