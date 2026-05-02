@@ -77,6 +77,39 @@ export type Database = {
         }
         Relationships: []
       }
+      authorities: {
+        Row: {
+          category: string
+          description: string
+          enabled: boolean
+          id: string
+          name: string
+          required_role: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          category: string
+          description: string
+          enabled?: boolean
+          id: string
+          name: string
+          required_role?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          category?: string
+          description?: string
+          enabled?: boolean
+          id?: string
+          name?: string
+          required_role?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       contract_templates: {
         Row: {
           abi: Json | null
@@ -1120,7 +1153,15 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      v_authority_summary: {
+        Row: {
+          category: string | null
+          disabled_count: number | null
+          enabled_count: number | null
+          total: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       has_role: {
