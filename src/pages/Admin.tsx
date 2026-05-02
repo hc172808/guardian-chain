@@ -172,21 +172,25 @@ const AdminContent = () => {
         </GlassCard>
       </div>
 
-      <AdminTabs />
+      <AdminTabsBody />
     </motion.div>
   );
 };
 
-const AdminTabs = () => {
+const AdminTabsBody = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get('tab') || 'nodes';
   return (
     <Tabs
       value={tab}
-      onValueChange={(v) => setSearchParams((p) => { p.set('tab', v); return p; })}
+      onValueChange={(v) => { const p = new URLSearchParams(searchParams); p.set('tab', v); setSearchParams(p); }}
       className="space-y-4"
     >
-        <TabsList className="grid grid-cols-5 md:grid-cols-10 w-full">
+        <TabsList className="grid grid-cols-5 md:grid-cols-11 w-full">
+          <TabsTrigger value="authorities" className="gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="hidden md:inline">Authorities</span>
+          </TabsTrigger>
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
