@@ -43,6 +43,8 @@ import { SecretsManager } from '@/components/admin/SecretsManager';
 import { FileEditor } from '@/components/admin/FileEditor';
 import { SmartContractManager } from '@/components/admin/SmartContractManager';
 import { FeatureToggleManager } from '@/components/admin/FeatureToggleManager';
+import { AuthoritiesManager } from '@/components/admin/AuthoritiesManager';
+import { useSearchParams } from 'react-router-dom';
 
 interface UserProfile {
   id: string;
@@ -170,7 +172,20 @@ const AdminContent = () => {
         </GlassCard>
       </div>
 
-      <Tabs defaultValue="nodes" className="space-y-4">
+      <AdminTabs />
+    </motion.div>
+  );
+};
+
+const AdminTabs = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') || 'nodes';
+  return (
+    <Tabs
+      value={tab}
+      onValueChange={(v) => setSearchParams((p) => { p.set('tab', v); return p; })}
+      className="space-y-4"
+    >
         <TabsList className="grid grid-cols-5 md:grid-cols-10 w-full">
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
