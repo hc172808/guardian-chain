@@ -30,11 +30,11 @@ export async function getUserBalances(userId: string) {
 
   if (opsData) {
     opsData.forEach(op => {
-      // Only count if the operation's wallet_address is one of the user's wallets
-      // OR the operation was created by this user
-      const isMyOp =
-        myAddresses.has(op.wallet_address.toLowerCase()) ||
-        op.created_by === userId;
+      // Only count if the operation's wallet_address is one of the user's wallets.
+      // We intentionally do NOT credit by `created_by` — admin-issued mints
+      // (e.g. burn→mint) credit the destination wallet, not the admin's account.
+      // This guarantees a brand-new user/wallet starts at zero balance.
+      const isMyOp = myAddresses.has(op.wallet_address.toLowerCase());
 
       if (!isMyOp) return;
 

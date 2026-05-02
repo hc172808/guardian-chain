@@ -90,9 +90,9 @@ export const BurnMintManager = () => {
     const gydsToMint = calculateMintFromBurn(usdtNum);
     const txHash = '0x' + Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
 
-    // Create burn operation
+    // Create burn operation (USDT burned to dead address — recorded as burn_gyds for ledger)
     const { error: burnError } = await supabase.from('token_operations').insert({
-      operation_type: 'burn',
+      operation_type: 'burn_gyds',
       amount: usdtNum,
       usdt_amount: usdtNum,
       wallet_address: RESERVED_WALLETS.burn.address,
@@ -109,7 +109,7 @@ export const BurnMintManager = () => {
 
     // Create corresponding mint operation
     const { error: mintError } = await supabase.from('token_operations').insert({
-      operation_type: 'mint',
+      operation_type: 'mint_gyds',
       amount: gydsToMint,
       usdt_amount: usdtNum,
       wallet_address: RESERVED_WALLETS.miningPool.address,
@@ -161,7 +161,7 @@ export const BurnMintManager = () => {
     const txHash = '0x' + Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
 
     const { error } = await supabase.from('token_operations').insert({
-      operation_type: 'mint',
+      operation_type: 'mint_gyds',
       amount: amountNum,
       usdt_amount: 0,
       wallet_address: mintAddress,
