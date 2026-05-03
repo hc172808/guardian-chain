@@ -23,7 +23,7 @@ export const InsufficientBalanceEducation = ({ symbol, required, available, cust
   const stepsBySymbol: Record<string, { label: string; to?: string }[]> = {
     GYDS: [
       { label: 'Receive GYDS from another wallet (Send page)', to: '/transactions' },
-      { label: 'Bridge ETH/BNB/MATIC → GYDS via Cross-Chain', },
+      { label: 'Bridge ETH/BNB/MATIC → GYDS via Cross-Chain' },
       { label: 'Claim from the Faucet (devnet/testnet only)', to: '/faucet' },
     ],
     GYD: [
@@ -32,7 +32,7 @@ export const InsufficientBalanceEducation = ({ symbol, required, available, cust
     ],
   };
 
-  const steps =
+  const steps: { label: string; to?: string }[] =
     customSteps?.map((s) => ({ label: s })) ??
     stepsBySymbol[symbol] ?? [
       { label: `Acquire ${symbol} from a holder or via the Cross-Chain bridge` },
