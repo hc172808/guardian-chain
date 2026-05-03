@@ -11,6 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { getUserBalances } from '@/lib/balanceCalculator';
 import { RecentSwaps } from './RecentSwaps';
 import { CrossChainBridge } from './CrossChainBridge';
+import { useAuthorities } from '@/hooks/useAuthorities';
+import { checkAuthorities } from '@/components/authority/AuthorityGate';
 import {
   Popover,
   PopoverContent,
@@ -155,6 +157,7 @@ export const SwapInterface = () => {
   const { address, isConnected } = useWalletConnect();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { isEnabled: authEnabled } = useAuthorities();
 
   // Load tokens from database + coin logos + real balances
   useEffect(() => {
@@ -269,6 +272,11 @@ export const SwapInterface = () => {
   const fee = payValue * 0.003;
 
   const executeSwap = async () => {
+    const blocked = checkAuthorities(authEnabled, ['emergency_shutdown', 'freeze_pause', 'contract_execute']);
+    if (blocked) {
+      toast({ title: 'Swap disabled', description: `Authority "${blocked}" is OFF.`, variant: 'destructive' });
+      return;
+    }
     if (!user || !address) {
       toast({ title: 'Login Required', description: 'Connect your wallet to trade.', variant: 'destructive' });
       return;
