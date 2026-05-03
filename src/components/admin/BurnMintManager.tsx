@@ -77,6 +77,11 @@ export const BurnMintManager = () => {
   };
 
   const handleBurnUsdt = async () => {
+    const blocked = checkAuthorities(authEnabled, ['emergency_shutdown', 'freeze_pause', 'burn', 'mint']);
+    if (blocked) {
+      toast({ title: 'Blocked by authority', description: `Authority "${blocked}" is OFF.`, variant: 'destructive' });
+      return;
+    }
     if (!burnUsdtAmount) {
       toast({ title: 'Enter USDT amount', variant: 'destructive' });
       return;
@@ -148,6 +153,11 @@ export const BurnMintManager = () => {
   };
 
   const handleMint = async () => {
+    const blocked = checkAuthorities(authEnabled, ['emergency_shutdown', 'freeze_pause', 'mint']);
+    if (blocked) {
+      toast({ title: 'Blocked by authority', description: `Authority "${blocked}" is OFF.`, variant: 'destructive' });
+      return;
+    }
     if (!mintAmount || !mintAddress) {
       toast({ title: 'Fill all fields', variant: 'destructive' });
       return;
