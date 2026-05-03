@@ -139,6 +139,7 @@
 | AUTH-8 | ✅ | Wire Swap (DeFi) to authorities | `executeSwap` gated on `emergency_shutdown + freeze_pause + contract_execute`. |
 | AUTH-9 | ✅ | Wire Bridge to authorities | `handleBridge` gated on `emergency_shutdown + bridge + cross_chain_messaging + mint`. |
 | AUTH-10 | ✅ | Server-side `emergency_shutdown` check in `github-sync` edge fn | New `supabase/functions/github-sync/index.ts` calls `authorities` table with the service-role key BEFORE doing any work and returns `423 chain_halted` when `emergency_shutdown=OFF`. Also gates on `protocol_config`. |
+| DEX-1 | ✅ | Swap pre-check + educational shortfall panel | New `src/components/defi/InsufficientBalanceEducation.tsx` renders inline above the Trade button whenever `payAmount > payToken.balance`: shows exact shortfall (`required − available`) and per-symbol "How to get more {symbol}" steps with deep-links (Send page, Faucet, Burn/Mint Admin tab, Cross-Chain bridge). `executeSwap` blocks early with a matching toast; Trade button is disabled and re-labelled `Insufficient {symbol}`. Reuses existing `useWalletConnect` + `getUserBalances` — no duplicate balance logic. |
 
 ## Self-host Supabase (own the data plane)
 
