@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { RESERVED_WALLETS, TOKENOMICS } from '@/config/wallets';
+import { useAuthorities } from '@/hooks/useAuthorities';
+import { checkAuthorities } from '@/components/authority/AuthorityGate';
 import { 
   Flame, 
   Coins, 
@@ -41,6 +43,7 @@ interface TokenPrice {
 export const BurnMintManager = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { isEnabled: authEnabled } = useAuthorities();
   const [operations, setOperations] = useState<TokenOperation[]>([]);
   const [tokenPrice, setTokenPrice] = useState<TokenPrice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,6 +77,11 @@ export const BurnMintManager = () => {
   };
 
   const handleBurnUsdt = async () => {
+    const blocked = checkAuthorities(authEnabled, ['emergency_shutdown', 'freeze_pause', 'burn', 'mint']);
+    if (blocked) {
+      toast({ title: 'Blocked by authority', description: `Authority "${blocked}" is OFF.`, variant: 'destructive' });
+      return;
+    }
     if (!burnUsdtAmount) {
       toast({ title: 'Enter USDT amount', variant: 'destructive' });
       return;
@@ -145,6 +153,11 @@ export const BurnMintManager = () => {
   };
 
   const handleMint = async () => {
+    const blocked = checkAuthorities(authEnabled, ['emergency_shutdown', 'freeze_pause', 'mint']);
+    if (blocked) {
+      toast({ title: 'Blocked by authority', description: `Authority "${blocked}" is OFF.`, variant: 'destructive' });
+      return;
+    }
     if (!mintAmount || !mintAddress) {
       toast({ title: 'Fill all fields', variant: 'destructive' });
       return;

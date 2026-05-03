@@ -13,6 +13,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { BridgeHistory } from './BridgeHistory';
 import { PriceSparkline } from './PriceSparkline';
 import { BridgeFeeComparison } from './BridgeFeeComparison';
+import { useAuthorities } from '@/hooks/useAuthorities';
+import { checkAuthorities } from '@/components/authority/AuthorityGate';
 import {
   Select,
   SelectContent,
@@ -47,6 +49,7 @@ export const CrossChainBridge = () => {
   const { user } = useAuth();
   const { address, isConnected } = useWalletConnect();
   const { toast } = useToast();
+  const { isEnabled: authEnabled } = useAuthorities();
   const { prices, changes, isLoading: pricesLoading, lastUpdated, refetch: refetchPrices } = useCoinGeckoPrices();
   const { networkName, isExternalNetwork, suggestBridge, chainId, dismissSuggestion } = useNetworkDetection();
 
@@ -64,6 +67,11 @@ export const CrossChainBridge = () => {
   };
 
   const handleBridge = async () => {
+    const blocked = checkAuthorities(authEnabled, ['emergency_shutdown', 'bridge', 'cross_chain_messaging', 'mint']);
+    if (blocked) {
+      toast({ title: 'Bridge disabled', description: `Authority "${blocked}" is OFF.`, variant: 'destructive' });
+      return;
+    }
     if (!user || !address) {
       toast({ title: 'Connect Wallet', description: 'Please connect your wallet first.', variant: 'destructive' });
       return;

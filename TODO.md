@@ -133,12 +133,12 @@
 | AUTH-3 | ✅ | `useAuthorities()` hook | `src/hooks/useAuthorities.ts` — fetches the registry, exposes `byCategory`, `isEnabled(id)` (safe-default ON), and a `toggle()` mutator with realtime subscription. |
 | AUTH-4 | ✅ | Admin → Authorities tab | `AuthoritiesManager.tsx` with grouped switches, per-category Enable-all/Disable-all, search filter. Wired as a new tab in `Admin.tsx` (controlled by `?tab=authorities`). |
 | AUTH-WIDGET | ✅ | Sidebar Authorities Status widget | `AuthoritiesStatusWidget.tsx` — emerald/yellow/orange/red colored chip in the sidebar (founders/admins only) showing "X of N disabled", escalating to red "CHAIN HALTED" when `emergency_shutdown` is OFF. Deep-links to `/admin?tab=authorities`. |
-| AUTH-5 | 🟡 | Global `ChainStatusBanner` in Layout | Surfaces emergency_shutdown / freeze_pause to all users. Visual only — enforcement still in handlers (AUTH-7..AUTH-9). |
-| AUTH-6 | 🟡 | `<AuthorityGate>` reusable wrapper | Compound `requireAll`, disabled-state card vs `silent` mode. |
-| AUTH-7 | 🟡 | Wire Burn/Mint Manager to authorities | `handleBurnUsdt` / `handleMint` should check `emergency_shutdown`, `freeze_pause`, `mint`, `burn`. |
-| AUTH-8 | 🟡 | Wire Swap (DeFi) to authorities | `executeSwap` should gate on `emergency_shutdown` + `contract_execute` + `freeze_pause`. |
-| AUTH-9 | 🟡 | Wire Bridge to authorities | `handleBridge` should gate on `emergency_shutdown` + `bridge` + `cross_chain_messaging` + `mint`. |
-| AUTH-10 | 🟡 | Server-side `emergency_shutdown` check in `github-sync` edge fn | Programmatic actions must respect kill-switch too. |
+| AUTH-5 | ✅ | Global `ChainStatusBanner` in Layout | `src/components/authority/ChainStatusBanner.tsx` mounted in `Layout.tsx`. Reads `useAuthorities`; sticky red banner when `emergency_shutdown=OFF` ("CHAIN HALTED"), yellow banner when `freeze_pause=OFF`. |
+| AUTH-6 | ✅ | `<AuthorityGate>` reusable wrapper | `src/components/authority/AuthorityGate.tsx` — accepts `requireAll: string[]`, optional `silent`, renders disabled-state card when blocked. Also exports imperative `checkAuthorities(isEnabled, ids[])` for handlers. |
+| AUTH-7 | ✅ | Wire Burn/Mint Manager to authorities | `handleBurnUsdt` checks `emergency_shutdown + freeze_pause + burn + mint`. `handleMint` checks `emergency_shutdown + freeze_pause + mint`. Toast surfaces the blocking authority id. |
+| AUTH-8 | ✅ | Wire Swap (DeFi) to authorities | `executeSwap` gated on `emergency_shutdown + freeze_pause + contract_execute`. |
+| AUTH-9 | ✅ | Wire Bridge to authorities | `handleBridge` gated on `emergency_shutdown + bridge + cross_chain_messaging + mint`. |
+| AUTH-10 | ✅ | Server-side `emergency_shutdown` check in `github-sync` edge fn | New `supabase/functions/github-sync/index.ts` calls `authorities` table with the service-role key BEFORE doing any work and returns `423 chain_halted` when `emergency_shutdown=OFF`. Also gates on `protocol_config`. |
 
 ## Self-host Supabase (own the data plane)
 

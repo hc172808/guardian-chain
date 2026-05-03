@@ -2,6 +2,7 @@ import { ReactNode, useState, useEffect } from 'react';
 import { Sidebar, MobileMenuButton } from './Sidebar';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { ChainStatusBanner } from '@/components/authority/ChainStatusBanner';
 
 interface LayoutProps {
   children: ReactNode;
@@ -22,6 +23,7 @@ export const Layout = ({ children }: LayoutProps) => {
 
   return (
     <div className="min-h-screen bg-background grid-pattern">
+      <ChainStatusBanner />
       <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} isMobile={isMobile} />
       
       {/* Mobile menu button */}
