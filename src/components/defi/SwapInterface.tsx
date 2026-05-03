@@ -541,6 +541,15 @@ export const SwapInterface = () => {
         </div>
       )}
 
+      {/* Inline insufficient-balance education */}
+      {payAmount && parseFloat(payAmount) > payToken.balance && (
+        <InsufficientBalanceEducation
+          symbol={payToken.symbol}
+          required={parseFloat(payAmount)}
+          available={payToken.balance}
+        />
+      )}
+
       {/* Trade Button */}
       <Button
         className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
