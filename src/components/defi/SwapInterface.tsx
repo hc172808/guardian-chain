@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getUserBalances } from '@/lib/balanceCalculator';
 import { RecentSwaps } from './RecentSwaps';
 import { CrossChainBridge } from './CrossChainBridge';
+import { InsufficientBalanceEducation } from './InsufficientBalanceEducation';
 import { useAuthorities } from '@/hooks/useAuthorities';
 import { checkAuthorities } from '@/components/authority/AuthorityGate';
 import {
@@ -286,9 +287,15 @@ export const SwapInterface = () => {
     const receiveAmt = parseFloat(receiveAmount || '0');
     if (!amount || amount <= 0) return;
 
-    // Check balance
-    if (amount > payToken.balance) {
-      toast({ title: 'Insufficient Balance', description: `You only have ${payToken.balance.toFixed(4)} ${payToken.symbol}`, variant: 'destructive' });
+    // Pre-check balance — surfaces inline education panel below the form,
+    // and also a toast for accessibility.
+    const totalRequired = amount + (payToken.symbol === 'GYDS' || payToken.symbol === 'GYD' ? 0 : 0);
+    if (totalRequired > payToken.balance) {
+      toast({
+        title: `Not enough ${payToken.symbol}`,
+        description: `You need ${totalRequired.toLocaleString()} but only have ${payToken.balance.toLocaleString()}.`,
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -390,7 +397,8 @@ export const SwapInterface = () => {
     }
   };
 
-  const canSwap = isConnected && payAmount && parseFloat(payAmount) > 0 && !isSwapping;
+  const hasShortfall = !!payAmount && parseFloat(payAmount) > payToken.balance;
+  const canSwap = isConnected && payAmount && parseFloat(payAmount) > 0 && !isSwapping && !hasShortfall;
 
   return (
     <div className="space-y-4">
@@ -534,6 +542,15 @@ export const SwapInterface = () => {
         </div>
       )}
 
+      {/* Inline insufficient-balance education */}
+      {payAmount && parseFloat(payAmount) > payToken.balance && (
+        <InsufficientBalanceEducation
+          symbol={payToken.symbol}
+          required={parseFloat(payAmount)}
+          available={payToken.balance}
+        />
+      )}
+
       {/* Trade Button */}
       <Button
         className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
@@ -544,6 +561,8 @@ export const SwapInterface = () => {
           <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Swapping...</span>
         ) : !isConnected ? (
           'Connect Wallet'
+        ) : hasShortfall ? (
+          `Insufficient ${payToken.symbol}`
         ) : (
           'Trade'
         )}
