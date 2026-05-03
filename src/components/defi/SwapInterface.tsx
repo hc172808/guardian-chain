@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getUserBalances } from '@/lib/balanceCalculator';
 import { RecentSwaps } from './RecentSwaps';
 import { CrossChainBridge } from './CrossChainBridge';
+import { InsufficientBalanceEducation } from './InsufficientBalanceEducation';
 import { useAuthorities } from '@/hooks/useAuthorities';
 import { checkAuthorities } from '@/components/authority/AuthorityGate';
 import {
@@ -286,9 +287,15 @@ export const SwapInterface = () => {
     const receiveAmt = parseFloat(receiveAmount || '0');
     if (!amount || amount <= 0) return;
 
-    // Check balance
-    if (amount > payToken.balance) {
-      toast({ title: 'Insufficient Balance', description: `You only have ${payToken.balance.toFixed(4)} ${payToken.symbol}`, variant: 'destructive' });
+    // Pre-check balance — surfaces inline education panel below the form,
+    // and also a toast for accessibility.
+    const totalRequired = amount + (payToken.symbol === 'GYDS' || payToken.symbol === 'GYD' ? 0 : 0);
+    if (totalRequired > payToken.balance) {
+      toast({
+        title: `Not enough ${payToken.symbol}`,
+        description: `You need ${totalRequired.toLocaleString()} but only have ${payToken.balance.toLocaleString()}.`,
+        variant: 'destructive',
+      });
       return;
     }
 
