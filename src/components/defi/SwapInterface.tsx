@@ -397,7 +397,8 @@ export const SwapInterface = () => {
     }
   };
 
-  const canSwap = isConnected && payAmount && parseFloat(payAmount) > 0 && !isSwapping;
+  const hasShortfall = !!payAmount && parseFloat(payAmount) > payToken.balance;
+  const canSwap = isConnected && payAmount && parseFloat(payAmount) > 0 && !isSwapping && !hasShortfall;
 
   return (
     <div className="space-y-4">
