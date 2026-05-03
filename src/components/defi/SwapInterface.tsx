@@ -561,6 +561,8 @@ export const SwapInterface = () => {
           <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Swapping...</span>
         ) : !isConnected ? (
           'Connect Wallet'
+        ) : hasShortfall ? (
+          `Insufficient ${payToken.symbol}`
         ) : (
           'Trade'
         )}
