@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { RESERVED_WALLETS, TOKENOMICS } from '@/config/wallets';
+import { useAuthorities } from '@/hooks/useAuthorities';
+import { checkAuthorities } from '@/components/authority/AuthorityGate';
 import { 
   Flame, 
   Coins, 
@@ -41,6 +43,7 @@ interface TokenPrice {
 export const BurnMintManager = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { isEnabled: authEnabled } = useAuthorities();
   const [operations, setOperations] = useState<TokenOperation[]>([]);
   const [tokenPrice, setTokenPrice] = useState<TokenPrice | null>(null);
   const [loading, setLoading] = useState(true);
