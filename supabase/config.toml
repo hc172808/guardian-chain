@@ -1,1 +1,7 @@
 project_id = "rmwldjwkyhhaoqehdrbr"
+
+[functions.bootnodes]
+verify_jwt = false
+
+[functions.health-check]
+verify_jwt = false
