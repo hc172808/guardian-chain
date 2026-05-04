@@ -14,6 +14,7 @@ import { CrossChainBridge } from './CrossChainBridge';
 import { InsufficientBalanceEducation } from './InsufficientBalanceEducation';
 import { useAuthorities } from '@/hooks/useAuthorities';
 import { checkAuthorities } from '@/components/authority/AuthorityGate';
+import { submitAndAwaitConfirmation } from '@/lib/txConfirmation';
 import {
   Popover,
   PopoverContent,
@@ -365,27 +366,42 @@ export const SwapInterface = () => {
 
       const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
 
-      const { error } = await supabase.from('transactions').insert({
+      // BC-7: insert as `pending` and let the RPC poller flip it to `confirmed`.
+      // The UI shows a "pending" toast immediately, then a follow-up toast
+      // when the validators finalize the tx (or it times out / fails).
+      const { awaitFinal } = await submitAndAwaitConfirmation({
         user_id: user.id,
         from_address: address,
         to_address: 'swap-pool',
         amount,
         fee: amount * 0.003,
         tx_hash: txHash,
-        status: 'confirmed',
-        confirmed_at: new Date().toISOString(),
         wallet_id: null,
       });
 
-      if (error) throw error;
-
       toast({
-        title: 'Swap Successful!',
-        description: `Swapped ${amount} ${payToken.symbol} for ${receiveAmount} ${receiveToken.symbol}`,
+        title: '⏳ Swap Pending',
+        description: `Awaiting on-chain confirmation for ${amount} ${payToken.symbol} → ${receiveAmount} ${receiveToken.symbol}`,
       });
 
       setPayAmount('');
       setReceiveAmount('');
+
+      // Resolve in background so we don't block the UI; show terminal toast.
+      awaitFinal.then((status) => {
+        if (status === 'confirmed') {
+          toast({
+            title: '✅ Swap Confirmed',
+            description: `${amount} ${payToken.symbol} → ${receiveAmount} ${receiveToken.symbol}`,
+          });
+        } else {
+          toast({
+            title: '❌ Swap Failed',
+            description: 'Transaction did not confirm on-chain.',
+            variant: 'destructive',
+          });
+        }
+      });
     } catch (err: any) {
       toast({
         title: 'Swap Failed',

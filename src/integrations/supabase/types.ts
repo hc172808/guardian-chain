@@ -38,6 +38,48 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_security_events: {
+        Row: {
+          action: string
+          category: string
+          created_at: string
+          details: Json
+          id: string
+          model: string | null
+          severity: string
+          source: string
+          subject_address: string | null
+          subject_user_id: string | null
+          summary: string
+        }
+        Insert: {
+          action?: string
+          category: string
+          created_at?: string
+          details?: Json
+          id?: string
+          model?: string | null
+          severity: string
+          source?: string
+          subject_address?: string | null
+          subject_user_id?: string | null
+          summary: string
+        }
+        Update: {
+          action?: string
+          category?: string
+          created_at?: string
+          details?: Json
+          id?: string
+          model?: string | null
+          severity?: string
+          source?: string
+          subject_address?: string | null
+          subject_user_id?: string | null
+          summary?: string
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           action: string

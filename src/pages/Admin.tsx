@@ -44,6 +44,7 @@ import { FileEditor } from '@/components/admin/FileEditor';
 import { SmartContractManager } from '@/components/admin/SmartContractManager';
 import { FeatureToggleManager } from '@/components/admin/FeatureToggleManager';
 import { AuthoritiesManager } from '@/components/admin/AuthoritiesManager';
+import { AISecurityCompliance } from '@/components/admin/AISecurityCompliance';
 import { useSearchParams } from 'react-router-dom';
 
 interface UserProfile {
@@ -185,7 +186,7 @@ const AdminContent = () => {
         onValueChange={(v) => { const p = new URLSearchParams(searchParams); p.set('tab', v); setSearchParams(p); }}
         className="space-y-4"
       >
-        <TabsList className="grid grid-cols-5 md:grid-cols-11 w-full">
+        <TabsList className="grid grid-cols-5 md:grid-cols-12 w-full">
           <TabsTrigger value="authorities" className="gap-2">
             <Shield className="h-4 w-4" />
             <span className="hidden md:inline">Authorities</span>
@@ -265,6 +266,10 @@ const AdminContent = () => {
           <TabsTrigger value="features" className="gap-2">
             <Shield className="h-4 w-4" />
             <span className="hidden md:inline">Features</span>
+          </TabsTrigger>
+          <TabsTrigger value="ai-security" className="gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="hidden md:inline">AI Security</span>
           </TabsTrigger>
         </TabsList>
 
@@ -371,6 +376,10 @@ const AdminContent = () => {
 
         <TabsContent value="features">
           <FeatureToggleManager />
+        </TabsContent>
+
+        <TabsContent value="ai-security">
+          <AISecurityCompliance />
         </TabsContent>
 
         <TabsContent value="nodes" className="space-y-4">
