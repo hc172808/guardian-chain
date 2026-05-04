@@ -513,26 +513,36 @@ const WalletContent = () => {
     setSendLoading(true);
     const fee = amount * 0.001;
     const txHash = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    const { error } = await supabase.from('transactions').insert({
-      user_id: user.id,
-      from_address: wallets[0].address,
-      to_address: sendTo.trim(),
-      amount,
-      fee,
-      tx_hash: txHash,
-      status: 'confirmed',
-      confirmed_at: new Date().toISOString(),
-      wallet_id: wallets[0].id,
-    });
-    setSendLoading(false);
-    if (error) {
-      toast({ title: 'Transaction failed', description: error.message, variant: 'destructive' });
-    } else {
-      toast({ title: `Sent ${amount} ${sendAsset}`, description: `Fee: ${fee.toFixed(6)} ${sendAsset}` });
+    try {
+      // BC-7: insert as `pending`, poll RPC for receipt, flip on confirm/fail.
+      const { awaitFinal } = await submitAndAwaitConfirmation({
+        user_id: user.id,
+        from_address: wallets[0].address,
+        to_address: sendTo.trim(),
+        amount,
+        fee,
+        tx_hash: txHash,
+        wallet_id: wallets[0].id,
+      });
+      toast({
+        title: `⏳ Sending ${amount} ${sendAsset}`,
+        description: `Awaiting on-chain confirmation. Fee: ${fee.toFixed(6)} ${sendAsset}`,
+      });
       setSendDialogOpen(false);
       setSendTo('');
       setSendAmount('');
-      loadBalances();
+      awaitFinal.then((status) => {
+        if (status === 'confirmed') {
+          toast({ title: `✅ Sent ${amount} ${sendAsset}`, description: 'Confirmed on-chain.' });
+        } else {
+          toast({ title: '❌ Send failed', description: 'Did not confirm on-chain.', variant: 'destructive' });
+        }
+        loadBalances();
+      });
+    } catch (e: any) {
+      toast({ title: 'Transaction failed', description: e?.message ?? 'Unknown error', variant: 'destructive' });
+    } finally {
+      setSendLoading(false);
     }
   };
 
