@@ -39,6 +39,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FounderWalletConfig } from '@/components/wallet/FounderWalletConfig';
 import { cn } from '@/lib/utils';
+import { submitAndAwaitConfirmation } from '@/lib/txConfirmation';
 import { useNavigate } from 'react-router-dom';
 
 interface WalletData {
