@@ -141,6 +141,13 @@
 | AUTH-10 | ✅ | Server-side `emergency_shutdown` check in `github-sync` edge fn | New `supabase/functions/github-sync/index.ts` calls `authorities` table with the service-role key BEFORE doing any work and returns `423 chain_halted` when `emergency_shutdown=OFF`. Also gates on `protocol_config`. |
 | DEX-1 | ✅ | Swap pre-check + educational shortfall panel | New `src/components/defi/InsufficientBalanceEducation.tsx` renders inline above the Trade button whenever `payAmount > payToken.balance`: shows exact shortfall (`required − available`) and per-symbol "How to get more {symbol}" steps with deep-links (Send page, Faucet, Burn/Mint Admin tab, Cross-Chain bridge). `executeSwap` blocks early with a matching toast; Trade button is disabled and re-labelled `Insufficient {symbol}`. Reuses existing `useWalletConnect` + `getUserBalances` — no duplicate balance logic. |
 
+## 🤖 AI Security Compliance
+
+| # | Priority | Task | Notes |
+|---|----------|------|-------|
+| AISEC-1 | ✅ | `ai_security_events` table + `admin_config.ai_security` policy seed | Migration adds the table (severity / category / summary / details JSONB / model / action / subject_user_id / subject_address / source) with founder/admin-gated RLS for both SELECT and INSERT. Seeds the default policy: `enabled=true`, `model=google/gemini-3-flash-preview`, `sensitivity=medium`, `block_on_critical=true`, 8 monitored categories, `override_role=founder`. |
+| AISEC-2 | ✅ | `ai-security-guard` edge function | `supabase/functions/ai-security-guard/index.ts` (verify_jwt=false) reads the live policy (cached 30 s), calls Lovable AI with a tool-call schema (`verdict { decision, severity, reason }`), persists the result to `ai_security_events`, and returns the verdict to the caller. Skips AI for disabled categories. Handles 429 / 402 gracefully (downgrade to `review`). |
+| AISEC-3 | ✅ | Admin → AI Security tab | `AISecurityCompliance.tsx` mounted as a new tab in `Admin.tsx`. Founders/admins can toggle the guard, pick model + sensitivity, choose monitored categories, run a live test prompt, and watch the realtime events feed (severity badges, action icons, AI reason). Founder-only override of `override_role` so admins can be granted edit rights without losing founder veto. |
 ## Self-host Supabase (own the data plane)
 
 | # | Priority | Task | Notes |
