@@ -317,6 +317,39 @@ export type Database = {
         }
         Relationships: []
       }
+      faucet_claims: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          ip_address: string | null
+          token_type: string
+          tx_hash: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          token_type: string
+          tx_hash?: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          token_type?: string
+          tx_hash?: string | null
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
       feature_toggles: {
         Row: {
           admin_only: boolean
