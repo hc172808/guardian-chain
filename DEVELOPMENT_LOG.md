@@ -56,3 +56,10 @@ Chronological record of changes. Newest entries on top.
 ## Earlier history
 
 See `TODO.md` for the full ledger of completed and pending items.
+
+## 2026-05-05 — SEC-4, FE-12, FE-13, INF-12/13
+
+- **SEC-4**: Created `faucet_claims` table (migration `20260505001429`) + `supabase/functions/faucet-claim/index.ts`. Hard 24 h cooldown per user *and* per wallet, kill-switched by `emergency_shutdown` authority. `Faucet.tsx` now drives state from server response; no more localStorage cooldown.
+- **FE-12**: `useOnchainBalance` polls `eth_getBalance` across `ALL_RPC_ENDPOINTS` every 12 s. `WalletConnectBar` prefers on-chain GYDS when reachable, falls back to DB aggregate, surfaces an "On-Chain" badge.
+- **FE-13**: closed by SEC-4.
+- **INF-12 / INF-13**: artifacts already present (`wireguard-config.template`, `ssl-setup.sh`); added operator recipe `public/docs/SECURE_NODE_DEPLOYMENT.md` covering hub + peer setup, RPC bind, certbot SAN issuance, and traffic flow.
