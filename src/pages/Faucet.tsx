@@ -15,21 +15,20 @@ const FAUCET_AMOUNTS = {
   gyd: 100,
   gyds: 0.5,
 };
-const COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const FaucetPage = () => {
   const { user } = useAuth();
   const { address, isConnected } = useWalletConnect();
   const { toast } = useToast();
   const [isClaiming, setIsClaiming] = useState<'gyd' | 'gyds' | null>(null);
-  const [lastClaim, setLastClaim] = useState<Record<string, number>>({});
+  const [nextAvailable, setNextAvailable] = useState<Record<string, number>>({});
   const [manualAddress, setManualAddress] = useState('');
 
   const targetAddress = isConnected && address ? address : manualAddress;
 
   const canClaim = (type: string) => {
-    const last = lastClaim[type] || 0;
-    return Date.now() - last > COOLDOWN_MS;
+    const next = nextAvailable[type] || 0;
+    return Date.now() >= next;
   };
 
   const claim = async (type: 'gyd' | 'gyds') => {
@@ -41,32 +40,38 @@ const FaucetPage = () => {
       toast({ title: 'Address Required', description: 'Connect wallet or enter an address.', variant: 'destructive' });
       return;
     }
-    if (!canClaim(type)) {
-      toast({ title: 'Cooldown Active', description: 'You can claim once every 24 hours.', variant: 'destructive' });
-      return;
-    }
 
     setIsClaiming(type);
     try {
-      const amount = FAUCET_AMOUNTS[type];
-      const opType = type === 'gyd' ? 'mint_gyd' : 'mint_gyds';
-      const txHash = `0xfaucet-${Date.now().toString(16)}`;
-
-      const { error } = await supabase.from('token_operations').insert({
-        operation_type: opType,
-        amount,
-        wallet_address: targetAddress,
-        tx_hash: txHash,
-        status: 'confirmed',
-        created_by: user.id,
+      const { data, error } = await supabase.functions.invoke('faucet-claim', {
+        body: { token_type: type, wallet_address: targetAddress },
       });
 
-      if (error) throw error;
+      // Edge function returns 4xx with structured payload; supabase-js puts it on `error` and still includes data
+      if (error || (data && data.error)) {
+        const code = data?.error || error?.message || 'unknown';
+        if (code === 'cooldown_active' || code === 'cooldown_active_wallet') {
+          const ts = data?.next_available_at ? new Date(data.next_available_at).getTime() : Date.now() + 3600_000;
+          setNextAvailable(prev => ({ ...prev, [type]: ts }));
+          toast({
+            title: 'Cooldown Active',
+            description: `Next ${type.toUpperCase()} claim allowed at ${new Date(ts).toLocaleString()}.`,
+            variant: 'destructive',
+          });
+        } else if (code === 'chain_halted') {
+          toast({ title: 'Chain Halted', description: 'Faucet disabled by emergency_shutdown authority.', variant: 'destructive' });
+        } else {
+          toast({ title: 'Claim Failed', description: String(code), variant: 'destructive' });
+        }
+        return;
+      }
 
-      setLastClaim(prev => ({ ...prev, [type]: Date.now() }));
+      if (data?.next_available_at) {
+        setNextAvailable(prev => ({ ...prev, [type]: new Date(data.next_available_at).getTime() }));
+      }
       toast({
-        title: `🎉 Claimed ${amount} ${type.toUpperCase()}!`,
-        description: `Test tokens sent to ${targetAddress.slice(0, 8)}...`,
+        title: `🎉 Claimed ${data?.amount ?? FAUCET_AMOUNTS[type]} ${type.toUpperCase()}!`,
+        description: `Test tokens sent to ${targetAddress.slice(0, 8)}…`,
       });
     } catch (err: any) {
       toast({ title: 'Claim Failed', description: err.message, variant: 'destructive' });
