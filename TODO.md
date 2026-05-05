@@ -31,8 +31,8 @@
 | FE-9 | ✅ | Replace hardcoded `priceRatio: 11720.903` in Portfolio → PositionDetails | Now uses `gydPriceUsd` from `useDeFiConfig`; falls back to 1 when oracle not yet wired |
 | FE-10 | ✅ | Replace hardcoded staking stats (APR 74.87%, stakedTotal 7 439 000, buybacks24h 12 400, exchangeRate 1.3626) | Loaded from `admin_config.staking_stats` via `useDeFiConfig`; defaults to all-zero / 1.0 exchange rate when no row present |
 | FE-11 | 🟢 | Add `data-testid` attributes to all interactive DeFi elements | See fullstack-js guidelines |
-| FE-12 | 🟢 | WalletConnectBar — show real on-chain balance via RPC when node is live | Currently reads from `token_operations` aggregation only |
-| FE-13 | 🟢 | Faucet cooldown persisted server-side | Currently stored in `localStorage`; can be bypassed by clearing storage |
+| FE-12 | ✅ | WalletConnectBar — show real on-chain balance via RPC when node is live | New `src/hooks/useOnchainBalance.ts` polls `eth_getBalance` against every endpoint in `ALL_RPC_ENDPOINTS` (12 s interval, AbortController-cancellable, hex→1e18 conversion). `WalletConnectBar` now prefers the on-chain GYDS balance when any endpoint answers, surfaces a green "On-Chain" badge + radio dot + RPC source tooltip, and silently falls back to the existing `getUserBalances` DB aggregation when every node is unreachable — so the UI never blanks out for users without a local node. |
+| FE-13 | ✅ | Faucet cooldown persisted server-side | Now enforced by the new `faucet-claim` edge function (SEC-4) — frontend cooldown state is hydrated from the server's `next_available_at` response, not localStorage. |
 | FE-14 | 🟢 | Add loading skeleton to Launchpad list | No loading state while `launches` query runs |
 | FE-15 | 🟢 | Bridge history empty state | `BridgeHistory` shows nothing when no rows match |
 | FE-16 | 🟢 | Mobile viewport — DeFi bottom nav overlaps swap button on small screens | Add `pb-20` or safe-area inset on page container |
@@ -188,8 +188,8 @@
 | INF-9 | ✅ | Standalone systemd service files for fullnode + litenode | `public/systemd/gyds-{fullnode,litenode}.service` | Hardened (`NoNewPrivileges`, `ProtectSystem=strict`, `RestrictSUIDSGID`, etc.); reads `EnvironmentFile=/opt/guardian-chain/node.env` |
 | INF-10 | ✅ | UFW firewall rules: SSH (rate-limited), HTTP/HTTPS, RPC (8546/8547), P2P (30303 tcp+udp), bootnode (30301 udp), WireGuard (51820 udp) | `public/systemd/gyds-ufw.sh` | Defaults to deny-incoming; ports overridable via env |
 | INF-11 | ✅ | Fail2Ban jails for SSH + GYDS RPC + GYDS P2P | `public/systemd/gydschain-fail2ban.conf` | Drop-in for `/etc/fail2ban/jail.d/gydschain.conf` |
-| INF-12 | 🟢 | WireGuard VPN for private node-to-node P2P | `wireguard-config.template` | 🔲 |
-| INF-13 | 🟢 | SSL certificates via `ssl-setup.sh` (certbot + nginx) | `public/scripts/ssl-setup.sh` | 🔲 |
+| INF-12 | ✅ | WireGuard VPN for private node-to-node P2P | `wireguard-config.template` + new operator recipe `public/docs/SECURE_NODE_DEPLOYMENT.md` (hub config, peer config, binding RPC to the WG IP only). |
+| INF-13 | ✅ | SSL certificates via `ssl-setup.sh` (certbot + nginx) | `public/scripts/ssl-setup.sh` already issues a SAN cert across `netlifegy.com` + 9 subdomains with DNS+CAA pre-flight, HSTS, OCSP stapling, and certbot renewal timer. End-to-end flow documented in `public/docs/SECURE_NODE_DEPLOYMENT.md`. |
 | INF-14 | 🟢 | `deploy-ecosystem.sh` end-to-end smoke test | `public/scripts/deploy-ecosystem.sh` | 🔲 |
 
 ---
@@ -201,7 +201,7 @@
 | SEC-1 | ✅ | Wallet key backup procedure documented | `public/docs/wallet-backup.md` — manual + GPG + systemd-timer + restore-verify + key-rotation steps |
 | SEC-2 | ✅ | Genesis block verification on node start | `internal/blockchain/genesis_verify.go` — `VerifyAndPersistGenesis()` persists hash on first boot, refuses to start on mismatch; wired into `cmd/fullnode/main.go` before any service starts |
 | SEC-3 | ✅ | Admin/sensitive routes guarded by role on the frontend | `/admin` and `/node-terminal` wrapped in `<RequireAuth requiredRole="admin">`; `/smart-contracts` wrapped in `<RequireAuth>`. Non-admins are redirected to `/`. RLS still enforces server-side. |
-| SEC-4 | 🟢 | Rate-limit Faucet server-side (Supabase RLS or edge function) | Client-side cooldown is bypassable |
+| SEC-4 | ✅ | Rate-limit Faucet server-side (Supabase RLS or edge function) | New `supabase/functions/faucet-claim/index.ts` (verify_jwt=false in code, but validates the caller's JWT via `getClaims`). Enforces a hard 24 h cooldown per `(user_id, token_type)` AND per `(wallet_address, token_type)` against the new `faucet_claims` table — prevents both localStorage-clearing and account-hopping bypasses. Validates the wallet against `0x[a-f0-9]{40}`, refuses to drip when the `emergency_shutdown` authority is OFF (returns `423 chain_halted`), records IP + tx_hash, then atomically inserts the credit into `token_operations`. RLS on `faucet_claims`: users can read their own rows, founders/admins can read all, only the service role can insert. Migration `20260505001429`. |
 
 ---
 

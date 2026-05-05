@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Wallet, LogOut, Copy } from 'lucide-react';
+import { Wallet, LogOut, Copy, Radio } from 'lucide-react';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { getUserBalances } from '@/lib/balanceCalculator';
+import { useOnchainBalance } from '@/hooks/useOnchainBalance';
 
 export const WalletConnectBar = () => {
   const { address, isConnected, isConnecting, connect, disconnect } = useWalletConnect();
@@ -14,6 +15,7 @@ export const WalletConnectBar = () => {
   const { toast } = useToast();
   const [gydBalance, setGydBalance] = useState(0);
   const [gydsBalance, setGydsBalance] = useState(0);
+  const onchain = useOnchainBalance(isConnected ? address : null);
 
   useEffect(() => {
     if (!user || !isConnected) return;
@@ -42,6 +44,9 @@ export const WalletConnectBar = () => {
     }
   };
 
+  // Prefer on-chain GYDS balance when the node is reachable; otherwise fall back to DB aggregate.
+  const displayedGyds = onchain.online && onchain.native !== null ? onchain.native : gydsBalance;
+
   if (isConnected && address) {
     return (
       <div className="flex items-center justify-between p-3 rounded-xl bg-card/80 border border-border/50 mb-4">
@@ -60,9 +65,18 @@ export const WalletConnectBar = () => {
         <div className="flex items-center gap-3">
           <div className="text-right">
             <p className="text-xs font-mono font-semibold">{gydBalance.toFixed(2)} <span className="text-muted-foreground">GYD</span></p>
-            <p className="text-[10px] font-mono text-muted-foreground">{gydsBalance.toFixed(2)} GYDS</p>
+            <p className="text-[10px] font-mono text-muted-foreground flex items-center justify-end gap-1">
+              {displayedGyds.toFixed(4)} GYDS
+              {onchain.online && <Radio className="h-2.5 w-2.5 text-emerald-400" aria-label="On-chain balance" />}
+            </p>
           </div>
-          <Badge variant="outline" className="text-xs hidden sm:inline-flex">GYDS Network</Badge>
+          <Badge
+            variant="outline"
+            className={`text-xs hidden sm:inline-flex ${onchain.online ? 'border-emerald-500/40 text-emerald-400' : ''}`}
+            title={onchain.online ? `On-chain via ${onchain.source}` : 'Node offline — showing DB balance'}
+          >
+            {onchain.online ? 'On-Chain' : 'GYDS Network'}
+          </Badge>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={disconnect}>
             <LogOut className="h-4 w-4" />
           </Button>
