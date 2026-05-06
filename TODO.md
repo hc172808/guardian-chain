@@ -169,7 +169,7 @@
 | SC-4 | ✅ | Swap gated by network features | `executeSwap` rejects when `swap_enabled=false` or (`require_node_for_swap` && no online node) |
 | SC-5 | ✅ | Bridge gated by KYC + balance + node | `handleBridge` checks `bridge_enabled`, online node, `is_verified`, and aggregate GYDS balance ≥ `min_gyds_for_bridge` |
 | SC-6 | ✅ | Token Factory authority gates | Mint / Freeze / Update Authority Switches disabled & badged "DISABLED BY ADMIN" when corresponding `allow_*_authority` flag is off |
-| SC-7 | 🟡 | Apply migration to production Supabase | `20260424120000_network_features_and_verification.sql` — adds `profiles.is_verified`, seeds `network_features` config, adds founder-only RLS policy |
+| SC-7 | ✅ | Apply migration + seed defaults to production Supabase | Verified 2026-05-06: `network_features` row present (all flags + `hidden_components` + `min_gyds_for_bridge`). Newly seeded: `gyds_price`, `gyd_price`, `mining_config`, `staking_stats`, `bootnodes`, `gpl_config`. `profiles.is_verified` column live (used by `SC-3`). |
 
 ---
 
@@ -216,8 +216,8 @@
 - [x] **INF-8** `node.env` template clean (no hardcoded LAN IP)
 - [x] **INF-9** systemd unit files written (`public/systemd/gyds-*.service`) — operator must `cp` + `enable --now`
 - [x] **INF-10/11** UFW (`public/systemd/gyds-ufw.sh`) + Fail2Ban (`public/systemd/gydschain-fail2ban.conf`) artifacts ready
-- [ ] **DB-2** Migration applied to production Supabase
-- [ ] **DB-3** `admin_config` seeded with defaults
+- [x] **DB-2** Migration applied to production Supabase (auto-applied by Lovable Cloud on each migration)
+- [x] **DB-3** `admin_config` seeded with defaults (gyds_price, gyd_price, mining_config, staking_stats, bootnodes, gpl_config — 2026-05-06)
 - [ ] `docker compose -f docker-compose.prod.yml up -d` after setting `INDEXER_DB_PASSWORD`
 - [ ] **INF-13** SSL certs via `ssl-setup.sh`
 - [ ] Nginx routing verified: `/api/` → litenode RPC, `/explorer` → frontend
