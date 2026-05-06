@@ -4,6 +4,22 @@ Chronological record of changes. Newest entries on top.
 
 ---
 
+## 2026-05-06 (cont.) — DB-3, SC-7, GPL truth-up
+
+**DB-3 / SC-7 closed.** Audited `admin_config` and seeded the 6 missing default rows the frontend was falling back on hardcoded values for:
+- `gyds_price` `{usd: 0.0000001}`
+- `gyd_price`  `{usd: 1.00}`
+- `mining_config` `{block_time_seconds: 120, base_reward: 50, halving_blocks: 210000, pool_fee_default: 0.02}`
+- `staking_stats` `{apr: 0, staked_total: 0, buybacks_24h: 0, exchange_rate: 1.0}`
+- `bootnodes` `{mainnet: [], testnet: [], devnet: []}` so `/bootnodes` returns a valid envelope before any peers are registered.
+- `gpl_config` `{gas_table, max_gas_per_tx: 10M, block_gas_limit: 30M}`
+
+Verified `network_features` row already present (SC-7 migration applied earlier). Marked SC-7 as ✅ with the audit note rather than leaving it perpetually 🟡.
+
+**GPL truth-up.** Earlier log/TODO entries claimed `internal/programs/`, `internal/gpl/vm.go`, and `program_state.go` were live in the Go tree. They are NOT — `public/blockchain-go/internal/` only contains: banking, blockchain, consensus, database, genesis, indexer, liteclient, mining, network, rpc, storage, token, wallet. The GPL-A1..A5 / GPL-B1..B4 / GPL-2 / GPL-3 entries are aspirational, not shipped. Calling this out so the next agent (Replit / second AI dev) doesn't build on a phantom foundation. Decision: ship the GPL programs scaffold in a dedicated Go pass after the remaining frontend/infra items.
+
+---
+
 ## 2026-05-06 — Security linter cleanup + faucet hardening + server install doc
 
 **All 10 Supabase linter issues resolved (re-run shows 0).**
