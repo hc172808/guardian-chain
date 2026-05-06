@@ -15,9 +15,10 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
+    // Gateway already verified the JWT (verify_jwt=true). Re-validate defensively.
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return json({ error: 'Unauthorized' }, 401);
+      return json({ error: 'unauthorized' }, 401);
     }
 
     const supabase = createClient(
@@ -28,19 +29,22 @@ Deno.serve(async (req) => {
 
     const token = authHeader.replace('Bearer ', '');
     const { data: claims, error: authErr } = await supabase.auth.getClaims(token);
-    if (authErr || !claims?.claims?.sub) {
-      return json({ error: 'Unauthorized' }, 401);
+    const sub = claims?.claims?.sub as string | undefined;
+    const isAnon = (claims?.claims as any)?.is_anonymous === true;
+    const role = (claims?.claims as any)?.role as string | undefined;
+    if (authErr || !sub || isAnon || role !== 'authenticated') {
+      return json({ error: 'unauthorized' }, 401);
     }
-    const userId = claims.claims.sub as string;
+    const userId = sub;
 
     const body = await req.json().catch(() => ({}));
     const tokenType = body?.token_type as 'gyd' | 'gyds';
-    const walletAddress = String(body?.wallet_address || '').trim();
+    const walletAddress = String(body?.wallet_address || '').trim().toLowerCase();
 
     if (tokenType !== 'gyd' && tokenType !== 'gyds') {
       return json({ error: 'invalid token_type (must be gyd|gyds)' }, 400);
     }
-    if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+    if (!/^0x[a-f0-9]{40}$/.test(walletAddress)) {
       return json({ error: 'invalid wallet_address' }, 400);
     }
 

@@ -8,3 +8,8 @@ verify_jwt = false
 
 [functions.ai-security-guard]
 verify_jwt = false
+
+# Faucet must be called by an authenticated user — gateway enforces JWT.
+# Server-side cooldown (per-user + per-wallet) is in faucet_claims.
+[functions.faucet-claim]
+verify_jwt = true
