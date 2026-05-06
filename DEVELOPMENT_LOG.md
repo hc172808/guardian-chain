@@ -4,6 +4,25 @@ Chronological record of changes. Newest entries on top.
 
 ---
 
+## 2026-05-06 — Security linter cleanup + faucet hardening + server install doc
+
+**All 10 Supabase linter issues resolved (re-run shows 0).**
+
+- **ERROR — Security Definer View** → `v_authority_summary` recreated with `WITH (security_invoker = true)` so it respects the caller's RLS, not the view creator's. `GRANT SELECT` re-issued to `authenticated`.
+- **WARN ×3 — SECURITY DEFINER functions executable by anon/authenticated** → revoked `EXECUTE` on `has_role(uuid, app_role)`, `handle_new_user()`, `handle_new_user_role()` from `PUBLIC, anon, authenticated`. `has_role` keeps working inside RLS policies (RLS bypasses grants); the other two are trigger functions (triggers run regardless of grants).
+- **WARN ×2 — Public bucket allows listing** → dropped broad SELECT policies on `storage.objects` for `token-logos` / `token-sites`; replaced with owner-only listing policies. Buckets remain public for direct URL fetches (CDN-style), but enumeration via `list()` is now blocked unless the caller owns the object.
+- **WARN — Leaked password protection disabled** → enabled via `configure_auth(password_hibp_enabled=true)`. Signup + password-change now check Have-I-Been-Pwned.
+
+**Faucet hardening (`faucet-claim`).**
+- `supabase/config.toml`: switched `faucet-claim` from `verify_jwt = false` (manual validation only) to **`verify_jwt = true`** so the gateway rejects unauthenticated/anonymous callers before they ever hit our handler.
+- Function still re-validates defensively: rejects when `claims.is_anonymous === true`, when `role !== 'authenticated'`, or when `sub` is missing.
+- `wallet_address` is now lowercased and matched with `^0x[a-f0-9]{40}$` so cooldown comparisons against `faucet_claims.wallet_address` are deterministic.
+- 24 h cooldown per `(user_id, token_type)` AND per `(wallet_address, token_type)` unchanged. `emergency_shutdown` authority kill-switch unchanged.
+
+**New: `public/docs/SERVER_INSTALL_REQUIREMENTS.md`** — full Ubuntu 22.04 install recipe for: CloudPanel (frontend), Go 1.22 (node), Postgres 15 (indexer), Docker (RPC/explorer), UFW + Fail2ban + WireGuard, SSL, systemd units, and the bootnode auto-discovery endpoint. Designed to be handed verbatim to a second AI dev (Replit, etc.) or a server admin.
+
+---
+
 ## 2026-05-04 — INF-5, MIN-2, BC-7, AI Security Compliance
 
 **INF-5 — Public bootnodes endpoint.** New edge function `bootnodes` (verify_jwt=false) returns a stable JSON document with mainnet/testnet/devnet entries (chain_id + enode list). Reads `admin_config.bootnodes`, falls back to baked-in defaults, validates enode shape, supports `?network=…` filter, 60 s edge cache. Install scripts can now `curl -s https://<project>.functions.supabase.co/bootnodes?network=mainnet` on first boot.
