@@ -98,3 +98,18 @@ See `TODO.md` for the full ledger of completed and pending items.
 - **FE-12**: `useOnchainBalance` polls `eth_getBalance` across `ALL_RPC_ENDPOINTS` every 12 s. `WalletConnectBar` prefers on-chain GYDS when reachable, falls back to DB aggregate, surfaces an "On-Chain" badge.
 - **FE-13**: closed by SEC-4.
 - **INF-12 / INF-13**: artifacts already present (`wireguard-config.template`, `ssl-setup.sh`); added operator recipe `public/docs/SECURE_NODE_DEPLOYMENT.md` covering hub + peer setup, RPC bind, certbot SAN issuance, and traffic flow.
+
+## 2026-05-07 — GPL Go scaffolding + INF-14 smoke test
+
+- **GPL-A1..A5 / B1..B2**: created `public/blockchain-go/internal/programs/` with five modules and a registry:
+  - `programs/program.go` — shared `Address`, `Instruction`, `AccountMeta`, `Context` (with `ChargeGas`), `Program`, `Registry`, error set.
+  - `programs/registry/` — in-memory `Registry` with `Dispatch` (charges `DefaultGasPerCall=100`), `AllowDeploy/CanDeploy` developer whitelist (default-deny → fixes B1).
+  - `programs/system/` (A1) — `OpCreateAccount/Transfer/Assign`, gas-metered, signer/writable enforced.
+  - `programs/token/` (A2) — single shared engine for ALL fungible tokens; `Mint{authority,supply,decimals,freeze_authority}` + `TokenAccount{mint,owner,amount,frozen}` records; ops `InitMint/MintTo/Transfer/Burn/Freeze/Thaw/SetAuthority`.
+  - `programs/accounts/` (A3) — `DerivePDA(programID, seeds…)` deterministic SHA-256 helper, length-prefixed seeds, version tag.
+  - `programs/staking/` (A4) — `StakeAccount` bookkeeping façade over `consensus/pos.go`; ops `InitStake/Delegate/Undelegate/ClaimRewards`.
+  - `programs/vm/` (A5 + B2) — sandboxed stack interpreter with hard ceilings: 64 KiB code, 1024-deep stack, 1 M instructions, per-op gas, NO host clock / RNG / syscalls (consensus-replay safe). Opcodes: `Halt/PushU8/PushU64/Pop/Add/Sub/Mul/Div/Eq/Jump/JumpIf/Log`.
+  - `programs/programs_test.go` — 7 deterministic tests: registry dispatch + unknown-program error, system create-account flow, token mint+transfer balance math, VM `ErrOutOfGas`, VM halt with correct stack, PDA determinism + seed sensitivity, deploy whitelist default-deny.
+- **Compatibility**: zero edits to `internal/blockchain/state.go`, `internal/token/factory.go`, or `internal/consensus/pos.go`. The existing chain keeps working; the new programs are an additive façade ready for the `TxType.ContractCall/ContractDeploy` wiring (GPL-B3, next pass).
+- **INF-14**: `public/scripts/deploy-ecosystem-smoke.sh` — non-interactive end-to-end smoke covering tooling, `.env`, container health, indexer Postgres `SELECT 1`, public RPC `eth_blockNumber` per endpoint, `/bootnodes?network=…` JSON shape, frontend `200`. `bash -n` clean. Wires straight into CI / cron with `NETWORK=testnet|devnet` overrides.
+- **Build status**: Go toolchain unavailable in the Lovable sandbox (no `go` binary) — code is Go 1.21-compatible and matches the existing module layout. Run `cd public/blockchain-go && go test ./internal/programs/...` on the deploy host (Replit, server, dev box) to validate.

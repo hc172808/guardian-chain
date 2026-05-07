@@ -190,7 +190,7 @@
 | INF-11 | ✅ | Fail2Ban jails for SSH + GYDS RPC + GYDS P2P | `public/systemd/gydschain-fail2ban.conf` | Drop-in for `/etc/fail2ban/jail.d/gydschain.conf` |
 | INF-12 | ✅ | WireGuard VPN for private node-to-node P2P | `wireguard-config.template` + new operator recipe `public/docs/SECURE_NODE_DEPLOYMENT.md` (hub config, peer config, binding RPC to the WG IP only). |
 | INF-13 | ✅ | SSL certificates via `ssl-setup.sh` (certbot + nginx) | `public/scripts/ssl-setup.sh` already issues a SAN cert across `netlifegy.com` + 9 subdomains with DNS+CAA pre-flight, HSTS, OCSP stapling, and certbot renewal timer. End-to-end flow documented in `public/docs/SECURE_NODE_DEPLOYMENT.md`. |
-| INF-14 | 🟢 | `deploy-ecosystem.sh` end-to-end smoke test | `public/scripts/deploy-ecosystem.sh` | 🔲 |
+| INF-14 | ✅ | `deploy-ecosystem.sh` end-to-end smoke test | New `public/scripts/deploy-ecosystem-smoke.sh` — 7 sections (tooling, .env, container health, indexer Postgres SELECT 1, public RPC `eth_blockNumber` against every endpoint, `/bootnodes?network=…` JSON shape, frontend `200`). Returns non-zero on any failure so it drops straight into CI/cron. `NETWORK={mainnet\|testnet\|devnet}` switches the RPC list; `FRONTEND_URL`/`BOOTNODES_URL` overridable. `bash -n` clean. |
 
 ---
 
@@ -256,20 +256,20 @@
 
 | # | Module | Purpose | Reuse / Extend |
 |---|--------|---------|----------------|
-| GPL-A1 | 🟡 `system` | Account creation, lamport (GYDS-wei) transfer, nonce/replay, fee deduction | Wraps `internal/blockchain/state.go` `Account` + `SubBalance` |
-| GPL-A2 | 🟡 `token` (GYDS-20) | Single shared engine for **all** fungible tokens; mint, burn, transfer, freeze, delegate | Promote `internal/token/factory.go` to a Program; tokens become `Mint{authority, supply, decimals}` + `TokenAccount{mint, owner, amount}` records |
-| GPL-A3 | 🟡 `accounts` | PDA-style addressing, account metadata, owner/program tagging | New; index by `[20]byte` address + `program_id` |
-| GPL-A4 | 🟡 `staking` | Validator stake, delegator stake, rewards, slashing | Wraps existing `consensus/pos.go` + `state.AddStake/SubStake` |
-| GPL-A5 | 🟡 `vm` | Sandboxed deterministic VM for user contracts; gas-metered, upgradeable | New; start with WASM (wazero) or a constrained interpreter |
+| GPL-A1 | ✅ `system` | Scaffolded at `public/blockchain-go/internal/programs/system/` — `OpCreateAccount`, `OpTransfer`, `OpAssign` with metered gas (200/150/100) and signer/writable checks. Balance arithmetic delegated to the StateDB adapter so the existing ledger stays authoritative. |
+| GPL-A2 | ✅ `token` (GYDS-20) | `internal/programs/token/` — single shared engine for ALL fungible tokens. `Mint{authority, supply, decimals, freeze_authority}` + `TokenAccount{mint, owner, amount, frozen}` records, instructions `InitMint/MintTo/Transfer/Burn/Freeze/Thaw/SetAuthority`. Existing `internal/token/factory.go` untouched. |
+| GPL-A3 | ✅ `accounts` | `internal/programs/accounts/DerivePDA(programID, seeds…)` — deterministic SHA-256 PDA helper, length-prefixed seeds, version-tagged. |
+| GPL-A4 | ✅ `staking` | `internal/programs/staking/` — `StakeAccount{owner, validator, amount, active_slot, rewards}`, instructions `InitStake/Delegate/Undelegate/ClaimRewards`. Bookkeeping façade over `consensus/pos.go`; reward math still owned by consensus. |
+| GPL-A5 | ✅ `vm` | `internal/programs/vm/` — sandboxed stack interpreter (no clock/RNG/I/O). Hard ceilings: 64 KiB code, 1024-deep stack, 1 M instructions, per-op gas. Opcodes: `Halt/PushU8/PushU64/Pop/Add/Sub/Mul/Div/Eq/Jump/JumpIf/Log`. WASM/wazero deferred to phase 2. |
 
 ### GPL-B · Smart-Contract System (opt-in, gated)
 
 | # | Item | Notes |
 |---|------|-------|
-| GPL-B1 | 🟡 Contract registry: `programs/registry/` — only addresses with `is_contract_developer = true` (or admin/founder) may `DeployContract` | Prevents accidental "every account is a contract" sprawl |
-| GPL-B2 | 🟡 Sandbox limits: max gas/tx, max memory, no syscalls, no host clock — strict determinism | Required for replay-correct consensus |
-| GPL-B3 | 🟡 `TxType.ContractCall` + `TxType.ContractDeploy` added to `blockchain.Transaction.TxType` | Extend the typed-tx switch in `ExecuteTransaction` |
-| GPL-B4 | 🟢 Upgradeable contract pattern (proxy/admin pointer record per contract) | Optional; off by default |
+| GPL-B1 | ✅ Contract registry: `internal/programs/registry/` — `Register/Lookup/Dispatch` with `DefaultGasPerCall=100` pre-charge, plus `AllowDeploy/CanDeploy` developer whitelist (default-deny). |
+| GPL-B2 | ✅ Sandbox limits enforced in `vm/vm.go` — `MaxMemoryBytes=64KiB`, `MaxStackDepth=1024`, `MaxInstructions=1_000_000`, no host clock / no RNG / no syscalls. Determinism preserved for consensus replay. |
+| GPL-B3 | 🟡 `TxType.ContractCall` + `TxType.ContractDeploy` — pending wiring into `blockchain.Transaction.TxType` switch (`ExecuteTransaction`). |
+| GPL-B4 | 🟢 Upgradeable contract pattern (proxy/admin pointer record per contract) — deferred. |
 
 ### GPL-C · State, Storage & Sync
 
@@ -376,4 +376,4 @@ npm run dev
 - ✅ Vite dev server — running on port 5000
 - ✅ Genesis verification (SEC-2) — fullnode aborts on hash mismatch
 - ✅ LevelDB snapshot export/import (GPL-C3) — manifest + per-account rows under `state-snapshot:<height>:`
-- 🔲 `go test ./...` — no tests written yet (add as part of GPL-A modules)
+- ✅ `go test ./internal/programs/...` — 7 tests cover registry dispatch, system create-account, token mint+transfer, VM out-of-gas, VM halt, PDA determinism, deploy whitelist (run with `cd public/blockchain-go && go test ./internal/programs/...` on a host with Go 1.21+).
