@@ -15,7 +15,20 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
       ...(options.headers || {}),
     },
   });
-  const json = await res.json();
+  const text = await res.text();
+  const ct = res.headers.get('content-type') || '';
+  // Edge function failures (cold start, missing env, gateway errors) can return
+  // an HTML error page. Surface a clean error instead of crashing JSON.parse.
+  if (!ct.includes('application/json')) {
+    if (!res.ok) throw new Error(`Edge function HTTP ${res.status}`);
+    throw new Error('Unexpected non-JSON response from blockchain-api');
+  }
+  let json: any;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Invalid JSON from blockchain-api (HTTP ${res.status})`);
+  }
   if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
   return json as T;
 }
