@@ -1,0 +1,9 @@
+✅ Usage Instructions
+Place your genesis.json in the same folder as this script.
+Make the script executable:
+chmod +x mainnet-bootstrap.sh
+sudo bash mainnet-bootstrap.sh
+Enter validator wallet address and optionally the RPC URL for the lite node.
+Watch systemd services start automatically.
+
+This will give you a fully bootstrapped mainnet in one command.

@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Blockchain Explorer"
+version = "1.0.0"
+id = "artifacts/blockchain-explorer"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22058
+
+[services.development]
+run = "pnpm --filter @workspace/blockchain-explorer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/blockchain-explorer", "run", "build" ]
+publicDir = "artifacts/blockchain-explorer/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22058"
+BASE_PATH = "/"
