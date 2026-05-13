@@ -15,30 +15,46 @@ const COINGECKO_IDS: Record<string, string> = {
   solana: 'solana',
 };
 
+// GYDS-chain native tokens served from our own API
+const NATIVE_IDS = new Set(['gyds', 'gyd', 'chaincore']);
+
 // Simple SVG sparkline from 7-day price data
 export const PriceSparkline = ({ coinId, color = 'hsl(var(--primary))', width = 60, height = 20 }: PriceSparklineProps) => {
   const [points, setPoints] = useState<number[]>([]);
   const [isUp, setIsUp] = useState(true);
 
   useEffect(() => {
-    const geckoId = COINGECKO_IDS[coinId];
-    if (!geckoId) return;
-
     const fetchSparkline = async () => {
       try {
+        // For native GYDS tokens use our own price history endpoint
+        if (NATIVE_IDS.has(coinId.toLowerCase())) {
+          const res = await fetch('/api/blockchain/token-price/history');
+          if (res.ok) {
+            const data = await res.json() as { prices: { timestamp: number; price: number }[] };
+            const prices = data.prices.map(p => p.price);
+            setPoints(prices);
+            if (prices.length >= 2) setIsUp(prices[prices.length - 1] >= prices[0]);
+            return;
+          }
+        }
+
+        // For well-known external tokens try CoinGecko
+        const geckoId = COINGECKO_IDS[coinId];
+        if (!geckoId) throw new Error('no-gecko-id');
         const res = await fetch(
           `https://api.coingecko.com/api/v3/coins/${geckoId}/market_chart?vs_currency=usd&days=7&interval=daily`
         );
-        if (!res.ok) throw new Error('Failed');
-        const data = await res.json();
-        const prices: number[] = data.prices?.map((p: number[]) => p[1]) || [];
+        if (!res.ok) throw new Error('gecko-failed');
+        const data = await res.json() as { prices: number[][] };
+        const prices: number[] = data.prices?.map((p) => p[1]) || [];
         setPoints(prices);
-        if (prices.length >= 2) {
-          setIsUp(prices[prices.length - 1] >= prices[0]);
-        }
+        if (prices.length >= 2) setIsUp(prices[prices.length - 1] >= prices[0]);
       } catch {
-        // Generate mock sparkline data as fallback
-        const mock = Array.from({ length: 7 }, (_, i) => 100 + Math.sin(i * 0.8) * 10 + Math.random() * 5);
+        // Stable fallback — deterministic so it doesn't flicker on re-render
+        const seed = coinId.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+        const mock = Array.from({ length: 7 }, (_, i) =>
+          100 + Math.sin((seed + i) * 0.8) * 10
+        );
         setPoints(mock);
       }
     };

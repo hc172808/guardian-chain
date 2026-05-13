@@ -327,6 +327,57 @@ router.post("/table/:table", requireAuth, async (req: Request, res: Response) =>
     return row;
   };
 
+  // ── Faucet 24-hour duplicate-claim guard ──────────────────────────────────
+  if (tableName === "faucet_claims" && userId) {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rawBody = Array.isArray(body) ? body[0] : body;
+    const walletAddress = (rawBody as Record<string, unknown>)?.wallet_address as string | undefined;
+
+    const userFilter = gt(schema.faucetClaimsTable.claimed_at, cutoff);
+    const existing = await db
+      .select({ id: schema.faucetClaimsTable.id, claimed_at: schema.faucetClaimsTable.claimed_at })
+      .from(schema.faucetClaimsTable)
+      .where(
+        and(
+          eq(schema.faucetClaimsTable.user_id, userId),
+          userFilter,
+        )
+      )
+      .limit(1);
+
+    if (existing.length > 0) {
+      const nextAt = new Date(existing[0].claimed_at.getTime() + 24 * 60 * 60 * 1000);
+      res.status(429).json({
+        error: "You have already claimed in the last 24 hours.",
+        next_available_at: nextAt.toISOString(),
+      });
+      return;
+    }
+
+    // Also guard by wallet address to prevent multi-account abuse
+    if (walletAddress) {
+      const walletExisting = await db
+        .select({ id: schema.faucetClaimsTable.id, claimed_at: schema.faucetClaimsTable.claimed_at })
+        .from(schema.faucetClaimsTable)
+        .where(
+          and(
+            eq(schema.faucetClaimsTable.wallet_address, walletAddress),
+            gt(schema.faucetClaimsTable.claimed_at, cutoff),
+          )
+        )
+        .limit(1);
+
+      if (walletExisting.length > 0) {
+        const nextAt = new Date(walletExisting[0].claimed_at.getTime() + 24 * 60 * 60 * 1000);
+        res.status(429).json({
+          error: "This wallet has already claimed in the last 24 hours.",
+          next_available_at: nextAt.toISOString(),
+        });
+        return;
+      }
+    }
+  }
+
   try {
     const rawRows = Array.isArray(body) ? body : [body];
     const rows = rawRows.map((r) => injectUserId(r as Record<string, unknown>));

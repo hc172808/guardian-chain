@@ -10,7 +10,7 @@ import {
   Wifi,
   WifiOff
 } from 'lucide-react';
-import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
+import { useBlockchainSSE } from '@/hooks/useBlockchainSSE';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { getNetworkStats } from '@/lib/blockchainApi';
@@ -25,7 +25,7 @@ interface NetworkStatsData {
 }
 
 export const LiveNetworkStats = () => {
-  const { isConnected, latestBlock } = useBlockchainWebSocket();
+  const { isConnected, latestBlock } = useBlockchainSSE();
   
   const [stats, setStats] = useState<NetworkStatsData>({
     blockHeight: 0,

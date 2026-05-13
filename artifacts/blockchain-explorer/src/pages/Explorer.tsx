@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
-import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
+import { useBlockchainSSE } from '@/hooks/useBlockchainSSE';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,7 +24,7 @@ const Explorer = () => {
   const [rpcTransactions, setRpcTransactions] = useState<RPCTransaction[]>([]);
   const [dbHealthy, setDbHealthy] = useState<boolean | null>(null);
 
-  const { isConnected, latestBlock, latestTransactions, pendingTransactions, error } = useBlockchainWebSocket();
+  const { isConnected, latestBlock, latestTransactions, pendingTransactions, error } = useBlockchainSSE();
 
   useEffect(() => {
     if (latestBlock) {
