@@ -1,9 +1,9 @@
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const ipAccessListTable = pgTable("ip_access_list", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   ip_address: text("ip_address").notNull(),
   list_type: text("list_type").notNull().default("whitelist"),
   reason: text("reason"),

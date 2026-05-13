@@ -1,9 +1,9 @@
-import { pgTable, text, json, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, json, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const aiSecurityEventsTable = pgTable("ai_security_events", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   action: text("action").notNull().default("flag"),
   category: text("category").notNull(),
   created_at: timestamp("created_at").defaultNow().notNull(),

@@ -1,9 +1,9 @@
-import { pgTable, text, boolean, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const rateLimitRulesTable = pgTable("rate_limit_rules", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   endpoint: text("endpoint").notNull(),
   requests_per_window: integer("requests_per_window").notNull().default(100),

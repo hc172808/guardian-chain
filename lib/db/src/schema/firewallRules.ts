@@ -1,9 +1,9 @@
-import { pgTable, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const firewallRulesTable = pgTable("firewall_rules", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   rule_type: text("rule_type").notNull().default("ip"),
   ip_address: text("ip_address"),
   port: text("port"),

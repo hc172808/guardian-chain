@@ -1,9 +1,9 @@
-import { pgTable, text, boolean, doublePrecision, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, doublePrecision, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const liquidityPoolsTable = pgTable("liquidity_pools", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   token_a_symbol: text("token_a_symbol").notNull(),
   token_b_symbol: text("token_b_symbol").notNull(),
   token_a_address: text("token_a_address"),

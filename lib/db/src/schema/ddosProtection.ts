@@ -1,9 +1,9 @@
-import { pgTable, text, boolean, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const ddosProtectionTable = pgTable("ddos_protection", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   description: text("description"),
   rule_type: text("rule_type").notNull().default("rate_limit"),

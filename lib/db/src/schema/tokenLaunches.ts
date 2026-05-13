@@ -1,9 +1,9 @@
-import { pgTable, text, boolean, doublePrecision, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, doublePrecision, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const tokenLaunchesTable = pgTable("token_launches", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   symbol: text("symbol").notNull(),
   description: text("description"),

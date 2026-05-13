@@ -1,9 +1,9 @@
-import { pgTable, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const featureTogglesTable = pgTable("feature_toggles", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   feature_key: text("feature_key").notNull(),
   feature_name: text("feature_name").notNull(),
   description: text("description"),

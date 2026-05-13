@@ -1,9 +1,9 @@
-import { pgTable, text, boolean, doublePrecision, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, doublePrecision, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const transactionsTable = pgTable("transactions", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   hash: text("hash").notNull(),
   block_height: integer("block_height").notNull().default(0),
   from_address: text("from_address").notNull(),

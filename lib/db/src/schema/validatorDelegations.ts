@@ -1,9 +1,9 @@
-import { pgTable, text, doublePrecision, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, doublePrecision, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const validatorDelegationsTable = pgTable("validator_delegations", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   user_id: text("user_id").notNull(),
   validator_id: text("validator_id").notNull(),
   amount: doublePrecision("amount").notNull().default(0),

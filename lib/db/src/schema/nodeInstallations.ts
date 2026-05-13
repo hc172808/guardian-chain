@@ -1,9 +1,9 @@
-import { pgTable, text, boolean, doublePrecision, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, doublePrecision, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const nodeInstallationsTable = pgTable("node_installations", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   user_id: text("user_id").notNull(),
   node_type: text("node_type").notNull(),
   is_online: boolean("is_online"),

@@ -1,9 +1,9 @@
-import { pgTable, text, boolean, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const fail2banJailsTable = pgTable("fail2ban_jails", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   jail_name: text("jail_name").notNull(),
   description: text("description"),
   filter_name: text("filter_name"),

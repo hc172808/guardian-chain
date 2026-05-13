@@ -1,9 +1,9 @@
-import { pgTable, text, json, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, json, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const smartContractsTable = pgTable("smart_contracts", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   user_id: text("user_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),

@@ -1,9 +1,9 @@
-import { pgTable, text, doublePrecision, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, doublePrecision, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const tokenPriceTable = pgTable("token_price", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: uuid("id").primaryKey().defaultRandom(),
   price: doublePrecision("price").notNull().default(0),
   total_supply: doublePrecision("total_supply").notNull().default(0),
   circulating_supply: doublePrecision("circulating_supply").notNull().default(0),
