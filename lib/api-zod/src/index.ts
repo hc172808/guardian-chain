@@ -1,2 +1,7 @@
 export * from "./generated/api";
-export * from "./generated/types";
+export type {
+  HealthStatus,
+  RequestUploadUrlBody as RequestUploadUrlBodyType,
+  RequestUploadUrlResponse as RequestUploadUrlResponseType,
+  RequestUploadUrlResponseMetadata,
+} from "./generated/types";

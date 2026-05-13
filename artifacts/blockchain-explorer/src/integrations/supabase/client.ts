@@ -34,6 +34,7 @@ const buildUrl = (state: QueryState): string => {
   if (state.limitVal !== undefined) params.set('_limit', String(state.limitVal));
   if (state.offsetVal !== undefined) params.set('_offset', String(state.offsetVal));
   if (state.countMode) params.set('_count', state.countMode);
+  if (state.upsertOnConflict) params.set('_on_conflict', state.upsertOnConflict);
   for (const f of state.filters) {
     params.append(`_filter_${f.op}`, `${f.col}:${JSON.stringify(f.val)}`);
   }
@@ -109,6 +110,7 @@ const makeQueryBuilder = (state: QueryState) => {
     range(from: number, to: number) { state.offsetVal = from; state.limitVal = to - from + 1; return builder; },
     single() { state.isSingle = true; return builder; },
     maybeSingle() { state.isMaybeSingle = true; return builder; },
+    _setOnConflict(col: string) { state.upsertOnConflict = col; return builder; },
     // Promise interface
     then(resolve: (v: any) => any, reject?: (e: any) => any) {
       return executeQuery(state).then(resolve, reject);
@@ -123,18 +125,50 @@ const makeQueryBuilder = (state: QueryState) => {
   return builder;
 };
 
-// Storage shim — returns stub URLs, no actual upload
+// Storage — real two-step presigned URL upload flow
 const makeStorageBucket = (bucket: string) => ({
-  upload: async (_path: string, _file: File | Blob, _opts?: unknown) => ({
-    data: { path: _path },
-    error: null,
-  }),
+  upload: async (path: string, file: File | Blob, _opts?: unknown) => {
+    try {
+      const name = file instanceof File ? file.name : path;
+      const urlRes = await fetch(`${API_BASE}/storage/uploads/request-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, size: file.size, contentType: file.type || 'application/octet-stream' }),
+      });
+      if (!urlRes.ok) {
+        const msg = await urlRes.text().catch(() => 'Upload URL request failed');
+        return { data: null, error: { message: msg } };
+      }
+      const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
+      const putRes = await fetch(uploadURL, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+      if (!putRes.ok) {
+        return { data: null, error: { message: `Upload failed: ${putRes.status}` } };
+      }
+      return { data: { path: objectPath }, error: null };
+    } catch (err: unknown) {
+      return { data: null, error: { message: err instanceof Error ? err.message : 'Upload error' } };
+    }
+  },
   remove: async (_paths: string[]) => ({ data: null, error: null }),
   getPublicUrl: (filePath: string) => ({
-    data: { publicUrl: `/api/storage/${bucket}/${filePath}` },
+    data: { publicUrl: `${API_BASE}/storage/objects/${filePath.replace(/^\/objects\//, '')}` },
   }),
   list: async (_path?: string) => ({ data: [], error: null }),
-  download: async (_path: string) => ({ data: null, error: { message: 'Storage not implemented' } }),
+  download: async (path: string) => {
+    try {
+      const cleanPath = path.replace(/^\/objects\//, '');
+      const res = await fetch(`${API_BASE}/storage/objects/${cleanPath}`);
+      if (!res.ok) return { data: null, error: { message: `Download failed: ${res.status}` } };
+      const blob = await res.blob();
+      return { data: blob, error: null };
+    } catch (err: unknown) {
+      return { data: null, error: { message: err instanceof Error ? err.message : 'Download error' } };
+    }
+  },
 });
 
 // Realtime channel shim — no-ops
@@ -191,6 +225,7 @@ export const supabase = {
       },
       upsert: (rows: unknown, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
         const qb = make('upsert', rows);
+        if (opts?.onConflict) qb._setOnConflict(opts.onConflict);
         return qb;
       },
       delete: () => make('delete'),

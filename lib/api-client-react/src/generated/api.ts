@@ -5,18 +5,25 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  HealthStatus,
+  RequestUploadUrlBody,
+  RequestUploadUrlResponse,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -25,7 +32,6 @@ type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const getHealthCheckUrl = () => {
@@ -99,3 +105,89 @@ export function useHealthCheck<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Request a presigned upload URL
+ */
+export const getRequestUploadUrlUrl = () => {
+  return `/api/storage/uploads/request-url`;
+};
+
+export const requestUploadUrl = async (
+  requestUploadUrlBody: RequestUploadUrlBody,
+  options?: RequestInit,
+): Promise<RequestUploadUrlResponse> => {
+  return customFetch<RequestUploadUrlResponse>(getRequestUploadUrlUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(requestUploadUrlBody),
+  });
+};
+
+export const getRequestUploadUrlMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestUploadUrl>>,
+    TError,
+    { data: BodyType<RequestUploadUrlBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestUploadUrl>>,
+  TError,
+  { data: BodyType<RequestUploadUrlBody> },
+  TContext
+> => {
+  const mutationKey = ["requestUploadUrl"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestUploadUrl>>,
+    { data: BodyType<RequestUploadUrlBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return requestUploadUrl(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestUploadUrlMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestUploadUrl>>
+>;
+export type RequestUploadUrlMutationBody = BodyType<RequestUploadUrlBody>;
+export type RequestUploadUrlMutationError = ErrorType<void>;
+
+/**
+ * @summary Request a presigned upload URL
+ */
+export const useRequestUploadUrl = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestUploadUrl>>,
+    TError,
+    { data: BodyType<RequestUploadUrlBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof requestUploadUrl>>,
+  TError,
+  { data: BodyType<RequestUploadUrlBody> },
+  TContext
+> => {
+  return useMutation(getRequestUploadUrlMutationOptions(options));
+};

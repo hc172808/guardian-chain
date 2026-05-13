@@ -5,21 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-export interface HealthStatus {
-  status: string;
-}
-
-export interface RequestUploadUrlBody {
-  name: string;
-  size: number;
-  contentType: string;
-}
-
-export type RequestUploadUrlResponseMetadata = {
-  name: string;
-  size: number;
-  contentType: string;
-};
+import type { RequestUploadUrlResponseMetadata } from "./requestUploadUrlResponseMetadata";
 
 export interface RequestUploadUrlResponse {
   uploadURL: string;
