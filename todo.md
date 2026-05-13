@@ -25,7 +25,7 @@
 - [x] **SSE real-time feed**: GET /api/blockchain/stream emits newBlock + newTransaction events every 5 s; frontend hook `useBlockchainSSE` (same interface as old WebSocket hook) consumes it; Explorer.tsx + LiveNetworkStats.tsx both wired up
 - [x] **Network stats from DB**: /blockchain/network/stats reads real counts from `network_validators`, `wallets`, `transactions` tables (falls back to stubs if DB empty)
 - [x] **Faucet claim enforcement**: POST to faucet_claims now returns 429 with `next_available_at` if same user_id **or** same wallet_address has claimed within 24 h
-- [x] **Token search**: Explorer.tsx search already uses `supabase.from('tokens').or(...)` via shim → works against DB
+- [x] **Token search**: Explorer.tsx search uses `supabase.from('tokens').or(...)` via shim → works against DB
 - [x] **Wallet lookup**: GET /blockchain/wallet/:address queries `wallets` table by address
 
 ---
@@ -33,18 +33,18 @@
 ## P2 — Polish / quick wins
 
 - [x] **index.html titles**: `<title>` and og:title updated to "ChainCore — GYDS Blockchain Explorer"
-- [x] **Price sparkline**: PriceSparkline.tsx now tries `/api/blockchain/token-price/history` for native GYDS tokens; deterministic fallback (no more random flicker); CoinGecko still used for ETH/BNB/MATIC/SOL
-- [x] **Token price history endpoint**: GET /api/blockchain/token-price/history returns 7-day synthetic price series derived from current `token_price` DB row (falls back to 0.042 GYDS baseline when table empty)
-- [ ] **Validator leaderboard pagination**: GET /api/table/network_validators — add default `_order=stake&_asc=false` to the frontend Validators page query (minor UX, not blocking)
+- [x] **Price sparkline**: PriceSparkline.tsx tries `/api/blockchain/token-price/history` for native GYDS tokens; deterministic fallback; CoinGecko for ETH/BNB/MATIC/SOL
+- [x] **Token price history endpoint**: GET /api/blockchain/token-price/history — 7-day synthetic series from `token_price` DB row; 0.042 baseline when table empty
+- [x] **Validator leaderboard sort**: Validators.tsx already calls `.order('stake', { ascending: false })` via shim → passes `_order=stake&_asc=false` to table router ✓
 
 ---
 
 ## P3 — Security hardening
 
 - [x] **Rate-limit faucet claims**: 1 claim per user_id + 1 per wallet_address per 24 h — enforced in table router INSERT handler
-- [x] **Admin role enforcement**: ADMIN_WRITE_TABLES requires `isAdmin()` check in table router write path; role read from Clerk sessionClaims.publicMetadata.role
-- [ ] **Audit log on writes**: INSERT to `audit_logs` on any ADMIN_WRITE_TABLES mutation (P3 — not blocking)
-- [ ] **walletCrypto.ts**: PIN hash stored in localStorage — document as "dev-only" or move to server-side session (P3)
+- [x] **Admin role enforcement**: ADMIN_WRITE_TABLES requires `isAdmin()` check in table router write path
+- [x] **Audit log on writes**: `writeAuditLog()` helper fires after every INSERT/UPDATE/DELETE on ADMIN_WRITE_TABLES; sensitive fields (encrypted_seed, pin_hash, password, secret, key, token) redacted; failures are silent so they never break the main operation
+- [x] **walletCrypto.ts**: Added clear DEV-ONLY notice in file header — explains localStorage scope, lists the three keys, and recommends moving encrypted blob to the server-side wallets table for production
 
 ---
 
@@ -56,16 +56,6 @@
 
 ---
 
-## Completed this session
+## ALL DONE ✓
 
-1. Fixed DB schema UUIDs (all 27 tables)
-2. Object storage: presigned upload + ACL set-acl endpoint
-3. Table write authorization: ADMIN_WRITE_TABLES extended (tokens, liquidity_pools, token_launches, token_operations)
-4. Storage GET: public-visibility objects bypass auth requirement
-5. Supabase shim: post-upload ACL set call
-6. SSE real-time stream: /api/blockchain/stream + useBlockchainSSE hook
-7. Network stats: DB-backed validator/wallet/tx counts
-8. Faucet 24h enforcement: user_id + wallet_address deduplication
-9. index.html: title + og:title → "ChainCore — GYDS Blockchain Explorer"
-10. Price sparkline: deterministic fallback + native GYDS endpoint
-11. Token price history endpoint: /api/blockchain/token-price/history
+Every P0–P3 item is complete. The only remaining work is P4 (connecting a real Go RPC node), which is outside the scope of this environment.

@@ -24,6 +24,53 @@ import type { PgTable } from "drizzle-orm/pg-core";
 
 const router = Router();
 
+// ── Audit log helper ─────────────────────────────────────────────────────────
+
+const SENSITIVE_KEYS = new Set([
+  "encrypted_seed", "pin_hash", "password", "secret", "private_key", "key",
+  "token", "api_key", "api_secret",
+]);
+
+function redactSensitive(obj: unknown): unknown {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(redactSensitive);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    out[k] = SENSITIVE_KEYS.has(k) ? "[REDACTED]" : redactSensitive(v);
+  }
+  return out;
+}
+
+async function writeAuditLog({
+  userId,
+  action,
+  targetType,
+  targetId,
+  details,
+  ipAddress,
+}: {
+  userId: string;
+  action: string;
+  targetType: string;
+  targetId?: string;
+  details?: unknown;
+  ipAddress?: string;
+}): Promise<void> {
+  try {
+    await db.insert(schema.auditLogsTable).values({
+      user_id: userId,
+      action,
+      category: "admin",
+      target_type: targetType,
+      target_id: targetId ?? null,
+      details: redactSensitive(details) as Record<string, unknown>,
+      ip_address: ipAddress ?? null,
+    });
+  } catch {
+    // Audit log failures must never break the primary operation
+  }
+}
+
 const PUBLIC_READ_TABLES = new Set([
   "authorities",
   "documentation",
@@ -412,6 +459,18 @@ router.post("/table/:table", requireAuth, async (req: Request, res: Response) =>
     }
 
     const data = await db.insert(table).values(rows).returning();
+    // Fire-and-forget audit log for admin mutations
+    if (ADMIN_WRITE_TABLES.has(tableName) && userId) {
+      const firstId = (data[0] as Record<string, unknown>)?.id as string | undefined;
+      void writeAuditLog({
+        userId,
+        action: _op === "upsert" ? "upsert" : "insert",
+        targetType: tableName,
+        targetId: firstId,
+        details: redactSensitive(rows),
+        ipAddress: req.ip,
+      });
+    }
     res.json(data);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Insert error";
@@ -449,12 +508,26 @@ router.patch("/table/:table", requireAuth, async (req: Request, res: Response) =
     delete updates["user_id"];
   }
 
+  const userId = getCallerUserId(req);
+
   try {
     const data = await db
       .update(table)
       .set(updates)
       .where(and(...filterConditions))
       .returning();
+    // Fire-and-forget audit log for admin mutations
+    if (ADMIN_WRITE_TABLES.has(tableName) && userId) {
+      const firstId = (data[0] as Record<string, unknown>)?.id as string | undefined;
+      void writeAuditLog({
+        userId,
+        action: "update",
+        targetType: tableName,
+        targetId: firstId,
+        details: redactSensitive(updates),
+        ipAddress: req.ip,
+      });
+    }
     res.json(data);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Update error";
@@ -486,11 +559,25 @@ router.delete("/table/:table", requireAuth, async (req: Request, res: Response) 
 
   const filterConditions = applyFilters(table, filters);
 
+  const userId = getCallerUserId(req);
+
   try {
     const data = await db
       .delete(table)
       .where(and(...filterConditions))
       .returning();
+    // Fire-and-forget audit log for admin mutations
+    if (ADMIN_WRITE_TABLES.has(tableName) && userId) {
+      const firstId = (data[0] as Record<string, unknown>)?.id as string | undefined;
+      void writeAuditLog({
+        userId,
+        action: "delete",
+        targetType: tableName,
+        targetId: firstId,
+        details: { filters: req.query },
+        ipAddress: req.ip,
+      });
+    }
     res.json(data);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Delete error";

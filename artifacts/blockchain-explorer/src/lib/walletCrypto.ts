@@ -8,6 +8,15 @@
  * - PIN rotation (re-encrypt with new PIN)
  *
  * Private keys and seed phrases NEVER leave the device unencrypted.
+ *
+ * ⚠️  DEV-ONLY NOTICE — localStorage persistence
+ * The encrypted wallet data, PIN hash, attempt counter, and lockout
+ * timestamp are all stored in browser localStorage (keys: gyds_pin_lock,
+ * gyds_pin_attempts, gyds_pin_locked_until).
+ * localStorage is scoped to the browser origin and is NOT synced across
+ * devices. For a production deployment, consider moving the encrypted
+ * blob to the server-side wallets table (already in the DB schema) so
+ * users can recover their wallet after clearing browser storage.
  */
 
 const PBKDF2_ITERATIONS = 600_000; // OWASP recommended minimum
