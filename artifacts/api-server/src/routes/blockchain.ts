@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import * as schema from "@workspace/db/schema";
-import { count, sum } from "drizzle-orm";
+import { count, sum, desc } from "drizzle-orm";
 
 const router = Router();
 
