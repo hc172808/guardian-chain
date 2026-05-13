@@ -1,39 +1,24 @@
-// Blockchain API client — routes through edge function proxy to Go RPC node
-// No Supabase dependency for blockchain data
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const FUNCTION_BASE = `${SUPABASE_URL}/functions/v1/blockchain-api`;
+const API_BASE = '/api';
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${FUNCTION_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'apikey': SUPABASE_KEY,
       ...(options.headers || {}),
     },
   });
   const text = await res.text();
-  const ct = res.headers.get('content-type') || '';
-  // Edge function failures (cold start, missing env, gateway errors) can return
-  // an HTML error page. Surface a clean error instead of crashing JSON.parse.
-  if (!ct.includes('application/json')) {
-    if (!res.ok) throw new Error(`Edge function HTTP ${res.status}`);
-    throw new Error('Unexpected non-JSON response from blockchain-api');
-  }
-  let json: any;
+  let json: unknown;
   try {
     json = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(`Invalid JSON from blockchain-api (HTTP ${res.status})`);
+    throw new Error(`Invalid JSON from API (HTTP ${res.status})`);
   }
-  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  if (!res.ok) throw new Error((json as { error?: string })?.error || `HTTP ${res.status}`);
   return json as T;
 }
 
-// ── Wallet ──
 export interface WalletInfo {
   address: string;
   balance: string;
@@ -41,14 +26,13 @@ export interface WalletInfo {
 }
 
 export async function createWallet(): Promise<{ address: string }> {
-  return apiFetch('/wallet/create', { method: 'POST' });
+  return apiFetch('/blockchain/wallet/create', { method: 'POST' });
 }
 
 export async function getWallet(address: string): Promise<WalletInfo> {
-  return apiFetch(`/wallet/${address}`);
+  return apiFetch(`/blockchain/wallet/${address}`);
 }
 
-// ── Transactions ──
 export interface TxSendParams {
   from: string;
   to: string;
@@ -56,7 +40,7 @@ export interface TxSendParams {
 }
 
 export async function sendTransaction(params: TxSendParams): Promise<{ txHash: string }> {
-  return apiFetch('/tx/send', {
+  return apiFetch('/blockchain/tx/send', {
     method: 'POST',
     body: JSON.stringify(params),
   });
@@ -68,10 +52,9 @@ export interface TxDetail {
 }
 
 export async function getTransaction(hash: string): Promise<TxDetail> {
-  return apiFetch(`/tx/${hash}`);
+  return apiFetch(`/blockchain/tx/${hash}`);
 }
 
-// ── Blocks ──
 export interface BlocksResponse {
   blocks: Record<string, unknown>[];
   count: number;
@@ -79,7 +62,7 @@ export interface BlocksResponse {
 }
 
 export async function getBlocks(limit = 20): Promise<BlocksResponse> {
-  return apiFetch(`/blocks?limit=${limit}`);
+  return apiFetch(`/blockchain/blocks?limit=${limit}`);
 }
 
 export interface BlockDetailResponse {
@@ -87,10 +70,9 @@ export interface BlockDetailResponse {
 }
 
 export async function getBlock(id: string | number): Promise<BlockDetailResponse> {
-  return apiFetch(`/block/${id}`);
+  return apiFetch(`/blockchain/block/${id}`);
 }
 
-// ── Transactions list ──
 export interface TransactionsResponse {
   transactions: Record<string, unknown>[];
   count: number;
@@ -98,10 +80,9 @@ export interface TransactionsResponse {
 }
 
 export async function getTransactions(limit = 20): Promise<TransactionsResponse> {
-  return apiFetch(`/transactions?limit=${limit}`);
+  return apiFetch(`/blockchain/transactions?limit=${limit}`);
 }
 
-// ── Network ──
 export interface NetworkStats {
   blockHeight: number;
   gasPrice: string;
@@ -110,15 +91,14 @@ export interface NetworkStats {
 }
 
 export async function getNetworkStats(): Promise<NetworkStats> {
-  return apiFetch('/network/stats');
+  return apiFetch('/blockchain/network/stats');
 }
 
-// ── Health ──
 export interface HealthStatus {
   rpc: string;
   indexerDb: string;
 }
 
 export async function getHealth(): Promise<HealthStatus> {
-  return apiFetch('/health');
+  return apiFetch('/blockchain/health');
 }

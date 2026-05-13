@@ -101,6 +101,18 @@ const makeQueryBuilder = (state: QueryState) => {
     ilike(col: string, val: unknown) { state.filters.push({ col, op: 'ilike', val }); return builder; },
     in(col: string, val: unknown[]) { state.filters.push({ col, op: 'in', val }); return builder; },
     is(col: string, val: unknown) { state.filters.push({ col, op: 'is', val }); return builder; },
+    or(filterStr: string) {
+      const validOps = new Set<string>(['eq','neq','gt','lt','gte','lte','like','ilike','in','is']);
+      for (const clause of filterStr.split(',')) {
+        const parts = clause.trim().split('.');
+        if (parts.length < 3) continue;
+        const col = parts[0];
+        const op = parts[1];
+        const val = parts.slice(2).join('.');
+        if (validOps.has(op)) state.filters.push({ col, op: op as FilterOp, val });
+      }
+      return builder;
+    },
     order(col: string, opts?: { ascending?: boolean }) {
       state.orderCol = col;
       state.orderAsc = opts?.ascending ?? true;
@@ -155,7 +167,7 @@ const makeStorageBucket = (bucket: string) => ({
   },
   remove: async (_paths: string[]) => ({ data: null, error: null }),
   getPublicUrl: (filePath: string) => ({
-    data: { publicUrl: `${API_BASE}/storage/objects/${filePath.replace(/^\/objects\//, '')}` },
+    data: { publicUrl: `${API_BASE}/storage/public-objects/${filePath.replace(/^\/objects\//, '').replace(/^\//, '')}` },
   }),
   list: async (_path?: string) => ({ data: [], error: null }),
   download: async (path: string) => {
@@ -241,7 +253,10 @@ export const supabase = {
 
   auth: authShim,
 
-  // RPC calls (edge functions/stored procs)
+  functions: {
+    invoke: async (_name: string, _opts?: unknown) => ({ data: null, error: null }),
+  },
+
   rpc: async (_fn: string, _args?: unknown) => ({ data: null, error: null }),
 };
 
