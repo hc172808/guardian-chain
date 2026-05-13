@@ -72,9 +72,13 @@ const ADMIN_WRITE_TABLES = new Set([
   "feature_toggles",
   "firewall_rules",
   "ip_access_list",
+  "liquidity_pools",
   "network_validators",
   "rate_limit_rules",
+  "token_launches",
+  "token_operations",
   "token_price",
+  "tokens",
   "user_roles",
 ]);
 

@@ -37,6 +37,19 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
+    // Set ACL immediately so the object is readable after upload.
+    // We use visibility=private (only owner can read via /storage/objects/*).
+    // The client can call POST /storage/uploads/set-acl to change visibility.
+    try {
+      await objectStorageService.trySetObjectEntityAclPolicy(uploadURL, {
+        owner: userId,
+        visibility: "private",
+      });
+    } catch {
+      // Object may not exist yet (presigned URL — file not yet uploaded).
+      // ACL will be set via /storage/uploads/set-acl after upload completes.
+    }
+
     res.json(
       RequestUploadUrlResponse.parse({
         uploadURL,
@@ -47,6 +60,41 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
   } catch (error) {
     req.log.error({ err: error }, "Error generating upload URL");
     res.status(500).json({ error: "Failed to generate upload URL" });
+  }
+});
+
+/**
+ * POST /storage/uploads/set-acl
+ *
+ * Set ACL on an uploaded object after the GCS PUT completes.
+ * Body: { objectPath: string, visibility: "public" | "private" }
+ */
+router.post("/storage/uploads/set-acl", async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  if (!userId) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const { objectPath, visibility } = req.body as { objectPath?: string; visibility?: string };
+  if (!objectPath || !objectPath.startsWith("/objects/")) {
+    res.status(400).json({ error: "Invalid objectPath" });
+    return;
+  }
+  if (visibility !== "public" && visibility !== "private") {
+    res.status(400).json({ error: "visibility must be 'public' or 'private'" });
+    return;
+  }
+
+  try {
+    await objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
+      owner: userId,
+      visibility,
+    });
+    res.json({ ok: true, objectPath, visibility });
+  } catch (error) {
+    req.log.error({ err: error }, "Error setting ACL");
+    res.status(500).json({ error: "Failed to set ACL" });
   }
 });
 
@@ -93,10 +141,6 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
  */
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   const { userId } = getAuth(req);
-  if (!userId) {
-    res.status(401).json({ error: "Authentication required" });
-    return;
-  }
 
   try {
     const raw = req.params.path;
@@ -105,12 +149,13 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
 
     const canAccess = await canAccessObject({
-      userId,
+      userId: userId ?? undefined,
       objectFile,
       requestedPermission: ObjectPermission.READ,
     });
     if (!canAccess) {
-      res.status(403).json({ error: "Forbidden" });
+      // Return 401 if no auth was provided so clients can retry with auth
+      res.status(userId ? 403 : 401).json({ error: userId ? "Forbidden" : "Authentication required" });
       return;
     }
 

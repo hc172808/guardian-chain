@@ -160,6 +160,14 @@ const makeStorageBucket = (bucket: string) => ({
       if (!putRes.ok) {
         return { data: null, error: { message: `Upload failed: ${putRes.status}` } };
       }
+      // Set ACL after upload so the object is readable by the uploader.
+      // Token logos and similar public assets use visibility=public.
+      const isPublicBucket = bucket.startsWith('token') || bucket.startsWith('site') || bucket.startsWith('logo') || bucket.startsWith('public');
+      await fetch(`${API_BASE}/storage/uploads/set-acl`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ objectPath, visibility: isPublicBucket ? 'public' : 'private' }),
+      }).catch(() => {});
       return { data: { path: objectPath }, error: null };
     } catch (err: unknown) {
       return { data: null, error: { message: err instanceof Error ? err.message : 'Upload error' } };
