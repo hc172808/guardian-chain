@@ -78,7 +78,6 @@
   "dependencies": {
     "@clerk/react": "^6.6.2",
     "@clerk/themes": "^2.4.57",
-    "@supabase/supabase-js": "^2.105.4",
     "internal": "link:@clerk/react/internal",
     "react-router-dom": "^7.15.0"
   }
