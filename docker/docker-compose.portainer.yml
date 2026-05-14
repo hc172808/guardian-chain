@@ -1,0 +1,64 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════════
+# GYDS Litenode — Portainer Stack
+# Deploy this as a standalone stack in Portainer.
+# Set the following environment variables in Portainer:
+#   GYDS_CHAIN_ID, GYDS_BOOTSTRAP_NODES, GYDS_RPC_PORT
+# ══════════════════════════════════════════════════════════════
+
+services:
+  gyds-litenode:
+    image: ghcr.io/gydschain/litenode:latest
+    # If using local build, replace with:
+    # build:
+    #   context: ..
+    #   dockerfile: docker/Dockerfile.litenode
+    container_name: gyds-litenode
+    restart: unless-stopped
+    labels:
+      - "com.gydschain.role=litenode"
+      - "com.gydschain.version=1.0.0"
+      - "traefik.enable=true"
+      - "traefik.http.routers.gyds-rpc.rule=Host(`${GYDS_DOMAIN:-rpc.localhost}`)"
+      - "traefik.http.services.gyds-rpc.loadbalancer.server.port=8545"
+    environment:
+      GYDS_CHAIN_ID: ${GYDS_CHAIN_ID:-1337}
+      GYDS_NODE_MODE: ${GYDS_NODE_MODE:-lite}
+      GYDS_LOG_LEVEL: ${GYDS_LOG_LEVEL:-info}
+      GYDS_DATA_DIR: /app/data
+      GYDS_BOOTSTRAP_NODES: ${GYDS_BOOTSTRAP_NODES:-}
+      PORT: ${GYDS_RPC_PORT:-8545}
+    volumes:
+      - gyds_litenode_data:/app/data
+    ports:
+      - "${GYDS_RPC_PORT:-8545}:8545"
+      - "${GYDS_WS_PORT:-8546}:8546"
+      - "${GYDS_P2P_PORT:-30304}:30304"
+      - "${GYDS_P2P_PORT:-30304}:30304/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:${GYDS_RPC_PORT:-8545}/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+
+volumes:
+  gyds_litenode_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${GYDS_DATA_PATH:-/opt/gyds/litenode}
+      o: bind

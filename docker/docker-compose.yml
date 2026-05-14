@@ -1,0 +1,112 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════════
+# ChainCore / GYDS Chain — Full Stack Docker Compose
+# Includes: web frontend, API server, PostgreSQL, litenode
+# ══════════════════════════════════════════════════════════════
+
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: gyds-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gyds
+      POSTGRES_USER: gyds
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gydspass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gyds -d gyds"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gyds_net
+
+  # ── API Server ─────────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: gyds-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: postgresql://gyds:${POSTGRES_PASSWORD:-gydspass}@postgres:5432/gyds
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gyds_net
+
+  # ── Web Frontend ───────────────────────────────────────────
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      args:
+        VITE_API_URL: /api
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY}
+    container_name: gyds-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - gyds_net
+
+  # ── GYDS Litenode ─────────────────────────────────────────
+  litenode:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.litenode
+    container_name: gyds-litenode
+    restart: unless-stopped
+    environment:
+      GYDS_CHAIN_ID: ${GYDS_CHAIN_ID:-1337}
+      GYDS_NODE_MODE: lite
+      GYDS_LOG_LEVEL: info
+      GYDS_DATA_DIR: /app/data
+      PORT: 8545
+    volumes:
+      - litenode_data:/app/data
+    ports:
+      - "8545:8545"
+      - "8546:8546"
+      - "30304:30304"
+      - "30304:30304/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8545/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gyds_net
+
+volumes:
+  postgres_data:
+  litenode_data:
+
+networks:
+  gyds_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

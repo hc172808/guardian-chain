@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -6,11 +6,13 @@ import {
   ScrollView,
   RefreshControl,
   Platform,
+  Animated,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useNetworkStats, useBlocks, usePriceHistory } from "@/hooks/useApi";
+import { useBlockStream } from "@/hooks/useBlockStream";
 import { StatCard } from "@/components/StatCard";
 import { BlockRow } from "@/components/BlockRow";
 import { PriceCard } from "@/components/PriceSparkline";
@@ -27,6 +29,23 @@ export default function DashboardScreen() {
   const blocks = useBlocks(8);
   const priceHistory = usePriceHistory();
 
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  const triggerPulse = useCallback(() => {
+    Animated.sequence([
+      Animated.timing(pulseAnim, { toValue: 1.15, duration: 180, useNativeDriver: true }),
+      Animated.timing(pulseAnim, { toValue: 1, duration: 280, useNativeDriver: true }),
+    ]).start();
+  }, [pulseAnim]);
+
+  useBlockStream({
+    enabled: true,
+    onBlock: () => {
+      triggerPulse();
+      stats.refetch();
+    },
+  });
+
   const isRefreshing = stats.isFetching || blocks.isFetching;
 
   const onRefresh = useCallback(() => {
@@ -37,12 +56,19 @@ export default function DashboardScreen() {
 
   const pricePoints = priceHistory.data?.prices?.map((p) => p.price) ?? [];
   const currentPrice = priceHistory.data?.current ?? 0.042;
+  const change24h =
+    pricePoints.length >= 2
+      ? ((pricePoints[pricePoints.length - 1] - pricePoints[0]) / pricePoints[0]) * 100
+      : 0;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, { paddingTop: topPad + 12, paddingBottom: botPad + 90 }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: topPad + 12, paddingBottom: botPad + 90 },
+        ]}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -60,22 +86,21 @@ export default function DashboardScreen() {
             </Text>
             <Text style={[styles.appTitle, { color: colors.foreground }]}>ChainCore</Text>
           </View>
-          <GlowBadge label="Live" variant="accent" />
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            <GlowBadge label="Live" variant="accent" />
+          </Animated.View>
         </View>
 
         {/* Price Card */}
-        <PriceCard
-          price={currentPrice}
-          change24h={pricePoints.length >= 2
-            ? ((pricePoints[pricePoints.length - 1] - pricePoints[0]) / pricePoints[0]) * 100
-            : 0}
-          priceHistory={pricePoints}
-        />
+        <PriceCard price={currentPrice} change24h={change24h} priceHistory={pricePoints} />
 
         {/* Stats Grid */}
         <View style={styles.statsGrid}>
           {stats.isLoading ? (
-            <><StatCardShimmer /><StatCardShimmer /></>
+            <>
+              <StatCardShimmer />
+              <StatCardShimmer />
+            </>
           ) : (
             <>
               <StatCard
@@ -92,7 +117,10 @@ export default function DashboardScreen() {
         </View>
         <View style={styles.statsGrid}>
           {stats.isLoading ? (
-            <><StatCardShimmer /><StatCardShimmer /></>
+            <>
+              <StatCardShimmer />
+              <StatCardShimmer />
+            </>
           ) : (
             <>
               <StatCard
@@ -101,26 +129,48 @@ export default function DashboardScreen() {
               />
               <StatCard
                 label="Gas Price"
-                value={stats.data?.gasPrice ? `${(Number(stats.data.gasPrice) / 1e9).toFixed(1)} Gwei` : "—"}
+                value={
+                  stats.data?.gasPrice
+                    ? `${(Number(stats.data.gasPrice) / 1e9).toFixed(1)} Gwei`
+                    : "—"
+                }
               />
             </>
           )}
         </View>
 
         {/* Recent Blocks */}
-        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Recent Blocks</Text>
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+          Recent Blocks
+        </Text>
 
         {blocks.isLoading ? (
-          <><RowShimmer /><RowShimmer /><RowShimmer /></>
+          <>
+            <RowShimmer />
+            <RowShimmer />
+            <RowShimmer />
+          </>
         ) : blocks.error ? (
-          <View style={[styles.emptyBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.emptyBox,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
             <Text style={[styles.emptyText, { color: colors.destructive }]}>
               Failed to load blocks
             </Text>
           </View>
         ) : !blocks.data?.length ? (
-          <View style={[styles.emptyBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No blocks yet</Text>
+          <View
+            style={[
+              styles.emptyBox,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+              No blocks yet
+            </Text>
           </View>
         ) : (
           blocks.data.map((block) => (
@@ -157,21 +207,13 @@ const styles = StyleSheet.create({
     letterSpacing: -1,
     marginTop: 2,
   },
-  statsGrid: {
-    flexDirection: "row",
-    gap: 10,
-  },
+  statsGrid: { flexDirection: "row", gap: 10 },
   sectionTitle: {
     fontSize: 16,
     fontFamily: "Inter_600SemiBold",
     marginTop: 8,
     marginBottom: 4,
   },
-  emptyBox: {
-    padding: 24,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: "center",
-  },
+  emptyBox: { padding: 24, borderRadius: 10, borderWidth: 1, alignItems: "center" },
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular" },
 });

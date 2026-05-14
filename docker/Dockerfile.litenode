@@ -1,0 +1,47 @@
+# ──────────────────────────────────────────────
+# Stage 1: Build the Go litenode binary
+# ──────────────────────────────────────────────
+FROM golang:1.22-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates tzdata make
+
+WORKDIR /build
+
+COPY artifacts/gyds-litenode/go.mod artifacts/gyds-litenode/go.sum* ./
+RUN go mod download
+
+COPY artifacts/gyds-litenode/ ./
+RUN go build \
+    -ldflags="-s -w -X main.version=$(cat go.mod | grep ^module | awk '{print $2}')" \
+    -o /gyds-litenode \
+    .
+
+# ──────────────────────────────────────────────
+# Stage 2: Minimal runtime image
+# ──────────────────────────────────────────────
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata curl
+
+RUN addgroup -S gyds && adduser -S -G gyds gyds
+USER gyds
+
+WORKDIR /app
+COPY --from=builder /gyds-litenode /app/gyds-litenode
+
+RUN mkdir -p /app/data/{chaindata,logs}
+VOLUME ["/app/data"]
+
+ENV GYDS_CHAIN_ID=1337 \
+    GYDS_NODE_MODE=lite \
+    GYDS_LOG_LEVEL=info \
+    GYDS_DATA_DIR=/app/data \
+    PORT=8545
+
+EXPOSE 8545 8546 30304
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+  CMD curl -sf http://localhost:${PORT}/health || exit 1
+
+ENTRYPOINT ["/app/gyds-litenode"]
+CMD ["start"]

@@ -1,0 +1,48 @@
+# ──────────────────────────────────────────────
+# Stage 1: Install pnpm dependencies
+# ──────────────────────────────────────────────
+FROM node:22-alpine AS deps
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY lib/ ./lib/
+COPY artifacts/api-server/package.json ./artifacts/api-server/
+
+RUN pnpm install --frozen-lockfile
+
+# ──────────────────────────────────────────────
+# Stage 2: Build the API server
+# ──────────────────────────────────────────────
+FROM node:22-alpine AS builder
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/lib ./lib
+COPY . .
+
+RUN pnpm --filter @workspace/api-server run build
+
+# ──────────────────────────────────────────────
+# Stage 3: Minimal runtime
+# ──────────────────────────────────────────────
+FROM node:22-alpine AS runtime
+
+RUN addgroup -S gyds && adduser -S -G gyds gyds
+USER gyds
+
+WORKDIR /app
+COPY --from=builder /app/artifacts/api-server/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+
+ENV NODE_ENV=production \
+    PORT=8080
+
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD wget -qO- http://localhost:${PORT}/api/health || exit 1
+
+CMD ["node", "--enable-source-maps", "./dist/index.mjs"]

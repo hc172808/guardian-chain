@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "python-3.11"]
+modules = ["nodejs-24", "python-3.11", "go-1.21"]
 
 [deployment]
 router = "application"
@@ -10,6 +10,26 @@ env = { "CI" = "true" }
 
 [workflows]
 runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "artifacts/gyds-litenode: GYDS Litenode"
+
+[[workflows.workflow]]
+name = "artifacts/gyds-litenode: GYDS Litenode"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/gyds-litenode && go build -o bin/gyds-litenode . && ./bin/gyds-litenode start"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -28,9 +48,17 @@ localPort = 8081
 externalPort = 8081
 
 [[ports]]
+localPort = 8545
+externalPort = 3003
+
+[[ports]]
 localPort = 21456
 externalPort = 3001
 
 [[ports]]
 localPort = 22058
 externalPort = 3000
+
+[[ports]]
+localPort = 30303
+externalPort = 3002
