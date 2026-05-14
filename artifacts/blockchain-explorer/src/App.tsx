@@ -24,6 +24,7 @@ import TokenDetail from "./pages/TokenDetail";
 import NotFound from "./pages/NotFound";
 import CliReferencePage from "./pages/CliReference";
 import ResetPassword from "./pages/ResetPassword";
+import SSOCallback from "./pages/SSOCallback";
 import WatchlistPage from "./pages/Watchlist";
 import NodeTerminalPage from "./pages/NodeTerminal";
 import FaucetPage from "./pages/Faucet";
@@ -60,6 +61,7 @@ const AppContent = () => {
       <Route path="/admin" element={<RequireAuth requiredRole="admin"><AdminPage /></RequireAuth>} />
       <Route path="/docs" element={<DocsPage />} />
       <Route path="/auth" element={<Auth />} />
+      <Route path="/sso-callback" element={<SSOCallback />} />
       <Route path="/cli" element={<CliReferencePage />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="*" element={<NotFound />} />
