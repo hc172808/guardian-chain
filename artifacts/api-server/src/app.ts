@@ -8,6 +8,7 @@ import {
   clerkProxyMiddleware,
   getClerkProxyHost,
 } from "./middlewares/clerkProxyMiddleware";
+import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
@@ -49,9 +50,14 @@ if (process.env.CLERK_SECRET_KEY) {
     })),
   );
 } else {
-  logger.warn("CLERK_SECRET_KEY not set — auth middleware disabled. Protected routes will return 401.");
+  logger.warn("CLERK_SECRET_KEY not set — Clerk auth middleware disabled.");
 }
 
-app.use("/api", router);
+export async function createApp(): Promise<Express> {
+  await setupAuth(app);
+  registerAuthRoutes(app);
+  app.use("/api", router);
+  return app;
+}
 
 export default app;
