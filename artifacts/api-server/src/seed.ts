@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
 import * as schema from "@workspace/db/schema";
 
-async function seed() {
+export async function seedDatabase() {
   console.log("🌱 Seeding database...");
 
   // ── Network Validators ────────────────────────────────────────────────────
@@ -377,7 +377,9 @@ async function seed() {
   process.exit(0);
 }
 
-seed().catch((err) => {
-  console.error("Seed failed:", err);
-  process.exit(1);
-});
+if (process.argv[1] && process.argv[1].includes("seed")) {
+  seedDatabase().catch((err) => {
+    console.error("Seed failed:", err);
+    process.exit(1);
+  });
+}

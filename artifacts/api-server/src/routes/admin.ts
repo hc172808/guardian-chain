@@ -7,6 +7,7 @@ import {
   auditLogsTable,
 } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { seedDatabase } from "../seed";
 
 const router = Router();
 
@@ -184,6 +185,21 @@ router.get("/admin/audit-logs", async (req: Request, res: Response) => {
   } catch (err) {
     req.log.error({ err }, "Failed to list audit logs");
     res.status(500).json({ error: "Failed to list audit logs" });
+  }
+});
+
+// ── Seed ─────────────────────────────────────────────────────────────────────
+
+// POST /admin/seed — wipe and re-seed all demo/test data
+router.post("/admin/seed", async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Authentication required" }); return; }
+  try {
+    await seedDatabase();
+    res.json({ ok: true, message: "Database seeded successfully." });
+  } catch (err) {
+    req.log.error({ err }, "Seed failed");
+    res.status(500).json({ error: "Seed failed", detail: String(err) });
   }
 });
 
