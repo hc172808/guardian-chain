@@ -3,6 +3,18 @@ import healthRouter from "./health";
 import tableRouter from "./table";
 import storageRouter from "./storage";
 import blockchainRouter from "./blockchain";
+import walletsRouter from "./wallets";
+import tokensRouter from "./tokens";
+import validatorsRouter from "./validators";
+import transactionsRouter from "./transactions";
+import defiRouter from "./defi";
+import contractsRouter from "./contracts";
+import faucetRouter from "./faucet";
+import profilesRouter from "./profiles";
+import adminRouter from "./admin";
+import docsRouter from "./docs";
+import nodesRouter from "./nodes";
+import launchesRouter from "./launches";
 
 const router: IRouter = Router();
 
@@ -10,5 +22,17 @@ router.use(healthRouter);
 router.use(tableRouter);
 router.use(storageRouter);
 router.use(blockchainRouter);
+router.use(walletsRouter);
+router.use(tokensRouter);
+router.use(validatorsRouter);
+router.use(transactionsRouter);
+router.use(defiRouter);
+router.use(contractsRouter);
+router.use(faucetRouter);
+router.use(profilesRouter);
+router.use(adminRouter);
+router.use(docsRouter);
+router.use(nodesRouter);
+router.use(launchesRouter);
 
 export default router;
