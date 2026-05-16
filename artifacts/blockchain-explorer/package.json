@@ -78,7 +78,11 @@
   "dependencies": {
     "@clerk/react": "^6.6.2",
     "@clerk/themes": "^2.4.57",
+    "@rainbow-me/rainbowkit": "^2.2.11",
     "internal": "link:@clerk/react/internal",
-    "react-router-dom": "^7.15.0"
+    "react-router-dom": "^7.15.0",
+    "siwe": "^3.0.0",
+    "viem": "^2.49.2",
+    "wagmi": "^3.6.15"
   }
 }

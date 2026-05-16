@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Web3Provider } from "@/providers/Web3Provider";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Explorer from "./pages/Explorer";
@@ -74,8 +75,8 @@ const clerkProps = clerkProxyUrl
   : { publishableKey: clerkPubKey };
 
 const App = () => (
-  <ClerkProvider {...clerkProps}>
-    <QueryClientProvider client={queryClient}>
+  <Web3Provider>
+    <ClerkProvider {...clerkProps}>
       <AuthProvider>
         <TooltipProvider>
           <Toaster />
@@ -85,8 +86,8 @@ const App = () => (
           </BrowserRouter>
         </TooltipProvider>
       </AuthProvider>
-    </QueryClientProvider>
-  </ClerkProvider>
+    </ClerkProvider>
+  </Web3Provider>
 );
 
 export default App;

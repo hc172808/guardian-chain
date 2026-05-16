@@ -19,6 +19,7 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2",
     "drizzle-orm": "catalog:",
+    "ethers": "^6.16.0",
     "express": "^5",
     "express-session": "^1.19.0",
     "google-auth-library": "^10.6.2",
@@ -27,7 +28,8 @@
     "openid-client": "^6.8.4",
     "passport": "^0.7.0",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "siwe": "^3.0.0"
   },
   "devDependencies": {
     "@types/connect-pg-simple": "^7.0.3",

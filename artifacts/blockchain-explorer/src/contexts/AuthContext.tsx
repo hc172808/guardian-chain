@@ -1,7 +1,14 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { useUser, useClerk } from '@clerk/react';
 
 type AppRole = 'user' | 'admin' | 'founder';
+
+interface WalletUser {
+  id: string;
+  wallet_address: string;
+  ens_name?: string | null;
+  role: string;
+}
 
 interface ReplitUser {
   id: string;
@@ -12,14 +19,16 @@ interface ReplitUser {
 }
 
 interface AuthContextType {
-  user: { id: string; email?: string } | null;
+  user: { id: string; email?: string; walletAddress?: string } | null;
   session: { user: { id: string } } | null;
+  walletUser: WalletUser | null;
   replitUser: ReplitUser | null;
   roles: AppRole[];
   loading: boolean;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  refreshWalletUser: () => Promise<void>;
   isFounder: boolean;
   isAdmin: boolean;
 }
@@ -30,56 +39,76 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const { user: clerkUser, isLoaded } = useUser();
   const { signOut: clerkSignOut } = useClerk();
   const [roles, setRoles] = useState<AppRole[]>(['user']);
+  const [walletUser, setWalletUser] = useState<WalletUser | null>(null);
   const [replitUser, setReplitUser] = useState<ReplitUser | null>(null);
+  const [walletLoading, setWalletLoading] = useState(true);
   const [replitLoading, setReplitLoading] = useState(true);
+
+  const refreshWalletUser = useCallback(async () => {
+    try {
+      const r = await fetch('/api/auth/wallet/user', { credentials: 'include' });
+      if (r.ok) {
+        const data = await r.json();
+        setWalletUser(data);
+      } else {
+        setWalletUser(null);
+      }
+    } catch {
+      setWalletUser(null);
+    } finally {
+      setWalletLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshWalletUser();
+  }, [refreshWalletUser]);
 
   useEffect(() => {
     fetch('/api/auth/user', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.id) setReplitUser(data);
-      })
+      .then((data) => { if (data?.id) setReplitUser(data); })
       .catch(() => {})
       .finally(() => setReplitLoading(false));
   }, []);
 
-  const clerkUserNormalized = clerkUser
+  // Normalize user across all auth providers — wallet wins, then Clerk, then Replit
+  const clerkNorm = clerkUser
     ? { id: clerkUser.id, email: clerkUser.primaryEmailAddress?.emailAddress }
     : null;
 
-  const replitUserNormalized = replitUser
+  const walletNorm = walletUser
+    ? { id: walletUser.id, walletAddress: walletUser.wallet_address }
+    : null;
+
+  const replitNorm = replitUser
     ? { id: replitUser.id, email: replitUser.email ?? undefined }
     : null;
 
-  const user = clerkUserNormalized ?? replitUserNormalized;
+  const user = walletNorm ?? clerkNorm ?? replitNorm;
   const session = user ? { user: { id: user.id } } : null;
-  const loading = !isLoaded || replitLoading;
+  const loading = !isLoaded || walletLoading || replitLoading;
 
   useEffect(() => {
-    if (!clerkUser) {
-      setRoles(['user']);
+    if (walletUser) {
+      setRoles([(walletUser.role as AppRole) || 'user']);
       return;
     }
+    if (!clerkUser) { setRoles(['user']); return; }
     const meta = clerkUser.publicMetadata as Record<string, unknown>;
-    const role = (meta?.role as AppRole) || 'user';
-    setRoles([role]);
-  }, [clerkUser]);
-
-  const signUp = async (_email: string, _password: string): Promise<{ error: Error | null }> => {
-    return { error: null };
-  };
-
-  const signIn = async (_email: string, _password: string): Promise<{ error: Error | null }> => {
-    return { error: null };
-  };
+    setRoles([(meta?.role as AppRole) || 'user']);
+  }, [clerkUser, walletUser]);
 
   const signOut = async () => {
-    setRoles(['user']);
-    if (clerkUser) {
+    if (walletUser) {
+      await fetch('/api/auth/wallet/logout', { method: 'POST', credentials: 'include' });
+      setWalletUser(null);
+    } else if (clerkUser) {
       await clerkSignOut();
-    } else {
+    } else if (replitUser) {
       window.location.href = '/api/logout';
     }
+    setRoles(['user']);
   };
 
   const isFounder = roles.includes('founder');
@@ -89,12 +118,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     <AuthContext.Provider value={{
       user,
       session,
+      walletUser,
       replitUser,
       roles,
       loading,
-      signUp,
-      signIn,
+      signUp: async () => ({ error: null }),
+      signIn: async () => ({ error: null }),
       signOut,
+      refreshWalletUser,
       isFounder,
       isAdmin,
     }}>
@@ -105,8 +136,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };

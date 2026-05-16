@@ -27,3 +27,4 @@ export * from "./validatorDelegations";
 export * from "./wallets";
 export * from "./fail2banJails";
 export * from "./auth";
+export * from "./walletUsers";

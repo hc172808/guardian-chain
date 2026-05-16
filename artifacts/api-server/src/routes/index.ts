@@ -15,6 +15,7 @@ import adminRouter from "./admin";
 import docsRouter from "./docs";
 import nodesRouter from "./nodes";
 import launchesRouter from "./launches";
+import walletAuthRouter from "./walletAuth";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use(adminRouter);
 router.use(docsRouter);
 router.use(nodesRouter);
 router.use(launchesRouter);
+router.use(walletAuthRouter);
 
 export default router;
