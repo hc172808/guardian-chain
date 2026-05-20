@@ -4,7 +4,8 @@
  * - PBKDF2 for key derivation from PIN
  * - AES-GCM for encryption/decryption
  * - SHA-256 for PIN hashing
- * - crypto.getRandomValues for secure randomness
+ * - secp256k1 via viem + @scure/bip32 for real key derivation
+ * - BIP-39 via @scure/bip39 for mnemonic generation/validation
  * - PIN rotation (re-encrypt with new PIN)
  *
  * Private keys and seed phrases NEVER leave the device unencrypted.
@@ -18,6 +19,11 @@
  * blob to the server-side wallets table (already in the DB schema) so
  * users can recover their wallet after clearing browser storage.
  */
+
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english.js';
+import { HDKey } from '@scure/bip32';
 
 const PBKDF2_ITERATIONS = 600_000; // OWASP recommended minimum
 const SALT_BYTES = 16;
@@ -174,50 +180,71 @@ export async function rotatePin(
 }
 
 /**
- * Generate a cryptographically secure wallet.
- * Uses crypto.getRandomValues for key material.
+ * Generate a cryptographically secure EVM wallet.
+ * - BIP-39 12-word mnemonic via @scure/bip39 (full 2048-word English list)
+ * - BIP-44 HD derivation at m/44'/60'/0'/0/0 via @scure/bip32
+ * - secp256k1 address derivation via viem
+ *
+ * The returned address is mathematically derived from the private key —
+ * compatible with MetaMask, Trust Wallet, and any EIP-55 wallet.
  */
 export function generateSecureWallet(): {
-  privateKey: string;
-  address: string;
+  privateKey: `0x${string}`;
+  address: `0x${string}`;
   seedPhrase: string;
 } {
-  // Generate 32 random bytes for private key
-  const keyBytes = crypto.getRandomValues(new Uint8Array(32));
-  const privateKey = '0x' + bufToHex(keyBytes.buffer as ArrayBuffer);
-
-  // Generate 20 random bytes for address
-  const addrBytes = crypto.getRandomValues(new Uint8Array(20));
-  const address = '0x' + bufToHex(addrBytes.buffer as ArrayBuffer);
-
-  // BIP-39 word list subset (in production use the full 2048 list)
-  const words = [
-    'abandon', 'ability', 'able', 'about', 'above', 'absent', 'absorb', 'abstract',
-    'absurd', 'abuse', 'access', 'accident', 'account', 'accuse', 'achieve', 'acid',
-    'acoustic', 'acquire', 'across', 'act', 'action', 'actor', 'actress', 'actual',
-    'adapt', 'add', 'addict', 'address', 'adjust', 'admit', 'adult', 'advance',
-    'advice', 'aerobic', 'affair', 'afford', 'afraid', 'again', 'age', 'agent',
-    'agree', 'ahead', 'aim', 'air', 'airport', 'aisle', 'alarm', 'album',
-    'alert', 'alien', 'all', 'alley', 'allow', 'almost', 'alone', 'alpha',
-    'already', 'also', 'alter', 'always', 'amateur', 'amazing', 'among', 'amount',
-    'amused', 'analyst', 'anchor', 'ancient', 'anger', 'angle', 'angry', 'animal',
-    'ankle', 'announce', 'annual', 'another', 'answer', 'antenna', 'antique', 'anxiety',
-    'any', 'apart', 'apology', 'appear', 'apple', 'approve', 'april', 'arch',
-    'arctic', 'area', 'arena', 'argue', 'arm', 'armed', 'armor', 'army',
-    'around', 'arrange', 'arrest', 'arrive', 'arrow', 'art', 'artefact', 'artist',
-    'artwork', 'ask', 'aspect', 'assault', 'asset', 'assist', 'assume', 'asthma',
-    'athlete', 'atom', 'attack', 'attend', 'auction', 'audit', 'august', 'aunt',
-    'author', 'auto', 'avocado', 'avoid', 'awake', 'aware', 'awful', 'awkward',
-  ];
-
-  // Use crypto.getRandomValues for word selection
-  const indices = crypto.getRandomValues(new Uint8Array(12));
-  const seedPhrase = Array.from(indices)
-    .map((b) => words[b % words.length])
-    .join(' ');
-
+  const seedPhrase = generateMnemonic(wordlist, 128); // 128 bits of entropy → 12 words
+  const seed = mnemonicToSeedSync(seedPhrase);
+  const hdKey = HDKey.fromMasterSeed(seed);
+  const child = hdKey.derive("m/44'/60'/0'/0/0");
+  if (!child.privateKey) throw new Error('Failed to derive private key');
+  const privateKey = `0x${bufToHex(child.privateKey)}` as `0x${string}`;
+  const { address } = privateKeyToAccount(privateKey);
   return { privateKey, address, seedPhrase };
 }
+
+/**
+ * Derive an EVM wallet from a BIP-39 mnemonic phrase.
+ * Returns null if the phrase is invalid.
+ */
+export function deriveWalletFromMnemonic(mnemonic: string): {
+  privateKey: `0x${string}`;
+  address: `0x${string}`;
+} | null {
+  const phrase = mnemonic.trim().replace(/\s+/g, ' ');
+  if (!validateMnemonic(phrase, wordlist)) return null;
+  const seed = mnemonicToSeedSync(phrase);
+  const hdKey = HDKey.fromMasterSeed(seed);
+  const child = hdKey.derive("m/44'/60'/0'/0/0");
+  if (!child.privateKey) return null;
+  const privateKey = `0x${bufToHex(child.privateKey)}` as `0x${string}`;
+  const { address } = privateKeyToAccount(privateKey);
+  return { privateKey, address };
+}
+
+/**
+ * Derive an EVM address from a raw private key (0x-prefixed hex, 64 chars).
+ * Returns null if the key is malformed.
+ */
+export function deriveWalletFromPrivateKey(hex: string): {
+  privateKey: `0x${string}`;
+  address: `0x${string}`;
+} | null {
+  const key = (hex.trim().startsWith('0x') ? hex.trim() : `0x${hex.trim()}`) as `0x${string}`;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(key)) return null;
+  const { address } = privateKeyToAccount(key);
+  return { privateKey: key, address };
+}
+
+/**
+ * Validate whether a string is a valid BIP-39 mnemonic.
+ */
+export function validateSeedPhrase(phrase: string): boolean {
+  return validateMnemonic(phrase.trim().replace(/\s+/g, ' '), wordlist);
+}
+
+// generatePrivateKey re-exported so callers don't need to import viem directly
+export { generatePrivateKey };
 
 // ─── PIN Lock (app-level security) ────────────────────
 

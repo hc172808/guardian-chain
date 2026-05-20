@@ -61,6 +61,9 @@ interface TokenBalance {
 
 import {
   generateSecureWallet,
+  deriveWalletFromMnemonic,
+  deriveWalletFromPrivateKey,
+  validateSeedPhrase,
   hashPin,
   verifyPin,
   encryptWithPin,
@@ -94,8 +97,11 @@ const WalletContent = () => {
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [importSeed, setImportSeed] = useState('');
+  const [importType, setImportType] = useState<'seed' | 'privateKey'>('seed');
+  const [importPreview, setImportPreview] = useState<{ address: string } | null>(null);
+  const [importError, setImportError] = useState('');
   const [revealedSeed, setRevealedSeed] = useState<string | null>(null);
-  const [newWalletData, setNewWalletData] = useState<{ address: string; seedPhrase: string } | null>(null);
+  const [newWalletData, setNewWalletData] = useState<{ address: string; seedPhrase: string; privateKey: string } | null>(null);
   const [balances, setBalances] = useState<TokenBalance[]>([]);
   const [balancesLoading, setBalancesLoading] = useState(true);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
@@ -322,35 +328,86 @@ const WalletContent = () => {
       toast({ title: 'PINs do not match', variant: 'destructive' });
       return;
     }
-    const wallet = generateSecureWallet();
-    const encryptedSeed = await encryptWithPin(wallet.seedPhrase, pin);
-    const pinHash = await hashPin(pin);
-    const { error } = await supabase.from('wallets').insert({
-      user_id: user!.id, address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
-    });
-    if (error) {
-      toast({ title: 'Failed to create wallet', variant: 'destructive' });
+    try {
+      const wallet = generateSecureWallet();
+      // Encrypt both mnemonic and private key together as JSON
+      const secretPayload = JSON.stringify({ mnemonic: wallet.seedPhrase, privateKey: wallet.privateKey });
+      const encryptedSeed = await encryptWithPin(secretPayload, pin);
+      const pinHash = await hashPin(pin);
+      const { error } = await supabase.from('wallets').insert({
+        user_id: user!.id, address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
+      });
+      if (error) {
+        toast({ title: 'Failed to save wallet', description: error.message, variant: 'destructive' });
+      } else {
+        setNewWalletData({ address: wallet.address, seedPhrase: wallet.seedPhrase, privateKey: wallet.privateKey });
+        fetchWallets();
+      }
+    } catch (err: unknown) {
+      toast({ title: 'Wallet generation failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+  };
+
+  // Preview the derived address whenever the import input changes
+  const handleImportInputChange = (value: string) => {
+    setImportSeed(value);
+    setImportError('');
+    setImportPreview(null);
+    if (!value.trim()) return;
+    if (importType === 'seed') {
+      const derived = deriveWalletFromMnemonic(value);
+      if (derived) {
+        setImportPreview({ address: derived.address });
+      } else {
+        const wordCount = value.trim().split(/\s+/).length;
+        if (wordCount >= 12) setImportError('Invalid seed phrase — check the words and try again');
+      }
     } else {
-      setNewWalletData({ address: wallet.address, seedPhrase: wallet.seedPhrase });
-      fetchWallets();
+      const derived = deriveWalletFromPrivateKey(value);
+      if (derived) {
+        setImportPreview({ address: derived.address });
+      } else if (value.trim().length > 10) {
+        setImportError('Invalid private key — must be a 64-character hex string (with or without 0x prefix)');
+      }
     }
   };
 
   const handleImportWallet = async () => {
     if (pin.length < 4) { toast({ title: 'PIN must be at least 4 digits', variant: 'destructive' }); return; }
     if (pin !== confirmPin) { toast({ title: 'PINs do not match', variant: 'destructive' }); return; }
-    if (!importSeed.trim()) { toast({ title: 'Please enter seed phrase', variant: 'destructive' }); return; }
-    const wallet = generateSecureWallet();
-    const encryptedSeed = await encryptWithPin(importSeed.trim(), pin);
+    if (!importSeed.trim()) { toast({ title: 'Please enter your seed phrase or private key', variant: 'destructive' }); return; }
+
+    let derived: { privateKey: `0x${string}`; address: `0x${string}` } | null = null;
+    let secretToStore: string;
+
+    if (importType === 'seed') {
+      derived = deriveWalletFromMnemonic(importSeed);
+      if (!derived) {
+        toast({ title: 'Invalid seed phrase', description: 'Check the 12-word phrase and try again.', variant: 'destructive' });
+        return;
+      }
+      secretToStore = JSON.stringify({ mnemonic: importSeed.trim().replace(/\s+/g, ' '), privateKey: derived.privateKey });
+    } else {
+      derived = deriveWalletFromPrivateKey(importSeed);
+      if (!derived) {
+        toast({ title: 'Invalid private key', description: 'Must be a 64-char hex string (with or without 0x prefix).', variant: 'destructive' });
+        return;
+      }
+      secretToStore = JSON.stringify({ privateKey: derived.privateKey });
+    }
+
+    const encryptedSeed = await encryptWithPin(secretToStore, pin);
     const pinHash = await hashPin(pin);
     const { error } = await supabase.from('wallets').insert({
-      user_id: user!.id, address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
+      user_id: user!.id, address: derived.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
     });
     if (error) {
-      toast({ title: 'Failed to import wallet', variant: 'destructive' });
+      toast({ title: 'Failed to import wallet', description: error.message, variant: 'destructive' });
     } else {
-      toast({ title: 'Wallet imported successfully!' });
-      setImportDialogOpen(false); setPin(''); setConfirmPin(''); setImportSeed('');
+      toast({ title: 'Wallet imported!', description: `Address: ${derived.address.slice(0, 10)}...` });
+      setImportDialogOpen(false);
+      setPin(''); setConfirmPin(''); setImportSeed('');
+      setImportPreview(null); setImportError(''); setImportType('seed');
       fetchWallets();
     }
   };
@@ -361,9 +418,23 @@ const WalletContent = () => {
     if (!data) { toast({ title: 'Wallet not found', variant: 'destructive' }); return; }
     const pinValid = await verifyPin(pin, data.pin_hash);
     if (pinValid) {
-      const seed = await decryptWithPin(data.encrypted_seed, pin);
-      if (seed) setRevealedSeed(seed);
-      else toast({ title: 'Failed to decrypt', variant: 'destructive' });
+      const raw = await decryptWithPin(data.encrypted_seed, pin);
+      if (raw) {
+        // New format: JSON with mnemonic + privateKey
+        try {
+          const parsed = JSON.parse(raw) as { mnemonic?: string; privateKey?: string };
+          const display = [
+            parsed.mnemonic && `Seed Phrase:\n${parsed.mnemonic}`,
+            parsed.privateKey && `Private Key:\n${parsed.privateKey}`,
+          ].filter(Boolean).join('\n\n');
+          setRevealedSeed(display || raw);
+        } catch {
+          // Legacy: plain mnemonic string
+          setRevealedSeed(raw);
+        }
+      } else {
+        toast({ title: 'Failed to decrypt', variant: 'destructive' });
+      }
     } else {
       toast({ title: 'Incorrect PIN', variant: 'destructive' });
     }
@@ -635,53 +706,161 @@ const WalletContent = () => {
               </div>
             </DialogContent>
           </Dialog>
-          <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+          {/* ── Import Wallet Dialog ─────────────────────────── */}
+          <Dialog open={importDialogOpen} onOpenChange={(open) => {
+            setImportDialogOpen(open);
+            if (!open) { setPin(''); setConfirmPin(''); setImportSeed(''); setImportPreview(null); setImportError(''); setImportType('seed'); }
+          }}>
             <DialogTrigger asChild>
               <Button variant="outline" className="gap-2"><Upload className="h-4 w-4" /> Import</Button>
             </DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Import Wallet</DialogTitle></DialogHeader>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2"><Upload className="h-5 w-5" /> Import Wallet</DialogTitle>
+              </DialogHeader>
               <div className="space-y-4">
-                <div><Label>Seed Phrase</Label>
-                  <Input value={importSeed} onChange={(e) => setImportSeed(e.target.value)} placeholder="Enter your 12-word seed phrase" /></div>
-                <div><Label>Create PIN (min 4 digits)</Label>
-                  <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter PIN" maxLength={6} /></div>
-                <div><Label>Confirm PIN</Label>
-                  <Input type="password" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} placeholder="Confirm PIN" maxLength={6} /></div>
-                <Button onClick={handleImportWallet} className="w-full">Import Wallet</Button>
+                {/* Type selector */}
+                <div className="flex rounded-lg border border-border overflow-hidden">
+                  <button
+                    className={`flex-1 py-2 text-sm font-medium transition-colors ${importType === 'seed' ? 'bg-primary text-primary-foreground' : 'bg-transparent text-muted-foreground hover:bg-secondary/50'}`}
+                    onClick={() => { setImportType('seed'); setImportSeed(''); setImportPreview(null); setImportError(''); }}
+                  >
+                    Seed Phrase
+                  </button>
+                  <button
+                    className={`flex-1 py-2 text-sm font-medium transition-colors ${importType === 'privateKey' ? 'bg-primary text-primary-foreground' : 'bg-transparent text-muted-foreground hover:bg-secondary/50'}`}
+                    onClick={() => { setImportType('privateKey'); setImportSeed(''); setImportPreview(null); setImportError(''); }}
+                  >
+                    Private Key
+                  </button>
+                </div>
+
+                {importType === 'seed' ? (
+                  <div className="space-y-2">
+                    <Label>12-Word Seed Phrase</Label>
+                    <textarea
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[80px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={importSeed}
+                      onChange={(e) => handleImportInputChange(e.target.value)}
+                      placeholder="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {importSeed.trim() ? `${importSeed.trim().split(/\s+/).length} word${importSeed.trim().split(/\s+/).length !== 1 ? 's' : ''}` : 'Enter the words separated by spaces'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Private Key (hex)</Label>
+                    <Input
+                      value={importSeed}
+                      onChange={(e) => handleImportInputChange(e.target.value)}
+                      placeholder="0x or 64-character hex string"
+                      className="font-mono text-xs"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <p className="text-xs text-muted-foreground">64 hex characters, with or without 0x prefix</p>
+                  </div>
+                )}
+
+                {/* Live derivation preview */}
+                {importPreview && (
+                  <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30">
+                    <p className="text-xs text-green-600 dark:text-green-400 font-medium mb-1">Address derived successfully</p>
+                    <p className="font-mono text-xs break-all text-foreground">{importPreview.address}</p>
+                  </div>
+                )}
+                {importError && (
+                  <p className="text-xs text-destructive">{importError}</p>
+                )}
+
+                <div className="space-y-3 pt-1 border-t border-border/50">
+                  <div>
+                    <Label>Create PIN (min 4 digits)</Label>
+                    <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Encrypts your key locally" maxLength={6} />
+                  </div>
+                  <div>
+                    <Label>Confirm PIN</Label>
+                    <Input type="password" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} placeholder="Confirm PIN" maxLength={6} />
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleImportWallet}
+                  className="w-full gap-2"
+                  disabled={!importPreview || pin.length < 4 || pin !== confirmPin}
+                >
+                  <Upload className="h-4 w-4" /> Import Wallet
+                </Button>
               </div>
             </DialogContent>
           </Dialog>
-          <Dialog open={createDialogOpen} onOpenChange={(open) => { setCreateDialogOpen(open); if (!open) { setNewWalletData(null); setPin(''); setConfirmPin(''); } }}>
+
+          {/* ── Create Wallet Dialog ─────────────────────────── */}
+          <Dialog open={createDialogOpen} onOpenChange={(open) => {
+            setCreateDialogOpen(open);
+            if (!open) { setNewWalletData(null); setPin(''); setConfirmPin(''); }
+          }}>
             <DialogTrigger asChild>
               <Button className="gap-2"><Plus className="h-4 w-4" /> Create Wallet</Button>
             </DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>{newWalletData ? 'Wallet Created!' : 'Create New Wallet'}</DialogTitle></DialogHeader>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  {newWalletData ? <><ShieldCheck className="h-5 w-5 text-green-500" /> Wallet Created!</> : <><Key className="h-5 w-5" /> Create New Wallet</>}
+                </DialogTitle>
+              </DialogHeader>
               {newWalletData ? (
                 <div className="space-y-4">
                   <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/30">
-                    <p className="text-sm text-destructive font-medium mb-2">⚠️ Save your seed phrase now! It won't be shown again.</p>
-                    <div className="p-3 rounded bg-background font-mono text-sm break-all">{newWalletData.seedPhrase}</div>
-                    <Button size="sm" variant="outline" className="mt-2 gap-2" onClick={() => copyToClipboard(newWalletData.seedPhrase, 'Seed phrase')}>
-                      <Copy className="h-3 w-3" /> Copy
+                    <p className="text-sm text-destructive font-semibold mb-3">⚠️ Write down your seed phrase — it won't be shown again!</p>
+                    {/* 12-word grid */}
+                    <div className="grid grid-cols-3 gap-1.5 mb-3">
+                      {newWalletData.seedPhrase.split(' ').map((word, i) => (
+                        <div key={i} className="flex items-center gap-1 px-2 py-1.5 rounded bg-background border border-border/50">
+                          <span className="text-xs text-muted-foreground w-4 shrink-0">{i + 1}.</span>
+                          <span className="font-mono text-xs font-medium">{word}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <Button size="sm" variant="outline" className="gap-2 w-full" onClick={() => copyToClipboard(newWalletData.seedPhrase, 'Seed phrase')}>
+                      <Copy className="h-3 w-3" /> Copy Seed Phrase
                     </Button>
                   </div>
-                  <div><Label>Address</Label>
+
+                  <div className="p-3 rounded-lg bg-secondary/30 border border-border/50 space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Address (EIP-55)</Label>
                     <div className="flex gap-2">
-                      <Input value={newWalletData.address} readOnly />
+                      <Input value={newWalletData.address} readOnly className="font-mono text-xs" />
                       <Button size="icon" variant="outline" onClick={() => copyToClipboard(newWalletData.address, 'Address')}><Copy className="h-4 w-4" /></Button>
                     </div>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Private Key</Label>
+                    <div className="flex gap-2">
+                      <Input value={newWalletData.privateKey} readOnly className="font-mono text-xs" type="password" />
+                      <Button size="icon" variant="outline" onClick={() => copyToClipboard(newWalletData.privateKey, 'Private key')}><Copy className="h-4 w-4" /></Button>
+                    </div>
                   </div>
-                  <Button onClick={() => setCreateDialogOpen(false)} className="w-full">Done</Button>
+
+                  <Button onClick={() => setCreateDialogOpen(false)} className="w-full">Done — I've saved my seed phrase</Button>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div><Label>Create PIN (min 4 digits)</Label>
-                    <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter PIN to encrypt wallet" maxLength={6} /></div>
-                  <div><Label>Confirm PIN</Label>
-                    <Input type="password" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} placeholder="Confirm PIN" maxLength={6} /></div>
-                  <Button onClick={handleCreateWallet} className="w-full">Create Wallet</Button>
+                  <p className="text-sm text-muted-foreground">
+                    A new 12-word BIP-39 seed phrase and secp256k1 private key will be generated. Your address is mathematically derived from your key — compatible with MetaMask and any EVM wallet.
+                  </p>
+                  <div>
+                    <Label>Create PIN (min 4 digits)</Label>
+                    <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Encrypts your key locally" maxLength={6} />
+                  </div>
+                  <div>
+                    <Label>Confirm PIN</Label>
+                    <Input type="password" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} placeholder="Confirm PIN" maxLength={6} />
+                  </div>
+                  <Button onClick={handleCreateWallet} className="w-full gap-2" disabled={pin.length < 4 || pin !== confirmPin}>
+                    <Key className="h-4 w-4" /> Generate Wallet
+                  </Button>
                 </div>
               )}
             </DialogContent>
