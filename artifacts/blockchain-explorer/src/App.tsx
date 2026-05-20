@@ -1,4 +1,3 @@
-import { ClerkProvider, useUser, useClerk } from "@clerk/react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -35,9 +34,6 @@ import { useTransactionNotifications } from "./hooks/useTransactionNotifications
 
 const queryClient = new QueryClient();
 
-const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
-const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL as string | undefined;
-
 const AppContent = () => {
   useTransactionNotifications();
   return (
@@ -70,56 +66,20 @@ const AppContent = () => {
   );
 };
 
-const AppWithClerk = () => {
-  const { user: clerkUser, isLoaded } = useUser();
-  const { signOut: clerkSignOut } = useClerk();
-  return (
-    <AuthProvider clerkUser={clerkUser} clerkLoaded={isLoaded} clerkSignOut={clerkSignOut}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <AppContent />
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  );
-};
-
-const AppWithoutClerk = () => (
-  <AuthProvider>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AppContent />
-      </BrowserRouter>
-    </TooltipProvider>
-  </AuthProvider>
+const App = () => (
+  <Web3Provider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <AppContent />
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  </Web3Provider>
 );
-
-const App = () => {
-  if (clerkPubKey) {
-    const clerkProps = clerkProxyUrl
-      ? { publishableKey: clerkPubKey, proxyUrl: clerkProxyUrl }
-      : { publishableKey: clerkPubKey };
-    return (
-      <Web3Provider>
-        <ClerkProvider {...clerkProps}>
-          <QueryClientProvider client={queryClient}>
-            <AppWithClerk />
-          </QueryClientProvider>
-        </ClerkProvider>
-      </Web3Provider>
-    );
-  }
-  return (
-    <Web3Provider>
-      <QueryClientProvider client={queryClient}>
-        <AppWithoutClerk />
-      </QueryClientProvider>
-    </Web3Provider>
-  );
-};
 
 export default App;

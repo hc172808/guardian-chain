@@ -9,19 +9,10 @@ interface WalletUser {
   role: string;
 }
 
-interface ReplitUser {
-  id: string;
-  email?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  profileImageUrl?: string | null;
-}
-
 interface AuthContextType {
-  user: { id: string; email?: string; walletAddress?: string } | null;
+  user: { id: string; walletAddress?: string } | null;
   session: { user: { id: string } } | null;
   walletUser: WalletUser | null;
-  replitUser: ReplitUser | null;
   roles: AppRole[];
   loading: boolean;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
@@ -34,19 +25,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children, clerkUser, clerkLoaded, clerkSignOut }: {
-  children: ReactNode;
-  clerkUser?: any;
-  clerkLoaded?: boolean;
-  clerkSignOut?: () => Promise<void>;
-}) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [roles, setRoles] = useState<AppRole[]>(['user']);
   const [walletUser, setWalletUser] = useState<WalletUser | null>(null);
-  const [replitUser, setReplitUser] = useState<ReplitUser | null>(null);
   const [walletLoading, setWalletLoading] = useState(true);
-  const [replitLoading, setReplitLoading] = useState(true);
-
-  const isClerkLoaded = clerkLoaded ?? true;
 
   const refreshWalletUser = useCallback(async () => {
     try {
@@ -68,49 +50,24 @@ export const AuthProvider = ({ children, clerkUser, clerkLoaded, clerkSignOut }:
     refreshWalletUser();
   }, [refreshWalletUser]);
 
-  useEffect(() => {
-    fetch('/api/auth/user', { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data?.id) setReplitUser(data); })
-      .catch(() => {})
-      .finally(() => setReplitLoading(false));
-  }, []);
-
-  const walletNorm = walletUser
+  const user = walletUser
     ? { id: walletUser.id, walletAddress: walletUser.wallet_address }
     : null;
 
-  const clerkNorm = clerkUser
-    ? { id: clerkUser.id, email: clerkUser.primaryEmailAddress?.emailAddress }
-    : null;
-
-  const replitNorm = replitUser
-    ? { id: replitUser.id, email: replitUser.email ?? undefined }
-    : null;
-
-  const user = walletNorm ?? clerkNorm ?? replitNorm;
   const session = user ? { user: { id: user.id } } : null;
-  const loading = !isClerkLoaded || walletLoading || replitLoading;
+  const loading = walletLoading;
 
   useEffect(() => {
     if (walletUser) {
       setRoles([(walletUser.role as AppRole) || 'user']);
-      return;
+    } else {
+      setRoles(['user']);
     }
-    if (!clerkUser) { setRoles(['user']); return; }
-    const meta = clerkUser.publicMetadata as Record<string, unknown>;
-    setRoles([(meta?.role as AppRole) || 'user']);
-  }, [clerkUser, walletUser]);
+  }, [walletUser]);
 
   const signOut = async () => {
-    if (walletUser) {
-      await fetch('/api/auth/wallet/logout', { method: 'POST', credentials: 'include' });
-      setWalletUser(null);
-    } else if (clerkUser && clerkSignOut) {
-      await clerkSignOut();
-    } else if (replitUser) {
-      window.location.href = '/api/logout';
-    }
+    await fetch('/api/auth/wallet/logout', { method: 'POST', credentials: 'include' });
+    setWalletUser(null);
     setRoles(['user']);
   };
 
@@ -122,7 +79,6 @@ export const AuthProvider = ({ children, clerkUser, clerkLoaded, clerkSignOut }:
       user,
       session,
       walletUser,
-      replitUser,
       roles,
       loading,
       signUp: async () => ({ error: null }),
