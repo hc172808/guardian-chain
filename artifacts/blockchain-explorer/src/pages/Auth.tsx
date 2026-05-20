@@ -6,7 +6,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { SiweMessage } from 'siwe';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Cpu, Wallet, ShieldCheck, Zap, Globe, Lock } from 'lucide-react';
+import { Cpu, Wallet, ShieldCheck, Zap, Globe, Lock, PlusCircle, CheckCircle2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
@@ -24,6 +24,39 @@ const Auth = () => {
   const { signMessageAsync } = useSignMessage();
   const [signing, setSigning] = useState(false);
   const [signed, setSigned] = useState(false);
+  const [addingNetwork, setAddingNetwork] = useState(false);
+  const [networkAdded, setNetworkAdded] = useState(false);
+
+  const addGYDSNetwork = async () => {
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) {
+      toast({ title: 'No wallet detected', description: 'Please install MetaMask or another Web3 wallet first.', variant: 'destructive' });
+      return;
+    }
+    setAddingNetwork(true);
+    try {
+      await ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: '0x343A',
+          chainName: 'GYDS Network',
+          nativeCurrency: { name: 'GYDS', symbol: 'GYDS', decimals: 18 },
+          rpcUrls: [`${window.location.origin}/api/rpc`],
+          blockExplorerUrls: [window.location.origin],
+        }],
+      });
+      setNetworkAdded(true);
+      toast({ title: 'GYDS Network added!', description: 'Chain ID 13370 has been added to your wallet.' });
+    } catch (err: any) {
+      if (err?.code === 4001) {
+        toast({ title: 'Cancelled', description: 'Network add was rejected.', variant: 'destructive' });
+      } else {
+        toast({ title: 'Failed to add network', description: err?.message || 'Unknown error', variant: 'destructive' });
+      }
+    } finally {
+      setAddingNetwork(false);
+    }
+  };
 
   useEffect(() => {
     if (user) navigate('/');
@@ -174,6 +207,40 @@ const Auth = () => {
               showBalance={false}
               chainStatus="none"
             />
+          </div>
+
+          {/* Add GYDS Network helper */}
+          <div className="rounded-xl border border-border/40 bg-card/30 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-foreground">GYDS Network</p>
+                <p className="text-xs text-muted-foreground">Chain ID 13370 · native token GYDS</p>
+              </div>
+              {networkAdded ? (
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Added
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={addGYDSNetwork}
+                  disabled={addingNetwork}
+                  className="gap-1.5 text-xs border-primary/40 text-primary hover:bg-primary/10"
+                >
+                  {addingNetwork ? (
+                    <span className="animate-spin inline-block">⟳</span>
+                  ) : (
+                    <PlusCircle className="w-3.5 h-3.5" />
+                  )}
+                  Add to MetaMask
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              New to GYDS? Click above to add the network to your wallet in one click — no manual entry needed.
+            </p>
           </div>
 
           {/* Step 2 — Sign to verify (shown after connecting) */}
