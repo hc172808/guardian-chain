@@ -55,6 +55,45 @@ export async function getTransaction(hash: string): Promise<TxDetail> {
   return apiFetch(`/blockchain/tx/${hash}`);
 }
 
+// Normalize block fields from litenode (uses "number"/"transactions") to
+// the RPCBlock shape Explorer expects ("height"/"tx_count").
+function normalizeBlock(b: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...b,
+    // height is canonical — fall back to "number" field from litenode
+    height: (b.height ?? b.number ?? 0) as number,
+    // tx_count is canonical — fall back to "transactions" count from litenode
+    tx_count: (b.tx_count ?? b.transactions ?? 0) as number,
+    // gas fields
+    gas_used: b.gas_used ?? b.gasUsed ?? 0,
+    gas_limit: b.gas_limit ?? b.gasLimit ?? 30_000_000,
+    // timestamp: keep as-is; litenode uses Unix seconds, multiply if needed
+    timestamp: (() => {
+      const ts = Number(b.timestamp ?? 0);
+      return ts < 1e12 ? ts * 1000 : ts; // convert seconds → ms
+    })(),
+    proposer_addr: b.proposer_addr ?? b.validator ?? '',
+  };
+}
+
+function normalizeTransaction(tx: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...tx,
+    from_addr: tx.from_addr ?? tx.from ?? '',
+    to_addr: tx.to_addr ?? tx.to ?? '',
+    block_height: tx.block_height ?? tx.blockNumber ?? 0,
+    coin_type: tx.coin_type ?? 'GYDS',
+    tx_type: tx.tx_type ?? 'transfer',
+    status: tx.status ?? 'success',
+    fee: tx.fee ?? tx.gasPrice ?? '0',
+    amount: tx.amount ?? tx.value ?? '0',
+    timestamp: (() => {
+      const ts = Number(tx.timestamp ?? 0);
+      return ts < 1e12 ? ts * 1000 : ts;
+    })(),
+  };
+}
+
 export interface BlocksResponse {
   blocks: Record<string, unknown>[];
   count: number;
@@ -62,7 +101,8 @@ export interface BlocksResponse {
 }
 
 export async function getBlocks(limit = 20): Promise<BlocksResponse> {
-  return apiFetch(`/blockchain/blocks?limit=${limit}`);
+  const data = await apiFetch<BlocksResponse>(`/blockchain/blocks?limit=${limit}`);
+  return { ...data, blocks: (data.blocks ?? []).map(normalizeBlock) };
 }
 
 export interface BlockDetailResponse {
@@ -70,7 +110,8 @@ export interface BlockDetailResponse {
 }
 
 export async function getBlock(id: string | number): Promise<BlockDetailResponse> {
-  return apiFetch(`/blockchain/block/${id}`);
+  const data = await apiFetch<BlockDetailResponse>(`/blockchain/block/${id}`);
+  return { ...data, block: normalizeBlock(data.block ?? {}) };
 }
 
 export interface TransactionsResponse {
@@ -80,7 +121,8 @@ export interface TransactionsResponse {
 }
 
 export async function getTransactions(limit = 20): Promise<TransactionsResponse> {
-  return apiFetch(`/blockchain/transactions?limit=${limit}`);
+  const data = await apiFetch<TransactionsResponse>(`/blockchain/transactions?limit=${limit}`);
+  return { ...data, transactions: (data.transactions ?? []).map(normalizeTransaction) };
 }
 
 export interface NetworkStats {

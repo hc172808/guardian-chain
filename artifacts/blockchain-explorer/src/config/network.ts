@@ -16,8 +16,12 @@ export const RPC_ENDPOINTS_LIST = {
   ],
 };
 
-// All endpoints flattened for failover
+// Relative path that proxies through Vite → API server → litenode (works in Replit preview)
+const LOCAL_PROXY_RPC = '/api/rpc';
+
+// All endpoints flattened for failover — proxy-path first so in-Replit tabs hit the real node
 export const ALL_RPC_ENDPOINTS = [
+  LOCAL_PROXY_RPC,
   RPC_ENDPOINTS_LIST.main,
   ...RPC_ENDPOINTS_LIST.backups,
   ...RPC_ENDPOINTS_LIST.local,

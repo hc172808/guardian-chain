@@ -30,6 +30,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { AuthoritiesStatusWidget } from '@/components/admin/AuthoritiesStatusWidget';
+import { useBlockStats } from '@/hooks/useBlockStats';
 
 const navItems = [
   { to: '/', icon: BarChart3, label: 'Dashboard' },
@@ -64,6 +65,7 @@ interface SidebarProps {
 export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
   const { user, roles, signOut, isFounder, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const { blockHeight, online } = useBlockStats();
 
   const handleAuthClick = async () => {
     if (user) {
@@ -197,14 +199,24 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
               )}
               <div className="glass-card p-4 rounded-lg mb-3">
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-neon-emerald animate-pulse" />
-                  <span className="text-xs font-medium text-neon-emerald">Network Active</span>
+                  <div className={cn(
+                    "w-2 h-2 rounded-full",
+                    online ? "bg-neon-emerald animate-pulse" : "bg-yellow-500"
+                  )} />
+                  <span className={cn(
+                    "text-xs font-medium",
+                    online ? "text-neon-emerald" : "text-yellow-500"
+                  )}>
+                    {online ? "Network Active" : "Node Offline"}
+                  </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Block Height: <span className="font-mono text-foreground">1,234,567</span>
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  TPS: <span className="font-mono text-foreground">1,250</span>
+                  Block Height:{" "}
+                  <span className="font-mono text-foreground">
+                    {blockHeight != null
+                      ? blockHeight.toLocaleString()
+                      : <span className="text-muted-foreground/50">—</span>}
+                  </span>
                 </p>
               </div>
 
