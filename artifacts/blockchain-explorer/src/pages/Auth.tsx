@@ -134,7 +134,7 @@ const Auth = () => {
 
         <div className="relative z-10 flex items-center gap-2 text-xs text-muted-foreground">
           <Globe className="w-3.5 h-3.5" />
-          <span>Powered by GYDSchain · Chain ID 1337 · PoS consensus</span>
+          <span>Powered by GYDSchain · Chain ID 13370 · PoS consensus</span>
         </div>
       </motion.div>
 

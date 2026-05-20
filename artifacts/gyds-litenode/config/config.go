@@ -31,7 +31,7 @@ type Config struct {
 
 func DefaultConfig() *Config {
         return &Config{
-                ChainID:      1337,
+                ChainID:      13370,
                 NetworkName:  "GYDS Chain",
                 NodeMode:     "lite",
                 P2PPort:      30303,
