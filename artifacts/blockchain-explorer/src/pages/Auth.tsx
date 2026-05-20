@@ -7,6 +7,7 @@ import { SiweMessage } from 'siwe';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Cpu, Wallet, ShieldCheck, Zap, Globe, Lock } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 
 const FEATURES = [
@@ -210,17 +211,6 @@ const Auth = () => {
             </motion.div>
           )}
 
-          {/* Replit Auth fallback */}
-          <div className="pt-4 border-t border-border/40 text-center space-y-3">
-            <p className="text-xs text-muted-foreground">Don't have a wallet?</p>
-            <a
-              href="/api/login"
-              className="inline-flex items-center gap-2 text-sm text-primary hover:underline font-medium"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              Sign in with Replit instead
-            </a>
-          </div>
         </motion.div>
       </div>
 
