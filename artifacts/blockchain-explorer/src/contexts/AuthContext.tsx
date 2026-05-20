@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
-import { useUser, useClerk } from '@clerk/react';
 
 type AppRole = 'user' | 'admin' | 'founder';
 
@@ -35,14 +34,19 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const { user: clerkUser, isLoaded } = useUser();
-  const { signOut: clerkSignOut } = useClerk();
+export const AuthProvider = ({ children, clerkUser, clerkLoaded, clerkSignOut }: {
+  children: ReactNode;
+  clerkUser?: any;
+  clerkLoaded?: boolean;
+  clerkSignOut?: () => Promise<void>;
+}) => {
   const [roles, setRoles] = useState<AppRole[]>(['user']);
   const [walletUser, setWalletUser] = useState<WalletUser | null>(null);
   const [replitUser, setReplitUser] = useState<ReplitUser | null>(null);
   const [walletLoading, setWalletLoading] = useState(true);
   const [replitLoading, setReplitLoading] = useState(true);
+
+  const isClerkLoaded = clerkLoaded ?? true;
 
   const refreshWalletUser = useCallback(async () => {
     try {
@@ -72,13 +76,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .finally(() => setReplitLoading(false));
   }, []);
 
-  // Normalize user across all auth providers — wallet wins, then Clerk, then Replit
-  const clerkNorm = clerkUser
-    ? { id: clerkUser.id, email: clerkUser.primaryEmailAddress?.emailAddress }
-    : null;
-
   const walletNorm = walletUser
     ? { id: walletUser.id, walletAddress: walletUser.wallet_address }
+    : null;
+
+  const clerkNorm = clerkUser
+    ? { id: clerkUser.id, email: clerkUser.primaryEmailAddress?.emailAddress }
     : null;
 
   const replitNorm = replitUser
@@ -87,7 +90,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const user = walletNorm ?? clerkNorm ?? replitNorm;
   const session = user ? { user: { id: user.id } } : null;
-  const loading = !isLoaded || walletLoading || replitLoading;
+  const loading = !isClerkLoaded || walletLoading || replitLoading;
 
   useEffect(() => {
     if (walletUser) {
@@ -103,7 +106,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (walletUser) {
       await fetch('/api/auth/wallet/logout', { method: 'POST', credentials: 'include' });
       setWalletUser(null);
-    } else if (clerkUser) {
+    } else if (clerkUser && clerkSignOut) {
       await clerkSignOut();
     } else if (replitUser) {
       window.location.href = '/api/logout';
