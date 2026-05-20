@@ -45,6 +45,7 @@ import { SmartContractManager } from '@/components/admin/SmartContractManager';
 import { FeatureToggleManager } from '@/components/admin/FeatureToggleManager';
 import { AuthoritiesManager } from '@/components/admin/AuthoritiesManager';
 import { AISecurityCompliance } from '@/components/admin/AISecurityCompliance';
+import { RoleManager } from '@/components/admin/RoleManager';
 import { useSearchParams } from 'react-router-dom';
 
 interface UserProfile {
@@ -202,6 +203,10 @@ const AdminContent = () => {
           <TabsTrigger value="users" className="gap-2">
             <Users className="h-4 w-4" />
             <span className="hidden md:inline">Users</span>
+          </TabsTrigger>
+          <TabsTrigger value="roles" className="gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="hidden md:inline">Roles</span>
           </TabsTrigger>
           <TabsTrigger value="tokens" className="gap-2">
             <Flame className="h-4 w-4" />
@@ -491,6 +496,10 @@ const AdminContent = () => {
               </GlassCard>
             ))
           )}
+        </TabsContent>
+
+        <TabsContent value="roles">
+          <RoleManager />
         </TabsContent>
 
         <TabsContent value="authorities">

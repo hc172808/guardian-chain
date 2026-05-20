@@ -5,6 +5,7 @@ import {
   adminConfigTable,
   featureTogglesTable,
   auditLogsTable,
+  walletUsersTable,
 } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { seedDatabase } from "../seed";
@@ -185,6 +186,48 @@ router.get("/admin/audit-logs", async (req: Request, res: Response) => {
   } catch (err) {
     req.log.error({ err }, "Failed to list audit logs");
     res.status(500).json({ error: "Failed to list audit logs" });
+  }
+});
+
+// ── Wallet User Roles ────────────────────────────────────────────────────────
+
+// GET /admin/wallet-users — list all wallet-authenticated users
+router.get("/admin/wallet-users", async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Authentication required" }); return; }
+  try {
+    const rows = await db
+      .select()
+      .from(walletUsersTable)
+      .orderBy(desc(walletUsersTable.created_at));
+    res.json({ users: rows, count: rows.length });
+  } catch (err) {
+    req.log.error({ err }, "Failed to list wallet users");
+    res.status(500).json({ error: "Failed to list wallet users" });
+  }
+});
+
+// PATCH /admin/wallet-users/:id/role — update a user's role
+router.patch("/admin/wallet-users/:id/role", async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Authentication required" }); return; }
+  const { role } = req.body as { role?: string };
+  const allowed = ["user", "admin", "founder"];
+  if (!role || !allowed.includes(role)) {
+    res.status(400).json({ error: `role must be one of: ${allowed.join(", ")}` });
+    return;
+  }
+  try {
+    const [updated] = await db
+      .update(walletUsersTable)
+      .set({ role, updated_at: new Date() })
+      .where(eq(walletUsersTable.id, req.params.id))
+      .returning();
+    if (!updated) { res.status(404).json({ error: "User not found" }); return; }
+    res.json({ user: updated });
+  } catch (err) {
+    req.log.error({ err }, "Failed to update wallet user role");
+    res.status(500).json({ error: "Failed to update wallet user role" });
   }
 });
 
