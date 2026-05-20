@@ -55,8 +55,8 @@ router.post("/rpc", async (req: Request, res: Response) => {
     const method = body?.method ?? "";
     const id = body?.id ?? null;
     const fallbacks: Record<string, unknown> = {
-      eth_chainId: "0x539",
-      net_version: "1337",
+      eth_chainId: "0x343A",
+      net_version: "13370",
       eth_syncing: false,
       eth_blockNumber: "0x0",
       eth_gasPrice: "0x3B9ACA00",
@@ -176,7 +176,7 @@ router.get("/blockchain/network/stats", async (_req: Request, res: Response) => 
       validatorCount: peerCount || 3,
       walletCount: Number(walletsRow[0]?.n ?? 0),
       totalTransactions: Number(txsRow[0]?.n ?? 0),
-      chainId: nodeStats?.chainId ?? 1337,
+      chainId: nodeStats?.chainId ?? 13370,
       headHash: nodeStats?.headHash ?? null,
       source: nodeStats ? "litenode+db" : "db",
     });
@@ -185,7 +185,7 @@ router.get("/blockchain/network/stats", async (_req: Request, res: Response) => 
       blockHeight: nodeStats?.blockHeight ?? stubHeight(),
       gasPrice: "1000000000",
       peerCount: 12,
-      chainId: nodeStats?.chainId ?? 1337,
+      chainId: nodeStats?.chainId ?? 13370,
       source: nodeStats ? "litenode" : "stub",
     });
   }

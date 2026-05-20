@@ -6,6 +6,7 @@ import { MiningActivity } from '@/components/dashboard/MiningActivity';
 import { ConsensusFlow } from '@/components/dashboard/ConsensusFlow';
 import { NodeMonitor } from '@/components/dashboard/NodeMonitor';
 import { GenesisStatus } from '@/components/dashboard/GenesisStatus';
+import { LiveActivityFeed } from '@/components/dashboard/LiveActivityFeed';
 import { motion } from 'framer-motion';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 
@@ -35,6 +36,9 @@ const IndexContent = () => {
 
         {/* Consensus Flow */}
         <ConsensusFlow />
+
+        {/* Live Activity Feed */}
+        <LiveActivityFeed />
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

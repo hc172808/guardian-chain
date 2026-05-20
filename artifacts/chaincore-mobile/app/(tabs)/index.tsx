@@ -82,7 +82,7 @@ export default function DashboardScreen() {
         <View style={styles.header}>
           <View>
             <Text style={[styles.networkName, { color: colors.mutedForeground }]}>
-              GYDS Chain · ID {stats.data?.chainId ?? 1337}
+              GYDS Chain · ID {stats.data?.chainId ?? 13370}
             </Text>
             <Text style={[styles.appTitle, { color: colors.foreground }]}>ChainCore</Text>
           </View>
