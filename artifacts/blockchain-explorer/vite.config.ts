@@ -72,10 +72,13 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    hmr: !process.env.REPLIT_DEV_DOMAIN,
     proxy: {
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,
+        proxyTimeout: 30_000,
+        timeout: 30_000,
       },
     },
   },
