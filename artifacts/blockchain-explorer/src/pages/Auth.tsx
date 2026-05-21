@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useAccount, useConnect, useDisconnect, useSignMessage } from 'wagmi';
+import { useAccount, useSignMessage } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { SiweMessage } from 'siwe';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Cpu, Wallet, ShieldCheck, Zap, Globe, Lock, PlusCircle, CheckCircle2 } from 'lucide-react';
-
+import { Cpu, Wallet, ShieldCheck, Globe, Lock, PlusCircle, CheckCircle2, Zap, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const FEATURES = [
@@ -15,6 +14,115 @@ const FEATURES = [
   { icon: <ShieldCheck className="w-5 h-5" />, title: 'Sign to Verify', desc: 'Prove ownership by signing a message. No gas fees involved.' },
   { icon: <Lock className="w-5 h-5" />, title: 'Fully Decentralized', desc: 'No centralised accounts. You own your identity on-chain.' },
 ];
+
+const DAPP_URL = typeof window !== 'undefined' ? window.location.href : '';
+const DAPP_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
+
+function buildTrustWalletLink(): string {
+  return `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(DAPP_URL)}`;
+}
+
+function buildPhantomLink(): string {
+  return `https://phantom.app/ul/browse/${encodeURIComponent(DAPP_URL)}?ref=${encodeURIComponent(DAPP_ORIGIN)}`;
+}
+
+function isMobile(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+}
+
+function hasInjectedWallet(): boolean {
+  return typeof window !== 'undefined' && !!(window as any).ethereum;
+}
+
+function MobileWalletLinks({ compact = false }: { compact?: boolean }) {
+  const trustLink = buildTrustWalletLink();
+  const phantomLink = buildPhantomLink();
+
+  if (compact) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground text-center">Or open directly in a mobile wallet</p>
+        <div className="grid grid-cols-2 gap-2">
+          <a
+            href={trustLink}
+            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-border/50 bg-card/40 hover:bg-card/80 hover:border-primary/40 transition-all text-xs font-semibold text-foreground group"
+          >
+            <img
+              src="https://trustwallet.com/assets/images/media/assets/TWT.png"
+              alt="Trust Wallet"
+              className="w-5 h-5 rounded-full"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+            Trust Wallet
+          </a>
+          <a
+            href={phantomLink}
+            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-border/50 bg-card/40 hover:bg-card/80 hover:border-primary/40 transition-all text-xs font-semibold text-foreground"
+          >
+            <img
+              src="https://phantom.app/img/phantom-logo.png"
+              alt="Phantom"
+              className="w-5 h-5 rounded-full"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+            Phantom
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
+    >
+      <div className="flex items-center gap-2">
+        <Smartphone className="w-4 h-4 text-primary" />
+        <p className="text-sm font-semibold text-foreground">Open in Mobile Wallet</p>
+      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        Tap below to open ChainCore directly inside your wallet app — no QR code needed.
+      </p>
+      <div className="space-y-2">
+        <a
+          href={trustLink}
+          className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-border/50 bg-card/60 hover:bg-card hover:border-primary/50 active:scale-[0.98] transition-all"
+        >
+          <img
+            src="https://trustwallet.com/assets/images/media/assets/TWT.png"
+            alt="Trust Wallet"
+            className="w-8 h-8 rounded-full"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-foreground">Trust Wallet</p>
+            <p className="text-xs text-muted-foreground">Tap to open & connect</p>
+          </div>
+          <span className="text-xs text-primary font-semibold">Open →</span>
+        </a>
+        <a
+          href={phantomLink}
+          className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-border/50 bg-card/60 hover:bg-card hover:border-primary/50 active:scale-[0.98] transition-all"
+        >
+          <img
+            src="https://phantom.app/img/phantom-logo.png"
+            alt="Phantom"
+            className="w-8 h-8 rounded-full"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-foreground">Phantom</p>
+            <p className="text-xs text-muted-foreground">Tap to open & connect</p>
+          </div>
+          <span className="text-xs text-primary font-semibold">Open →</span>
+        </a>
+      </div>
+    </motion.div>
+  );
+}
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -26,6 +134,11 @@ const Auth = () => {
   const [signed, setSigned] = useState(false);
   const [addingNetwork, setAddingNetwork] = useState(false);
   const [networkAdded, setNetworkAdded] = useState(false);
+
+  const mobile = isMobile();
+  const injected = hasInjectedWallet();
+  const showMobileProminent = mobile && !injected && !isConnected;
+  const showMobileCompact = !mobile && !isConnected;
 
   const addGYDSNetwork = async () => {
     const ethereum = (window as any).ethereum;
@@ -63,20 +176,16 @@ const Auth = () => {
   }, [user, navigate]);
 
   useEffect(() => {
-    if (!isConnected) {
-      setSigned(false);
-    }
+    if (!isConnected) setSigned(false);
   }, [isConnected]);
 
   const handleSignIn = async () => {
     if (!address) return;
     setSigning(true);
     try {
-      // 1. Get nonce from server
       const nonceRes = await fetch('/api/auth/nonce', { credentials: 'include' });
       const { nonce } = await nonceRes.json();
 
-      // 2. Build SIWE message
       const siweMsg = new SiweMessage({
         domain: window.location.host,
         address,
@@ -87,11 +196,8 @@ const Auth = () => {
         nonce,
       });
       const message = siweMsg.prepareMessage();
-
-      // 3. Ask wallet to sign
       const signature = await signMessageAsync({ message });
 
-      // 4. Verify on server
       const verifyRes = await fetch('/api/auth/wallet/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -99,9 +205,7 @@ const Auth = () => {
         body: JSON.stringify({ message, signature }),
       });
 
-      if (!verifyRes.ok) {
-        throw new Error('Server verification failed');
-      }
+      if (!verifyRes.ok) throw new Error('Server verification failed');
 
       setSigned(true);
       await refreshWalletUser();
@@ -127,7 +231,6 @@ const Auth = () => {
         transition={{ duration: 0.5 }}
         className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 bg-gradient-to-br from-background via-background to-primary/5 border-r border-border/40 relative overflow-hidden"
       >
-        {/* Background glow */}
         <div className="absolute top-1/3 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
 
@@ -177,7 +280,7 @@ const Auth = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
-          className="w-full max-w-md space-y-8"
+          className="w-full max-w-md space-y-5"
         >
           {/* Mobile logo */}
           <div className="lg:hidden text-center">
@@ -194,13 +297,16 @@ const Auth = () => {
             </p>
           </div>
 
+          {/* Mobile prominent deep links — shown on mobile with no injected wallet */}
+          {showMobileProminent && <MobileWalletLinks compact={false} />}
+
           {/* Step 1 — Connect wallet */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${isConnected ? 'bg-primary text-black' : 'bg-border text-foreground'}`}>
-                {isConnected ? '✓' : '1'}
+                {isConnected ? '✓' : showMobileProminent ? '2' : '1'}
               </span>
-              Connect Wallet
+              {showMobileProminent ? 'Or scan with WalletConnect' : 'Connect Wallet'}
             </div>
             <ConnectButton
               label="Connect Wallet"
@@ -243,6 +349,9 @@ const Auth = () => {
             </p>
           </div>
 
+          {/* Desktop compact deep links */}
+          {showMobileCompact && <MobileWalletLinks compact={true} />}
+
           {/* Step 2 — Sign to verify (shown after connecting) */}
           {isConnected && !signed && (
             <motion.div
@@ -251,7 +360,9 @@ const Auth = () => {
               className="space-y-3"
             >
               <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold bg-border text-foreground">2</span>
+                <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold bg-border text-foreground">
+                  {showMobileProminent ? '3' : '2'}
+                </span>
                 Sign to Verify Ownership
               </div>
 
@@ -277,7 +388,6 @@ const Auth = () => {
               </Button>
             </motion.div>
           )}
-
         </motion.div>
       </div>
 
