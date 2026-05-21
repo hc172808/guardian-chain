@@ -80,10 +80,10 @@ const Auth = () => {
       const siweMsg = new SiweMessage({
         domain: window.location.host,
         address,
-        statement: 'Sign in to ChainCore — GYDSchain Explorer',
+        statement: 'Sign in to ChainCore - GYDSchain Explorer',
         uri: window.location.origin,
         version: '1',
-        chainId: 1,
+        chainId: 13370,
         nonce,
       });
       const message = siweMsg.prepareMessage();
