@@ -16,9 +16,11 @@ import docsRouter from "./docs";
 import nodesRouter from "./nodes";
 import launchesRouter from "./launches";
 import walletAuthRouter from "./walletAuth";
+import nodeControlRouter from "./nodeControl";
 
 const router: IRouter = Router();
 
+router.use("/admin/nodes", nodeControlRouter);
 router.use(healthRouter);
 router.use(tableRouter);
 router.use(storageRouter);

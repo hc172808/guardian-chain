@@ -27,6 +27,9 @@ if (!basePath) {
 
 export default defineConfig({
   base: basePath,
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react/jsx-runtime'],
+  },
   plugins: [
     react(),
     runtimeErrorOverlay(),

@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount, useSignMessage } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { SiweMessage } from 'siwe';
+import { QRCodeSVG } from 'qrcode.react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Cpu, Wallet, ShieldCheck, Globe, Lock, PlusCircle, CheckCircle2, Zap, Smartphone } from 'lucide-react';
+import {
+  Cpu, Wallet, ShieldCheck, Globe, Lock, PlusCircle,
+  CheckCircle2, Zap, Smartphone, QrCode, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const FEATURES = [
@@ -15,57 +19,37 @@ const FEATURES = [
   { icon: <Lock className="w-5 h-5" />, title: 'Fully Decentralized', desc: 'No centralised accounts. You own your identity on-chain.' },
 ];
 
-const DAPP_URL = typeof window !== 'undefined' ? window.location.href : '';
-const DAPP_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
-
-function buildTrustWalletLink(): string {
-  return `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(DAPP_URL)}`;
+function buildTrustWalletLink(url: string): string {
+  return `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(url)}`;
 }
-
-function buildPhantomLink(): string {
-  return `https://phantom.app/ul/browse/${encodeURIComponent(DAPP_URL)}?ref=${encodeURIComponent(DAPP_ORIGIN)}`;
+function buildPhantomLink(url: string, origin: string): string {
+  return `https://phantom.app/ul/browse/${encodeURIComponent(url)}?ref=${encodeURIComponent(origin)}`;
 }
-
 function isMobile(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
 }
-
 function hasInjectedWallet(): boolean {
   return typeof window !== 'undefined' && !!(window as any).ethereum;
 }
 
 function MobileWalletLinks({ compact = false }: { compact?: boolean }) {
-  const trustLink = buildTrustWalletLink();
-  const phantomLink = buildPhantomLink();
+  const url = window.location.href;
+  const origin = window.location.origin;
+  const trustLink = buildTrustWalletLink(url);
+  const phantomLink = buildPhantomLink(url, origin);
 
   if (compact) {
     return (
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground text-center">Or open directly in a mobile wallet</p>
         <div className="grid grid-cols-2 gap-2">
-          <a
-            href={trustLink}
-            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-border/50 bg-card/40 hover:bg-card/80 hover:border-primary/40 transition-all text-xs font-semibold text-foreground group"
-          >
-            <img
-              src="https://trustwallet.com/assets/images/media/assets/TWT.png"
-              alt="Trust Wallet"
-              className="w-5 h-5 rounded-full"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            />
+          <a href={trustLink} className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-border/50 bg-card/40 hover:bg-card/80 hover:border-primary/40 transition-all text-xs font-semibold text-foreground">
+            <img src="https://trustwallet.com/assets/images/media/assets/TWT.png" alt="Trust Wallet" className="w-5 h-5 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
             Trust Wallet
           </a>
-          <a
-            href={phantomLink}
-            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-border/50 bg-card/40 hover:bg-card/80 hover:border-primary/40 transition-all text-xs font-semibold text-foreground"
-          >
-            <img
-              src="https://phantom.app/img/phantom-logo.png"
-              alt="Phantom"
-              className="w-5 h-5 rounded-full"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            />
+          <a href={phantomLink} className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-border/50 bg-card/40 hover:bg-card/80 hover:border-primary/40 transition-all text-xs font-semibold text-foreground">
+            <img src="https://phantom.app/img/phantom-logo.png" alt="Phantom" className="w-5 h-5 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
             Phantom
           </a>
         </div>
@@ -74,53 +58,76 @@ function MobileWalletLinks({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
-    >
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
       <div className="flex items-center gap-2">
         <Smartphone className="w-4 h-4 text-primary" />
         <p className="text-sm font-semibold text-foreground">Open in Mobile Wallet</p>
       </div>
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        Tap below to open ChainCore directly inside your wallet app — no QR code needed.
-      </p>
+      <p className="text-xs text-muted-foreground leading-relaxed">Tap below to open ChainCore directly inside your wallet app — no QR code needed.</p>
       <div className="space-y-2">
-        <a
-          href={trustLink}
-          className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-border/50 bg-card/60 hover:bg-card hover:border-primary/50 active:scale-[0.98] transition-all"
-        >
-          <img
-            src="https://trustwallet.com/assets/images/media/assets/TWT.png"
-            alt="Trust Wallet"
-            className="w-8 h-8 rounded-full"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-foreground">Trust Wallet</p>
-            <p className="text-xs text-muted-foreground">Tap to open & connect</p>
-          </div>
+        <a href={trustLink} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-border/50 bg-card/60 hover:bg-card hover:border-primary/50 active:scale-[0.98] transition-all">
+          <img src="https://trustwallet.com/assets/images/media/assets/TWT.png" alt="Trust Wallet" className="w-8 h-8 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          <div className="flex-1"><p className="text-sm font-semibold text-foreground">Trust Wallet</p><p className="text-xs text-muted-foreground">Tap to open & connect</p></div>
           <span className="text-xs text-primary font-semibold">Open →</span>
         </a>
-        <a
-          href={phantomLink}
-          className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-border/50 bg-card/60 hover:bg-card hover:border-primary/50 active:scale-[0.98] transition-all"
-        >
-          <img
-            src="https://phantom.app/img/phantom-logo.png"
-            alt="Phantom"
-            className="w-8 h-8 rounded-full"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-foreground">Phantom</p>
-            <p className="text-xs text-muted-foreground">Tap to open & connect</p>
-          </div>
+        <a href={phantomLink} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-border/50 bg-card/60 hover:bg-card hover:border-primary/50 active:scale-[0.98] transition-all">
+          <img src="https://phantom.app/img/phantom-logo.png" alt="Phantom" className="w-8 h-8 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          <div className="flex-1"><p className="text-sm font-semibold text-foreground">Phantom</p><p className="text-xs text-muted-foreground">Tap to open & connect</p></div>
           <span className="text-xs text-primary font-semibold">Open →</span>
         </a>
       </div>
     </motion.div>
+  );
+}
+
+function ShareQRCode() {
+  const [open, setOpen] = useState(false);
+  const url = window.location.href;
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card/20 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-card/40 transition-colors"
+      >
+        <div className="flex items-center gap-2.5">
+          <QrCode className="w-4 h-4 text-primary" />
+          <div className="text-left">
+            <p className="text-sm font-semibold text-foreground">Scan to open on mobile</p>
+            <p className="text-xs text-muted-foreground">Point any wallet's camera at this QR code</p>
+          </div>
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 flex flex-col items-center gap-3">
+              <div className="p-3 bg-white rounded-xl shadow-lg">
+                <QRCodeSVG
+                  value={url}
+                  size={180}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  level="M"
+                  includeMargin={false}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                Scan with Trust Wallet, Phantom, MetaMask Mobile, or any Web3 browser to open ChainCore directly.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -224,7 +231,7 @@ const Auth = () => {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Left panel — branding */}
+      {/* Left panel */}
       <motion.div
         initial={{ opacity: 0, x: -30 }}
         animate={{ opacity: 1, x: 0 }}
@@ -233,7 +240,6 @@ const Auth = () => {
       >
         <div className="absolute top-1/3 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
-
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary to-cyan-400">
@@ -243,7 +249,6 @@ const Auth = () => {
           </div>
           <p className="text-xs text-muted-foreground tracking-widest uppercase mt-1 ml-1">GYDSchain Ecosystem</p>
         </div>
-
         <div className="relative z-10 space-y-6">
           <div>
             <h1 className="text-4xl font-bold leading-tight text-foreground mb-3">
@@ -254,7 +259,6 @@ const Auth = () => {
               Explore blocks, swap tokens, stake validators, and launch assets — all with your wallet as your passport.
             </p>
           </div>
-
           <div className="space-y-4">
             {FEATURES.map((f) => (
               <div key={f.title} className="flex items-start gap-4 p-4 rounded-xl border border-border/30 bg-card/30 backdrop-blur-sm">
@@ -267,14 +271,13 @@ const Auth = () => {
             ))}
           </div>
         </div>
-
         <div className="relative z-10 flex items-center gap-2 text-xs text-muted-foreground">
           <Globe className="w-3.5 h-3.5" />
           <span>Powered by GYDSchain · Chain ID 13370 · PoS consensus</span>
         </div>
       </motion.div>
 
-      {/* Right panel — wallet connect */}
+      {/* Right panel */}
       <div className="flex-1 flex items-center justify-center p-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -297,7 +300,7 @@ const Auth = () => {
             </p>
           </div>
 
-          {/* Mobile prominent deep links — shown on mobile with no injected wallet */}
+          {/* Mobile prominent deep links */}
           {showMobileProminent && <MobileWalletLinks compact={false} />}
 
           {/* Step 1 — Connect wallet */}
@@ -308,14 +311,10 @@ const Auth = () => {
               </span>
               {showMobileProminent ? 'Or scan with WalletConnect' : 'Connect Wallet'}
             </div>
-            <ConnectButton
-              label="Connect Wallet"
-              showBalance={false}
-              chainStatus="none"
-            />
+            <ConnectButton label="Connect Wallet" showBalance={false} chainStatus="none" />
           </div>
 
-          {/* Add GYDS Network helper */}
+          {/* GYDS Network helper */}
           <div className="rounded-xl border border-border/40 bg-card/30 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
@@ -324,22 +323,14 @@ const Auth = () => {
               </div>
               {networkAdded ? (
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Added
+                  <CheckCircle2 className="w-4 h-4" />Added
                 </div>
               ) : (
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={addGYDSNetwork}
-                  disabled={addingNetwork}
+                  variant="outline" size="sm" onClick={addGYDSNetwork} disabled={addingNetwork}
                   className="gap-1.5 text-xs border-primary/40 text-primary hover:bg-primary/10"
                 >
-                  {addingNetwork ? (
-                    <span className="animate-spin inline-block">⟳</span>
-                  ) : (
-                    <PlusCircle className="w-3.5 h-3.5" />
-                  )}
+                  {addingNetwork ? <span className="animate-spin inline-block">⟳</span> : <PlusCircle className="w-3.5 h-3.5" />}
                   Add to MetaMask
                 </Button>
               )}
@@ -352,39 +343,34 @@ const Auth = () => {
           {/* Desktop compact deep links */}
           {showMobileCompact && <MobileWalletLinks compact={true} />}
 
-          {/* Step 2 — Sign to verify (shown after connecting) */}
+          {/* QR code — share to mobile */}
+          {!isConnected && <ShareQRCode />}
+
+          {/* Step 2 — Sign to verify */}
           {isConnected && !signed && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-3"
-            >
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
               <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold bg-border text-foreground">
                   {showMobileProminent ? '3' : '2'}
                 </span>
                 Sign to Verify Ownership
               </div>
-
               <div className="p-4 rounded-xl border border-border/50 bg-card/50 space-y-2">
                 <p className="text-sm text-foreground font-medium">
                   Connected: <span className="font-mono text-primary">{address?.slice(0, 6)}...{address?.slice(-4)}</span>
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Click below and sign the message in your wallet to prove you own this address. This is free — no gas required.
+                  Click below and sign the message in your wallet. This is free — no gas required.
                 </p>
               </div>
-
               <Button
-                onClick={handleSignIn}
-                disabled={signing}
+                onClick={handleSignIn} disabled={signing}
                 className="w-full h-12 gap-2 text-base font-semibold bg-primary hover:bg-primary/90 text-black"
               >
-                {signing ? (
-                  <><span className="animate-spin inline-block">⟳</span> Waiting for signature…</>
-                ) : (
-                  <><Zap className="w-4 h-4" /> Sign in with Wallet</>
-                )}
+                {signing
+                  ? <><span className="animate-spin inline-block">⟳</span> Waiting for signature…</>
+                  : <><Zap className="w-4 h-4" /> Sign in with Wallet</>
+                }
               </Button>
             </motion.div>
           )}

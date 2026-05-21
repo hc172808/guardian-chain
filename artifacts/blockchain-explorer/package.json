@@ -82,6 +82,7 @@
     "@scure/bip32": "^2.2.0",
     "@scure/bip39": "^2.2.0",
     "internal": "link:@clerk/react/internal",
+    "qrcode.react": "^4.2.0",
     "react-router-dom": "^7.15.0",
     "siwe": "^3.0.0",
     "viem": "^2.49.2",
