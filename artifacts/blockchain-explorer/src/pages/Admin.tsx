@@ -46,6 +46,7 @@ import { FeatureToggleManager } from '@/components/admin/FeatureToggleManager';
 import { AuthoritiesManager } from '@/components/admin/AuthoritiesManager';
 import { AISecurityCompliance } from '@/components/admin/AISecurityCompliance';
 import { RoleManager } from '@/components/admin/RoleManager';
+import { NodeManager } from '@/components/admin/NodeManager';
 import { useSearchParams } from 'react-router-dom';
 
 interface UserProfile {
@@ -196,6 +197,10 @@ const AdminContent = () => {
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
           </TabsTrigger>
+          <TabsTrigger value="node-manager" className="gap-2">
+            <Activity className="h-4 w-4" />
+            <span className="hidden md:inline">Node Control</span>
+          </TabsTrigger>
           <TabsTrigger value="validators" className="gap-2">
             <Shield className="h-4 w-4" />
             <span className="hidden md:inline">Validators</span>
@@ -277,6 +282,10 @@ const AdminContent = () => {
             <span className="hidden md:inline">AI Security</span>
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="node-manager">
+          <NodeManager />
+        </TabsContent>
 
         <TabsContent value="validators">
           <ValidatorManager />
