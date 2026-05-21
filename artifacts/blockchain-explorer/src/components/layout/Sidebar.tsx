@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { 
   Blocks, 
@@ -14,7 +15,6 @@ import {
   X,
   LogIn,
   LogOut,
-  User,
   Wallet,
   Settings,
   BookOpen,
@@ -24,7 +24,9 @@ import {
   Star,
   Terminal,
   Droplets,
-  FileCode
+  FileCode,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -62,21 +64,94 @@ interface SidebarProps {
   isMobile: boolean;
 }
 
+const ROLE_COLORS: Record<string, string> = {
+  founder: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  admin:   'bg-primary/20 text-primary border-primary/30',
+  user:    'bg-muted/40 text-muted-foreground border-border',
+};
+
+const WalletSessionCard = ({ onSignOut }: { onSignOut: () => void }) => {
+  const { walletUser, roles } = useAuth();
+  const [copied, setCopied] = useState(false);
+
+  if (!walletUser) return null;
+
+  const addr = walletUser.wallet_address;
+  const short = `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+  const role = roles.includes('founder') ? 'founder' : roles.includes('admin') ? 'admin' : 'user';
+
+  const copyAddress = () => {
+    navigator.clipboard.writeText(addr);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl border border-sidebar-border bg-sidebar-accent/40 p-3 space-y-2"
+    >
+      {/* Address row */}
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/60 to-cyan-400/60 flex items-center justify-center shrink-0">
+          <Wallet className="w-4 h-4 text-black" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-muted-foreground leading-none mb-0.5">Connected</p>
+          <p className="text-sm font-mono font-semibold text-foreground truncate">
+            {walletUser.ens_name ?? short}
+          </p>
+        </div>
+        <button
+          onClick={copyAddress}
+          title="Copy address"
+          className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors text-muted-foreground hover:text-foreground shrink-0"
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+
+      {/* Full address (monospace, smaller) */}
+      <p className="text-[10px] font-mono text-muted-foreground/70 break-all leading-tight px-0.5">
+        {addr}
+      </p>
+
+      {/* Role + sign-out row */}
+      <div className="flex items-center justify-between pt-0.5">
+        <span className={cn(
+          'text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border',
+          ROLE_COLORS[role]
+        )}>
+          {role}
+        </span>
+        <button
+          onClick={onSignOut}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+        >
+          <LogOut className="w-3 h-3" />
+          Sign out
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
 export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
-  const { user, roles, signOut, isFounder, isAdmin } = useAuth();
+  const { user, signOut, isFounder, isAdmin } = useAuth();
   const navigate = useNavigate();
   const { blockHeight, online } = useBlockStats();
 
-  const handleAuthClick = async () => {
-    if (user) {
-      await signOut();
-    } else {
-      navigate('/auth');
-    }
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth');
     if (isMobile) onToggle();
   };
 
-  const displayRole = roles.includes('founder') ? 'founder' : roles.includes('admin') ? 'admin' : null;
+  const handleSignIn = () => {
+    navigate('/auth');
+    if (isMobile) onToggle();
+  };
 
   return (
     <>
@@ -220,35 +295,17 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
                 </p>
               </div>
 
-              {/* Auth Button */}
-              <Button
-                variant={user ? 'outline' : 'default'}
-                className="w-full gap-2"
-                onClick={handleAuthClick}
-              >
-                {user ? (
-                  <>
-                    <LogOut className="h-4 w-4" />
-                    Sign Out
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="h-4 w-4" />
-                    Sign In
-                  </>
-                )}
-              </Button>
-              
-              {user && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                  <User className="h-3 w-3" />
-                  <span className="truncate">{user.email}</span>
-                  {displayRole && (
-                    <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] uppercase">
-                      {displayRole}
-                    </span>
-                  )}
-                </div>
+              {user ? (
+                <WalletSessionCard onSignOut={handleSignOut} />
+              ) : (
+                <Button
+                  variant="default"
+                  className="w-full gap-2"
+                  onClick={handleSignIn}
+                >
+                  <LogIn className="h-4 w-4" />
+                  Connect Wallet
+                </Button>
               )}
             </div>
           </motion.aside>
