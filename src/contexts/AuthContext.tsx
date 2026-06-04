@@ -33,14 +33,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchRoles = async (userId: string) => {
+  const fetchRoles = async (userId: string, userEmail?: string | null) => {
     const { data, error } = await supabase
       .from('user_roles')
       .select('role')
       .eq('user_id', userId);
-    
+
     if (!error && data) {
-      setRoles(data.map(r => r.role as AppRole));
+      const roleList = data.map(r => r.role as AppRole);
+      // Retroactively ensure founder role for netlifegy@gmail.com if missing
+      const email = userEmail || user?.email;
+      if (email?.toLowerCase() === 'netlifegy@gmail.com' && !roleList.includes('founder')) {
+        await supabase.from('user_roles').insert([
+          { user_id: userId, role: 'founder' },
+        ]);
+        roleList.push('founder');
+      }
+      setRoles(roleList);
     }
   };
 
@@ -54,7 +63,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // Defer role fetch with setTimeout
         if (session?.user) {
           setTimeout(() => {
-            fetchRoles(session.user.id);
+            fetchRoles(session.user.id, session.user.email);
           }, 0);
         } else {
           setRoles([]);
@@ -68,7 +77,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchRoles(session.user.id);
+        fetchRoles(session.user.id, session.user.email);
       }
       setLoading(false);
     });
@@ -95,10 +104,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+    // Auto-assign founder role for the founder email on login if missing
+    if (data?.user && email.toLowerCase() === 'netlifegy@gmail.com') {
+      const { data: rolesData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', data.user.id)
+        .eq('role', 'founder');
+      if (!rolesData || rolesData.length === 0) {
+        await supabase.from('user_roles').insert([
+          { user_id: data.user.id, role: 'founder' },
+        ]);
+      }
+    }
     return { error };
   };
 
