@@ -63,20 +63,14 @@ export const ContributeModal = ({ launch, onBack }: ContributeModalProps) => {
 
     setIsSubmitting(true);
     try {
-      const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-
-      // Record the contribution as a transaction
-      const { error: txError } = await supabase.from('transactions').insert({
-        user_id: user.id,
-        from_address: address,
-        to_address: `launch:${launch.id}`,
+      const { submitTransaction } = await import('@/lib/mempool');
+      await submitTransaction({
+        userId: user.id,
+        fromAddress: address,
+        toAddress: `launch:${launch.id}`,
         amount: gydsAmount,
         fee: gydsAmount * 0.001,
-        tx_hash: txHash,
-        status: 'confirmed',
-        confirmed_at: new Date().toISOString(),
       });
-      if (txError) throw txError;
 
       // Update launch raised amount and participants
       const { error: updateError } = await supabase

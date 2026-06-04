@@ -1,0 +1,27 @@
+**“Clone the source repository from https://github.com/hc172808/guardian-chain.git
+, analyze the existing codebase, and extend it non-destructively to build the GYDS blockchain core. Do NOT remove or break existing functionality; only add, refactor, or enhance components where necessary. Reuse all existing modules whenever possible and only create new modules if they do not already exist. After implementation, push the updated project to https://github.com/hc172808/gydschain-replit-files.git
+ with clean, meaningful commits and a fully working build.
+
+Implement a modular GYDS Program Library (GPL) inspired by Solana and its SPL Token architecture. GPL must include (or extend existing equivalents of) a centralized Token Program (GYDS-20), Accounts system, Staking module, System module, and a lightweight Smart Contract VM. Tokens must not be separate contracts; instead, use a single shared token engine, integrating with any existing token logic if present.
+
+Implement a smart contract system where registered accounts can deploy and interact with contracts through controlled, sandboxed execution; do not automatically convert all users into contracts.
+
+Provide full Go implementation with persistent storage (LevelDB or RocksDB), ensuring deterministic state transitions, and add snapshot and fast state sync only if not already implemented.
+
+Enhance Accounts & Security with Ed25519 cryptography, address validation, and nonce-based replay protection if missing. Extend the Transaction System to support typed transactions (transfer, mint, contract call, staking), fee mechanism (base + priority), and a mempool, reusing any existing transaction logic.
+
+Integrate GPL with the existing consensus engine, adding validator/staking support, block validation, and execution pipeline hooks without breaking current consensus logic.
+
+Add or extend an Event & Logging system to emit indexed logs for all state changes. Provide or enhance RPC & API layers (JSON-RPC, REST, WebSocket) for wallet and explorer compatibility.
+
+Implement or extend a deterministic, gas-metered Smart Contract VM with upgradeable design. Add Permissions & Governance (admin, validator, user roles), token mint authority, and upgradeable modules if not already present.
+
+Ensure Networking supports P2P gossip, node discovery, and secure communication compatible with WireGuard, integrating with existing network code.
+
+Design for Extensibility with a plugin/module system supporting future NFT standard (ERC-721-like), DeFi modules (DEX, lending), and governance features.
+
+Provide Tooling including CLI, developer SDK, and ensure API compatibility with wallet and explorer systems.
+
+Ensure all components (node, RPC, explorer, indexer, wallet backend) can run on separate servers and support distributed deployment. Add support for full nodes and lite nodes with HTTPS RPC access if not already present.
+
+Maintain clean architecture, backward compatibility, and production-ready code structure at all times.”**

@@ -271,13 +271,14 @@ export const PositionDetails = ({ position }: PositionDetailsProps) => {
               setIsProcessing(true);
               try {
                 const amount = parseFloat(depositAmountA || '0') + parseFloat(depositAmountB || '0');
-                const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-                const { error } = await supabase.from('transactions').insert({
-                  user_id: user.id, from_address: address, to_address: 'liquidity-pool',
-                  amount, fee: amount * 0.001, tx_hash: txHash, status: 'confirmed',
-                  confirmed_at: new Date().toISOString(), wallet_id: null,
+                const { submitTransaction } = await import('@/lib/mempool');
+                await submitTransaction({
+                  userId: user.id,
+                  fromAddress: address,
+                  toAddress: 'liquidity-pool',
+                  amount,
+                  fee: amount * 0.001,
                 });
-                if (error) throw error;
                 toast({ title: 'Deposit Successful', description: `Added liquidity to ${pos.tokenA.symbol}/${pos.tokenB.symbol}` });
                 setDepositAmountA(''); setDepositAmountB('');
               } catch (err: any) {
@@ -335,13 +336,14 @@ export const PositionDetails = ({ position }: PositionDetailsProps) => {
               setIsProcessing(true);
               try {
                 const amount = pos.balance * withdrawPercent[0] / 100;
-                const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-                const { error } = await supabase.from('transactions').insert({
-                  user_id: user.id, from_address: 'liquidity-pool', to_address: address,
-                  amount, fee: amount * 0.001, tx_hash: txHash, status: 'confirmed',
-                  confirmed_at: new Date().toISOString(), wallet_id: null,
+                const { submitTransaction } = await import('@/lib/mempool');
+                await submitTransaction({
+                  userId: user.id,
+                  fromAddress: 'liquidity-pool',
+                  toAddress: address,
+                  amount,
+                  fee: amount * 0.001,
                 });
-                if (error) throw error;
                 toast({ title: 'Withdrawal Successful', description: `Removed ${withdrawPercent[0]}% liquidity from ${pos.tokenA.symbol}/${pos.tokenB.symbol}` });
                 setWithdrawPercent([50]);
               } catch (err: any) {

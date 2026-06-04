@@ -79,19 +79,14 @@ export const StakeInterface = () => {
     
     setIsProcessing(true);
     try {
-      const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-      const { error } = await supabase.from('transactions').insert({
-        user_id: user.id,
-        from_address: type === 'stake' ? address : 'staking-pool',
-        to_address: type === 'stake' ? 'staking-pool' : address,
+      const { submitTransaction } = await import('@/lib/mempool');
+      await submitTransaction({
+        userId: user.id,
+        fromAddress: type === 'stake' ? address : 'staking-pool',
+        toAddress: type === 'stake' ? 'staking-pool' : address,
         amount,
         fee: amount * 0.001,
-        tx_hash: txHash,
-        status: 'confirmed',
-        confirmed_at: new Date().toISOString(),
-        wallet_id: null,
       });
-      if (error) throw error;
       toast({
         title: type === 'stake' ? 'Staked Successfully!' : 'Unstaked Successfully!',
         description: type === 'stake'

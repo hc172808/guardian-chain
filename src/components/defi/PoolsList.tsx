@@ -209,14 +209,14 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
     }
     setIsProcessing(true);
     try {
-      const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-      const { error } = await supabase.from('transactions').insert({
-        user_id: user.id, from_address: address, to_address: toAddress,
-        amount, fee: amount * 0.001, tx_hash: txHash, status: 'confirmed',
-        confirmed_at: new Date().toISOString(), wallet_id: null,
+      const { submitTransaction } = await import('@/lib/mempool');
+      await submitTransaction({
+        userId: user.id,
+        fromAddress: address,
+        toAddress,
+        amount,
+        fee: amount * 0.001,
       });
-      if (error) throw error;
-
       // If closing pool, deactivate it
       if (closePool) {
         const { error: poolError } = await supabase
@@ -225,7 +225,6 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
           .eq('id', pool.id);
         if (poolError) throw poolError;
       }
-
       toast({ title: 'Success', description: desc });
       onBack();
     } catch (err: any) {
