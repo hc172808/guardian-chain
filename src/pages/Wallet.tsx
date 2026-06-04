@@ -40,6 +40,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FounderWalletConfig } from '@/components/wallet/FounderWalletConfig';
 import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
+import { Web3ConnectModal } from '@/components/Web3ConnectModal';
 
 interface WalletData {
   id: string;
@@ -102,6 +103,7 @@ const WalletContent = () => {
   const [sendTo, setSendTo] = useState('');
   const [sendAmount, setSendAmount] = useState('');
   const [sendLoading, setSendLoading] = useState(false);
+  const [linkWalletOpen, setLinkWalletOpen] = useState(false);
 
   // PIN rotation state
   const [rotatePinDialogOpen, setRotatePinDialogOpen] = useState(false);
@@ -582,6 +584,9 @@ const WalletContent = () => {
         </div>
         <div className="flex gap-2 flex-wrap">
           {isFounder && <FounderWalletConfig />}
+          <Button variant="outline" className="gap-2" onClick={() => setLinkWalletOpen(true)}>
+            <WalletIcon className="h-4 w-4" /> Link Web3 Wallet
+          </Button>
           <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="gap-2"><Send className="h-4 w-4" /> Send</Button>
@@ -968,6 +973,16 @@ const WalletContent = () => {
           )}
         </div>
       </GlassCard>
+
+      <Web3ConnectModal
+        open={linkWalletOpen}
+        onClose={() => setLinkWalletOpen(false)}
+        mode="link"
+        onSuccess={(address) => {
+          toast({ title: 'Wallet Linked!', description: `${address.slice(0, 6)}...${address.slice(-4)} connected.` });
+          fetchWallets();
+        }}
+      />
     </motion.div>
   );
 };

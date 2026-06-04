@@ -7,8 +7,9 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Cpu, Mail, Lock, UserPlus, LogIn } from 'lucide-react';
+import { Cpu, Mail, Lock, UserPlus, LogIn, Wallet } from 'lucide-react';
 import { z } from 'zod';
+import { Web3ConnectModal } from '@/components/Web3ConnectModal';
 
 const emailSchema = z.string().email('Please enter a valid email address');
 const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
@@ -22,7 +23,9 @@ const Auth = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string; confirm?: string }>({});
   const [resetSent, setResetSent] = useState(false);
-  
+  const [web3ModalOpen, setWeb3ModalOpen] = useState(false);
+  const [web3Mode, setWeb3Mode] = useState<'login' | 'signup'>('login');
+
   const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -273,6 +276,30 @@ const Auth = () => {
             </div>
           )}
 
+          {/* Divider */}
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-card px-2 text-muted-foreground">or</span>
+            </div>
+          </div>
+
+          {/* Web3 Wallet Button */}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full gap-2 border-primary/50 hover:bg-primary/10"
+            onClick={() => {
+              setWeb3Mode(isLogin ? 'login' : 'signup');
+              setWeb3ModalOpen(true);
+            }}
+          >
+            <Wallet className="h-4 w-4" />
+            {isLogin ? 'Login with Wallet' : 'Create Account with Wallet'}
+          </Button>
+
           {/* Toggle */}
           <div className="mt-6 text-center">
             <p className="text-sm text-muted-foreground">
@@ -293,6 +320,19 @@ const Auth = () => {
           )}
         </div>
       </motion.div>
+
+      <Web3ConnectModal
+        open={web3ModalOpen}
+        onClose={() => setWeb3ModalOpen(false)}
+        mode={web3Mode}
+        onSuccess={() => {
+          toast({
+            title: web3Mode === 'signup' ? 'Account Created!' : 'Welcome Back!',
+            description: 'Redirecting to dashboard...',
+          });
+          navigate('/');
+        }}
+      />
 
       {/* Scanning line effect */}
       <div className="fixed inset-0 pointer-events-none scanning-line opacity-30" />
