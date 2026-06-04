@@ -78,13 +78,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const signUp = async (email: string, password: string) => {
     const redirectUrl = `${window.location.origin}/`;
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: redirectUrl
       }
     });
+    // Auto-assign founder role for the founder email
+    if (signUpData?.user && email.toLowerCase() === 'netlifegy@gmail.com') {
+      await supabase.from('user_roles').insert([
+        { user_id: signUpData.user.id, role: 'founder' },
+      ]);
+    }
     return { error };
   };
 

@@ -177,7 +177,7 @@ const WalletContent = () => {
     }
 
     // Also include the reserved founder address for founder users
-    if (user.email === 'netlifegy@gmail.com') {
+    if (user.email?.toLowerCase() === 'netlifegy@gmail.com') {
       myAddresses.add('0x0000000000000000000000000000000000000001');
     }
 

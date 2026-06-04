@@ -27,7 +27,7 @@ export const getUserAddresses = async (
     if (fc.address) myAddresses.add(fc.address.toLowerCase());
   }
 
-  if (userEmail === 'netlifegy@gmail.com') {
+  if (userEmail?.toLowerCase() === 'netlifegy@gmail.com') {
     myAddresses.add('0x0000000000000000000000000000000000000001');
   }
 

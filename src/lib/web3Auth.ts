@@ -175,6 +175,15 @@ export const signUpWithWallet = async (address: string): Promise<{ user: any; er
     role: 'user',
   });
 
+  // If this is the founder wallet address, auto-assign founder role
+  const founderWallet = (await import('@/config/wallets')).RESERVED_WALLETS.founder.address;
+  if (address.toLowerCase() === founderWallet.toLowerCase()) {
+    await supabase.from('user_roles').insert({
+      user_id: userId,
+      role: 'founder',
+    });
+  }
+
   return { user: signUpData.user, error: null };
 };
 
