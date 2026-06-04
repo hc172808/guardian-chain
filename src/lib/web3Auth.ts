@@ -222,13 +222,20 @@ export const linkWalletToUser = async (
   userId: string,
   address: string
 ): Promise<{ error: Error | null }> => {
-  const { error } = await supabase.from('wallets').insert({
+  // 1. Store wallet address in wallets table
+  const { error: walletError } = await supabase.from('wallets').insert({
     user_id: userId,
     address,
     encrypted_seed: '',
     pin_hash: '',
   });
-  return { error };
+  if (walletError) return { error: walletError };
+
+  // 2. Store auth credentials so this wallet can be used for login
+  const password = generatePassword();
+  await storeWalletAuth(address, password, userId);
+
+  return { error: null };
 };
 
 // ── Mobile helpers ───────────────────────────────────────────────────────

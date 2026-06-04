@@ -978,6 +978,7 @@ const WalletContent = () => {
         open={linkWalletOpen}
         onClose={() => setLinkWalletOpen(false)}
         mode="link"
+        userId={user?.id}
         onSuccess={(address) => {
           toast({ title: 'Wallet Linked!', description: `${address.slice(0, 6)}...${address.slice(-4)} connected.` });
           fetchWallets();

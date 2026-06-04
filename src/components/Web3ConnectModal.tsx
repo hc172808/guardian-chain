@@ -8,6 +8,7 @@ import {
   signLoginMessage,
   signUpWithWallet,
   signInWithWallet,
+  linkWalletToUser,
   getWalletInstallUrl,
   getWalletDeepLink,
 } from '@/lib/web3Auth';
@@ -18,10 +19,11 @@ interface Web3ConnectModalProps {
   open: boolean;
   onClose: () => void;
   mode: 'login' | 'signup' | 'link';
+  userId?: string; // required for link mode
   onSuccess?: (address: string) => void;
 }
 
-export const Web3ConnectModal = ({ open, onClose, mode, onSuccess }: Web3ConnectModalProps) => {
+export const Web3ConnectModal = ({ open, onClose, mode, userId, onSuccess }: Web3ConnectModalProps) => {
   const { toast } = useToast();
   const [step, setStep] = useState<'select' | 'sign' | 'processing'>('select');
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
@@ -59,10 +61,24 @@ export const Web3ConnectModal = ({ open, onClose, mode, onSuccess }: Web3Connect
     setStep('processing');
     try {
       const signature = await signLoginMessage(address, provider, mode === 'signup' ? 'signup' : 'login');
-      // Use the address as the "username" for Supabase
-      const { user, error } = mode === 'signup'
-        ? await signUpWithWallet(address)
-        : await signInWithWallet(address);
+
+      let error: Error | null = null;
+
+      if (mode === 'link') {
+        // Link mode: connect wallet without logging out current user
+        if (!userId) {
+          error = new Error('Cannot link wallet: no user ID provided');
+        } else {
+          const { error: linkError } = await linkWalletToUser(userId, address);
+          error = linkError;
+        }
+      } else {
+        // Signup / Login mode
+        const { error: authError } = mode === 'signup'
+          ? await signUpWithWallet(address)
+          : await signInWithWallet(address);
+        error = authError;
+      }
 
       if (error) {
         toast({ title: 'Authentication Failed', description: error.message, variant: 'destructive' });
@@ -71,8 +87,8 @@ export const Web3ConnectModal = ({ open, onClose, mode, onSuccess }: Web3Connect
       }
 
       toast({
-        title: mode === 'signup' ? 'Account Created!' : 'Wallet Connected!',
-        description: `${address.slice(0, 6)}...${address.slice(-4)} is now ${mode === 'signup' ? 'your account' : 'linked'}.`,
+        title: mode === 'signup' ? 'Account Created!' : mode === 'link' ? 'Wallet Linked!' : 'Wallet Connected!',
+        description: `${address.slice(0, 6)}...${address.slice(-4)} is now ${mode === 'signup' ? 'your account' : mode === 'link' ? 'linked to your account' : 'your login method'}.`,
       });
 
       onSuccess?.(address);
