@@ -1,5 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
-import { getEthereumProvider, hasEthereumProvider } from '@/config/network';
+
+const isMobile = (): boolean =>
+  typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
 
 export interface WalletAuthState {
   address: string;
