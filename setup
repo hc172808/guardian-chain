@@ -1,0 +1,16 @@
+# Clone your repo
+git clone <your-repo-url> /opt/gydschain
+cd /opt/gydschain
+
+# Step 1: Set up the server (run once per machine)
+sudo bash scripts/setup-ubuntu-server.sh --domain netlifegy.com --email admin@netlifegy.com
+
+# Step 2: Set up the validator node
+sudo bash scripts/setup-validator-node.sh \
+  --wallet 0xYOUR_WALLET_ADDRESS \
+  --moniker "my-validator" \
+  --stake 10000 \
+  --commission 10
+
+# Run the test suite anytime (safe, no system changes)
+bash scripts/test-scripts.sh
