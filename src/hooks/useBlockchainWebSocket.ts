@@ -36,18 +36,18 @@ export const useBlockchainWebSocket = () => {
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
+    // Stop trying once we've given up — don't hammer a server that's not live yet.
+    if (reconnectAttempts.current >= maxReconnectAttempts) return;
+
     try {
-      // Use the WebSocket URL from config
       const wsUrl = RPC_CONFIG.wsUrl;
 
       wsRef.current = new WebSocket(wsUrl);
 
       wsRef.current.onopen = () => {
-        console.log('WebSocket connected to blockchain node');
-        setState(prev => ({ ...prev, isConnected: true, error: null }));
+        setState(prev => ({ ...prev, isConnected: true, error: null, reconnecting: false, gaveUp: false }));
         reconnectAttempts.current = 0;
 
-        // Subscribe to events
         wsRef.current?.send(JSON.stringify({
           jsonrpc: '2.0',
           method: 'subscribe',
@@ -61,7 +61,7 @@ export const useBlockchainWebSocket = () => {
           const message: WebSocketMessage = JSON.parse(event.data);
           
           switch (message.type) {
-            case 'newBlock':
+            case 'newBlock': {
               const newBlock = parseBlock(message.data);
               setState(prev => ({
                 ...prev,
@@ -72,8 +72,8 @@ export const useBlockchainWebSocket = () => {
                 ],
               }));
               break;
-
-            case 'newTransaction':
+            }
+            case 'newTransaction': {
               const newTx = parseTransaction(message.data);
               setState(prev => ({
                 ...prev,
@@ -83,56 +83,52 @@ export const useBlockchainWebSocket = () => {
                 ),
               }));
               break;
-
-            case 'pendingTransaction':
+            }
+            case 'pendingTransaction': {
               const pendingTx = parseTransaction(message.data);
               setState(prev => ({
                 ...prev,
                 pendingTransactions: [pendingTx, ...prev.pendingTransactions.slice(0, 49)],
               }));
               break;
-
+            }
             case 'status':
-              console.log('Node status:', message.data);
               break;
           }
-        } catch (err) {
-          console.error('Failed to parse WebSocket message:', err);
+        } catch {
+          // Ignore malformed messages from the node
         }
       };
 
       wsRef.current.onclose = () => {
-        console.log('WebSocket disconnected');
-        
+        setState(prev => ({ ...prev, isConnected: false }));
+
         if (reconnectAttempts.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
-          setState(prev => ({ ...prev, isConnected: false, reconnecting: true, gaveUp: false }));
+          setState(prev => ({ ...prev, reconnecting: true, gaveUp: false }));
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttempts.current++;
             connect();
           }, delay);
         } else {
+          // Silently give up — node not reachable (expected before a node is deployed)
           setState(prev => ({
             ...prev,
             isConnected: false,
             reconnecting: false,
             gaveUp: true,
-            error: 'Connection to blockchain node lost. Please refresh to reconnect.',
+            error: null,
           }));
         }
       };
 
-      wsRef.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setState(prev => ({ 
-          ...prev, 
-          error: 'Failed to connect to blockchain node',
-          isConnected: false,
-          reconnecting: false,
-        }));
+      wsRef.current.onerror = () => {
+        // onerror always fires before onclose — let onclose handle retry logic.
+        // Don't log here: it fires on every failed attempt and pollutes the console
+        // before the blockchain node is deployed.
+        setState(prev => ({ ...prev, isConnected: false }));
       };
-    } catch (err) {
-      console.error('Failed to create WebSocket:', err);
+    } catch {
       setState(prev => ({ 
         ...prev, 
         error: 'WebSocket connection failed',

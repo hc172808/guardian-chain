@@ -328,9 +328,12 @@ const Auth = () => {
         onSuccess={() => {
           toast({
             title: web3Mode === 'signup' ? 'Account Created!' : 'Welcome Back!',
-            description: 'Redirecting to dashboard...',
+            description: 'Signed in — loading dashboard...',
           });
-          navigate('/');
+          // Navigation is handled by the useEffect above which watches
+          // the user state from AuthContext. Calling navigate() here
+          // races against the Supabase onAuthStateChange callback and
+          // lands on the page before user is set, causing a redirect loop.
         }}
       />
 
