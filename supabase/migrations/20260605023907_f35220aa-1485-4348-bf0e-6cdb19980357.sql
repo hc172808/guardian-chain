@@ -1,0 +1,3 @@
+CREATE POLICY "Founders can insert token price" ON public.token_price FOR INSERT TO authenticated WITH CHECK (has_role(auth.uid(), 'founder'::app_role));
+CREATE POLICY "Founders can delete token price" ON public.token_price FOR DELETE TO authenticated USING (has_role(auth.uid(), 'founder'::app_role));
+CREATE POLICY "Admins can manage admin config" ON public.admin_config FOR ALL TO authenticated USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'founder'::app_role)) WITH CHECK (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'founder'::app_role));
