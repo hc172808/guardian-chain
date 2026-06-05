@@ -101,7 +101,7 @@ export const AdminConsole = () => {
 
         case 'status': {
           const [{ count: u }, { count: n }, { count: t }, { count: tx }] = await Promise.all([
-            supabase.from('user_profiles').select('*', { count: 'exact', head: true }),
+            supabase.from('profiles').select('*', { count: 'exact', head: true }),
             supabase.from('node_installations').select('*', { count: 'exact', head: true }),
             supabase.from('tokens').select('*', { count: 'exact', head: true }),
             supabase.from('transactions').select('*', { count: 'exact', head: true }),
@@ -119,14 +119,14 @@ export const AdminConsole = () => {
         case 'users': {
           const limit = parseInt(args[0] || '20', 10);
           const { data, error } = await supabase
-            .from('user_profiles')
-            .select('user_id, display_name, created_at')
+            .from('profiles')
+            .select('user_id, email, created_at')
             .order('created_at', { ascending: false })
             .limit(limit);
           if (error) throw error;
-          out(fmtTable((data || []).map((r) => ({
-            user_id: (r.user_id as string).slice(0, 8) + '…',
-            display_name: r.display_name || '-',
+          out(fmtTable((data || []).map((r: any) => ({
+            user_id: String(r.user_id).slice(0, 8) + '…',
+            email: r.email || '-',
             created_at: new Date(r.created_at).toISOString().slice(0, 19),
           }))));
           break;
