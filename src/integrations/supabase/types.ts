@@ -38,6 +38,48 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_security_events: {
+        Row: {
+          action: string
+          category: string
+          created_at: string
+          details: Json
+          id: string
+          model: string | null
+          severity: string
+          source: string
+          subject_address: string | null
+          subject_user_id: string | null
+          summary: string
+        }
+        Insert: {
+          action?: string
+          category: string
+          created_at?: string
+          details?: Json
+          id?: string
+          model?: string | null
+          severity: string
+          source?: string
+          subject_address?: string | null
+          subject_user_id?: string | null
+          summary: string
+        }
+        Update: {
+          action?: string
+          category?: string
+          created_at?: string
+          details?: Json
+          id?: string
+          model?: string | null
+          severity?: string
+          source?: string
+          subject_address?: string | null
+          subject_user_id?: string | null
+          summary?: string
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           action: string
@@ -74,6 +116,81 @@ export type Database = {
           target_type?: string | null
           user_email?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      authorities: {
+        Row: {
+          category: string
+          description: string
+          enabled: boolean
+          id: string
+          name: string
+          required_role: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          category: string
+          description: string
+          enabled?: boolean
+          id: string
+          name: string
+          required_role?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          category?: string
+          description?: string
+          enabled?: boolean
+          id?: string
+          name?: string
+          required_role?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      contract_templates: {
+        Row: {
+          abi: Json | null
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          parameters: Json | null
+          solidity_code: string
+          updated_at: string
+        }
+        Insert: {
+          abi?: Json | null
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          parameters?: Json | null
+          solidity_code: string
+          updated_at?: string
+        }
+        Update: {
+          abi?: Json | null
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          parameters?: Json | null
+          solidity_code?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -196,6 +313,72 @@ export type Database = {
           jail_name?: string
           log_path?: string | null
           max_retries?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      faucet_claims: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          ip_address: string | null
+          token_type: string
+          tx_hash: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          token_type: string
+          tx_hash?: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          token_type?: string
+          tx_hash?: string | null
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
+      feature_toggles: {
+        Row: {
+          admin_only: boolean
+          created_at: string
+          description: string | null
+          feature_key: string
+          feature_name: string
+          id: string
+          is_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          admin_only?: boolean
+          created_at?: string
+          description?: string | null
+          feature_key: string
+          feature_name: string
+          id?: string
+          is_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          admin_only?: boolean
+          created_at?: string
+          description?: string | null
+          feature_key?: string
+          feature_name?: string
+          id?: string
+          is_enabled?: boolean
           updated_at?: string
         }
         Relationships: []
@@ -524,6 +707,71 @@ export type Database = {
         }
         Relationships: []
       }
+      smart_contracts: {
+        Row: {
+          abi: Json | null
+          bytecode: string | null
+          constructor_args: Json | null
+          contract_address: string | null
+          created_at: string
+          deploy_tx_hash: string | null
+          deployed_at: string | null
+          description: string | null
+          id: string
+          is_verified: boolean
+          name: string
+          source_code: string
+          status: string
+          template_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          abi?: Json | null
+          bytecode?: string | null
+          constructor_args?: Json | null
+          contract_address?: string | null
+          created_at?: string
+          deploy_tx_hash?: string | null
+          deployed_at?: string | null
+          description?: string | null
+          id?: string
+          is_verified?: boolean
+          name: string
+          source_code: string
+          status?: string
+          template_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          abi?: Json | null
+          bytecode?: string | null
+          constructor_args?: Json | null
+          contract_address?: string | null
+          created_at?: string
+          deploy_tx_hash?: string | null
+          deployed_at?: string | null
+          description?: string | null
+          id?: string
+          is_verified?: boolean
+          name?: string
+          source_code?: string
+          status?: string
+          template_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "smart_contracts_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "contract_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       token_launches: {
         Row: {
           bonding_curve_steepness: number
@@ -741,10 +989,15 @@ export type Database = {
           created_at: string
           creator_id: string
           decimals: number
+          description: string | null
+          discord: string | null
+          facebook: string | null
           freeze_enabled: boolean
           freeze_holder: string | null
           freeze_locked: boolean
           gyds_liquidity: number
+          hosted_site_fee_paid: number | null
+          hosted_site_url: string | null
           id: string
           is_active: boolean
           logo_url: string | null
@@ -755,11 +1008,14 @@ export type Database = {
           mint_locked: boolean
           name: string
           symbol: string
+          telegram: string | null
           total_supply: number
+          twitter: string | null
           update_enabled: boolean
           update_holder: string | null
           update_locked: boolean
           updated_at: string
+          website: string | null
         }
         Insert: {
           address: string
@@ -767,10 +1023,15 @@ export type Database = {
           created_at?: string
           creator_id: string
           decimals?: number
+          description?: string | null
+          discord?: string | null
+          facebook?: string | null
           freeze_enabled?: boolean
           freeze_holder?: string | null
           freeze_locked?: boolean
           gyds_liquidity?: number
+          hosted_site_fee_paid?: number | null
+          hosted_site_url?: string | null
           id?: string
           is_active?: boolean
           logo_url?: string | null
@@ -781,11 +1042,14 @@ export type Database = {
           mint_locked?: boolean
           name: string
           symbol: string
+          telegram?: string | null
           total_supply: number
+          twitter?: string | null
           update_enabled?: boolean
           update_holder?: string | null
           update_locked?: boolean
           updated_at?: string
+          website?: string | null
         }
         Update: {
           address?: string
@@ -793,10 +1057,15 @@ export type Database = {
           created_at?: string
           creator_id?: string
           decimals?: number
+          description?: string | null
+          discord?: string | null
+          facebook?: string | null
           freeze_enabled?: boolean
           freeze_holder?: string | null
           freeze_locked?: boolean
           gyds_liquidity?: number
+          hosted_site_fee_paid?: number | null
+          hosted_site_url?: string | null
           id?: string
           is_active?: boolean
           logo_url?: string | null
@@ -807,11 +1076,14 @@ export type Database = {
           mint_locked?: boolean
           name?: string
           symbol?: string
+          telegram?: string | null
           total_supply?: number
+          twitter?: string | null
           update_enabled?: boolean
           update_holder?: string | null
           update_locked?: boolean
           updated_at?: string
+          website?: string | null
         }
         Relationships: []
       }
@@ -956,7 +1228,15 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      v_authority_summary: {
+        Row: {
+          category: string | null
+          disabled_count: number | null
+          enabled_count: number | null
+          total: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       has_role: {
