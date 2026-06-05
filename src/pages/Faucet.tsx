@@ -48,24 +48,15 @@ const FaucetPage = () => {
 
     setIsClaiming(type);
     try {
-      const amount = FAUCET_AMOUNTS[type];
-      const opType = type === 'gyd' ? 'mint_gyd' : 'mint_gyds';
-      const txHash = `0xfaucet-${Date.now().toString(16)}`;
-
-      const { error } = await supabase.from('token_operations').insert({
-        operation_type: opType,
-        amount,
-        wallet_address: targetAddress,
-        tx_hash: txHash,
-        status: 'confirmed',
-        created_by: user.id,
+      const { data, error } = await supabase.functions.invoke('faucet-claim', {
+        body: { token_type: type, wallet_address: targetAddress },
       });
-
       if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error || 'Claim failed');
 
       setLastClaim(prev => ({ ...prev, [type]: Date.now() }));
       toast({
-        title: `🎉 Claimed ${amount} ${type.toUpperCase()}!`,
+        title: `🎉 Claimed ${data.amount} ${type.toUpperCase()}!`,
         description: `Test tokens sent to ${targetAddress.slice(0, 8)}...`,
       });
     } catch (err: any) {
