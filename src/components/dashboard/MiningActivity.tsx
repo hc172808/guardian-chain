@@ -70,8 +70,8 @@ export const MiningActivity = () => {
               <p className="font-mono font-bold text-primary">{formatHashRate(totalHashRate)}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Status</p>
-              <p className="font-mono font-bold text-primary">Active</p>
+              <p className="text-xs text-muted-foreground">Token Holders</p>
+              <p className="font-mono font-bold text-primary">{holdersCount.toLocaleString()}</p>
             </div>
           </div>
         </div>
