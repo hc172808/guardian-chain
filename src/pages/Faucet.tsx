@@ -27,9 +27,39 @@ const FaucetPage = () => {
 
   const targetAddress = isConnected && address ? address : manualAddress;
 
+  // Load existing cooldowns from DB (server-enforced, survives refresh)
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const since = new Date(Date.now() - COOLDOWN_MS).toISOString();
+      const { data } = await supabase
+        .from('faucet_claims')
+        .select('token_type, created_at')
+        .eq('user_id', user.id)
+        .gte('created_at', since);
+      if (data) {
+        const next: Record<string, number> = {};
+        data.forEach((c) => {
+          const t = new Date(c.created_at).getTime();
+          if (!next[c.token_type] || t > next[c.token_type]) next[c.token_type] = t;
+        });
+        setLastClaim(next);
+      }
+    })();
+  }, [user]);
+
   const canClaim = (type: string) => {
     const last = lastClaim[type] || 0;
     return Date.now() - last > COOLDOWN_MS;
+  };
+
+  const nextClaimIn = (type: string) => {
+    const last = lastClaim[type] || 0;
+    const remaining = COOLDOWN_MS - (Date.now() - last);
+    if (remaining <= 0) return '';
+    const h = Math.floor(remaining / 3_600_000);
+    const m = Math.floor((remaining % 3_600_000) / 60_000);
+    return `${h}h ${m}m`;
   };
 
   const claim = async (type: 'gyd' | 'gyds') => {
