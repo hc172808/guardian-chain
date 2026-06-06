@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useToast } from '@/hooks/use-toast';
 import { motion } from 'framer-motion';
 import { Droplets, Wallet, Loader2, Clock, AlertTriangle } from 'lucide-react';
+import { MyOperationsFeed } from '@/components/wallet/MyOperationsFeed';
 
 const FAUCET_AMOUNTS = {
   gyd: 100,
@@ -27,9 +28,39 @@ const FaucetPage = () => {
 
   const targetAddress = isConnected && address ? address : manualAddress;
 
+  // Load existing cooldowns from DB (server-enforced, survives refresh)
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const since = new Date(Date.now() - COOLDOWN_MS).toISOString();
+      const { data } = await supabase
+        .from('faucet_claims')
+        .select('token_type, created_at')
+        .eq('user_id', user.id)
+        .gte('created_at', since);
+      if (data) {
+        const next: Record<string, number> = {};
+        data.forEach((c) => {
+          const t = new Date(c.created_at).getTime();
+          if (!next[c.token_type] || t > next[c.token_type]) next[c.token_type] = t;
+        });
+        setLastClaim(next);
+      }
+    })();
+  }, [user]);
+
   const canClaim = (type: string) => {
     const last = lastClaim[type] || 0;
     return Date.now() - last > COOLDOWN_MS;
+  };
+
+  const nextClaimIn = (type: string) => {
+    const last = lastClaim[type] || 0;
+    const remaining = COOLDOWN_MS - (Date.now() - last);
+    if (remaining <= 0) return '';
+    const h = Math.floor(remaining / 3_600_000);
+    const m = Math.floor((remaining % 3_600_000) / 60_000);
+    return `${h}h ${m}m`;
   };
 
   const claim = async (type: 'gyd' | 'gyds') => {
@@ -118,7 +149,7 @@ const FaucetPage = () => {
               {isClaiming === 'gyd' ? (
                 <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Claiming...</span>
               ) : !canClaim('gyd') ? (
-                <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> Cooldown</span>
+                <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> {nextClaimIn('gyd') || 'Cooldown'}</span>
               ) : (
                 'Claim GYD'
               )}
@@ -142,7 +173,7 @@ const FaucetPage = () => {
               {isClaiming === 'gyds' ? (
                 <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Claiming...</span>
               ) : !canClaim('gyds') ? (
-                <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> Cooldown</span>
+                <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> {nextClaimIn('gyds') || 'Cooldown'}</span>
               ) : (
                 'Claim GYDS'
               )}
@@ -162,6 +193,8 @@ const FaucetPage = () => {
             </div>
           </div>
         </GlassCard>
+
+        <MyOperationsFeed />
       </motion.div>
     </Layout>
   );

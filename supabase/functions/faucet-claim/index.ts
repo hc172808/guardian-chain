@@ -80,6 +80,18 @@ Deno.serve(async (req) => {
     });
     if (opErr) return json(500, { ok: false, error: `op insert: ${opErr.message}` });
 
+    // Auditable operations feed entry (best-effort, do not fail the claim)
+    await admin.from('audit_logs').insert({
+      user_id: user.id,
+      user_email: user.email ?? null,
+      action: 'faucet_claim',
+      category: 'token',
+      target_type: 'token',
+      target_id: tokenType,
+      details: { amount, wallet_address: walletAddress, tx_hash: txHash },
+      ip_address: req.headers.get('x-forwarded-for') ?? null,
+    });
+
     return json(200, { ok: true, tx_hash: txHash, amount, token_type: tokenType });
   } catch (e) {
     return json(500, { ok: false, error: e instanceof Error ? e.message : 'Unknown error' });

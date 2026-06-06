@@ -8,6 +8,7 @@ import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { logAuditEvent } from '@/lib/auditLog';
 import { GYD_TOKEN, GYDS_TOKEN } from '@/config/tokens';
 import { 
   DollarSign, 
@@ -151,6 +152,15 @@ export const StablecoinManager = () => {
       toast({ title: 'Failed to save', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'GYD configuration saved!' });
+      if (user) {
+        await logAuditEvent(user.id, user.email ?? null, {
+          action: 'stablecoin_config_save',
+          category: 'token',
+          target_type: 'token',
+          target_id: 'gyd',
+          details: configValue,
+        });
+      }
     }
 
     setSaving(false);
@@ -177,6 +187,15 @@ export const StablecoinManager = () => {
         toast({ title: 'Failed to save', description: error.message, variant: 'destructive' });
       } else {
         toast({ title: 'GYDS price updated!' });
+        if (user) {
+          await logAuditEvent(user.id, user.email ?? null, {
+            action: 'token_price_update',
+            category: 'token',
+            target_type: 'token',
+            target_id: 'gyds',
+            details: { price: gydsConfig.price },
+          });
+        }
       }
     } else {
       const { error } = await supabase
@@ -192,6 +211,19 @@ export const StablecoinManager = () => {
         toast({ title: 'Failed to create', description: error.message, variant: 'destructive' });
       } else {
         toast({ title: 'GYDS price created!' });
+        if (user) {
+          await logAuditEvent(user.id, user.email ?? null, {
+            action: 'token_price_create',
+            category: 'token',
+            target_type: 'token',
+            target_id: 'gyds',
+            details: {
+              price: gydsConfig.price,
+              total_supply: gydsConfig.totalSupply,
+              circulating_supply: gydsConfig.circulatingSupply,
+            },
+          });
+        }
       }
     }
 

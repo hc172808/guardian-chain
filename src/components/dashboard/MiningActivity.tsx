@@ -7,21 +7,32 @@ import { Activity, Cpu, MonitorPlay, Loader2, Pickaxe } from 'lucide-react';
 export const MiningActivity = () => {
   const [minerCount, setMinerCount] = useState(0);
   const [totalHashRate, setTotalHashRate] = useState(0);
+  const [holdersCount, setHoldersCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetch = async () => {
-      const { data } = await supabase
-        .from('node_installations')
-        .select('hash_rate, valid_shares, is_online')
-        .eq('is_online', true);
-      if (data) {
-        setMinerCount(data.length);
-        setTotalHashRate(data.reduce((acc, n) => acc + (Number(n.hash_rate) || 0), 0));
+    const load = async () => {
+      const [nodesRes, opsRes] = await Promise.all([
+        supabase
+          .from('node_installations')
+          .select('hash_rate, valid_shares, is_online')
+          .eq('is_online', true),
+        supabase
+          .from('token_operations')
+          .select('wallet_address')
+          .eq('status', 'confirmed'),
+      ]);
+      if (nodesRes.data) {
+        setMinerCount(nodesRes.data.length);
+        setTotalHashRate(nodesRes.data.reduce((acc, n) => acc + (Number(n.hash_rate) || 0), 0));
+      }
+      if (opsRes.data) {
+        const unique = new Set(opsRes.data.map((o) => o.wallet_address).filter(Boolean));
+        setHoldersCount(unique.size);
       }
       setLoading(false);
     };
-    fetch();
+    load();
   }, []);
 
   return (
@@ -59,8 +70,8 @@ export const MiningActivity = () => {
               <p className="font-mono font-bold text-primary">{formatHashRate(totalHashRate)}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Status</p>
-              <p className="font-mono font-bold text-primary">Active</p>
+              <p className="text-xs text-muted-foreground">Token Holders</p>
+              <p className="font-mono font-bold text-primary">{holdersCount.toLocaleString()}</p>
             </div>
           </div>
         </div>
