@@ -148,7 +148,7 @@ const FaucetPage = () => {
               {isClaiming === 'gyd' ? (
                 <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Claiming...</span>
               ) : !canClaim('gyd') ? (
-                <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> Cooldown</span>
+                <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> {'gyd' || "Cooldown"}</span>
               ) : (
                 'Claim GYD'
               )}
@@ -172,7 +172,7 @@ const FaucetPage = () => {
               {isClaiming === 'gyds' ? (
                 <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Claiming...</span>
               ) : !canClaim('gyds') ? (
-                <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> Cooldown</span>
+                <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> {'gyds' || "Cooldown"}</span>
               ) : (
                 'Claim GYDS'
               )}
