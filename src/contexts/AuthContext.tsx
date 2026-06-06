@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { signInWithWallet as libSignInWallet, signUpWithWallet as libSignUpWallet } from '@/lib/web3Auth';
+// Note: wallet login goes through Web3ConnectModal → web3Auth directly; these
+// context wrappers exist for convenience but are not called by the modal.
 
 type AppRole = 'user' | 'admin' | 'founder';
 
@@ -19,8 +21,8 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
-  signInWithWallet: (address: string) => Promise<{ error: Error | null }>;
-  signUpWithWallet: (address: string) => Promise<{ error: Error | null }>;
+  signInWithWallet: (address: string, signature: string) => Promise<{ error: Error | null }>;
+  signUpWithWallet: (address: string, signature: string) => Promise<{ error: Error | null }>;
   isFounder: boolean;
   isAdmin: boolean;
 }
@@ -124,13 +126,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return { error };
   };
 
-  const signInWithWallet = async (address: string) => {
-    const { error } = await libSignInWallet(address);
+  const signInWithWallet = async (address: string, signature: string) => {
+    const { error } = await libSignInWallet(address, signature);
     return { error };
   };
 
-  const signUpWithWallet = async (address: string) => {
-    const { error } = await libSignUpWallet(address);
+  const signUpWithWallet = async (address: string, signature: string) => {
+    const { error } = await libSignUpWallet(address, signature);
     return { error };
   };
 

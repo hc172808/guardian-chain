@@ -5,7 +5,7 @@ import { Loader2, Wallet, AlertTriangle, Smartphone, ExternalLink } from 'lucide
 import {
   detectProviders,
   connectWallet,
-  signLoginMessage,
+  signAuthMessage,
   signUpWithWallet,
   signInWithWallet,
   linkWalletToUser,
@@ -60,7 +60,9 @@ export const Web3ConnectModal = ({ open, onClose, mode, userId, onSuccess }: Web
   const handleSign = async (address: string, provider: any) => {
     setStep('processing');
     try {
-      const signature = await signLoginMessage(address, provider, mode === 'signup' ? 'signup' : 'login');
+      // One signature — used both for UX confirmation and to derive the login password.
+      // No nonce means the same wallet always produces the same credentials (no storage needed).
+      const signature = await signAuthMessage(address, provider);
 
       let error: Error | null = null;
 
@@ -73,10 +75,10 @@ export const Web3ConnectModal = ({ open, onClose, mode, userId, onSuccess }: Web
           error = linkError;
         }
       } else {
-        // Signup / Login mode
+        // Signup / Login mode — pass the signature so the password can be derived
         const { error: authError } = mode === 'signup'
-          ? await signUpWithWallet(address)
-          : await signInWithWallet(address);
+          ? await signUpWithWallet(address, signature)
+          : await signInWithWallet(address, signature);
         error = authError;
       }
 

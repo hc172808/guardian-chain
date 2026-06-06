@@ -22,35 +22,30 @@ export const detectProviders = (): WalletProvider[] => {
   if (typeof window === 'undefined') return [];
   const providers: WalletProvider[] = [];
 
-  // MetaMask
   const eth = (window as any).ethereum;
-  if (eth?.isMetaMask) {
-    providers.push({ name: 'MetaMask', isInstalled: true, getProvider: () => eth });
+  if (eth) {
+    // Multiple providers injected (e.g. MetaMask + Coinbase)
+    if (Array.isArray(eth.providers)) {
+      for (const p of eth.providers) {
+        if (p.isMetaMask)       providers.push({ name: 'MetaMask',       isInstalled: true, getProvider: () => p });
+        else if (p.isTrust)     providers.push({ name: 'Trust Wallet',   isInstalled: true, getProvider: () => p });
+        else if (p.isCoinbaseWallet) providers.push({ name: 'Coinbase Wallet', isInstalled: true, getProvider: () => p });
+        else                    providers.push({ name: 'Wallet',         isInstalled: true, getProvider: () => p });
+      }
+    } else {
+      if (eth.isMetaMask)            providers.push({ name: 'MetaMask',       isInstalled: true, getProvider: () => eth });
+      else if (eth.isTrust)          providers.push({ name: 'Trust Wallet',   isInstalled: true, getProvider: () => eth });
+      else if (eth.isCoinbaseWallet) providers.push({ name: 'Coinbase Wallet',isInstalled: true, getProvider: () => eth });
+      else                           providers.push({ name: 'Wallet',         isInstalled: true, getProvider: () => eth });
+    }
   }
 
-  // Trust Wallet
-  if (eth?.isTrust || (window as any).trustwallet) {
-    providers.push({
-      name: 'Trust Wallet',
-      isInstalled: true,
-      getProvider: () => (window as any).trustwallet || eth,
-    });
-  }
-
-  // Phantom EVM
   const phantom = (window as any).phantom?.ethereum;
-  if (phantom) {
-    providers.push({ name: 'Phantom', isInstalled: true, getProvider: () => phantom });
-  }
+  if (phantom) providers.push({ name: 'Phantom', isInstalled: true, getProvider: () => phantom });
 
-  // Coinbase
-  if (eth?.isCoinbaseWallet) {
-    providers.push({ name: 'Coinbase Wallet', isInstalled: true, getProvider: () => eth });
-  }
-
-  // Generic EIP-6963
-  if (providers.length === 0 && eth) {
-    providers.push({ name: 'Wallet', isInstalled: true, getProvider: () => eth });
+  const trust = (window as any).trustwallet;
+  if (trust && !providers.find(p => p.name === 'Trust Wallet')) {
+    providers.push({ name: 'Trust Wallet', isInstalled: true, getProvider: () => trust });
   }
 
   return providers;
@@ -65,150 +60,124 @@ export const getPrimaryProvider = (): any | null => {
 
 export const connectWallet = async (): Promise<{ address: string; provider: any }> => {
   const provider = getPrimaryProvider();
-  if (!provider) throw new Error('No wallet detected');
+  if (!provider) throw new Error(
+    isMobile()
+      ? 'No wallet found. Open this page inside your wallet app (MetaMask → Browser, Trust Wallet → DApps).'
+      : 'No wallet detected. Install MetaMask, Trust Wallet, or Phantom, then refresh this page.'
+  );
 
   const accounts = await provider.request({ method: 'eth_requestAccounts' });
-  if (!accounts || accounts.length === 0) {
-    throw new Error('Wallet returned no accounts');
+  if (!accounts || accounts.length === 0) throw new Error('Wallet returned no accounts');
+
+  return { address: accounts[0].toLowerCase(), provider };
+};
+
+// ── Auth message (fixed, deterministic) ──────────────────────────────────
+//
+// The auth password is derived from signing this fixed message.
+// No nonce → same wallet always produces the same password → no storage needed.
+// Works across devices and browsers.
+
+const authMessage = (address: string): string =>
+  `ChainCore Authentication\n\nWallet: ${address.toLowerCase()}\nApp: chaincore.gyds\n\nSigning this message proves you own this wallet and creates your login credentials.\nNo transaction will be submitted.`;
+
+// ── Deterministic password ───────────────────────────────────────────────
+
+const derivePassword = async (signature: string): Promise<string> => {
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(signature + ':chaincore'));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
-
-  const address = accounts[0].toLowerCase();
-  return { address, provider };
+  // Fallback (old browsers) — FNV-1a based
+  const s = signature + ':chaincore';
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+  return h.toString(16).padStart(8, '0').repeat(8);
 };
 
-// ── Signature ─────────────────────────────────────────────────────────────
+// ── signAuthMessage ──────────────────────────────────────────────────────
+//
+// Single wallet signature used for both UX confirmation AND password derivation.
+// Replaces the old signLoginMessage (which used a random nonce that was thrown away).
 
-export const signLoginMessage = async (
-  address: string,
-  provider: any,
-  action: 'login' | 'signup' = 'login'
-): Promise<string> => {
-  const timestamp = Date.now();
-  const nonce = Math.random().toString(36).substring(2, 15);
-  const message = `ChainCore ${action === 'signup' ? 'Account Creation' : 'Login'}\n\nAddress: ${address}\nNonce: ${nonce}\nTimestamp: ${timestamp}\n\nThis proves you control this wallet. Do not share this signature.`;
-
-  const signature = await provider.request({
-    method: 'personal_sign',
-    params: [message, address],
-  });
-
-  return signature;
+export const signAuthMessage = async (address: string, provider: any): Promise<string> => {
+  const msg = authMessage(address);
+  return await provider.request({ method: 'personal_sign', params: [msg, address] });
 };
 
-// ── Auth helpers ──────────────────────────────────────────────────────────
+// Keep old export name for anything that may still reference it
+export const signLoginMessage = signAuthMessage;
 
-const walletEmail = (address: string) => `wallet-${address.slice(2).toLowerCase()}@chaincore.local`;
+// ── Wallet email helper ──────────────────────────────────────────────────
 
-const generatePassword = () => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-  let pw = '';
-  for (let i = 0; i < 32; i++) {
-    pw += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return pw;
-};
-
-const storeWalletAuth = async (address: string, password: string, userId: string) => {
-  await supabase.from('admin_config').upsert(
-    {
-      config_key: `wallet_auth_${address.toLowerCase()}`,
-      config_value: { password, user_id: userId, created_at: Date.now() },
-      updated_by: userId,
-    },
-    { onConflict: 'config_key' }
-  );
-};
-
-const getWalletAuth = async (address: string): Promise<{ password: string; user_id: string } | null> => {
-  const { data } = await supabase
-    .from('admin_config')
-    .select('config_value')
-    .eq('config_key', `wallet_auth_${address.toLowerCase()}`)
-    .maybeSingle();
-  if (!data) return null;
-  const v = data.config_value as any;
-  return v ? { password: v.password, user_id: v.user_id } : null;
-};
+const walletEmail = (address: string) =>
+  `wallet-${address.replace(/^0x/, '').toLowerCase()}@chaincore.local`;
 
 // ── Sign up with wallet ───────────────────────────────────────────────────
 
-export const signUpWithWallet = async (address: string): Promise<{ user: any; error: Error | null }> => {
-  const email = walletEmail(address);
-  const password = generatePassword();
+export const signUpWithWallet = async (
+  address: string,
+  signature: string,
+): Promise<{ user: any; error: Error | null }> => {
+  const email    = walletEmail(address);
+  const password = await derivePassword(signature);
 
-  const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        wallet_address: address,
-        auth_method: 'wallet',
-      },
-    },
-  });
+  const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
 
   if (signUpError) {
-    // If already registered, treat as sign-in
-    if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
-      return await signInWithWallet(address);
+    if (
+      signUpError.message?.includes('already registered') ||
+      signUpError.message?.includes('already exists') ||
+      signUpError.message?.includes('User already registered')
+    ) {
+      // Account exists — sign in instead
+      return signInWithWallet(address, signature);
     }
     return { user: null, error: signUpError };
   }
 
-  const userId = signUpData?.user?.id;
-  if (!userId) {
-    return { user: null, error: new Error('Signup succeeded but no user ID returned') };
-  }
+  const user = signUpData?.user;
+  if (!user) return { user: null, error: new Error('Sign-up succeeded but no user returned') };
 
-  // Store wallet address
+  // Store wallet address in wallets table (best-effort — may already exist)
   await supabase.from('wallets').insert({
-    user_id: userId,
-    address: address,
+    user_id: user.id,
+    address,
     encrypted_seed: '',
     pin_hash: '',
-  });
+  }).then(() => {}).catch(() => {});
 
-  // Store auth credentials
-  await storeWalletAuth(address, password, userId);
+  // Assign default user role (best-effort)
+  await supabase.from('user_roles').insert({ user_id: user.id, role: 'user' })
+    .then(() => {}).catch(() => {});
 
-  // Also store in user_roles
-  await supabase.from('user_roles').insert({
-    user_id: userId,
-    role: 'user',
-  });
+  // Auto-assign founder role if this is the founder wallet
+  try {
+    const { RESERVED_WALLETS } = await import('@/config/wallets');
+    if (address.toLowerCase() === RESERVED_WALLETS.founder.address.toLowerCase()) {
+      await supabase.from('user_roles').insert({ user_id: user.id, role: 'founder' })
+        .then(() => {}).catch(() => {});
+    }
+  } catch {}
 
-  // If this is the founder wallet address, auto-assign founder role
-  const founderWallet = (await import('@/config/wallets')).RESERVED_WALLETS.founder.address;
-  if (address.toLowerCase() === founderWallet.toLowerCase()) {
-    await supabase.from('user_roles').insert({
-      user_id: userId,
-      role: 'founder',
-    });
-  }
-
-  return { user: signUpData.user, error: null };
+  return { user, error: null };
 };
 
 // ── Sign in with wallet ──────────────────────────────────────────────────
 
-export const signInWithWallet = async (address: string): Promise<{ user: any; error: Error | null }> => {
-  const email = walletEmail(address);
-  const auth = await getWalletAuth(address);
+export const signInWithWallet = async (
+  address: string,
+  signature: string,
+): Promise<{ user: any; error: Error | null }> => {
+  const email    = walletEmail(address);
+  const password = await derivePassword(signature);
 
-  if (!auth) {
-    // No stored auth — try to sign up instead
-    return await signUpWithWallet(address);
-  }
-
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password: auth.password,
-  });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    // If password wrong, maybe re-create
-    if (error.message?.includes('Invalid login')) {
-      return await signUpWithWallet(address);
+    if (error.message?.includes('Invalid login') || error.message?.includes('invalid')) {
+      // No account yet — sign up
+      return signUpWithWallet(address, signature);
     }
     return { user: null, error };
   }
@@ -220,68 +189,53 @@ export const signInWithWallet = async (address: string): Promise<{ user: any; er
 
 export const linkWalletToUser = async (
   userId: string,
-  address: string
+  address: string,
 ): Promise<{ error: Error | null }> => {
-  // 1. Store wallet address in wallets table
-  const { error: walletError } = await supabase.from('wallets').insert({
+  const { error } = await supabase.from('wallets').insert({
     user_id: userId,
     address,
     encrypted_seed: '',
     pin_hash: '',
   });
-  if (walletError) return { error: walletError };
-
-  // 2. Store auth credentials so this wallet can be used for login
-  const password = generatePassword();
-  await storeWalletAuth(address, password, userId);
-
-  return { error: null };
+  return { error: error ?? null };
 };
 
 // ── Mobile helpers ───────────────────────────────────────────────────────
 
 export const MOBILE_WALLET_LINKS = {
   metamask: {
-    ios: 'https://apps.apple.com/app/metamask/id1438144202',
-    android: 'https://play.google.com/store/apps/details?id=io.metamask',
-    deep: 'https://metamask.app.link/dapp/',
+    ios:    'https://apps.apple.com/app/metamask/id1438144202',
+    android:'https://play.google.com/store/apps/details?id=io.metamask',
+    deep:   'https://metamask.app.link/dapp/',
   },
   trust: {
-    ios: 'https://apps.apple.com/app/trust-crypto-bitcoin-wallet/id1288339409',
-    android: 'https://play.google.com/store/apps/details?id=com.wallet.crypto.trustapp',
-    deep: 'https://link.trustwallet.com/open_url?url=',
+    ios:    'https://apps.apple.com/app/trust-crypto-bitcoin-wallet/id1288339409',
+    android:'https://play.google.com/store/apps/details?id=com.wallet.crypto.trustapp',
+    deep:   'https://link.trustwallet.com/open_url?url=',
   },
   phantom: {
-    ios: 'https://apps.apple.com/app/phantom-solana-wallet/id1598432977',
-    android: 'https://play.google.com/store/apps/details?id=app.phantom',
-    deep: 'https://phantom.app/ul/',
+    ios:    'https://apps.apple.com/app/phantom-solana-wallet/id1598432977',
+    android:'https://play.google.com/store/apps/details?id=app.phantom',
+    deep:   'https://phantom.app/ul/',
   },
 };
 
 export const getWalletInstallUrl = (walletName: string): string | null => {
-  const mobile = isMobile();
+  const mobile   = isMobile();
   const platform = /android/i.test(navigator.userAgent) ? 'android' : 'ios';
-  const key = walletName.toLowerCase().includes('metamask')
-    ? 'metamask'
-    : walletName.toLowerCase().includes('trust')
-    ? 'trust'
-    : walletName.toLowerCase().includes('phantom')
-    ? 'phantom'
-    : null;
+  const key = walletName.toLowerCase().includes('metamask') ? 'metamask'
+            : walletName.toLowerCase().includes('trust')   ? 'trust'
+            : walletName.toLowerCase().includes('phantom') ? 'phantom'
+            : null;
   if (!key) return null;
-  const link = MOBILE_WALLET_LINKS[key as keyof typeof MOBILE_WALLET_LINKS];
-  return mobile ? link[platform] : null;
+  return mobile ? MOBILE_WALLET_LINKS[key][platform] : null;
 };
 
 export const getWalletDeepLink = (walletName: string, currentUrl: string): string | null => {
-  const key = walletName.toLowerCase().includes('metamask')
-    ? 'metamask'
-    : walletName.toLowerCase().includes('trust')
-    ? 'trust'
-    : walletName.toLowerCase().includes('phantom')
-    ? 'phantom'
-    : null;
+  const key = walletName.toLowerCase().includes('metamask') ? 'metamask'
+            : walletName.toLowerCase().includes('trust')   ? 'trust'
+            : walletName.toLowerCase().includes('phantom') ? 'phantom'
+            : null;
   if (!key) return null;
-  const link = MOBILE_WALLET_LINKS[key as keyof typeof MOBILE_WALLET_LINKS];
-  return `${link.deep}${encodeURIComponent(currentUrl)}`;
+  return `${MOBILE_WALLET_LINKS[key].deep}${encodeURIComponent(currentUrl)}`;
 };
