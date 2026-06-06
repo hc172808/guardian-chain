@@ -1,6 +1,6 @@
-// RLS regression test: confirms anonymous + authenticated users cannot
-// directly INSERT into faucet_claims or DELETE/INSERT token_price.
-// Only service_role (used by the edge function) or founders may write.
+// RLS regression test: confirms anonymous users cannot directly INSERT into
+// faucet_claims or INSERT/DELETE token_price. Only service_role (used by the
+// faucet-claim edge function) or founders may write.
 import "https://deno.land/std@0.224.0/dotenv/load.ts";
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -8,9 +8,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const SUPABASE_URL = Deno.env.get("VITE_SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("VITE_SUPABASE_PUBLISHABLE_KEY")!;
 
-Deno.test("anon cannot INSERT into faucet_claims", async () => {
-  const anon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { error } = await anon.from("faucet_claims").insert({
+const opts = { sanitizeResources: false, sanitizeOps: false };
+const anon = () =>
+  createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    realtime: { params: { eventsPerSecond: 1 } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+Deno.test("anon cannot INSERT into faucet_claims", opts, async () => {
+  const { error } = await anon().from("faucet_claims").insert({
     user_id: crypto.randomUUID(),
     wallet_address: "0xattacker",
     token_type: "gyd",
@@ -19,9 +25,8 @@ Deno.test("anon cannot INSERT into faucet_claims", async () => {
   assert(error, "Expected RLS error on anonymous faucet_claims insert");
 });
 
-Deno.test("anon cannot INSERT into token_price", async () => {
-  const anon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { error } = await anon.from("token_price").insert({
+Deno.test("anon cannot INSERT into token_price", opts, async () => {
+  const { error } = await anon().from("token_price").insert({
     price: 9.99,
     total_supply: 1,
     circulating_supply: 1,
@@ -30,18 +35,15 @@ Deno.test("anon cannot INSERT into token_price", async () => {
   assert(error, "Expected RLS error on anonymous token_price insert");
 });
 
-Deno.test("anon cannot DELETE from token_price", async () => {
-  const anon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { error, count } = await anon
+Deno.test("anon cannot DELETE from token_price", opts, async () => {
+  const { error, count } = await anon()
     .from("token_price")
     .delete({ count: "exact" })
     .neq("id", "00000000-0000-0000-0000-000000000000");
-  // Either an explicit RLS error, or zero rows affected — both prove the policy held.
   assert(error || count === 0, "Expected anonymous delete to be blocked");
 });
 
-Deno.test("anon CAN SELECT token_price (public read)", async () => {
-  const anon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { error } = await anon.from("token_price").select("price").limit(1);
+Deno.test("anon CAN SELECT token_price (public read)", opts, async () => {
+  const { error } = await anon().from("token_price").select("price").limit(1);
   assertEquals(error, null, "Public token_price read should succeed");
 });
