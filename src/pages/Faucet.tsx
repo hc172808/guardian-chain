@@ -10,6 +10,7 @@ import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useToast } from '@/hooks/use-toast';
 import { motion } from 'framer-motion';
 import { Droplets, Wallet, Loader2, Clock, AlertTriangle } from 'lucide-react';
+import { MyOperationsFeed } from '@/components/wallet/MyOperationsFeed';
 
 const FAUCET_AMOUNTS = {
   gyd: 100,
@@ -192,6 +193,8 @@ const FaucetPage = () => {
             </div>
           </div>
         </GlassCard>
+
+        <MyOperationsFeed />
       </motion.div>
     </Layout>
   );
