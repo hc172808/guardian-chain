@@ -225,8 +225,8 @@ systemctl --no-pager --full status gyds-bootnode.service || true
 
 # ---------------------- 11. Summary ----------------------
 NODE_ID_SHORT="$(head -c 16 "${KEY_FILE}" 2>/dev/null || echo unknown)"
-PUB_IP="$(curl -fsS https://api.ipify.org 2>/dev/null || echo "<server-ip>")"
-ADVERT="${PUBLIC_ADDR:-${PUB_IP}:${P2P_PORT}}"
+LOCAL_IP="$(hostname -I | awk '{print $1}')"
+ADVERT="${PUBLIC_ADDR:-${LOCAL_IP}:${P2P_PORT}}"
 
 cat <<EOF
 

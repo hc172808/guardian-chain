@@ -220,7 +220,7 @@ chown -R "$GYDS_USER:$GYDS_USER" "$GYDS_HOME"
 systemctl restart gyds-fullnode || true
 sleep 2
 
-PUB_IP="$(curl -fsS https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
+LOCAL_IP="$(hostname -I | awk '{print $1}')"
 
 cat <<EOF
 
@@ -234,8 +234,9 @@ cat <<EOF
   Config:        ${GYDS_HOME}/config/node.toml
   Logs:          ${LOG_DIR}/fullnode.log
 
-  RPC:           http://${PUB_IP}:${RPC_PORT}
-  P2P:           ${PUB_IP}:${P2P_PORT}
+  Local IP:      ${LOCAL_IP}
+  RPC:           http://${LOCAL_IP}:${RPC_PORT}  (Cloudflare proxies external traffic)
+  P2P:           ${LOCAL_IP}:${P2P_PORT}
   Chain ID:      ${CHAIN_ID}    Block time: ${BLOCK_TIME}s
 
   Manage:

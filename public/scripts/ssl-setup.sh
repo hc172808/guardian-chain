@@ -47,15 +47,18 @@ fi
 # ─── Step 2: DNS Record Validation ──────────────────────────
 echo -e "${GREEN}[2/5]${NC} Validating DNS records..."
 
-SERVER_IP=$(curl -sf https://api.ipify.org || curl -sf https://ifconfig.me || hostname -I | awk '{print $1}')
-echo -e "  Server public IP: ${CYAN}${SERVER_IP}${NC}"
+SERVER_IP=$(hostname -I | awk '{print $1}')
+echo -e "  Server local IP:  ${CYAN}${SERVER_IP}${NC}"
+echo -e "  ${YELLOW}ℹ  Using local IP — Cloudflare proxy handles external routing.${NC}"
+echo -e "  ${YELLOW}   DNS A records should point to Cloudflare, not this server's IP.${NC}"
 
 DNS_ERRORS=0
 DNS_WARNINGS=0
 
 validate_dns() {
     local fqdn="$1"
-    local expected_ip="$2"
+    # NOTE: expected_ip arg is kept for compat but not used — Cloudflare proxy
+    # means DNS resolves to Cloudflare IPs, not the server's local IP.
 
     # Resolve A record
     local resolved_ip
@@ -65,12 +68,8 @@ validate_dns() {
         echo -e "  ${RED}✗ ${fqdn}${NC} — No A record found"
         ((DNS_ERRORS++))
         return 1
-    elif [[ "$resolved_ip" != "$expected_ip" ]]; then
-        echo -e "  ${YELLOW}⚠ ${fqdn}${NC} → ${resolved_ip} (expected ${expected_ip})"
-        ((DNS_WARNINGS++))
-        return 0
     else
-        echo -e "  ${GREEN}✓ ${fqdn}${NC} → ${resolved_ip}"
+        echo -e "  ${GREEN}✓ ${fqdn}${NC} → ${resolved_ip} (Cloudflare proxy)"
         return 0
     fi
 }
@@ -127,12 +126,17 @@ echo "────────────────────────�
 if [[ $DNS_ERRORS -gt 0 ]]; then
     echo ""
     echo -e "${RED}❌ DNS validation failed with ${DNS_ERRORS} error(s).${NC}"
-    echo -e "${YELLOW}Fix the DNS records above before requesting certificates.${NC}"
+    echo -e "${YELLOW}Some domains have no A record at all.${NC}"
     echo ""
-    echo -e "${CYAN}Required DNS records (add at your registrar):${NC}"
-    echo -e "  A    @              → ${SERVER_IP}"
+    echo -e "${CYAN}Action required — in your Cloudflare dashboard:${NC}"
+    echo -e "  Add A records pointing to your server's local/LAN IP,"
+    echo -e "  then enable the Cloudflare proxy (orange cloud) so"
+    echo -e "  external traffic is routed through Cloudflare."
+    echo -e ""
+    echo -e "  Example records (with Cloudflare proxy ON):"
+    echo -e "  A    @              → ${SERVER_IP}   (proxied)"
     for sub in "${SUBDOMAINS[@]}"; do
-        echo -e "  A    ${sub}    → ${SERVER_IP}"
+        echo -e "  A    ${sub}    → ${SERVER_IP}   (proxied)"
     done
     echo ""
     read -p "Continue anyway? (y/n) " -n 1 -r
