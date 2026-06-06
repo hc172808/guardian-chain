@@ -27,6 +27,8 @@ RPC_BACKUP_1="https://rpc2.netlifegy.com"
 RPC_BACKUP_2="https://rpc3.netlifegy.com"
 WS_ENDPOINT="wss://ws.netlifegy.com"
 
+REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
+REPO_DIR="${REPO_DIR:-/opt/guardian-chain}"
 SRC_DIR="${SRC_DIR:-$(cd "$(dirname "$0")/../blockchain-go" 2>/dev/null && pwd || echo "")}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -43,9 +45,21 @@ echo -e "${NC}"
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
 
+# Auto-clone from guardian-chain if SRC_DIR not provided or missing
 if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR/cmd/fullnode" ]]; then
-  err "Source not found. Set SRC_DIR=/path/to/blockchain-go and re-run."
-  err "  e.g.  sudo SRC_DIR=/opt/gydschain/public/blockchain-go bash $0"
+  warn "SRC_DIR not set or cmd/fullnode not found — cloning from ${REPO_URL}..."
+  if [[ -d "$REPO_DIR/.git" ]]; then
+    log "Repo already exists at ${REPO_DIR} — pulling latest..."
+    git -C "$REPO_DIR" pull --ff-only
+  else
+    git clone --depth=1 "$REPO_URL" "$REPO_DIR"
+  fi
+  SRC_DIR="$REPO_DIR/public/blockchain-go"
+fi
+
+if [[ ! -d "$SRC_DIR/cmd/fullnode" ]]; then
+  err "Source not found at ${SRC_DIR}/cmd/fullnode"
+  err "  Override: sudo REPO_URL=https://github.com/hc172808/guardian-chain.git bash $0"
   exit 1
 fi
 

@@ -29,10 +29,13 @@ BACKUP_RPC_1="https://rpc2.netlifegy.com"
 BACKUP_RPC_2="https://rpc3.netlifegy.com"
 WS_ENDPOINT="wss://ws.netlifegy.com"
 
+REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
+REPO_DIR="${REPO_DIR:-/opt/guardian-chain}"
 SRC_DIR="${SRC_DIR:-$(cd "$(dirname "$0")/../blockchain-go" 2>/dev/null && pwd || echo "")}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
+warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 err()  { echo -e "${RED}[✗]${NC} $*" >&2; }
 
 echo -e "${CYAN}"
@@ -43,7 +46,20 @@ echo "╚═══════════════════════�
 echo -e "${NC}"
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
-[[ -n "$SRC_DIR" && -d "$SRC_DIR" ]] || { err "Set SRC_DIR=/path/to/blockchain-go"; exit 1; }
+
+# Auto-clone from guardian-chain if SRC_DIR not provided
+if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR" ]]; then
+  warn "SRC_DIR not set — cloning from ${REPO_URL}..."
+  if [[ -d "$REPO_DIR/.git" ]]; then
+    log "Repo already exists at ${REPO_DIR} — pulling latest..."
+    git -C "$REPO_DIR" pull --ff-only
+  else
+    git clone --depth=1 "$REPO_URL" "$REPO_DIR"
+  fi
+  SRC_DIR="$REPO_DIR/public/blockchain-go"
+fi
+
+[[ -d "$SRC_DIR" ]] || { err "Source not found at ${SRC_DIR}. Set REPO_URL= or SRC_DIR="; exit 1; }
 
 # ─── 1. Deps ──────────────────────────────────────────────────────
 log "[1/8] Installing apt packages..."

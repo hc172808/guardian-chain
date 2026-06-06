@@ -24,7 +24,7 @@ DOMAIN="${DOMAIN:-netlifegy.com}"
 SSL_EMAIL="${GYDS_SSL_EMAIL:-${EMAIL:-}}"
 APP_DIR="${APP_DIR:-/opt/gydschain-dashboard}"
 NODE_USER="${SUDO_USER:-$USER}"
-REPO_URL="${REPO_URL:-https://github.com/gydschain/chaincore.git}"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
 
 # Supabase credentials (required)
 VITE_SUPABASE_URL="${VITE_SUPABASE_URL:-}"

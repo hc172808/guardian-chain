@@ -34,6 +34,8 @@ BOOTSTRAP_PEERS="${BOOTSTRAP_PEERS:-}"   # comma-separated host:port list
 
 # Source location: where the Go source lives. Defaults to the repo path you
 # cloned this script from. Override with SRC_DIR=/path/to/blockchain-go
+REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
+REPO_DIR="${REPO_DIR:-/opt/guardian-chain}"
 SRC_DIR="${SRC_DIR:-$(cd "$(dirname "$0")/../blockchain-go" 2>/dev/null && pwd || echo "")}"
 
 GO_VERSION="${GO_VERSION:-1.22.0}"
@@ -84,8 +86,19 @@ chmod 750 "${BOOTNODE_DIR}"
 
 # ---------------------- 4. Build the binary ----------------------
 if [[ -z "${SRC_DIR}" || ! -d "${SRC_DIR}" ]]; then
-  err "SRC_DIR not set or not found. Set SRC_DIR=/path/to/blockchain-go and re-run."
-  err "Example: SRC_DIR=/opt/gydschain/public/blockchain-go sudo -E bash $0"
+  warn "SRC_DIR not set — cloning from ${REPO_URL}..."
+  if [[ -d "${REPO_DIR}/.git" ]]; then
+    log "Repo already exists at ${REPO_DIR} — pulling latest..."
+    git -C "${REPO_DIR}" pull --ff-only
+  else
+    git clone --depth=1 "${REPO_URL}" "${REPO_DIR}"
+  fi
+  SRC_DIR="${REPO_DIR}/public/blockchain-go"
+fi
+
+if [[ ! -d "${SRC_DIR}" ]]; then
+  err "Source not found at ${SRC_DIR}"
+  err "Example: SRC_DIR=/opt/guardian-chain/public/blockchain-go sudo -E bash $0"
   exit 1
 fi
 
