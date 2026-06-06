@@ -13,11 +13,12 @@ import { toast } from '@/hooks/use-toast';
 import { logAuditEvent } from '@/lib/auditLog';
 import {
   Shield, Plus, Trash2, Edit, Loader2, CheckCircle, XCircle,
-  Ban, Lock, Unlock, Globe, AlertTriangle, Wifi, Gauge, Zap, Timer,
+  Ban, Lock, Unlock, Globe, AlertTriangle, Wifi, Gauge, Zap, Timer, Brain,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
+import { AIFirewallTab } from './AIFirewallTab';
 
 // ─── Types ───
 interface FirewallRule {
@@ -924,20 +925,54 @@ const DDoSProtectionTab = () => {
 
 // ─── Main Export ───
 export const FirewallManager = () => {
+  const { isAdmin, isFounder } = useAuth();
+  const canControl = isAdmin || isFounder;
+
   return (
     <GlassCard className="p-6">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-3 rounded-lg bg-primary/10">
-          <Shield className="h-6 w-6 text-primary" />
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-3 rounded-lg bg-primary/10">
+            <Shield className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">Firewall & Security</h3>
+            <p className="text-sm text-muted-foreground">
+              AI threat detection · UFW · Fail2Ban · Rate limiting · DDoS · IP control
+            </p>
+          </div>
         </div>
-        <div>
-          <h3 className="font-semibold text-lg">Firewall & Security</h3>
-          <p className="text-sm text-muted-foreground">UFW, Fail2Ban, rate limiting, DDoS protection & IP access control</p>
+        <div className="flex items-center gap-2">
+          {isFounder && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 font-medium">
+              Founder
+            </span>
+          )}
+          {isAdmin && !isFounder && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30 font-medium">
+              Admin
+            </span>
+          )}
+          {!canControl && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-muted/40 text-muted-foreground border border-border font-medium">
+              View only
+            </span>
+          )}
         </div>
       </div>
 
-      <Tabs defaultValue="ufw" className="space-y-4">
-        <TabsList className="grid grid-cols-5 w-full">
+      {!canControl && (
+        <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-2">
+          <Lock className="h-4 w-4 shrink-0" />
+          Read-only access. Admin or Founder role required to create, modify, or delete firewall rules.
+        </div>
+      )}
+
+      <Tabs defaultValue="ai" className="space-y-4">
+        <TabsList className="grid grid-cols-6 w-full">
+          <TabsTrigger value="ai" className="gap-1 text-xs">
+            <Brain className="h-3 w-3" /> AI
+          </TabsTrigger>
           <TabsTrigger value="ufw" className="gap-1 text-xs">
             <Shield className="h-3 w-3" /> UFW
           </TabsTrigger>
@@ -955,6 +990,7 @@ export const FirewallManager = () => {
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="ai"><AIFirewallTab /></TabsContent>
         <TabsContent value="ufw"><UfwRulesTab /></TabsContent>
         <TabsContent value="fail2ban"><Fail2BanTab /></TabsContent>
         <TabsContent value="ratelimit"><RateLimitTab /></TabsContent>

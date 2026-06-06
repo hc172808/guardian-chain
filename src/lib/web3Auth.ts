@@ -133,6 +133,23 @@ export const signUpWithWallet = async (
       // Account exists — sign in instead
       return signInWithWallet(address, signature);
     }
+    // Email rate limit: Supabase free tier limits to 4 confirmation emails/hour.
+    // Solution: disable email confirmation in Supabase Dashboard →
+    //   Authentication → Settings → "Enable email confirmations" → OFF
+    if (
+      signUpError.message?.toLowerCase().includes('rate limit') ||
+      signUpError.message?.toLowerCase().includes('email rate') ||
+      (signUpError as any)?.code === 'over_email_send_rate_limit'
+    ) {
+      return {
+        user: null,
+        error: new Error(
+          'Email rate limit reached (Supabase free tier: 4/hour). ' +
+          'Fix: In Supabase Dashboard → Authentication → Settings → ' +
+          'disable "Enable email confirmations". Then try again.'
+        ),
+      };
+    }
     return { user: null, error: signUpError };
   }
 
