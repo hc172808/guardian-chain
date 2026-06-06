@@ -1,0 +1,137 @@
+version: "3.9"
+
+# GYDSchain Devnet — local development stack
+# Chain ID: 13372 (0x343C)  |  Fast 5-second blocks  |  Pre-funded accounts
+#
+# Usage:
+#   docker compose -f docker-compose.devnet.yml up -d
+#   docker compose -f docker-compose.devnet.yml logs -f
+#   docker compose -f docker-compose.devnet.yml down -v   # wipe chain state
+
+name: gydschain-devnet
+
+x-common: &common
+  restart: unless-stopped
+  networks: [devnet]
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "3" }
+
+# ─── Build args (override with --build-arg or .env) ──────────────────────────
+x-build-args: &build-args
+  GYDS_VERSION: "2.1.0"
+  GO_VERSION: "1.22.5"
+  CHAIN_ID: "13372"
+  REPO_URL: "https://github.com/hc172808/guardian-chain.git"
+
+services:
+
+  # ── Dev Node — fast-block single-node chain ─────────────────────────────
+  devnode:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile.devnode
+      args: *build-args
+    image: gydschain/devnode:local
+    container_name: gyds-devnode
+    environment:
+      CHAIN_ID: "13372"
+      CHAIN_NAME: "GYDS Devnet"
+      BLOCK_TIME: "5"
+      RPC_PORT: "8548"
+      WS_PORT: "8549"
+      P2P_PORT: "30305"
+      API_PORT: "3032"
+      MINING_THREADS: "2"
+      LOG_LEVEL: "info"
+      GYDS_HOME: "/var/lib/gydschain-devnet"
+      # Pre-fund these addresses with 1,000,000 dGYDS at genesis
+      PREFUND_ADDR_1: "${PREFUND_ADDR_1:-0x0000000000000000000000000000000000000001}"
+      PREFUND_ADDR_2: "${PREFUND_ADDR_2:-0x0000000000000000000000000000000000000002}"
+      PREFUND_ADDR_3: "${PREFUND_ADDR_3:-}"
+    ports:
+      - "8548:8548"       # JSON-RPC HTTP
+      - "8549:8549"       # JSON-RPC WebSocket
+      - "30305:30305"     # P2P TCP
+      - "30305:30305/udp" # P2P UDP
+      - "3032:3032"       # Lite API
+    volumes:
+      - devnet-data:/var/lib/gydschain-devnet/data
+      - devnet-logs:/var/lib/gydschain-devnet/logs
+      - devnet-keys:/var/lib/gydschain-devnet/keys
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8548", "-d",
+             "{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[],\"id\":1}",
+             "-H", "Content-Type: application/json"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Dev Explorer — block explorer pointed at devnet ─────────────────────
+  devexplorer:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: public/docker/Dockerfile.explorer
+      args:
+        VITE_RPC_URL: "http://localhost:8548"
+        VITE_WS_URL: "ws://localhost:8549"
+        VITE_CHAIN_ID: "13372"
+        VITE_NETWORK_NAME: "GYDS Devnet"
+        VITE_SUPABASE_URL: "${VITE_SUPABASE_URL:-}"
+        VITE_SUPABASE_PUBLISHABLE_KEY: "${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
+    image: gydschain/devexplorer:local
+    container_name: gyds-devexplorer
+    ports:
+      - "4000:80"       # Dashboard → http://localhost:4000
+    depends_on:
+      devnode:
+        condition: service_healthy
+
+  # ── Faucet — drip dGYDS to test wallets ────────────────────────────────
+  faucet:
+    <<: *common
+    image: alpine:3.19
+    container_name: gyds-devfaucet
+    depends_on:
+      devnode:
+        condition: service_healthy
+    environment:
+      RPC_URL: "http://devnode:8548"
+      FAUCET_AMOUNT: "100"       # dGYDS per request
+      FAUCET_COOLDOWN: "60"      # seconds between same-address requests
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache curl jq netcat-openbsd
+        echo "Faucet ready — POST {\"address\":\"0x...\"} to http://localhost:8080/faucet"
+        while true; do
+          nc -l -p 8080 -e /bin/sh -c '
+            read line; addr=$(echo "$line" | grep -oP "\"address\":\"\\K[^\"]+")
+            if [ -n "$addr" ]; then
+              curl -s -X POST http://devnode:8548 \
+                -H "Content-Type: application/json" \
+                -d "{\"jsonrpc\":\"2.0\",\"method\":\"gyds_faucetDrip\",\"params\":[\"$addr\",\"${FAUCET_AMOUNT}\"],\"id\":1}"
+            fi
+          ' || true
+        done
+    ports:
+      - "8080:8080"   # Faucet HTTP endpoint
+
+networks:
+  devnet:
+    name: gydschain-devnet
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  devnet-data:
+    name: gyds-devnet-data
+  devnet-logs:
+    name: gyds-devnet-logs
+  devnet-keys:
+    name: gyds-devnet-keys

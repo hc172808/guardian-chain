@@ -32,7 +32,7 @@ export function NodeInstaller() {
     bootnode: false, fullnode: false, litenode: false, rpc: false, termux: false,
   });
   const [srcDir, setSrcDir]               = useState('/opt/gydschain/public/blockchain-go');
-  const [repoUrl, setRepoUrl]             = useState('https://github.com/gydschain/gydschain-complete.git');
+  const [repoUrl, setRepoUrl]             = useState('https://github.com/hc172808/guardian-chain.git');
   const [autoClone, setAutoClone]         = useState(true);
   const [enableMining, setEnableMining]   = useState(true);
   const [blockTime, setBlockTime]         = useState('120');

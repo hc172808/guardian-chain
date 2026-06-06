@@ -88,7 +88,7 @@ export const BurnMintManager = () => {
     setProcessing(true);
 
     const gydsToMint = calculateMintFromBurn(usdtNum);
-    const txHash = '0x' + Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
+    const txHash = '0x' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '').slice(0, 32);
 
     // Create burn operation
     const { error: burnError } = await supabase.from('token_operations').insert({
@@ -158,7 +158,7 @@ export const BurnMintManager = () => {
 
     setProcessing(true);
 
-    const txHash = '0x' + Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
+    const txHash = '0x' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '').slice(0, 32);
 
     const { error } = await supabase.from('token_operations').insert({
       operation_type: 'mint',

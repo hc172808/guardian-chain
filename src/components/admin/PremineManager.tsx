@@ -34,7 +34,7 @@ export const PremineManager = () => {
     setLoading(true);
 
     const operations = [];
-    const txHash = () => '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const txHash = () => '0x' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '').slice(0, 32);
 
     if (gyds > 0) {
       operations.push({

@@ -43,7 +43,7 @@ chmod 700 "$GYDS_HOME"
 # ─── 3. Source ─────────────────────────────────────────────────────
 if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR/cmd/litenode" ]]; then
   echo "🌐 [3/6] Source not provided locally — cloning from GitHub..."
-  REPO_URL="${REPO_URL:-https://github.com/gydschain/gydschain-complete.git}"
+  REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
   REPO_DIR="$GYDS_HOME/repo"
   if [[ -d "$REPO_DIR/.git" ]]; then
     ( cd "$REPO_DIR" && git pull --ff-only )

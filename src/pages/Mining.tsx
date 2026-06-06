@@ -25,7 +25,7 @@ const MiningContent = () => {
   const [selectedAlgorithm, setSelectedAlgorithm] = useState<MiningAlgorithm>('randomx');
   const [isMining, setIsMining] = useState(false);
   const [miningClient, setMiningClient] = useState<MiningEngine | null>(null);
-  const [activeTab, setActiveTab] = useState('mine');
+  const [activeTab, setActiveTab] = useState('pools');
 
   const handleVpnConnection = useCallback((connected: boolean) => {
     setIsVpnConnected(connected);
@@ -133,7 +133,7 @@ const MiningContent = () => {
         <WireGuardStatus onConnected={handleVpnConnection} />
 
         {/* Main Tabs */}
-        <Tabs value={activeTab === 'mine' ? 'pools' : activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="pools" className="flex items-center gap-2">
               <Users className="w-4 h-4" />

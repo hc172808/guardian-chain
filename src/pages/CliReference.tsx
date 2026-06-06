@@ -328,7 +328,7 @@ const CliReferencePage = () => {
             {[
               { label: 'Ubuntu / Debian', cmd: 'curl -sSL https://netlifegy.com/install-cli.sh | bash' },
               { label: 'macOS (Homebrew)', cmd: 'brew install gydschain/tap/gydsctl' },
-              { label: 'Go Install', cmd: 'go install github.com/gydschain/gydschain-complete/devtools/cli@latest' },
+              { label: 'Go Install', cmd: 'go install github.com/hc172808/guardian-chain/devtools/cli@latest' },
             ].map((item, i) => (
               <div key={i} className="space-y-2">
                 <p className="text-sm font-medium">{item.label}</p>

@@ -1,0 +1,142 @@
+# ── GYDSchain Dev Node ───────────────────────────────────────────────────────
+# Chain ID: 13372 (0x343C) | Fast 5-second blocks | For development only
+# Source: https://github.com/hc172808/guardian-chain.git
+
+ARG GO_VERSION=1.22.5
+ARG GYDS_VERSION=2.1.0
+ARG CHAIN_ID=13372
+ARG REPO_URL=https://github.com/hc172808/guardian-chain.git
+
+# ── Stage 1: Builder ─────────────────────────────────────────────────────────
+FROM golang:${GO_VERSION}-alpine AS builder
+
+ARG GYDS_VERSION
+ARG CHAIN_ID
+ARG REPO_URL
+
+RUN apk add --no-cache git ca-certificates build-base openssl-dev
+
+WORKDIR /src
+
+# Clone or use local context
+RUN git clone --depth=1 "${REPO_URL}" /src/guardian-chain 2>/dev/null || true
+WORKDIR /src/guardian-chain
+
+# Try cmd/devnode first, fall back to cmd/litenode
+RUN set -e; \
+    if [ -d "public/blockchain-go/cmd/devnode" ]; then \
+      CMD_DIR="public/blockchain-go/cmd/devnode"; \
+      BIN_NAME="gyds-devnode"; \
+    else \
+      CMD_DIR="public/blockchain-go/cmd/litenode"; \
+      BIN_NAME="gyds-devnode"; \
+    fi; \
+    cd "$CMD_DIR" && \
+    CGO_ENABLED=0 GOOS=linux go build \
+      -ldflags "-s -w \
+        -X main.Version=${GYDS_VERSION} \
+        -X main.ChainID=${CHAIN_ID} \
+        -X main.NetworkName=devnet \
+        -X main.BuildTime=$(date -u +%Y%m%dT%H%M%SZ)" \
+      -o /usr/local/bin/gyds-devnode .
+
+# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
+FROM alpine:3.19
+
+ARG CHAIN_ID
+ARG GYDS_VERSION
+
+RUN apk add --no-cache ca-certificates curl jq tzdata && \
+    addgroup -S gyds && adduser -S -G gyds gyds
+
+COPY --from=builder /usr/local/bin/gyds-devnode /usr/local/bin/gyds-devnode
+
+# Healthcheck helper script
+RUN printf '#!/bin/sh\ncurl -sf http://127.0.0.1:${RPC_PORT:-8548} \\\n  -H "Content-Type: application/json" \\\n  -d '"'"'{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'"'"' >/dev/null\n' \
+    > /usr/local/bin/healthcheck.sh && \
+    chmod +x /usr/local/bin/healthcheck.sh
+
+# Entrypoint — generates config on first run, then starts node
+COPY --chown=gyds:gyds <<'ENTRYPOINT' /entrypoint.sh
+#!/bin/sh
+set -e
+
+GYDS_HOME="${GYDS_HOME:-/var/lib/gydschain-devnet}"
+mkdir -p "${GYDS_HOME}/data" "${GYDS_HOME}/logs" "${GYDS_HOME}/keys" "${GYDS_HOME}/config"
+
+CONFIG="${GYDS_HOME}/config/devnet.toml"
+if [ ! -f "$CONFIG" ]; then
+  cat > "$CONFIG" <<TOML
+[chain]
+id         = ${CHAIN_ID:-13372}
+name       = "${CHAIN_NAME:-GYDS Devnet}"
+block_time = ${BLOCK_TIME:-5}
+network    = "devnet"
+
+[node]
+data_dir   = "${GYDS_HOME}/data"
+log_dir    = "${GYDS_HOME}/logs"
+key_dir    = "${GYDS_HOME}/keys"
+log_level  = "${LOG_LEVEL:-info}"
+
+[rpc]
+enabled    = true
+host       = "0.0.0.0"
+port       = ${RPC_PORT:-8548}
+ws_port    = ${WS_PORT:-8549}
+cors       = ["*"]
+
+[p2p]
+port       = ${P2P_PORT:-30305}
+max_peers  = 8
+bootnodes  = []
+
+[mining]
+enabled    = true
+threads    = ${MINING_THREADS:-2}
+algorithm  = "randomx"
+
+[api]
+enabled    = true
+port       = ${API_PORT:-3032}
+
+[devnet]
+instant_finality = true
+prefund = [
+  "${PREFUND_ADDR_1:-0x0000000000000000000000000000000000000001}",
+  "${PREFUND_ADDR_2:-0x0000000000000000000000000000000000000002}"
+]
+TOML
+fi
+
+exec gyds-devnode \
+  --config "$CONFIG" \
+  --chain-id "${CHAIN_ID:-13372}" \
+  --datadir "${GYDS_HOME}/data" \
+  --rpc-port "${RPC_PORT:-8548}" \
+  --ws-port  "${WS_PORT:-8549}" \
+  --p2p-port "${P2P_PORT:-30305}" \
+  --log-dir  "${GYDS_HOME}/logs" \
+  "$@"
+ENTRYPOINT
+
+RUN chmod +x /entrypoint.sh
+
+USER gyds
+WORKDIR /var/lib/gydschain-devnet
+
+EXPOSE 8548 8549 30305 3032
+
+VOLUME ["/var/lib/gydschain-devnet/data", "/var/lib/gydschain-devnet/logs", "/var/lib/gydschain-devnet/keys"]
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+  CMD /usr/local/bin/healthcheck.sh
+
+LABEL org.opencontainers.image.title="GYDSchain Dev Node" \
+      org.opencontainers.image.description="Local devnet node for GYDSchain development" \
+      org.opencontainers.image.source="https://github.com/hc172808/guardian-chain" \
+      org.opencontainers.image.version="${GYDS_VERSION}" \
+      gyds.chain.id="${CHAIN_ID}" \
+      gyds.network="devnet"
+
+ENTRYPOINT ["/entrypoint.sh"]

@@ -72,7 +72,7 @@
 ## 2. Repository Structure
 
 ```
-gydschain-complete/
+guardian-chain/
 ├── core/                    # Blockchain node (gydsd)
 │   ├── cmd/                 # Entry points
 │   │   ├── gydsd/           # Main node binary
@@ -147,8 +147,8 @@ gydschain-complete/
 
 ```bash
 # Clone the repository
-git clone https://github.com/gydschain/gydschain-complete.git
-cd gydschain-complete
+git clone https://github.com/hc172808/guardian-chain.git
+cd guardian-chain
 
 # Deploy everything
 docker-compose up -d
@@ -351,8 +351,8 @@ gydsctl node sync-status
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/gydschain/gydschain-complete.git
-cd gydschain-complete
+git clone https://github.com/hc172808/guardian-chain.git
+cd guardian-chain
 
 # 2. Deploy node
 bash scripts/install-node.sh validator
