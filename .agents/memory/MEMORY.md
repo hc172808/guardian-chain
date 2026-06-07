@@ -1,0 +1,4 @@
+- [Bridge networks](bridge-networks.md) — EXTERNAL_CHAINS in CrossChainBridge.tsx now has 25 networks; non-EVM chains skip wallet verification and use a trust-based flow.
+- [New pages wired](new-pages.md) — 9 new pages added (governance, nft, analytics, community, developer, leaderboard, multisig, identity, rwa); Sidebar has collapsible Core/Ecosystem/Resources sections.
+- [DeFi tabs](defi-tabs.md) — DeFi page has 8 tabs: swap, pools, stake, orderbook, vaults, bridge, launchpad, portfolio. DeFiBottomNav updated to match.
+- [Notification bell](notification-bell.md) — NotificationBell lives in Layout.tsx header (desktop only); reads from demo data; wired to user_notifications table pattern.

@@ -30,6 +30,15 @@ import NodeTerminalPage from "./pages/NodeTerminal";
 import FaucetPage from "./pages/Faucet";
 import ProfilePage from "./pages/Profile";
 import MaintenancePage from "./pages/Maintenance";
+import GovernancePage from "./pages/Governance";
+import NFTPage from "./pages/NFT";
+import AnalyticsPage from "./pages/Analytics";
+import CommunityPage from "./pages/Community";
+import DeveloperPage from "./pages/Developer";
+import LeaderboardPage from "./pages/Leaderboard";
+import MultisigPage from "./pages/Multisig";
+import IdentityPage from "./pages/Identity";
+import RWAPage from "./pages/RWA";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 
 const queryClient = new QueryClient();
@@ -40,16 +49,15 @@ const AppContent = () => {
   const { enabled, message, loading: maintLoading } = useMaintenance();
   const location = useLocation();
 
-  // Don't block /auth or /reset-password — admins/founders need to be able to log in
   const isAuthRoute = location.pathname === '/auth' || location.pathname === '/reset-password';
 
-  // Show maintenance page to logged-out visitors (admins/founders bypass it)
   if (!maintLoading && !loading && enabled && !user && !isAuthRoute) {
     return <MaintenancePage message={message} />;
   }
 
   return (
     <Routes>
+      {/* Core */}
       <Route path="/" element={<Index />} />
       <Route path="/explorer" element={<Explorer />} />
       <Route path="/explorer/token/:address" element={<TokenDetail />} />
@@ -66,6 +74,17 @@ const AppContent = () => {
       <Route path="/watchlist" element={<WatchlistPage />} />
       <Route path="/node-terminal" element={<NodeTerminalPage />} />
       <Route path="/faucet" element={<FaucetPage />} />
+      {/* Ecosystem */}
+      <Route path="/governance" element={<GovernancePage />} />
+      <Route path="/nft" element={<NFTPage />} />
+      <Route path="/analytics" element={<AnalyticsPage />} />
+      <Route path="/community" element={<CommunityPage />} />
+      <Route path="/developer" element={<DeveloperPage />} />
+      <Route path="/leaderboard" element={<LeaderboardPage />} />
+      <Route path="/multisig" element={<MultisigPage />} />
+      <Route path="/identity" element={<IdentityPage />} />
+      <Route path="/rwa" element={<RWAPage />} />
+      {/* Auth & Admin */}
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/docs" element={<DocsPage />} />
       <Route path="/auth" element={<Auth />} />

@@ -1,57 +1,115 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { 
-  Blocks, 
-  Users, 
-  Pickaxe, 
-  FileText, 
-  Shield, 
-  BarChart3,
-  ChevronRight,
-  Cpu,
-  Download,
-  Menu,
-  X,
-  LogIn,
-  LogOut,
-  User,
-  Wallet,
-  Settings,
-  BookOpen,
-  ArrowRightLeft,
-  Network,
-  Coins,
-  Star,
-  Terminal,
-  Droplets,
-  UserCircle
+  Blocks, Users, Pickaxe, FileText, Shield, BarChart3,
+  ChevronRight, Cpu, Download, Menu, X, LogIn, LogOut,
+  User, Wallet, Settings, BookOpen, ArrowRightLeft, Network,
+  Coins, Star, Terminal, Droplets, UserCircle, Vote, Image,
+  TrendingUp, MessageSquare, Code2, Trophy, ShieldCheck,
+  Fingerprint, Building2, Lock, ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 
-const navItems = [
-  { to: '/', icon: BarChart3, label: 'Dashboard' },
-  { to: '/explorer', icon: Blocks, label: 'Block Explorer' },
-  { to: '/validators', icon: Users, label: 'Validators' },
-  { to: '/mining', icon: Pickaxe, label: 'Mining' },
-  { to: '/tokens', icon: Coins, label: 'Token Factory' },
-  { to: '/defi', icon: ArrowRightLeft, label: 'DeFi' },
-  { to: '/wallet', icon: Wallet, label: 'Wallet' },
-  { to: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
-  { to: '/watchlist', icon: Star, label: 'Watchlist' },
-  { to: '/network', icon: Network, label: 'Network Config' },
-  { to: '/node-terminal', icon: Terminal, label: 'Node Terminal' },
-  { to: '/faucet', icon: Droplets, label: 'Testnet Faucet' },
-  { to: '/protocol', icon: FileText, label: 'Protocol Docs' },
-  { to: '/security', icon: Shield, label: 'Security Audit' },
-  { to: '/download', icon: Download, label: 'Download' },
+interface NavItem { to: string; icon: any; label: string; }
+
+const coreNav: NavItem[] = [
+  { to: '/',           icon: BarChart3,      label: 'Dashboard' },
+  { to: '/explorer',   icon: Blocks,         label: 'Block Explorer' },
+  { to: '/validators', icon: Users,          label: 'Validators' },
+  { to: '/mining',     icon: Pickaxe,        label: 'Mining' },
+  { to: '/tokens',     icon: Coins,          label: 'Token Factory' },
+  { to: '/defi',       icon: ArrowRightLeft, label: 'DeFi' },
+  { to: '/wallet',     icon: Wallet,         label: 'Wallet' },
+  { to: '/transactions',icon: ArrowRightLeft,label: 'Transactions' },
+  { to: '/watchlist',  icon: Star,           label: 'Watchlist' },
+  { to: '/network',    icon: Network,        label: 'Network Config' },
+  { to: '/node-terminal',icon: Terminal,     label: 'Node Terminal' },
+  { to: '/faucet',     icon: Droplets,       label: 'Testnet Faucet' },
 ];
 
-const adminNavItems = [
-  { to: '/admin', icon: Settings, label: 'Admin Dashboard' },
-  { to: '/docs', icon: BookOpen, label: 'Edit Documentation' },
+const ecosystemNav: NavItem[] = [
+  { to: '/governance', icon: Vote,          label: 'Governance' },
+  { to: '/nft',        icon: Image,         label: 'NFT Marketplace' },
+  { to: '/analytics',  icon: TrendingUp,    label: 'Analytics' },
+  { to: '/community',  icon: MessageSquare, label: 'Community' },
+  { to: '/leaderboard',icon: Trophy,        label: 'Leaderboard' },
+  { to: '/multisig',   icon: ShieldCheck,   label: 'Multi-Sig' },
+  { to: '/identity',   icon: Fingerprint,   label: 'Identity' },
+  { to: '/rwa',        icon: Building2,     label: 'Real-World Assets' },
+  { to: '/developer',  icon: Code2,         label: 'Developer Portal' },
 ];
+
+const infoNav: NavItem[] = [
+  { to: '/protocol', icon: FileText,  label: 'Protocol Docs' },
+  { to: '/security', icon: Shield,    label: 'Security Audit' },
+  { to: '/download', icon: Download,  label: 'Download' },
+];
+
+const adminNavItems: NavItem[] = [
+  { to: '/admin', icon: Settings,  label: 'Admin Dashboard' },
+  { to: '/docs',  icon: BookOpen,  label: 'Edit Documentation' },
+];
+
+const NavSection = ({
+  label,
+  items,
+  isMobile,
+  onToggle,
+  defaultOpen = true,
+}: {
+  label: string;
+  items: NavItem[];
+  isMobile: boolean;
+  onToggle: () => void;
+  defaultOpen?: boolean;
+}) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+      >
+        {label}
+        <ChevronDown className={cn('w-3 h-3 transition-transform', open ? 'rotate-180' : '')} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden space-y-0.5"
+          >
+            {items.map((item, index) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={isMobile ? onToggle : undefined}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all group',
+                    isActive
+                      ? 'bg-sidebar-accent text-sidebar-primary border border-sidebar-primary/20'
+                      : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-primary'
+                  )
+                }
+              >
+                <item.icon className="w-4 h-4 shrink-0" />
+                <span className="flex-1 truncate">{item.label}</span>
+                <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </NavLink>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 interface SidebarProps {
   isOpen: boolean;
@@ -64,11 +122,7 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
   const navigate = useNavigate();
 
   const handleAuthClick = async () => {
-    if (user) {
-      await signOut();
-    } else {
-      navigate('/auth');
-    }
+    if (user) { await signOut(); } else { navigate('/auth'); }
     if (isMobile) onToggle();
   };
 
@@ -80,9 +134,7 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
       <AnimatePresence>
         {isMobile && isOpen && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
             onClick={onToggle}
           />
@@ -103,112 +155,80 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
             )}
           >
             {/* Logo */}
-            <div className="p-6 border-b border-sidebar-border flex items-center justify-between">
+            <div className="p-5 border-b border-sidebar-border flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-gradient-primary">
-                  <Cpu className="w-6 h-6 text-primary-foreground" />
+                  <Cpu className="w-5 h-5 text-primary-foreground" />
                 </div>
                 <div>
-                  <h1 className="font-bold text-lg text-gradient-primary">ChainCore</h1>
+                  <h1 className="font-bold text-base text-gradient-primary">ChainCore</h1>
                   <p className="text-xs text-muted-foreground">PoS + PoW Hybrid</p>
                 </div>
               </div>
               {isMobile && (
-                <button
-                  onClick={onToggle}
-                  className="p-2 rounded-lg hover:bg-sidebar-accent transition-colors"
-                >
+                <button onClick={onToggle} className="p-2 rounded-lg hover:bg-sidebar-accent transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               )}
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-              {navItems.map((item, index) => (
-                <motion.div
-                  key={item.to}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                >
-                  <NavLink
-                    to={item.to}
-                    onClick={isMobile ? onToggle : undefined}
-                    className={({ isActive }) =>
-                      cn(
-                        'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all group',
-                        isActive
-                          ? 'bg-sidebar-accent text-sidebar-primary border border-sidebar-primary/20'
-                          : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-primary'
-                      )
-                    }
-                  >
-                    <item.icon className="w-5 h-5" />
-                    <span className="flex-1">{item.label}</span>
-                    <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </NavLink>
-                </motion.div>
-              ))}
+            <nav className="flex-1 py-3 px-2 space-y-3 overflow-y-auto">
+              <NavSection label="Core" items={coreNav} isMobile={isMobile} onToggle={onToggle} defaultOpen={true} />
+              <NavSection label="Ecosystem" items={ecosystemNav} isMobile={isMobile} onToggle={onToggle} defaultOpen={false} />
+              <NavSection label="Resources" items={infoNav} isMobile={isMobile} onToggle={onToggle} defaultOpen={false} />
 
               {/* Admin section */}
               {(isFounder || isAdmin) && (
-                <>
-                  <div className="pt-4 pb-2">
-                    <p className="text-xs font-medium text-muted-foreground px-4 uppercase">Admin</p>
-                  </div>
-                  {adminNavItems.map((item, index) => (
-                    <motion.div
-                      key={item.to}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: (navItems.length + index) * 0.05 }}
-                    >
+                <div>
+                  <p className="px-4 py-1.5 text-xs font-semibold text-amber-400/70 uppercase tracking-wider">Admin</p>
+                  <div className="space-y-0.5">
+                    {adminNavItems.map(item => (
                       <NavLink
+                        key={item.to}
                         to={item.to}
                         onClick={isMobile ? onToggle : undefined}
                         className={({ isActive }) =>
                           cn(
-                            'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all group',
+                            'flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all group',
                             isActive
                               ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/20'
                               : 'text-sidebar-foreground hover:bg-yellow-500/10 hover:text-yellow-500'
                           )
                         }
                       >
-                        <item.icon className="w-5 h-5" />
-                        <span className="flex-1">{item.label}</span>
-                        <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <item.icon className="w-4 h-4 shrink-0" />
+                        <span className="flex-1 truncate">{item.label}</span>
                       </NavLink>
-                    </motion.div>
-                  ))}
-                </>
+                    ))}
+                  </div>
+                </div>
               )}
             </nav>
 
-            {/* Network Status */}
-            <div className="p-4 border-t border-sidebar-border">
-              <div className="glass-card p-4 rounded-lg mb-3">
-                <div className="flex items-center gap-2 mb-2">
+            {/* Bottom panel */}
+            <div className="p-4 border-t border-sidebar-border shrink-0 space-y-2">
+              {/* Network status */}
+              <div className="glass-card p-3 rounded-lg">
+                <div className="flex items-center gap-2 mb-1">
                   <div className="w-2 h-2 rounded-full bg-neon-emerald animate-pulse" />
                   <span className="text-xs font-medium text-neon-emerald">Network Active</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Block Height: <span className="font-mono text-foreground">1,234,567</span>
-                </p>
-                <p className="text-xs text-muted-foreground">
+                  Block: <span className="font-mono text-foreground">1,234,567</span>
+                  <span className="mx-2 text-border">·</span>
                   TPS: <span className="font-mono text-foreground">1,250</span>
                 </p>
               </div>
 
-              {/* Profile link for logged-in users */}
+              {/* Profile link */}
               {user && (
                 <NavLink
                   to="/profile"
                   onClick={isMobile ? onToggle : undefined}
                   className={({ isActive }) =>
                     cn(
-                      'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all mb-2',
+                      'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all',
                       isActive
                         ? 'bg-sidebar-accent text-sidebar-primary border border-sidebar-primary/20'
                         : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-primary'
@@ -220,31 +240,16 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
                 </NavLink>
               )}
 
-              {/* Auth Button */}
-              <Button
-                variant={user ? 'outline' : 'default'}
-                className="w-full gap-2"
-                onClick={handleAuthClick}
-              >
-                {user ? (
-                  <>
-                    <LogOut className="h-4 w-4" />
-                    Sign Out
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="h-4 w-4" />
-                    Sign In
-                  </>
-                )}
+              <Button variant={user ? 'outline' : 'default'} className="w-full gap-2" onClick={handleAuthClick}>
+                {user ? <><LogOut className="h-4 w-4" /> Sign Out</> : <><LogIn className="h-4 w-4" /> Sign In</>}
               </Button>
-              
+
               {user && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                  <User className="h-3 w-3" />
+                <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+                  <User className="h-3 w-3 shrink-0" />
                   <span className="truncate">{user.email}</span>
                   {displayRole && (
-                    <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] uppercase">
+                    <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] uppercase shrink-0">
                       {displayRole}
                     </span>
                   )}
@@ -258,7 +263,6 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
   );
 };
 
-// Mobile menu button component
 export const MobileMenuButton = ({ onClick }: { onClick: () => void }) => (
   <button
     onClick={onClick}

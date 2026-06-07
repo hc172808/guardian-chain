@@ -7,6 +7,8 @@ import { StakeInterface } from '@/components/defi/StakeInterface';
 import { Launchpad } from '@/components/defi/Launchpad';
 import { PositionDetails } from '@/components/defi/PositionDetails';
 import { CrossChainBridge } from '@/components/defi/CrossChainBridge';
+import { OrderBook } from '@/components/defi/OrderBook';
+import { YieldVaults } from '@/components/defi/YieldVaults';
 import { DeFiBottomNav } from '@/components/defi/DeFiBottomNav';
 import { WalletConnectBar } from '@/components/defi/WalletConnectBar';
 
@@ -21,22 +23,16 @@ const DeFiPage = () => {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'pools':
-        return <PoolsList />;
-      case 'portfolio':
-        return <Portfolio onViewPosition={handleViewPosition} />;
-      case 'swap':
-        return <SwapInterface />;
-      case 'stake':
-        return <StakeInterface />;
-      case 'launchpad':
-        return <Launchpad />;
-      case 'bridge':
-        return <CrossChainBridge />;
-      case 'position':
-        return <PositionDetails position={selectedPosition} />;
-      default:
-        return <SwapInterface />;
+      case 'pools':     return <PoolsList />;
+      case 'portfolio': return <Portfolio onViewPosition={handleViewPosition} />;
+      case 'swap':      return <SwapInterface />;
+      case 'stake':     return <StakeInterface />;
+      case 'launchpad': return <Launchpad />;
+      case 'bridge':    return <CrossChainBridge />;
+      case 'orderbook': return <OrderBook />;
+      case 'vaults':    return <YieldVaults />;
+      case 'position':  return <PositionDetails position={selectedPosition} />;
+      default:          return <SwapInterface />;
     }
   };
 

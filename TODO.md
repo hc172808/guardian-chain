@@ -40,16 +40,16 @@
 ---
 
 ## PHASE 2 — DeFi Expansion
-- [ ] **Cross-chain bridge** — `bridge_transactions` table ready; wire up UI
-  - [ ] Ethereum ↔ GYDSchain bridge (lock/mint model)
-  - [ ] BNB Chain bridge
+- [x] **Cross-chain bridge** — expanded to 25 networks (EVM + non-EVM) with live prices
+  - [x] Ethereum ↔ GYDSchain bridge (lock/mint model)
+  - [x] BNB Chain bridge + Avalanche, Arbitrum, Optimism, Base, zkSync, Linea, Fantom, Cronos
   - [ ] Bridge fee config in `admin_config`
   - [ ] Bridge status tracker in wallet page
-- [ ] **Advanced order book DEX** (`order_book` table ready)
+- [x] **Advanced order book DEX** — limit, market, stop-limit orders + live book UI
   - [ ] Limit orders, stop-limit, TWAP, iceberg orders
   - [ ] Order book depth chart
   - [ ] Trade history (public feed)
-- [ ] **Yield vaults** (`yield_vaults` + `vault_positions` tables ready)
+- [x] **Yield vaults** — 5 vaults with auto-compound, lock-up, APY calculator
   - [ ] Auto-compound strategy for GYDS staking
   - [ ] LP fee compounding vault
   - [ ] Vault APY calculator
@@ -67,12 +67,12 @@
 ## PHASE 3 — Governance & DAO
 > Tables: `governance_proposals`, `governance_votes`, `governance_treasury`
 
-- [ ] **Governance UI page** (`/governance`)
+- [x] **Governance UI page** (`/governance`) — proposals, voting, treasury
   - [ ] Proposal list (active, passed, rejected)
   - [ ] Proposal detail + voting interface
   - [ ] Create proposal form (parameter / treasury / upgrade / grant)
   - [ ] Voting power calculator (based on staked GYDS)
-- [ ] **DAO treasury panel**
+- [x] **DAO treasury panel** — multi-coin balance + spending history
   - [ ] Treasury balance display (multi-coin)
   - [ ] Spending history
   - [ ] Grant application flow
@@ -86,11 +86,11 @@
 ## PHASE 4 — NFT Ecosystem
 > Tables: `nft_collections`, `nft_tokens`, `nft_marketplace_listings`
 
-- [ ] **NFT marketplace page** (`/nft`)
+- [x] **NFT marketplace page** (`/nft`) — browse, buy, mint, collections
   - [ ] Collection browser with floor price / volume
   - [ ] Individual NFT detail + buy/offer/list
   - [ ] Rarity ranking display
-- [ ] **NFT minting interface**
+- [x] **NFT minting interface** — single mint + metadata editor
   - [ ] Single mint + batch mint
   - [ ] Metadata editor (name, description, attributes)
   - [ ] IPFS upload integration (Pinata or NFT.Storage)
@@ -106,7 +106,7 @@
 ## PHASE 5 — Identity & Reputation
 > Tables: `kyc_records`, `on_chain_identities`, `did_documents`, `sanctions_list`
 
-- [ ] **On-chain identity page** (`/identity`)
+- [x] **On-chain identity page** (`/identity`) — DID, claims, KYC tiers, reputation
   - [ ] DID creation (`did:gyds:<address>`)
   - [ ] Verified claims display
   - [ ] Reputation score visualization
@@ -123,7 +123,7 @@
 ## PHASE 6 — Real-World Assets (RWA)
 > Tables: `rwa_assets`, `rwa_holdings`
 
-- [ ] **RWA marketplace page** (`/rwa`)
+- [x] **RWA marketplace page** (`/rwa`) — real estate, bonds, commodities, invoices
   - [ ] Asset listing (real estate, bonds, commodities, invoices)
   - [ ] Investment interface (buy/sell RWA tokens)
   - [ ] Yield tracking dashboard
@@ -137,12 +137,12 @@
 ## PHASE 7 — Social & Community
 > Tables: `community_posts`, `community_comments`, `referrals`
 
-- [ ] **Community forum** (`/community`)
+- [x] **Community forum** (`/community`) — posts, votes, comments, referral system
   - [ ] Post list with filter by type (discussion, showcase, idea)
   - [ ] Rich text post editor
   - [ ] Nested comments
   - [ ] Upvote/downvote system
-- [ ] **Referral system**
+- [x] **Referral system** — unique codes, reward tracking
   - [ ] Unique referral code per user
   - [ ] Referral tracking dashboard
   - [ ] Reward distribution (% of referred user's fees)
@@ -155,7 +155,7 @@
 ## PHASE 8 — Advanced Analytics
 > Tables: `price_history`, `network_snapshots`, `node_metrics_history`
 
-- [ ] **Analytics dashboard** (`/analytics`)
+- [x] **Analytics dashboard** (`/analytics`) — OHLCV charts, heatmap, network metrics
   - [ ] GYDS price OHLCV chart (candlestick + volume bars)
   - [ ] Network health time-series (nodes, stake, TPS)
   - [ ] On-chain activity heatmap (daily/hourly tx count)
@@ -172,7 +172,7 @@
 ## PHASE 9 — Multi-Sig & Enterprise
 > Tables: `multisig_wallets`, `multisig_transactions`, `multisig_signatures`
 
-- [ ] **Multi-sig wallet page** (`/multisig`)
+- [x] **Multi-sig wallet page** (`/multisig`) — create, propose, approve, execute
   - [ ] Create 2-of-3, 3-of-5, etc. wallets
   - [ ] Propose transaction interface
   - [ ] Co-signer approval/rejection UI
@@ -186,7 +186,7 @@
 ## PHASE 10 — Notifications & Webhooks
 > Tables: `user_notifications`, `webhook_endpoints`, `webhook_deliveries`
 
-- [ ] In-app notification bell + notification drawer
+- [x] In-app notification bell + notification drawer (desktop header)
 - [ ] Email notifications (Supabase SMTP or Resend)
 - [ ] Push notifications (Web Push API)
 - [ ] **Webhook management page** in user settings
@@ -201,7 +201,7 @@
 ## PHASE 11 — API Access & Developer Portal
 > Tables: `api_keys`, `api_usage_logs`
 
-- [ ] **Developer portal page** (`/developer`)
+- [x] **Developer portal page** (`/developer`) — API keys, docs, playground, SDKs
   - [ ] API key generation (with scope selection)
   - [ ] Usage dashboard (requests/day, rate limit status)
   - [ ] Interactive API documentation (Swagger/OpenAPI)
@@ -255,7 +255,7 @@
   - [ ] First token created → 300 XP
   - [ ] 30-day streak → 500 XP
 - [ ] Achievement badges UI (profile page)
-- [ ] Global leaderboard (`/leaderboard`)
+- [x] Global leaderboard (`/leaderboard`) — XP, traders, validators, miners
   - [ ] Top validators, top traders, top node operators
   - [ ] Monthly reset leaderboard
 - [ ] Seasonal campaigns (bonus XP events)
