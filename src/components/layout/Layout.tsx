@@ -1,7 +1,9 @@
 import { ReactNode, useState, useEffect } from 'react';
 import { Sidebar, MobileMenuButton } from './Sidebar';
 import { MobileBottomNav } from './MobileBottomNav';
+import { UpgradeBanner } from './UpgradeBanner';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useMaintenance } from '@/hooks/useMaintenance';
 
 interface LayoutProps {
   children: ReactNode;
@@ -10,6 +12,7 @@ interface LayoutProps {
 export const Layout = ({ children }: LayoutProps) => {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { enabled, message } = useMaintenance();
 
   // Close sidebar when switching to desktop
   useEffect(() => {
@@ -30,6 +33,7 @@ export const Layout = ({ children }: LayoutProps) => {
       )}
       
       <main className={isMobile ? "min-h-screen pb-20" : "ml-64 min-h-screen"}>
+        {enabled && <UpgradeBanner message={message} />}
         <div className={isMobile ? "p-4 pt-16" : "p-8"}>
           {children}
         </div>

@@ -23,7 +23,8 @@ import {
   Coins,
   Star,
   Terminal,
-  Droplets
+  Droplets,
+  UserCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -199,6 +200,25 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
                   TPS: <span className="font-mono text-foreground">1,250</span>
                 </p>
               </div>
+
+              {/* Profile link for logged-in users */}
+              {user && (
+                <NavLink
+                  to="/profile"
+                  onClick={isMobile ? onToggle : undefined}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all mb-2',
+                      isActive
+                        ? 'bg-sidebar-accent text-sidebar-primary border border-sidebar-primary/20'
+                        : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-primary'
+                    )
+                  }
+                >
+                  <UserCircle className="w-4 h-4" />
+                  My Profile
+                </NavLink>
+              )}
 
               {/* Auth Button */}
               <Button

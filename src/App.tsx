@@ -2,8 +2,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useMaintenance } from "@/hooks/useMaintenance";
 import Index from "./pages/Index";
 import Explorer from "./pages/Explorer";
 import Validators from "./pages/Validators";
@@ -26,12 +28,26 @@ import ResetPassword from "./pages/ResetPassword";
 import WatchlistPage from "./pages/Watchlist";
 import NodeTerminalPage from "./pages/NodeTerminal";
 import FaucetPage from "./pages/Faucet";
+import ProfilePage from "./pages/Profile";
+import MaintenancePage from "./pages/Maintenance";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 
 const queryClient = new QueryClient();
 
 const AppContent = () => {
   useTransactionNotifications();
+  const { user, loading, isAdmin, isFounder } = useAuth();
+  const { enabled, message, loading: maintLoading } = useMaintenance();
+  const location = useLocation();
+
+  // Don't block /auth or /reset-password — admins/founders need to be able to log in
+  const isAuthRoute = location.pathname === '/auth' || location.pathname === '/reset-password';
+
+  // Show maintenance page to logged-out visitors (admins/founders bypass it)
+  if (!maintLoading && !loading && enabled && !user && !isAuthRoute) {
+    return <MaintenancePage message={message} />;
+  }
+
   return (
     <Routes>
       <Route path="/" element={<Index />} />
@@ -55,6 +71,7 @@ const AppContent = () => {
       <Route path="/auth" element={<Auth />} />
       <Route path="/cli" element={<CliReferencePage />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/profile" element={<ProfilePage />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

@@ -44,7 +44,8 @@ import { AdminConsole } from '@/components/admin/AdminConsole';
 import { ComponentVisibility } from '@/components/admin/ComponentVisibility';
 import { MainnetPromotion } from '@/components/admin/MainnetPromotion';
 import { MiningPoolAdmin } from '@/components/admin/MiningPoolAdmin';
-import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe } from 'lucide-react';
+import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe, Wrench } from 'lucide-react';
+import { MaintenanceManager } from '@/components/admin/MaintenanceManager';
 
 interface UserProfile {
   id: string;
@@ -254,7 +255,15 @@ const AdminContent = () => {
             <Pickaxe className="h-4 w-4" />
             <span className="hidden md:inline">Pools</span>
           </TabsTrigger>
+          <TabsTrigger value="maintenance" className="gap-2" data-testid="tab-maintenance">
+            <Wrench className="h-4 w-4" />
+            <span className="hidden md:inline">Maintenance</span>
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="maintenance">
+          <MaintenanceManager />
+        </TabsContent>
 
         <TabsContent value="pools">
           <MiningPoolAdmin />
