@@ -72,11 +72,13 @@ const AppContent = () => {
   }
 
   return (
-    <Routes>
+    <>
+      <MobileRedirect />
+      <Routes>
       {/* Mobile hub — full-screen mobile app experience */}
       <Route path="/mobile" element={<MobilePage />} />
       {/* Core */}
-      <Route path="/" element={<><MobileRedirect /><Index /></>} />
+      <Route path="/" element={<Index />} />
       <Route path="/explorer" element={<Explorer />} />
       <Route path="/explorer/token/:address" element={<TokenDetail />} />
       <Route path="/validators" element={<Validators />} />
@@ -111,6 +113,7 @@ const AppContent = () => {
       <Route path="/profile" element={<ProfilePage />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </>
   );
 };
 
