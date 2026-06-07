@@ -44,8 +44,10 @@ import { AdminConsole } from '@/components/admin/AdminConsole';
 import { ComponentVisibility } from '@/components/admin/ComponentVisibility';
 import { MainnetPromotion } from '@/components/admin/MainnetPromotion';
 import { MiningPoolAdmin } from '@/components/admin/MiningPoolAdmin';
-import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe, Wrench } from 'lucide-react';
+import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe, Wrench, Link2, Search as SearchIcon } from 'lucide-react';
 import { MaintenanceManager } from '@/components/admin/MaintenanceManager';
+import { BridgeNetworkManager } from '@/components/admin/BridgeNetworkManager';
+import { ExplorerConfig } from '@/components/admin/ExplorerConfig';
 
 interface UserProfile {
   id: string;
@@ -259,10 +261,26 @@ const AdminContent = () => {
             <Wrench className="h-4 w-4" />
             <span className="hidden md:inline">Maintenance</span>
           </TabsTrigger>
+          <TabsTrigger value="bridge-networks" className="gap-2" data-testid="tab-bridge-networks">
+            <Link2 className="h-4 w-4" />
+            <span className="hidden md:inline">Bridge</span>
+          </TabsTrigger>
+          <TabsTrigger value="explorer-config" className="gap-2" data-testid="tab-explorer-config">
+            <SearchIcon className="h-4 w-4" />
+            <span className="hidden md:inline">Explorer</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="maintenance">
           <MaintenanceManager />
+        </TabsContent>
+
+        <TabsContent value="bridge-networks">
+          <BridgeNetworkManager />
+        </TabsContent>
+
+        <TabsContent value="explorer-config">
+          <ExplorerConfig />
         </TabsContent>
 
         <TabsContent value="pools">

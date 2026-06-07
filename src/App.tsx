@@ -2,7 +2,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMaintenance } from "@/hooks/useMaintenance";
@@ -39,9 +40,24 @@ import LeaderboardPage from "./pages/Leaderboard";
 import MultisigPage from "./pages/Multisig";
 import IdentityPage from "./pages/Identity";
 import RWAPage from "./pages/RWA";
+import MobilePage from "./pages/Mobile";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 
 const queryClient = new QueryClient();
+
+const MobileRedirect = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    const EXEMPT = ['/mobile', '/auth', '/reset-password'];
+    const isMobileDevice = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)
+      || window.innerWidth < 768;
+    if (isMobileDevice && !EXEMPT.includes(location.pathname)) {
+      navigate('/mobile', { replace: true });
+    }
+  }, [location.pathname, navigate]);
+  return null;
+};
 
 const AppContent = () => {
   useTransactionNotifications();
@@ -57,8 +73,10 @@ const AppContent = () => {
 
   return (
     <Routes>
+      {/* Mobile hub — full-screen mobile app experience */}
+      <Route path="/mobile" element={<MobilePage />} />
       {/* Core */}
-      <Route path="/" element={<Index />} />
+      <Route path="/" element={<><MobileRedirect /><Index /></>} />
       <Route path="/explorer" element={<Explorer />} />
       <Route path="/explorer/token/:address" element={<TokenDetail />} />
       <Route path="/validators" element={<Validators />} />
