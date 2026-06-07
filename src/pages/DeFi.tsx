@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SwapInterface } from '@/components/defi/SwapInterface';
 import { PoolsList } from '@/components/defi/PoolsList';
@@ -13,8 +14,17 @@ import { DeFiBottomNav } from '@/components/defi/DeFiBottomNav';
 import { WalletConnectBar } from '@/components/defi/WalletConnectBar';
 
 const DeFiPage = () => {
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState('swap');
   const [selectedPosition, setSelectedPosition] = useState<any>(null);
+
+  useEffect(() => {
+    const tab = (location.state as any)?.tab;
+    const validTabs = ['swap','pools','stake','orderbook','vaults','bridge','launchpad','portfolio'];
+    if (tab && validTabs.includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [location.state]);
 
   const handleViewPosition = (position: any) => {
     setSelectedPosition(position);

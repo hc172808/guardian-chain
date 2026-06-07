@@ -50,6 +50,8 @@ const MobileRedirect = () => {
   const location = useLocation();
   useEffect(() => {
     const EXEMPT = ['/mobile', '/auth', '/reset-password'];
+    const preferDesktop = sessionStorage.getItem('preferDesktop') === 'true';
+    if (preferDesktop) return;
     const isMobileDevice = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)
       || window.innerWidth < 768;
     if (isMobileDevice && !EXEMPT.includes(location.pathname)) {
