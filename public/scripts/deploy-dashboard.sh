@@ -103,13 +103,41 @@ log "  Database: ${PG_DBNAME} (user: ${PG_USER})"
 
 # ─── Step 3: Clone / update repo ─────────────────────────────────────────────
 log "[3/8] Deploying from $REPO_URL → $APP_DIR..."
-if [[ -d "$APP_DIR/.git" ]]; then
-    git -C "$APP_DIR" pull --ff-only
+
+# Configure git to use GITHUB_TOKEN if set (enables auto push/pull)
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    REPO_WITH_TOKEN="${REPO_URL/https:\/\//https:\/\/${GITHUB_TOKEN}@}"
+    log "  GitHub token detected — auth'd push/pull enabled"
 else
-    rm -rf "$APP_DIR"
-    git clone "$REPO_URL" "$APP_DIR"
+    REPO_WITH_TOKEN="$REPO_URL"
+    warn "  GITHUB_TOKEN not set — pushes will require manual auth"
+fi
+
+if [[ -d "$APP_DIR/.git" ]]; then
+    log "  Pulling latest from GitHub..."
+    git -C "$APP_DIR" config pull.rebase false
+    git -C "$APP_DIR" fetch origin
+    git -C "$APP_DIR" pull --ff-only origin "$(git -C "$APP_DIR" branch --show-current)" || \
+        git -C "$APP_DIR" pull --ff-only origin main || \
+        git -C "$APP_DIR" pull --ff-only origin master
+    log "  Pull complete: $(git -C "$APP_DIR" log -1 --format='%h %s' 2>/dev/null)"
+else
+    log "  Cloning repository..."
+    git clone "$REPO_WITH_TOKEN" "$APP_DIR"
+    # Store remote URL with token for future pulls
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        git -C "$APP_DIR" remote set-url origin "$REPO_WITH_TOKEN"
+    fi
 fi
 chown -R "$NODE_USER:$NODE_USER" "$APP_DIR"
+
+# Install git auto-pull cron (pulls every 5 minutes if GITHUB_TOKEN is set)
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    CRON_CMD="*/5 * * * * root cd $APP_DIR && git pull --ff-only origin \$(git branch --show-current) >> /var/log/gydschain/git-pull.log 2>&1"
+    echo "$CRON_CMD" > /etc/cron.d/gydschain-git-pull
+    chmod 644 /etc/cron.d/gydschain-git-pull
+    log "  Auto-pull cron installed: every 5 minutes"
+fi
 
 # ─── Step 4: Build frontend + backend ────────────────────────────────────────
 log "[4/8] Installing dependencies and building..."
@@ -279,6 +307,10 @@ echo -e "  pm2 restart gydschain-api"
 echo ""
 echo -e "${CYAN}Update in future:${NC}"
 echo -e "  cd $APP_DIR && git pull && npm run build && pm2 restart gydschain-api && nginx -s reload"
+echo ""
+echo -e "${CYAN}Git auto-pull:${NC}"
+echo -e "  GITHUB_TOKEN=your_token bash deploy-dashboard.sh  ← enables 5-min auto-pull cron"
+echo -e "  tail -f /var/log/gydschain/git-pull.log           ← watch auto-pull logs"
 echo ""
 echo -e "${YELLOW}⚠  Save these credentials:${NC}"
 echo -e "  DB Password: $PG_PASS"

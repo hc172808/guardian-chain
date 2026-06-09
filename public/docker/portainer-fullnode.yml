@@ -1,0 +1,122 @@
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  GydsChain FULL NODE — Portainer Stack (Founder Edition)                 ║
+# ║  Chain ID: 13370 | github.com/hc172808/fullnode                          ║
+# ║                                                                           ║
+# ║  SETUP:                                                                   ║
+# ║  1. Create /etc/gydschain/wg-fullnode.conf (WireGuard client config)     ║
+# ║  2. Fill in env vars in Portainer → Stack → Environment                  ║
+# ║  3. Deploy — P2P port 30303 must be open on your firewall                ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+version: "3.8"
+
+# ── Environment variables ────────────────────────────────────────────────────
+# WG_CONF_PATH         WireGuard client config on host      default: /etc/gydschain/wg-fullnode.conf
+# GYDS_RPC_PORT        RPC port                             default: 8546
+# GYDS_P2P_PORT        P2P port (opened on firewall)        default: 30303
+# GYDS_CHAIN_ID        Chain ID                             default: 13370
+# GYDS_BLOCK_TIME      Block time in seconds                default: 120
+# GYDS_STORAGE_GB      Data storage in GB                   default: 100
+# GYDS_ENABLE_MINING   Enable PoS mining (true/false)       default: true
+# NODE_REPO            Git repo for fullnode source         default: https://github.com/hc172808/fullnode.git
+
+services:
+
+  wireguard:
+    image: linuxserver/wireguard:latest
+    container_name: gyds-fullnode-vpn
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "UTC"
+    volumes:
+      - "${WG_CONF_PATH:-/etc/gydschain/wg-fullnode.conf}:/config/wg_confs/wg0.conf:ro"
+      - /lib/modules:/lib/modules:ro
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    ports:
+      - "${GYDS_P2P_PORT:-30303}:30303/tcp"
+      - "${GYDS_P2P_PORT:-30303}:30303/udp"
+      - "${GYDS_RPC_PORT:-8546}:8546"
+    restart: unless-stopped
+    networks:
+      - gyds-fullnode-net
+    healthcheck:
+      test: ["CMD", "wg", "show", "wg0"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  fullnode:
+    image: alpine:3.19
+    container_name: gyds-fullnode
+    network_mode: "service:wireguard"
+    depends_on:
+      wireguard:
+        condition: service_healthy
+    environment:
+      NODE_REPO:           "${NODE_REPO:-https://github.com/hc172808/fullnode.git}"
+      GYDS_RPC_PORT:       "${GYDS_RPC_PORT:-8546}"
+      GYDS_P2P_PORT:       "${GYDS_P2P_PORT:-30303}"
+      GYDS_CHAIN_ID:       "${GYDS_CHAIN_ID:-13370}"
+      GYDS_BLOCK_TIME:     "${GYDS_BLOCK_TIME:-120}"
+      GYDS_STORAGE_GB:     "${GYDS_STORAGE_GB:-100}"
+      GYDS_ENABLE_MINING:  "${GYDS_ENABLE_MINING:-true}"
+    volumes:
+      - fullnode-data:/var/lib/gydschain
+      - fullnode-keys:/var/lib/gydschain/keys
+      - fullnode-logs:/var/log/gydschain
+    restart: unless-stopped
+    command: >
+      sh -c "
+        apk add --no-cache git go bash curl jq openssl ca-certificates &&
+        mkdir -p /opt && cd /opt &&
+        if [ -d fullnode/.git ]; then
+          git -C fullnode pull --ff-only;
+        else
+          git clone --depth=1 \"$$NODE_REPO\" fullnode;
+        fi &&
+        cd fullnode &&
+        go mod download &&
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-fullnode . 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-fullnode ./cmd/fullnode &&
+        mkdir -p /var/lib/gydschain/keys /var/lib/gydschain/data /var/log/gydschain &&
+        [ -f /var/lib/gydschain/keys/validator.key ] || openssl rand -hex 32 > /var/lib/gydschain/keys/validator.key &&
+        chmod 600 /var/lib/gydschain/keys/validator.key &&
+        echo '[+] Starting gyds-fullnode...' &&
+        exec gyds-fullnode
+          --founder
+          --datadir=/var/lib/gydschain/data
+          --rpcport=$$GYDS_RPC_PORT
+          --p2pport=$$GYDS_P2P_PORT
+          --chain-id=$$GYDS_CHAIN_ID
+          --validator-key=/var/lib/gydschain/keys/validator.key
+          $$([ \"$$GYDS_ENABLE_MINING\" = 'true' ] && echo '--mining')
+          2>&1 | tee /var/log/gydschain/fullnode.log
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  fullnode-data:
+    driver: local
+  fullnode-keys:
+    driver: local
+  fullnode-logs:
+    driver: local
+
+networks:
+  gyds-fullnode-net:
+    driver: bridge

@@ -60,6 +60,18 @@ export function registerRoutes(app: Express) {
     res.json(profile);
   });
 
+  // PUT is an alias for PATCH (Profile.tsx uses PUT)
+  app.put("/api/profile", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    // Username uniqueness check
+    if (req.body.username) {
+      const existing = await storage.getUserProfileByUsername(req.body.username.trim().toLowerCase());
+      if (existing && (existing as any).userId !== user.id) return res.status(409).json({ error: "Username taken" });
+    }
+    const profile = await storage.updateUserProfile(user.id, req.body);
+    res.json(profile);
+  });
+
   // ── Wallets ────────────────────────────────────────────────────────────────
   app.get("/api/wallets", requireAuth, async (req, res) => {
     const user = req.user as any;
@@ -190,14 +202,30 @@ export function registerRoutes(app: Express) {
     res.json(data);
   });
 
-  app.get("/api/tokens/:id", async (req, res) => {
-    const row = await storage.getToken(req.params.id);
-    if (!row) return res.status(404).json({ error: "Not found" });
-    res.json(row);
+  // Search tokens by name/symbol/address (must come before /:id)
+  app.get("/api/tokens/search", async (req, res) => {
+    const q = String(req.query.q ?? "").trim();
+    if (!q) return res.json([]);
+    const all = await storage.getActiveTokens();
+    const ql = q.toLowerCase();
+    const matches = (all as any[]).filter((t: any) =>
+      t.name?.toLowerCase().includes(ql) ||
+      t.symbol?.toLowerCase().includes(ql) ||
+      t.address?.toLowerCase() === ql
+    );
+    const limit = Number(req.query.limit ?? 10);
+    const result = matches.slice(0, limit);
+    res.json(limit === 1 ? (result[0] ?? null) : result);
   });
 
   app.get("/api/tokens/by-address/:address", async (req, res) => {
     const row = await storage.getTokenByAddress(req.params.address);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    res.json(row);
+  });
+
+  app.get("/api/tokens/:id", async (req, res) => {
+    const row = await storage.getToken(req.params.id);
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json(row);
   });
@@ -210,6 +238,23 @@ export function registerRoutes(app: Express) {
 
   app.patch("/api/tokens/:id", requireAuth, async (req, res) => {
     const row = await storage.updateToken(req.params.id, req.body);
+    res.json(row);
+  });
+
+  // Renounce a token authority (mint/freeze/update) — permanent, creator only
+  app.post("/api/tokens/:id/renounce", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { authorityType } = req.body;
+    const allowed = ["mint", "freeze", "update"];
+    if (!allowed.includes(authorityType)) return res.status(400).json({ error: "Invalid authorityType" });
+    const token = await storage.getToken(req.params.id);
+    if (!token) return res.status(404).json({ error: "Token not found" });
+    if ((token as any).creatorId !== user.id && !user._isAdmin) return res.status(403).json({ error: "Not token creator" });
+    const updates: Record<string, any> = {};
+    updates[`${authorityType}Locked`] = true;
+    updates[`${authorityType}Holder`] = null;
+    const row = await storage.updateToken(req.params.id, updates);
+    await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: `renounce_${authorityType}`, category: "token", targetType: "token", targetId: req.params.id, details: updates, ipAddress: req.ip ?? null });
     res.json(row);
   });
 
@@ -351,6 +396,15 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Faucet ─────────────────────────────────────────────────────────────────
+  // Get recent claims for cooldown UI
+  app.get("/api/faucet/claims", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+    const since = new Date(Date.now() - COOLDOWN_MS);
+    const claims = await storage.getRecentFaucetClaimsForUser(user.id, since);
+    res.json(claims);
+  });
+
   app.post("/api/faucet/claim", requireAuth, async (req, res) => {
     const user = req.user as any;
     const AMOUNTS: Record<string, number> = { gyd: 100, gyds: 0.5 };
@@ -382,6 +436,45 @@ export function registerRoutes(app: Express) {
   app.get("/api/network-stats", async (_req, res) => {
     const stats = await storage.getNetworkStats();
     res.json({ ok: true, timestamp: new Date().toISOString(), chainId: 13370, stats: { ...stats, posFinality: 99.99 } });
+  });
+
+  // ── Node Visibility (public GET, admin PUT) ────────────────────────────────
+  app.get("/api/node-visibility", async (_req, res) => {
+    const row = await storage.getConfig("node_visibility");
+    const defaults = { litenode: true, rpcnode: false, boostnode: false, fullnode: false, genesis: false, bootnode: false };
+    if (!row) return res.json(defaults);
+    try {
+      res.json({ ...defaults, ...(typeof row.configValue === "string" ? JSON.parse(row.configValue) : row.configValue) });
+    } catch {
+      res.json(defaults);
+    }
+  });
+
+  app.put("/api/node-visibility", requireAdmin, async (req, res) => {
+    const user = req.user as any;
+    const allowed = ["litenode", "rpcnode", "boostnode", "fullnode", "genesis", "bootnode"];
+    const updates: Record<string, boolean> = {};
+    for (const k of allowed) {
+      if (typeof req.body[k] === "boolean") updates[k] = req.body[k];
+    }
+    const row = await storage.upsertConfig("node_visibility", JSON.stringify(updates), user.id);
+    await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "update_node_visibility", category: "admin", targetType: "config", targetId: "node_visibility", details: updates, ipAddress: req.ip ?? null });
+    res.json(row);
+  });
+
+  // ── Git sync (admin — trigger a git pull on the deployed server) ────────────
+  app.post("/api/admin/git-pull", requireAdmin, async (req, res) => {
+    const user = req.user as any;
+    const { spawn } = await import("child_process");
+    const cwd = process.cwd();
+    const proc = spawn("git", ["pull", "--ff-only"], { cwd });
+    let stdout = "", stderr = "";
+    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
+    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+    proc.on("close", async (code: number) => {
+      await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "git_pull", category: "admin", targetType: "system", targetId: "dashboard", details: { exit_code: code, stdout: stdout.slice(0, 500), stderr: stderr.slice(0, 500) }, ipAddress: req.ip ?? null });
+      res.json({ ok: code === 0, exit_code: code, stdout, stderr });
+    });
   });
 
   // ── Health Check ───────────────────────────────────────────────────────────

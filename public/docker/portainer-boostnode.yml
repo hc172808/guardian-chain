@@ -1,0 +1,105 @@
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  GydsChain BOOST NODE — Portainer Stack                                  ║
+# ║  Chain ID: 13370 | github.com/hc172808/boostnode                         ║
+# ║  A high-performance relay/boost node                                     ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+version: "3.8"
+
+# WG_CONF_PATH         WireGuard client config on host      default: /etc/gydschain/wg-boostnode.conf
+# GYDS_BOOST_PORT      API/relay port                       default: 8547
+# GYDS_P2P_PORT        P2P port                             default: 30304
+# GYDS_CHAIN_ID        Chain ID                             default: 13370
+# GYDS_RPC_PRIMARY     Primary upstream RPC                 default: https://rpc.netlifegy.com
+# GYDS_STORAGE_GB      Storage in GB                        default: 50
+# NODE_REPO            Source repo                          default: https://github.com/hc172808/boostnode.git
+
+services:
+
+  wireguard:
+    image: linuxserver/wireguard:latest
+    container_name: gyds-boostnode-vpn
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "UTC"
+    volumes:
+      - "${WG_CONF_PATH:-/etc/gydschain/wg-boostnode.conf}:/config/wg_confs/wg0.conf:ro"
+      - /lib/modules:/lib/modules:ro
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    ports:
+      - "${GYDS_BOOST_PORT:-8547}:8547"
+      - "${GYDS_P2P_PORT:-30304}:30304/tcp"
+      - "${GYDS_P2P_PORT:-30304}:30304/udp"
+    restart: unless-stopped
+    networks:
+      - gyds-boostnode-net
+    healthcheck:
+      test: ["CMD", "wg", "show", "wg0"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  boostnode:
+    image: alpine:3.19
+    container_name: gyds-boostnode
+    network_mode: "service:wireguard"
+    depends_on:
+      wireguard:
+        condition: service_healthy
+    environment:
+      NODE_REPO:          "${NODE_REPO:-https://github.com/hc172808/boostnode.git}"
+      GYDS_BOOST_PORT:    "${GYDS_BOOST_PORT:-8547}"
+      GYDS_P2P_PORT:      "${GYDS_P2P_PORT:-30304}"
+      GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-13370}"
+      GYDS_RPC_PRIMARY:   "${GYDS_RPC_PRIMARY:-https://rpc.netlifegy.com}"
+      GYDS_STORAGE_GB:    "${GYDS_STORAGE_GB:-50}"
+    volumes:
+      - boostnode-data:/var/lib/gydschain
+      - boostnode-logs:/var/log/gydschain
+    restart: unless-stopped
+    command: >
+      sh -c "
+        apk add --no-cache git go bash curl jq openssl ca-certificates &&
+        mkdir -p /opt && cd /opt &&
+        if [ -d boostnode/.git ]; then
+          git -C boostnode pull --ff-only;
+        else
+          git clone --depth=1 \"$$NODE_REPO\" boostnode;
+        fi &&
+        cd boostnode && go mod download &&
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-boostnode . 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-boostnode ./cmd/boostnode &&
+        mkdir -p /var/lib/gydschain /var/log/gydschain &&
+        exec gyds-boostnode
+          --port=$$GYDS_BOOST_PORT
+          --p2pport=$$GYDS_P2P_PORT
+          --chain-id=$$GYDS_CHAIN_ID
+          --rpc=$$GYDS_RPC_PRIMARY
+          --datadir=/var/lib/gydschain
+          --storage=$$GYDS_STORAGE_GB
+          2>&1 | tee /var/log/gydschain/boostnode.log
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  boostnode-data:
+    driver: local
+  boostnode-logs:
+    driver: local
+
+networks:
+  gyds-boostnode-net:
+    driver: bridge

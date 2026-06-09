@@ -1,0 +1,140 @@
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  GydsChain LITE NODE — Portainer Stack                                   ║
+# ║  Chain ID: 13370 | github.com/hc172808/litenode                          ║
+# ║                                                                           ║
+# ║  SETUP:                                                                   ║
+# ║  1. On your host: wg genkey | tee /etc/wireguard/litenode-privkey        ║
+# ║                   wg pubkey < /etc/wireguard/litenode-privkey            ║
+# ║  2. Give your pub key to the VPN admin, get assigned IP + server pubkey  ║
+# ║  3. Create /etc/gydschain/wg-litenode.conf (see template below)          ║
+# ║  4. Fill in env vars in Portainer → Stack → Environment tab              ║
+# ║  5. Deploy stack                                                          ║
+# ║                                                                           ║
+# ║  WG CONFIG TEMPLATE → /etc/gydschain/wg-litenode.conf:                  ║
+# ║  ─────────────────────────────────────────────────────                   ║
+# ║  [Interface]                                                              ║
+# ║  PrivateKey = <your_private_key>                                          ║
+# ║  Address = 10.0.0.X/32                                                    ║
+# ║  DNS = 1.1.1.1                                                            ║
+# ║  MTU = 1420                                                               ║
+# ║                                                                           ║
+# ║  [Peer]                                                                   ║
+# ║  PublicKey = <vpn_server_public_key>                                      ║
+# ║  Endpoint = vpn.netlifegy.com:51820                                       ║
+# ║  AllowedIPs = 10.0.0.0/24                                                 ║
+# ║  PersistentKeepalive = 25                                                 ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+version: "3.8"
+
+# ── Environment variables (set in Portainer Stack → Environment) ──────────────
+# WG_CONF_PATH         Path to wg0.conf on the host         default: /etc/gydschain/wg-litenode.conf
+# GYDS_RPC_URL         Primary RPC endpoint                 default: https://rpc.netlifegy.com
+# GYDS_RPC_FAILOVER    Comma-separated failover RPCs        default: https://rpc2.netlifegy.com
+# GYDS_WS_URL          WebSocket endpoint                   default: wss://ws.netlifegy.com
+# GYDS_CHAIN_ID        Chain ID                             default: 13370
+# GYDS_STORAGE_GB      Cache storage limit in GB            default: 10
+# GYDS_API_PORT        Local API port                       default: 3030
+# GYDS_ENABLE_MINING   Enable mining (true/false)           default: false
+# GYDS_MINING_THREADS  Mining threads                       default: 2
+# NODE_REPO            Git repo for litenode source         default: https://github.com/hc172808/litenode.git
+
+services:
+
+  # ── WireGuard VPN Client ─────────────────────────────────────────────────────
+  wireguard:
+    image: linuxserver/wireguard:latest
+    container_name: gyds-litenode-vpn
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "UTC"
+    volumes:
+      - "${WG_CONF_PATH:-/etc/gydschain/wg-litenode.conf}:/config/wg_confs/wg0.conf:ro"
+      - /lib/modules:/lib/modules:ro
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    networks:
+      - gyds-litenode-net
+    healthcheck:
+      test: ["CMD", "wg", "show", "wg0"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # ── GydsChain Lite Node ───────────────────────────────────────────────────────
+  litenode:
+    image: alpine:3.19
+    container_name: gyds-litenode
+    # Routes all traffic through the WireGuard container's network
+    network_mode: "service:wireguard"
+    depends_on:
+      wireguard:
+        condition: service_healthy
+    environment:
+      NODE_REPO:            "${NODE_REPO:-https://github.com/hc172808/litenode.git}"
+      GYDS_RPC_URL:         "${GYDS_RPC_URL:-https://rpc.netlifegy.com}"
+      GYDS_RPC_FAILOVER:    "${GYDS_RPC_FAILOVER:-https://rpc2.netlifegy.com,https://rpc3.netlifegy.com}"
+      GYDS_WS_URL:          "${GYDS_WS_URL:-wss://ws.netlifegy.com}"
+      GYDS_CHAIN_ID:        "${GYDS_CHAIN_ID:-13370}"
+      GYDS_STORAGE_GB:      "${GYDS_STORAGE_GB:-10}"
+      GYDS_API_PORT:        "${GYDS_API_PORT:-3030}"
+      GYDS_ENABLE_MINING:   "${GYDS_ENABLE_MINING:-false}"
+      GYDS_MINING_THREADS:  "${GYDS_MINING_THREADS:-2}"
+    volumes:
+      - litenode-data:/var/lib/gydschain
+      - litenode-logs:/var/log/gydschain
+    restart: unless-stopped
+    command: >
+      sh -c "
+        apk add --no-cache git go bash curl jq openssl ca-certificates &&
+        mkdir -p /opt && cd /opt &&
+        if [ -d litenode/.git ]; then
+          echo '[+] Pulling latest litenode...' && git -C litenode pull --ff-only;
+        else
+          echo '[+] Cloning litenode...' && git clone --depth=1 \"$$NODE_REPO\" litenode;
+        fi &&
+        cd litenode &&
+        echo '[+] Building gyds-litenode...' &&
+        go mod download &&
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-litenode . 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-litenode ./cmd/litenode 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-litenode ./cmd/main &&
+        mkdir -p /var/lib/gydschain /var/log/gydschain &&
+        echo '[+] Starting gyds-litenode...' &&
+        exec gyds-litenode
+          --rpc=\"$$GYDS_RPC_URL\"
+          --rpc-failover=\"$$GYDS_RPC_FAILOVER\"
+          --ws=\"$$GYDS_WS_URL\"
+          --datadir=/var/lib/gydschain
+          --chain-id=$$GYDS_CHAIN_ID
+          --storage=$$GYDS_STORAGE_GB
+          --api=$$GYDS_API_PORT
+          $$([ \"$$GYDS_ENABLE_MINING\" = 'true' ] && echo '--mining --threads='$$GYDS_MINING_THREADS)
+          2>&1 | tee /var/log/gydschain/litenode.log
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+volumes:
+  litenode-data:
+    driver: local
+  litenode-logs:
+    driver: local
+
+networks:
+  gyds-litenode-net:
+    driver: bridge

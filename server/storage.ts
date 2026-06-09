@@ -52,6 +52,11 @@ export const storage = {
     return row;
   },
 
+  async getUserProfileByUsername(username: string) {
+    const [row] = await db.select().from(profiles).where(eq(profiles.username as any, username));
+    return row ?? null;
+  },
+
   // ── Wallets ───────────────────────────────────────────────────────────────
   async getUserWallets(userId: string) {
     return db.select().from(wallets).where(eq(wallets.userId, userId));

@@ -1,0 +1,149 @@
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  GydsChain RPC NODE — Portainer Stack                                    ║
+# ║  Chain ID: 13370 | github.com/hc172808/rpcnode                           ║
+# ║                                                                           ║
+# ║  SETUP:                                                                   ║
+# ║  1. Create /etc/gydschain/wg-rpcnode.conf (WireGuard client config)      ║
+# ║  2. Fill in env vars in Portainer → Stack → Environment tab              ║
+# ║  3. Deploy stack — nginx exposes RPC publicly on :80/:443                ║
+# ║                                                                           ║
+# ║  WG CONFIG TEMPLATE → /etc/gydschain/wg-rpcnode.conf:                   ║
+# ║  [Interface]                                                              ║
+# ║  PrivateKey = <your_private_key>                                          ║
+# ║  Address = 10.0.0.Y/32                                                    ║
+# ║  DNS = 1.1.1.1                                                            ║
+# ║  MTU = 1420                                                               ║
+# ║  [Peer]                                                                   ║
+# ║  PublicKey = <vpn_server_public_key>                                      ║
+# ║  Endpoint = vpn.netlifegy.com:51820                                       ║
+# ║  AllowedIPs = 10.0.0.0/24                                                 ║
+# ║  PersistentKeepalive = 25                                                 ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+version: "3.8"
+
+# ── Environment variables (set in Portainer Stack → Environment) ──────────────
+# WG_CONF_PATH         WG client config path on host        default: /etc/gydschain/wg-rpcnode.conf
+# GYDS_RPC_PORT        Internal RPC port                    default: 8545
+# GYDS_WS_PORT         Internal WS port                     default: 8546
+# GYDS_P2P_PORT        P2P port (exposed on host)           default: 30305
+# GYDS_CHAIN_ID        Chain ID                             default: 13370
+# GYDS_UPSTREAM_RPC    Upstream full node RPC               default: http://10.0.0.1:8546
+# GYDS_STORAGE_GB      Storage limit in GB                  default: 200
+# GYDS_RATE_LIMIT      Requests per second per IP           default: 100
+# GYDS_DOMAIN          Public domain for this RPC node      default: rpc.netlifegy.com
+# NODE_REPO            Git repo for rpcnode source          default: https://github.com/hc172808/rpcnode.git
+
+services:
+
+  # ── WireGuard VPN Client ─────────────────────────────────────────────────────
+  wireguard:
+    image: linuxserver/wireguard:latest
+    container_name: gyds-rpcnode-vpn
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "UTC"
+    volumes:
+      - "${WG_CONF_PATH:-/etc/gydschain/wg-rpcnode.conf}:/config/wg_confs/wg0.conf:ro"
+      - /lib/modules:/lib/modules:ro
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    networks:
+      - gyds-rpcnode-net
+    healthcheck:
+      test: ["CMD", "wg", "show", "wg0"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # ── GydsChain RPC Node ────────────────────────────────────────────────────────
+  rpcnode:
+    image: alpine:3.19
+    container_name: gyds-rpcnode
+    network_mode: "service:wireguard"
+    depends_on:
+      wireguard:
+        condition: service_healthy
+    environment:
+      NODE_REPO:          "${NODE_REPO:-https://github.com/hc172808/rpcnode.git}"
+      GYDS_RPC_PORT:      "${GYDS_RPC_PORT:-8545}"
+      GYDS_WS_PORT:       "${GYDS_WS_PORT:-8546}"
+      GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-13370}"
+      GYDS_UPSTREAM_RPC:  "${GYDS_UPSTREAM_RPC:-http://10.0.0.1:8546}"
+      GYDS_STORAGE_GB:    "${GYDS_STORAGE_GB:-200}"
+    volumes:
+      - rpcnode-data:/var/lib/gydschain
+      - rpcnode-logs:/var/log/gydschain
+    restart: unless-stopped
+    command: >
+      sh -c "
+        apk add --no-cache git go bash curl jq openssl ca-certificates &&
+        mkdir -p /opt && cd /opt &&
+        if [ -d rpcnode/.git ]; then
+          echo '[+] Pulling latest rpcnode...' && git -C rpcnode pull --ff-only;
+        else
+          echo '[+] Cloning rpcnode...' && git clone --depth=1 \"$$NODE_REPO\" rpcnode;
+        fi &&
+        cd rpcnode &&
+        echo '[+] Building gyds-rpcnode...' &&
+        go mod download &&
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-rpcnode . 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-rpcnode ./cmd/rpcnode &&
+        mkdir -p /var/lib/gydschain /var/log/gydschain &&
+        echo '[+] Starting gyds-rpcnode...' &&
+        exec gyds-rpcnode
+          --rpcport=$$GYDS_RPC_PORT
+          --wsport=$$GYDS_WS_PORT
+          --chain-id=$$GYDS_CHAIN_ID
+          --rpc-bind=127.0.0.1
+          --upstream=$$GYDS_UPSTREAM_RPC
+          --datadir=/var/lib/gydschain
+          --storage=$$GYDS_STORAGE_GB
+          2>&1 | tee /var/log/gydschain/rpcnode.log
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── Nginx — Public RPC reverse proxy ─────────────────────────────────────────
+  nginx-rpc:
+    image: nginx:alpine
+    container_name: gyds-rpcnode-nginx
+    ports:
+      - "8080:80"            # HTTP public RPC — point your Cloudflare/nginx to this
+      - "${GYDS_P2P_PORT:-30305}:30305"
+    volumes:
+      - ./nginx-rpc.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - rpcnode
+    restart: unless-stopped
+    networks:
+      - gyds-rpcnode-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
+volumes:
+  rpcnode-data:
+    driver: local
+  rpcnode-logs:
+    driver: local
+
+networks:
+  gyds-rpcnode-net:
+    driver: bridge

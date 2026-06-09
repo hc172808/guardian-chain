@@ -4,7 +4,6 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { supabase } from '@/integrations/supabase/client';
 import { ArrowLeft, Copy, ExternalLink, Users, ArrowUpRight, ArrowDownLeft, TrendingUp, Coins, Shield, Lock, Unlock, Flame, Edit, Plus, Clock, User, Pause, CheckCircle, XCircle, AlertTriangle, Loader2, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
@@ -98,11 +97,7 @@ const TokenDetail = () => {
 
   const fetchToken = async () => {
     if (!address) return;
-    const { data } = await supabase
-      .from('tokens')
-      .select('*')
-      .eq('address', address)
-      .maybeSingle();
+    const data = await fetch(`/api/tokens/by-address/${encodeURIComponent(address)}`).then(r => r.ok ? r.json() : null).catch(() => null);
     setToken(data as TokenData | null);
     setLoading(false);
   };
@@ -111,18 +106,12 @@ const TokenDetail = () => {
     if (!token || !user) return;
     setRenouncing(authorityType);
     try {
-      const updateData: Record<string, any> = {};
-      updateData[`${authorityType}_locked`] = true;
-      updateData[`${authorityType}_holder`] = null;
-
-      const { error } = await supabase
-        .from('tokens')
-        .update(updateData)
-        .eq('id', token.id)
-        .eq('creator_id', user.id);
-
-      if (error) throw error;
-
+      const res = await fetch(`/api/tokens/${token.id}/renounce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authorityType }),
+      });
+      if (!res.ok) throw new Error(await res.text());
       toast({ title: `${authorityType.charAt(0).toUpperCase() + authorityType.slice(1)} Authority Renounced`, description: 'This action is permanent and cannot be undone.' });
       fetchToken();
     } catch (err: any) {

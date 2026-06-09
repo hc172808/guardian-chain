@@ -16,7 +16,6 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import {
   User, Mail, Globe, MapPin, Clock, Bell,
@@ -116,49 +115,47 @@ const ProfilePage = () => {
     if (!authLoading && !user) navigate('/auth');
   }, [user, authLoading, navigate]);
 
-  // Load profile from Supabase
+  // Load profile from API
   useEffect(() => {
     if (!user) return;
     const load = async () => {
       setLoading(true);
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (data) {
-        const prefs = (data.notification_prefs as any) ?? {};
-        const meta  = (data.metadata as any) ?? {};
-        setProfile({
-          display_name: data.display_name ?? '',
-          username:     data.username     ?? '',
-          bio:          data.bio          ?? '',
-          avatar_url:   data.avatar_url   ?? '',
-          locale:       data.locale       ?? 'en',
-          timezone:     data.timezone     ?? 'UTC',
-          notification_prefs: {
-            email:         prefs.email         ?? true,
-            push:          prefs.push          ?? false,
-            sms:           prefs.sms           ?? false,
-            price_alerts:  prefs.price_alerts  ?? true,
-            tx_confirmed:  prefs.tx_confirmed  ?? true,
-            node_status:   prefs.node_status   ?? true,
-            governance:    prefs.governance    ?? false,
-            announcements: prefs.announcements ?? true,
-          },
-          metadata: {
-            phone:      meta.phone      ?? '',
-            location:   meta.location   ?? '',
-            website:    meta.website    ?? '',
-            twitter:    meta.twitter    ?? '',
-            telegram:   meta.telegram   ?? '',
-            occupation: meta.occupation ?? '',
-            theme:      meta.theme      ?? 'dark',
-          },
-        });
+      try {
+        const data = await fetch('/api/profile').then(r => r.ok ? r.json() : null);
+        if (data) {
+          const prefs = (data.notification_prefs as any) ?? {};
+          const meta  = (data.metadata as any) ?? {};
+          setProfile({
+            display_name: data.display_name ?? '',
+            username:     data.username     ?? '',
+            bio:          data.bio          ?? '',
+            avatar_url:   data.avatar_url   ?? '',
+            locale:       data.locale       ?? 'en',
+            timezone:     data.timezone     ?? 'UTC',
+            notification_prefs: {
+              email:         prefs.email         ?? true,
+              push:          prefs.push          ?? false,
+              sms:           prefs.sms           ?? false,
+              price_alerts:  prefs.price_alerts  ?? true,
+              tx_confirmed:  prefs.tx_confirmed  ?? true,
+              node_status:   prefs.node_status   ?? true,
+              governance:    prefs.governance    ?? false,
+              announcements: prefs.announcements ?? true,
+            },
+            metadata: {
+              phone:      meta.phone      ?? '',
+              location:   meta.location   ?? '',
+              website:    meta.website    ?? '',
+              twitter:    meta.twitter    ?? '',
+              telegram:   meta.telegram   ?? '',
+              occupation: meta.occupation ?? '',
+              theme:      meta.theme      ?? 'dark',
+            },
+          });
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     load();
   }, [user]);
@@ -167,42 +164,35 @@ const ProfilePage = () => {
     if (!user) return;
     setSaving(true);
 
-    // Username uniqueness check (if changed)
-    if (profile.username) {
-      const { data: existing } = await supabase
-        .from('profiles')
-        .select('user_id')
-        .eq('username', profile.username.trim().toLowerCase())
-        .neq('user_id', user.id)
-        .maybeSingle();
-      if (existing) {
-        toast({ title: 'Username taken', description: 'Please choose a different username.', variant: 'destructive' });
-        setSaving(false);
-        return;
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          display_name:       profile.display_name.trim() || null,
+          username:           profile.username.trim().toLowerCase() || null,
+          bio:                profile.bio.trim() || null,
+          avatar_url:         profile.avatar_url.trim() || null,
+          locale:             profile.locale,
+          timezone:           profile.timezone,
+          notification_prefs: profile.notification_prefs,
+          metadata:           profile.metadata,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        if (res.status === 409) {
+          toast({ title: 'Username taken', description: 'Please choose a different username.', variant: 'destructive' });
+          setSaving(false);
+          return;
+        }
+        throw new Error(err.message || 'Save failed');
       }
-    }
-
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        display_name:       profile.display_name.trim() || null,
-        username:           profile.username.trim().toLowerCase() || null,
-        bio:                profile.bio.trim() || null,
-        avatar_url:         profile.avatar_url.trim() || null,
-        locale:             profile.locale,
-        timezone:           profile.timezone,
-        notification_prefs: profile.notification_prefs,
-        metadata:           profile.metadata,
-        updated_at:         new Date().toISOString(),
-      })
-      .eq('user_id', user.id);
-
-    if (error) {
-      toast({ title: 'Save failed', description: error.message, variant: 'destructive' });
-    } else {
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
       toast({ title: 'Profile saved', description: 'Your information has been updated.' });
+    } catch (e: any) {
+      toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };

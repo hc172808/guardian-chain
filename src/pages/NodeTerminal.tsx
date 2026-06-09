@@ -3,7 +3,6 @@ import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
 import { Terminal, ArrowLeft, Wifi, WifiOff, HardDrive, Cpu, Clock, Users } from 'lucide-react';
@@ -44,17 +43,14 @@ const NodeTerminalPage = () => {
 
     const load = async () => {
       addLog('Fetching node installations...');
-      const { data } = await supabase
-        .from('node_installations')
-        .select('*')
-        .eq('user_id', user.id);
-      if (data) {
-        setNodes(data as NodeStats[]);
+      try {
+        const data: NodeStats[] = await fetch('/api/nodes').then(r => r.ok ? r.json() : []);
+        setNodes(data);
         addLog(`Found ${data.length} node(s)`);
         data.forEach(n => {
           addLog(`  → ${n.node_type} | ${n.is_online ? 'ONLINE' : 'OFFLINE'} | sync: ${n.sync_progress}% | peers: ${n.peer_count}`);
         });
-      } else {
+      } catch {
         addLog('No nodes found for this account.');
       }
       setLoading(false);
@@ -62,22 +58,13 @@ const NodeTerminalPage = () => {
 
     load();
 
-    const channel = supabase
-      .channel('node-terminal')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'node_installations' }, (payload) => {
-        const node = payload.new as NodeStats;
-        if (node.user_id !== user.id) return;
-        addLog(`Node ${node.node_type} updated — sync: ${node.sync_progress}% | peers: ${node.peer_count} | online: ${node.is_online}`);
-        load();
-      })
-      .subscribe();
-
-    // Simulate heartbeat logs
+    // Poll for updates every 15 seconds (no Supabase realtime)
     const interval = setInterval(() => {
       addLog('♥ heartbeat OK');
+      load();
     }, 15000);
 
-    return () => { supabase.removeChannel(channel); clearInterval(interval); };
+    return () => { clearInterval(interval); };
   }, [user]);
 
   useEffect(() => {

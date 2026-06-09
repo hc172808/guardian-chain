@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
 
 // Standalone explorer - no Layout wrapper, no auth required
 const Explorer = () => {
@@ -31,11 +30,10 @@ const Explorer = () => {
   }, [latestBlock]);
 
   useEffect(() => {
-    const fetchTokens = async () => {
-      const { data } = await supabase.from('tokens').select('*').order('created_at', { ascending: false }).limit(20);
-      if (data) setTokens(data);
-    };
-    fetchTokens();
+    fetch('/api/tokens?limit=20')
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setTokens(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, []);
 
   const filteredBlocks = blocks.filter(block =>
@@ -82,28 +80,9 @@ const Explorer = () => {
             onKeyDown={async (e) => {
               if (e.key === 'Enter' && searchQuery.trim().length > 1) {
                 const q = searchQuery.trim();
-                // Try exact address match first
-                if (q.startsWith('0x') && q.length > 10) {
-                  const { data } = await supabase
-                    .from('tokens')
-                    .select('address')
-                    .eq('address', q)
-                    .maybeSingle();
-                  if (data) {
-                    navigate(`/explorer/token/${data.address}`);
-                    return;
-                  }
-                }
-                // Try name/symbol search
-                const { data: matched } = await supabase
-                  .from('tokens')
-                  .select('address, name, symbol')
-                  .or(`name.ilike.%${q}%,symbol.ilike.%${q}%`)
-                  .limit(1)
-                  .maybeSingle();
-                if (matched) {
-                  navigate(`/explorer/token/${matched.address}`);
-                }
+                const params = new URLSearchParams({ q, limit: '1' });
+                const res = await fetch(`/api/tokens/search?${params}`).then(r => r.ok ? r.json() : null).catch(() => null);
+                if (res?.address) navigate(`/explorer/token/${res.address}`);
               }
             }}
             className="pl-10 bg-secondary/50 border-border/50 h-12 text-base"
@@ -113,26 +92,9 @@ const Explorer = () => {
               <Badge variant="secondary" className="text-xs cursor-pointer hover:bg-primary/20"
                 onClick={async () => {
                   const q = searchQuery.trim();
-                  if (q.startsWith('0x') && q.length > 10) {
-                    const { data } = await supabase
-                      .from('tokens')
-                      .select('address')
-                      .eq('address', q)
-                      .maybeSingle();
-                    if (data) {
-                      navigate(`/explorer/token/${data.address}`);
-                      return;
-                    }
-                  }
-                  const { data: matched } = await supabase
-                    .from('tokens')
-                    .select('address, name, symbol')
-                    .or(`name.ilike.%${q}%,symbol.ilike.%${q}%`)
-                    .limit(1)
-                    .maybeSingle();
-                  if (matched) {
-                    navigate(`/explorer/token/${matched.address}`);
-                  }
+                  const params = new URLSearchParams({ q, limit: '1' });
+                  const res = await fetch(`/api/tokens/search?${params}`).then(r => r.ok ? r.json() : null).catch(() => null);
+                  if (res?.address) navigate(`/explorer/token/${res.address}`);
                 }}
               >
                 Search Token →

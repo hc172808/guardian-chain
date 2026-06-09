@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -50,14 +49,8 @@ const DocsPage = () => {
   }, []);
 
   const fetchDocs = async () => {
-    const { data, error } = await supabase
-      .from('documentation')
-      .select('*')
-      .order('slug');
-    
-    if (!error && data) {
-      setDocs(data);
-    }
+    const data = await fetch('/api/docs').then(r => r.ok ? r.json() : []).catch(() => []);
+    setDocs(Array.isArray(data) ? data : []);
     setLoading(false);
   };
 
@@ -69,21 +62,18 @@ const DocsPage = () => {
   const handleSave = async () => {
     if (!editingSlug) return;
     setSaving(true);
-
-    const { error } = await supabase
-      .from('documentation')
-      .update({ 
-        content: editContent,
-        updated_by: user?.id 
-      })
-      .eq('slug', editingSlug);
-
-    if (error) {
-      toast({ title: 'Failed to save', variant: 'destructive' });
-    } else {
+    try {
+      const res = await fetch(`/api/docs/${editingSlug}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editContent }),
+      });
+      if (!res.ok) throw new Error(await res.text());
       toast({ title: 'Documentation updated!' });
       setEditingSlug(null);
       fetchDocs();
+    } catch (e: any) {
+      toast({ title: 'Failed to save', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };

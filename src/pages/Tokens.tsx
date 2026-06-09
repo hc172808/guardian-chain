@@ -11,7 +11,6 @@ import { Coins, Plus, Eye, Search, AlertTriangle, ArrowLeftRight, Loader2, Shiel
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -71,27 +70,18 @@ const TokensPage = () => {
 
   useEffect(() => {
     const fetchTokens = async () => {
-      const { data } = await supabase
-        .from('tokens')
-        .select('*')
-        .order('created_at', { ascending: false });
-      // Filter: show active tokens OR blocked tokens owned by current user
-      const filtered = (data || []).filter(t => 
-        t.is_active || (user && t.creator_id === user.id)
-      );
-      setTokens(filtered as unknown as TokenRecord[]);
+      const data: TokenRecord[] = await fetch('/api/tokens').then(r => r.ok ? r.json() : []).catch(() => []);
+      const filtered = data.filter(t => t.is_active || (user && t.creator_id === user.id));
+      setTokens(filtered);
       const states = await readAllTokenNetworkStates();
       setNetworkStates(states);
       setLoading(false);
     };
     fetchTokens();
 
-    const channel = supabase
-      .channel('tokens-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tokens' }, () => fetchTokens())
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    // Poll every 30s (no Supabase realtime)
+    const interval = setInterval(fetchTokens, 30000);
+    return () => clearInterval(interval);
   }, [user]);
 
   const filtered = tokens.filter(t =>

@@ -19,11 +19,11 @@ import {
   Building2,
   GitBranch,
   ScrollText,
-  Activity
+  Activity,
+  Eye
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
@@ -44,10 +44,84 @@ import { AdminConsole } from '@/components/admin/AdminConsole';
 import { ComponentVisibility } from '@/components/admin/ComponentVisibility';
 import { MainnetPromotion } from '@/components/admin/MainnetPromotion';
 import { MiningPoolAdmin } from '@/components/admin/MiningPoolAdmin';
+import { NodeVisibilitySettings } from '@/components/admin/NodeVisibilitySettings';
 import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe, Wrench, Link2, Search as SearchIcon } from 'lucide-react';
 import { MaintenanceManager } from '@/components/admin/MaintenanceManager';
 import { BridgeNetworkManager } from '@/components/admin/BridgeNetworkManager';
 import { ExplorerConfig } from '@/components/admin/ExplorerConfig';
+
+function GitSyncPanel({ toast }: { toast: any }) {
+  const [pulling, setPulling] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; stdout: string; stderr: string } | null>(null);
+
+  const doPull = async () => {
+    setPulling(true);
+    setResult(null);
+    try {
+      const res = await fetch('/api/admin/git-pull', { method: 'POST' });
+      const data = await res.json();
+      setResult(data);
+      toast({ title: data.ok ? 'Git pull succeeded' : 'Git pull failed', description: data.stdout?.slice(0, 100) || data.stderr?.slice(0, 100), variant: data.ok ? 'default' : 'destructive' });
+    } catch (e: any) {
+      toast({ title: 'Git pull error', description: e.message, variant: 'destructive' });
+    } finally {
+      setPulling(false);
+    }
+  };
+
+  return (
+    <GlassCard className="p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-3 rounded-lg bg-primary/20">
+          <GitBranch className="h-6 w-6 text-primary" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-lg">GitHub Sync</h3>
+          <p className="text-sm text-muted-foreground">Pull latest code from GitHub and restart services</p>
+        </div>
+      </div>
+      <div className="space-y-4">
+        <div className="p-4 rounded-lg bg-secondary/30 space-y-3">
+          <h4 className="font-medium">Pull from GitHub</h4>
+          <p className="text-sm text-muted-foreground">
+            Runs <code className="bg-black/30 px-1 rounded">git pull --ff-only</code> in the dashboard directory.
+            After pulling, rebuild and restart:
+            <code className="block bg-black/30 px-2 py-1 rounded mt-1 text-xs">npm run build && pm2 restart gydschain-api && nginx -s reload</code>
+          </p>
+          <Button variant="outline" className="gap-2" onClick={doPull} disabled={pulling}>
+            <RefreshCw className={`h-4 w-4 ${pulling ? 'animate-spin' : ''}`} />
+            {pulling ? 'Pulling…' : 'Git Pull'}
+          </Button>
+          {result && (
+            <div className={`p-3 rounded text-xs font-mono whitespace-pre-wrap ${result.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+              {result.stdout || result.stderr || (result.ok ? 'Already up to date.' : 'Unknown error')}
+            </div>
+          )}
+        </div>
+        <div className="p-4 rounded-lg bg-secondary/30 space-y-2">
+          <h4 className="font-medium">All Repositories</h4>
+          <div className="text-xs text-muted-foreground space-y-1">
+            {[
+              ['Dashboard',  'hc172808/guardian-chain'],
+              ['Full Node',  'hc172808/fullnode'],
+              ['Lite Node',  'hc172808/litenode'],
+              ['Boost Node', 'hc172808/boostnode'],
+              ['RPC Node',   'hc172808/rpcnode'],
+              ['Genesis',    'hc172808/genesis'],
+            ].map(([name, repo]) => (
+              <div key={repo} className="flex items-center justify-between">
+                <span className="text-foreground">{name}</span>
+                <a href={`https://github.com/${repo}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                  github.com/{repo}
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
 
 interface UserProfile {
   id: string;
@@ -86,41 +160,32 @@ const AdminContent = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    
-    // Fetch users
-    const { data: usersData } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (usersData) setUsers(usersData);
-
-    // Fetch nodes (without foreign key join since it doesn't exist)
-    const { data: nodesData } = await supabase
-      .from('node_installations')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (nodesData) setNodes(nodesData as unknown as NodeInstallation[]);
-    
-    setLoading(false);
+    try {
+      const [usersRes, nodesRes] = await Promise.all([
+        fetch('/api/profile').then(r => r.ok ? r.json() : null),
+        fetch('/api/nodes').then(r => r.ok ? r.json() : []),
+      ]);
+      if (usersRes) setUsers(Array.isArray(usersRes) ? usersRes : [usersRes]);
+      if (nodesRes) setNodes(Array.isArray(nodesRes) ? nodesRes : []);
+    } catch (e) {
+      toast({ title: 'Failed to load admin data', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleApproveNode = async (nodeId: string, approve: boolean) => {
-    const { error } = await supabase
-      .from('node_installations')
-      .update({ 
-        is_approved: approve, 
-        approved_by: user?.id,
-        approved_at: approve ? new Date().toISOString() : null
-      })
-      .eq('id', nodeId);
-
-    if (error) {
-      toast({ title: 'Failed to update node', variant: 'destructive' });
-    } else {
+    try {
+      const res = await fetch(`/api/nodes/${nodeId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isApproved: approve, approvedBy: user?.id, approvedAt: approve ? new Date().toISOString() : null }),
+      });
+      if (!res.ok) throw new Error(await res.text());
       toast({ title: approve ? 'Node approved!' : 'Node rejected' });
       fetchData();
+    } catch (e: any) {
+      toast({ title: 'Failed to update node', description: e.message, variant: 'destructive' });
     }
   };
 
@@ -269,6 +334,10 @@ const AdminContent = () => {
             <SearchIcon className="h-4 w-4" />
             <span className="hidden md:inline">Explorer</span>
           </TabsTrigger>
+          <TabsTrigger value="node-types" className="gap-2" data-testid="tab-node-types">
+            <Eye className="h-4 w-4" />
+            <span className="hidden md:inline">Node Types</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="maintenance">
@@ -281,6 +350,10 @@ const AdminContent = () => {
 
         <TabsContent value="explorer-config">
           <ExplorerConfig />
+        </TabsContent>
+
+        <TabsContent value="node-types">
+          <NodeVisibilitySettings />
         </TabsContent>
 
         <TabsContent value="pools">
@@ -332,44 +405,7 @@ const AdminContent = () => {
         </TabsContent>
 
         <TabsContent value="github">
-          <GlassCard className="p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 rounded-lg bg-primary/20">
-                <GitBranch className="h-6 w-6 text-primary" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-lg">GitHub Integration</h3>
-                <p className="text-sm text-muted-foreground">Manage repository sync and deployments</p>
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-secondary/30 space-y-3">
-                <h4 className="font-medium">Re-pull from GitHub</h4>
-                <p className="text-sm text-muted-foreground">
-                  Force a re-sync from the connected GitHub repository. This will pull the latest changes from the default branch.
-                </p>
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() => {
-                    toast({ title: 'Re-pull initiated', description: 'Changes from GitHub will sync automatically. Go to Settings → GitHub to manage your repository connection.' });
-                  }}
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Re-pull from GitHub
-                </Button>
-              </div>
-              <div className="p-4 rounded-lg bg-secondary/30 space-y-2">
-                <h4 className="font-medium">Repository Info</h4>
-                <p className="text-sm text-muted-foreground">
-                  Your project automatically syncs with GitHub bidirectionally. Push changes to GitHub and they appear here, or make changes here and they push to GitHub.
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  To connect or manage your GitHub repository, go to <strong>Project Settings → GitHub</strong>.
-                </p>
-              </div>
-            </div>
-          </GlassCard>
+          <GitSyncPanel toast={toast} />
         </TabsContent>
 
         <TabsContent value="firewall">

@@ -4,7 +4,6 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useToast } from '@/hooks/use-toast';
@@ -28,25 +27,20 @@ const FaucetPage = () => {
 
   const targetAddress = isConnected && address ? address : manualAddress;
 
-  // Load existing cooldowns from DB (server-enforced, survives refresh)
+  // Load existing cooldowns from API (server-enforced, survives refresh)
   useEffect(() => {
     if (!user) return;
-    (async () => {
-      const since = new Date(Date.now() - COOLDOWN_MS).toISOString();
-      const { data } = await supabase
-        .from('faucet_claims')
-        .select('token_type, created_at')
-        .eq('user_id', user.id)
-        .gte('created_at', since);
-      if (data) {
+    fetch('/api/faucet/claims')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: Array<{ token_type: string; created_at: string }>) => {
         const next: Record<string, number> = {};
         data.forEach((c) => {
           const t = new Date(c.created_at).getTime();
           if (!next[c.token_type] || t > next[c.token_type]) next[c.token_type] = t;
         });
         setLastClaim(next);
-      }
-    })();
+      })
+      .catch(() => {});
   }, [user]);
 
   const canClaim = (type: string) => {
@@ -79,11 +73,13 @@ const FaucetPage = () => {
 
     setIsClaiming(type);
     try {
-      const { data, error } = await supabase.functions.invoke('faucet-claim', {
-        body: { token_type: type, wallet_address: targetAddress },
+      const res = await fetch('/api/faucet/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token_type: type, wallet_address: targetAddress }),
       });
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.error || 'Claim failed');
+      const data = await res.json();
+      if (!res.ok || !data?.ok) throw new Error(data?.error || 'Claim failed');
 
       setLastClaim(prev => ({ ...prev, [type]: Date.now() }));
       toast({
