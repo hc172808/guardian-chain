@@ -1,52 +1,47 @@
-import { useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { api } from '@/lib/api';
 
 export const useTransactionNotifications = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const lastSeenRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase
-      .channel('tx-notifications')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'transactions' },
-        (payload) => {
-          const tx = payload.new as any;
-          if (tx.user_id !== user.id) return;
-          if (tx.status === 'confirmed' && payload.old?.status !== 'confirmed') {
-            toast({
-              title: '✅ Transaction Confirmed',
-              description: `${tx.amount} GYD — ${tx.tx_hash?.slice(0, 10)}...`,
-            });
-          }
+    const poll = async () => {
+      try {
+        const txs = await api.get('/api/transactions');
+        if (!Array.isArray(txs) || txs.length === 0) return;
+        const latest = txs[0];
+        if (!latest) return;
+        if (lastSeenRef.current === null) {
+          lastSeenRef.current = latest.id;
+          return;
         }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'transactions' },
-        (payload) => {
-          const tx = payload.new as any;
-          if (tx.user_id !== user.id) return;
-          if (tx.status === 'confirmed') {
+        if (latest.id !== lastSeenRef.current) {
+          lastSeenRef.current = latest.id;
+          if (latest.status === 'confirmed') {
             toast({
               title: '✅ Transaction Confirmed',
-              description: `${tx.amount} GYD — ${tx.tx_hash?.slice(0, 10)}...`,
+              description: `${latest.amount} GYD — ${latest.tx_hash?.slice(0, 10)}...`,
             });
-          } else if (tx.status === 'pending') {
+          } else if (latest.status === 'pending') {
             toast({
               title: '⏳ Transaction Pending',
-              description: `${tx.amount} GYD submitted`,
+              description: `${latest.amount} GYD submitted`,
             });
           }
         }
-      )
-      .subscribe();
+      } catch {
+        // ignore
+      }
+    };
 
-    return () => { supabase.removeChannel(channel); };
+    poll();
+    const interval = setInterval(poll, 15000);
+    return () => clearInterval(interval);
   }, [user, toast]);
 };

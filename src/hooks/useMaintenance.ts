@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 
 export interface MaintenanceState {
   enabled: boolean;
@@ -18,43 +18,28 @@ export function useMaintenance(): MaintenanceState {
     let active = true;
 
     const fetch = async () => {
-      const { data } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', 'maintenance_mode')
-        .maybeSingle();
-
-      if (!active) return;
-
-      if (data?.config_value) {
-        const v = data.config_value as { enabled?: boolean; message?: string };
-        setState({ enabled: !!v.enabled, message: v.message ?? '', loading: false });
-      } else {
-        setState({ enabled: false, message: '', loading: false });
+      try {
+        const row = await api.get('/api/config/maintenance_mode');
+        if (!active) return;
+        if (row?.config_value) {
+          const v = row.config_value as { enabled?: boolean; message?: string };
+          setState({ enabled: !!v.enabled, message: v.message ?? '', loading: false });
+        } else {
+          setState({ enabled: false, message: '', loading: false });
+        }
+      } catch {
+        if (active) setState({ enabled: false, message: '', loading: false });
       }
     };
 
     fetch();
 
-    // Realtime — so toggling maintenance in admin panel takes effect immediately
-    const channel = supabase
-      .channel('maintenance-mode')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'admin_config', filter: "config_key=eq.maintenance_mode" },
-        (payload) => {
-          if (!active) return;
-          const v = (payload.new as any)?.config_value as { enabled?: boolean; message?: string } | undefined;
-          if (v !== undefined) {
-            setState({ enabled: !!v.enabled, message: v.message ?? '', loading: false });
-          }
-        }
-      )
-      .subscribe();
+    // Poll every 30s instead of realtime
+    const interval = setInterval(fetch, 30000);
 
     return () => {
       active = false;
-      supabase.removeChannel(channel);
+      clearInterval(interval);
     };
   }, []);
 

@@ -1,4 +1,4 @@
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 
 interface AuditLogEntry {
   action: string;
@@ -14,7 +14,7 @@ export const logAuditEvent = async (
   entry: AuditLogEntry
 ) => {
   try {
-    await supabase.from('audit_logs').insert({
+    await api.post('/api/audit-logs', {
       user_id: userId,
       user_email: userEmail,
       action: entry.action,

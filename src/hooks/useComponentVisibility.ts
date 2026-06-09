@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 
 const CONFIG_KEY = 'hidden_components';
@@ -26,13 +26,13 @@ let cache: string[] | null = null;
 const subs: Array<(v: string[]) => void> = [];
 
 const fetchHidden = async (): Promise<string[]> => {
-  const { data } = await supabase
-    .from('admin_config')
-    .select('config_value')
-    .eq('config_key', CONFIG_KEY)
-    .maybeSingle();
-  const v = data?.config_value as { hidden?: string[] } | null;
-  return Array.isArray(v?.hidden) ? v!.hidden! : [];
+  try {
+    const row = await api.get(`/api/config/${CONFIG_KEY}`);
+    const v = row?.config_value as { hidden?: string[] } | null;
+    return Array.isArray(v?.hidden) ? v!.hidden! : [];
+  } catch {
+    return [];
+  }
 };
 
 export const useComponentVisibility = () => {
@@ -55,30 +55,23 @@ export const useComponentVisibility = () => {
       setLoading(false);
     }
 
-    const channel = supabase
-      .channel('component-visibility')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'admin_config', filter: `config_key=eq.${CONFIG_KEY}` },
-        async () => {
-          const v = await fetchHidden();
-          cache = v;
-          subs.forEach((s) => s(v));
-        }
-      )
-      .subscribe();
+    // Poll every 30s instead of realtime
+    const interval = setInterval(async () => {
+      const v = await fetchHidden();
+      cache = v;
+      subs.forEach((s) => s(v));
+    }, 30000);
 
     return () => {
       active = false;
+      clearInterval(interval);
       const i = subs.indexOf(sub);
       if (i >= 0) subs.splice(i, 1);
-      supabase.removeChannel(channel);
     };
   }, []);
 
   const isHidden = useCallback(
     (key: string): boolean => {
-      // Admins always see everything
       if (isAdmin) return false;
       return hidden.includes(key);
     },
@@ -88,12 +81,7 @@ export const useComponentVisibility = () => {
   const setHiddenList = useCallback(async (next: string[]) => {
     cache = next;
     subs.forEach((s) => s(next));
-    await supabase
-      .from('admin_config')
-      .upsert(
-        { config_key: CONFIG_KEY, config_value: { hidden: next } as any },
-        { onConflict: 'config_key' }
-      );
+    await api.post('/api/config', { key: CONFIG_KEY, value: { hidden: next } });
   }, []);
 
   const toggle = useCallback(

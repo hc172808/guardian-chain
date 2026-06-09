@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 
-// Generate WireGuard keypair (simplified - in production use proper crypto)
 const generateWireGuardKeys = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  let privateKey = '';
-  let publicKey = '';
+  let privateKey = '', publicKey = '';
   for (let i = 0; i < 44; i++) {
     privateKey += chars[Math.floor(Math.random() * 64)];
-    publicKey += chars[Math.floor(Math.random() * 64)];
+    publicKey  += chars[Math.floor(Math.random() * 64)];
   }
   return { privateKey: privateKey + '=', publicKey: publicKey + '=' };
 };
@@ -26,85 +24,47 @@ export const useInstaller = () => {
     enableMining?: boolean;
   }) => {
     if (!user) {
-      toast({
-        title: 'Login Required',
-        description: 'Please sign in to install a node.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Login Required', description: 'Please sign in to install a node.', variant: 'destructive' });
       return false;
     }
-
     setInstalling(true);
-    
     try {
-      // Generate WireGuard keys for litenode
       const wireGuardKeys = type === 'litenode' ? generateWireGuardKeys() : null;
+      try {
+        await api.post('/api/nodes', {
+          user_id: user.id,
+          node_type: type,
+          wireguard_public_key: wireGuardKeys?.publicKey || null,
+          wireguard_private_key: wireGuardKeys?.privateKey || null,
+          is_synced: false,
+          is_approved: type === 'fullnode',
+        });
+      } catch (dbErr) {
+        console.error('Failed to register node:', dbErr);
+      }
 
-      // Register the node installation in database
-      const { error: dbError } = await supabase.from('node_installations').insert({
-        user_id: user.id,
-        node_type: type,
-        wireguard_public_key: wireGuardKeys?.publicKey || null,
-        is_synced: false,
-        is_approved: type === 'fullnode', // Fullnodes are pre-approved for founders
+      const scriptContent = type === 'litenode'
+        ? generateLitenodeScript(options?.rpcEndpoint, wireGuardKeys?.publicKey)
+        : generateFullnodeScript(options?.storageSize, options?.enableMining);
+
+      const blob = new Blob([scriptContent], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = type === 'litenode' ? 'install-litenode.sh' : 'install-fullnode.sh';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Installation Script Downloaded',
+        description: `Run the script on your server to install the ${type === 'litenode' ? 'Lite Node' : 'Full Node'}.`,
       });
-
-      if (dbError) {
-        console.error('Failed to register node:', dbError);
-      }
-
-      const scriptPath = type === 'litenode' 
-        ? '/scripts/install-litenode.sh'
-        : '/scripts/install-fullnode.sh';
-
-      // Fetch the script content
-      const response = await fetch(scriptPath);
-      const scriptContent = await response.text();
-
-      // For litenode, modify script with user options and WireGuard config
-      let finalScript = scriptContent;
-      if (type === 'litenode' && options) {
-        finalScript = scriptContent
-          .replace(/DEFAULT_RPC_ENDPOINTS="[^"]*"/, `DEFAULT_RPC_ENDPOINTS="${options.rpcEndpoint || 'http://node1.chaincore.io:8546'}"`)
-          .replace(/DEFAULT_STORAGE_SIZE=\d+/, `DEFAULT_STORAGE_SIZE=${options.storageSize || 10}`)
-          .replace(/DEFAULT_ENABLE_MINING=\w+/, `DEFAULT_ENABLE_MINING=${options.enableMining ? 'true' : 'false'}`);
-        
-        // Add WireGuard config to script
-        if (wireGuardKeys) {
-          finalScript = `# WireGuard Private Key (keep secret!): ${wireGuardKeys.privateKey}\n# WireGuard Public Key: ${wireGuardKeys.publicKey}\n\n${finalScript}`;
-        }
-      }
-
-      // Create a Blob and download
-      const blob = new Blob([finalScript], { type: 'text/x-shellscript' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = type === 'litenode' ? 'install-litenode.sh' : 'install-fullnode.sh';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      if (type === 'litenode') {
-        toast({
-          title: 'Node Registered - Pending Approval',
-          description: 'Your WireGuard key has been submitted. An admin must approve your node before it can sync.',
-        });
-      } else {
-        toast({
-          title: 'Installation Script Downloaded',
-          description: `Run "chmod +x ${link.download} && ./${link.download}" in your terminal to install.`,
-        });
-      }
-
       return true;
     } catch (error) {
-      toast({
-        title: 'Download Failed',
-        description: 'Could not download the installation script. Please try again.',
-        variant: 'destructive',
-      });
+      console.error('Installation error:', error);
+      toast({ title: 'Installation Failed', description: 'Failed to prepare installation script.', variant: 'destructive' });
       return false;
     } finally {
       setInstalling(false);
@@ -113,3 +73,45 @@ export const useInstaller = () => {
 
   return { downloadAndInstall, installing };
 };
+
+function generateLitenodeScript(rpcEndpoint?: string, publicKey?: string): string {
+  const rpc = rpcEndpoint || 'https://rpc.netlifegy.com';
+  return `#!/bin/bash
+# ChainCore Lite Node Installation Script
+set -e
+echo "Installing ChainCore Lite Node..."
+apt-get update -q && apt-get install -y -q wireguard curl jq
+mkdir -p /opt/chaincore
+cat > /opt/chaincore/config.json << EOF
+{
+  "node_type": "litenode",
+  "rpc_endpoint": "${rpc}",
+  "wireguard_public_key": "${publicKey || ''}",
+  "chain_id": 13370
+}
+EOF
+echo "Lite node installed. Please configure WireGuard and start the service."
+`;
+}
+
+function generateFullnodeScript(storageSize?: number, enableMining?: boolean): string {
+  const storage = storageSize || 500;
+  const mining = enableMining ?? false;
+  return `#!/bin/bash
+# ChainCore Full Node Installation Script
+set -e
+echo "Installing ChainCore Full Node..."
+apt-get update -q && apt-get install -y -q curl jq
+mkdir -p /opt/chaincore
+cat > /opt/chaincore/config.json << EOF
+{
+  "node_type": "fullnode",
+  "storage_gb": ${storage},
+  "enable_mining": ${mining},
+  "chain_id": 13370,
+  "rpc_endpoints": ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com"]
+}
+EOF
+echo "Full node installed successfully."
+`;
+}

@@ -1,162 +1,64 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
-import { signInWithWallet as libSignInWallet, signUpWithWallet as libSignUpWallet } from '@/lib/web3Auth';
-// Note: wallet login goes through Web3ConnectModal → web3Auth directly; these
-// context wrappers exist for convenience but are not called by the modal.
+import { api } from '@/lib/api';
 
 type AppRole = 'user' | 'admin' | 'founder';
 
-interface UserRole {
+interface AuthUser {
   id: string;
-  user_id: string;
-  role: AppRole;
+  email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  profileImageUrl?: string | null;
+  roles: AppRole[];
+  isAdmin: boolean;
+  isFounder: boolean;
 }
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
-  roles: AppRole[];
+  user: AuthUser | null;
   loading: boolean;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
-  signInWithWallet: (address: string, signature: string) => Promise<{ error: Error | null }>;
-  signUpWithWallet: (address: string, signature: string) => Promise<{ error: Error | null }>;
   isFounder: boolean;
   isAdmin: boolean;
+  refetch: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [roles, setRoles] = useState<AppRole[]>([]);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchRoles = async (userId: string, userEmail?: string | null) => {
-    const { data, error } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', userId);
-
-    if (!error && data) {
-      const roleList = data.map(r => r.role as AppRole);
-      // Retroactively ensure founder role for netlifegy@gmail.com if missing
-      const email = userEmail || user?.email;
-      if (email?.toLowerCase() === 'netlifegy@gmail.com' && !roleList.includes('founder')) {
-        await supabase.from('user_roles').insert([
-          { user_id: userId, role: 'founder' },
-        ]);
-        roleList.push('founder');
-      }
-      setRoles(roleList);
+  const fetchUser = async () => {
+    try {
+      const data = await api.get('/api/me');
+      setUser(data);
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        // Defer role fetch with setTimeout
-        if (session?.user) {
-          setTimeout(() => {
-            fetchRoles(session.user.id, session.user.email);
-          }, 0);
-        } else {
-          setRoles([]);
-        }
-        setLoading(false);
-      }
-    );
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchRoles(session.user.id, session.user.email);
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    fetchUser();
   }, []);
 
-  const signUp = async (email: string, password: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    const { data: signUpData, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl
-      }
-    });
-    // Auto-assign founder role for the founder email
-    if (signUpData?.user && email.toLowerCase() === 'netlifegy@gmail.com') {
-      await supabase.from('user_roles').insert([
-        { user_id: signUpData.user.id, role: 'founder' },
-      ]);
-    }
-    return { error };
-  };
-
-  const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    // Auto-assign founder role for the founder email on login if missing
-    if (data?.user && email.toLowerCase() === 'netlifegy@gmail.com') {
-      const { data: rolesData } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', data.user.id)
-        .eq('role', 'founder');
-      if (!rolesData || rolesData.length === 0) {
-        await supabase.from('user_roles').insert([
-          { user_id: data.user.id, role: 'founder' },
-        ]);
-      }
-    }
-    return { error };
-  };
-
-  const signInWithWallet = async (address: string, signature: string) => {
-    const { error } = await libSignInWallet(address, signature);
-    return { error };
-  };
-
-  const signUpWithWallet = async (address: string, signature: string) => {
-    const { error } = await libSignUpWallet(address, signature);
-    return { error };
-  };
-
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setRoles([]);
+    window.location.href = '/api/auth/logout';
   };
 
-  const isFounder = roles.includes('founder');
-  const isAdmin = roles.includes('admin') || roles.includes('founder');
+  const isFounder = user?.isFounder ?? false;
+  const isAdmin = user?.isAdmin ?? false;
 
   return (
     <AuthContext.Provider value={{
       user,
-      session,
-      roles,
       loading,
-      signUp,
-      signIn,
       signOut,
-      signInWithWallet,
-      signUpWithWallet,
       isFounder,
       isAdmin,
+      refetch: fetchUser,
     }}>
       {children}
     </AuthContext.Provider>
