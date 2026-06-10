@@ -3,7 +3,7 @@ import { users, userRoles, profiles, wallets, nodeInstallations, transactions,
   documentation, adminConfig, tokenOperations, tokenPrice, tokens, tokenLaunches,
   liquidityPools, tokenWatchlist, tokenPriceAlerts, networkValidators,
   validatorDelegations, firewallRules, fail2banJails, ipAccessList,
-  rateLimitRules, ddosProtection, auditLogs, faucetClaims } from "../shared/schema";
+  rateLimitRules, ddosProtection, auditLogs, faucetClaims, passwordResetTokens } from "../shared/schema";
 import { eq, and, gte, desc, sql, count, inArray } from "drizzle-orm";
 
 export const storage = {
@@ -97,8 +97,36 @@ export const storage = {
     await db.update(users).set({ authNonce: null }).where(eq(users.walletAddress, walletAddress));
   },
 
+  async updateUserPassword(userId: string, passwordHash: string) {
+    await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
+  },
+
   async getUserRoles(userId: string) {
     return db.select().from(userRoles).where(eq(userRoles.userId, userId));
+  },
+
+  async getAllUsersWithRoles() {
+    const allUsers = await db.select().from(users).orderBy(desc(users.createdAt));
+    const allRoles = await db.select().from(userRoles);
+    const roleMap: Record<string, string[]> = {};
+    for (const r of allRoles) {
+      if (!roleMap[r.userId]) roleMap[r.userId] = [];
+      roleMap[r.userId].push(r.role);
+    }
+    return allUsers.map(u => ({
+      id: u.id,
+      email: u.email,
+      username: u.username,
+      walletAddress: u.walletAddress,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      isBanned: u.isBanned,
+      totpEnabled: u.totpEnabled,
+      createdAt: u.createdAt,
+      roles: roleMap[u.id] ?? ["user"],
+      primaryRole: (roleMap[u.id] ?? []).includes("founder") ? "founder"
+        : (roleMap[u.id] ?? []).includes("admin") ? "admin" : "user",
+    }));
   },
 
   async getUserProfile(userId: string) {
@@ -425,6 +453,62 @@ export const storage = {
   async insertFaucetClaim(data: typeof faucetClaims.$inferInsert) {
     const [row] = await db.insert(faucetClaims).values(data).returning();
     return row;
+  },
+
+  // ── TOTP ──────────────────────────────────────────────────────────────────
+  async setTotpSecret(userId: string, secret: string) {
+    await db.update(users).set({ totpSecret: secret, updatedAt: new Date() }).where(eq(users.id, userId));
+  },
+
+  async enableTotp(userId: string) {
+    await db.update(users).set({ totpEnabled: true, updatedAt: new Date() }).where(eq(users.id, userId));
+  },
+
+  async disableTotp(userId: string) {
+    await db.update(users).set({ totpEnabled: false, totpSecret: null, updatedAt: new Date() }).where(eq(users.id, userId));
+  },
+
+  async getUserTotp(userId: string) {
+    const [row] = await db.select({ totpSecret: users.totpSecret, totpEnabled: users.totpEnabled }).from(users).where(eq(users.id, userId));
+    return row ?? null;
+  },
+
+  // ── Password Reset Tokens ─────────────────────────────────────────────────
+  async createPasswordResetToken(userId: string, token: string, expiresAt: Date) {
+    const [row] = await db.insert(passwordResetTokens).values({ userId, token, expiresAt }).returning();
+    return row;
+  },
+
+  async getPasswordResetToken(token: string) {
+    const [row] = await db.select().from(passwordResetTokens).where(eq(passwordResetTokens.token, token));
+    return row ?? null;
+  },
+
+  async markPasswordResetTokenUsed(token: string) {
+    await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.token, token));
+  },
+
+  async deleteExpiredPasswordResetTokens() {
+    await db.delete(passwordResetTokens).where(sql`expires_at < now()`);
+  },
+
+  // ── Admin: Ban/Unban + Role management ────────────────────────────────────
+  async setBanStatus(userId: string, banned: boolean) {
+    await db.update(users).set({ isBanned: banned, updatedAt: new Date() }).where(eq(users.id, userId));
+  },
+
+  async setUserRole(userId: string, role: "user" | "admin" | "founder") {
+    await db.delete(userRoles).where(and(eq(userRoles.userId, userId), sql`role != 'user'`));
+    if (role !== "user") {
+      await db.insert(userRoles).values({ userId, role }).onConflictDoNothing();
+    }
+    await db.insert(userRoles).values({ userId, role: "user" }).onConflictDoNothing();
+  },
+
+  async getRecentFaucetClaimsForUser(userId: string, since: Date) {
+    return db.select().from(faucetClaims)
+      .where(and(eq(faucetClaims.userId, userId), gte(faucetClaims.createdAt, since)))
+      .orderBy(desc(faucetClaims.createdAt));
   },
 
   // ── Network Stats ─────────────────────────────────────────────────────────

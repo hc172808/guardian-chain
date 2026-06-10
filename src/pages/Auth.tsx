@@ -2,14 +2,18 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
-import { Cpu, Eye, EyeOff, Wallet, User, Lock, Mail, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import {
+  Cpu, Eye, EyeOff, Wallet, User, Lock, Mail,
+  AlertCircle, Loader2, CheckCircle2, KeyRound, Smartphone,
+  Copy, RefreshCw
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type Tab = 'login' | 'register' | 'web3';
+type Tab = 'login' | 'register' | 'web3' | 'reset' | 'totp';
 
-const api = async (path: string, body?: object) => {
+const api = async (path: string, body?: object, method = 'POST') => {
   const res = await fetch(path, {
-    method: body ? 'POST' : 'GET',
+    method: body ? method : 'GET',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
@@ -20,7 +24,7 @@ const api = async (path: string, body?: object) => {
 };
 
 // ── Login form ────────────────────────────────────────────────────────────────
-const LoginForm = ({ onSuccess }: { onSuccess: () => void }) => {
+const LoginForm = ({ onSuccess, onReset }: { onSuccess: () => void; onReset: () => void }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -48,48 +52,30 @@ const LoginForm = ({ onSuccess }: { onSuccess: () => void }) => {
         <label className="text-sm font-medium text-muted-foreground">Username</label>
         <div className="relative">
           <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type="text"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            placeholder="your_username"
-            autoComplete="username"
-            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors"
-          />
+          <input type="text" value={username} onChange={e => setUsername(e.target.value)}
+            placeholder="your_username" autoComplete="username"
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
         </div>
       </div>
-
       <div className="space-y-2">
-        <label className="text-sm font-medium text-muted-foreground">Password</label>
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-muted-foreground">Password</label>
+          <button type="button" onClick={onReset} className="text-xs text-primary hover:underline">Forgot password?</button>
+        </div>
         <div className="relative">
           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type={showPw ? 'text' : 'password'}
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="••••••••"
-            autoComplete="current-password"
-            className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors"
-          />
+          <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+            placeholder="••••••••" autoComplete="current-password"
+            className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
           <button type="button" onClick={() => setShowPw(v => !v)}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
             {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
-
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60"
-      >
+      {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+      <button type="submit" disabled={loading}
+        className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {loading ? 'Signing in…' : 'Sign In'}
       </button>
@@ -134,82 +120,47 @@ const RegisterForm = ({ onSuccess }: { onSuccess: () => void }) => {
         <label className="text-sm font-medium text-muted-foreground">Username <span className="text-destructive">*</span></label>
         <div className="relative">
           <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type="text"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            placeholder="choose_a_username"
-            autoComplete="username"
-            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors"
-          />
+          <input type="text" value={username} onChange={e => setUsername(e.target.value)}
+            placeholder="choose_a_username" autoComplete="username"
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
         </div>
         <p className="text-xs text-muted-foreground">3–20 characters, letters/numbers/underscores</p>
       </div>
-
       <div className="space-y-2">
         <label className="text-sm font-medium text-muted-foreground">Email <span className="text-muted-foreground/50">(optional)</span></label>
         <div className="relative">
           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            autoComplete="email"
-            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors"
-          />
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+            placeholder="you@example.com" autoComplete="email"
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
         </div>
       </div>
-
       <div className="space-y-2">
         <label className="text-sm font-medium text-muted-foreground">Password <span className="text-destructive">*</span></label>
         <div className="relative">
           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type={showPw ? 'text' : 'password'}
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="••••••••"
-            autoComplete="new-password"
-            className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors"
-          />
+          <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+            placeholder="••••••••" autoComplete="new-password"
+            className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
           <button type="button" onClick={() => setShowPw(v => !v)}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
             {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
       </div>
-
       <div className="space-y-2">
         <label className="text-sm font-medium text-muted-foreground">Confirm Password <span className="text-destructive">*</span></label>
         <div className="relative">
           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type={showPw ? 'text' : 'password'}
-            value={confirm}
-            onChange={e => setConfirm(e.target.value)}
-            placeholder="••••••••"
-            autoComplete="new-password"
-            className={cn(
-              "w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border focus:outline-none text-sm transition-colors",
-              confirm && password !== confirm ? 'border-destructive focus:border-destructive' : 'border-border focus:border-primary'
-            )}
-          />
+          <input type={showPw ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)}
+            placeholder="••••••••" autoComplete="new-password"
+            className={cn("w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border focus:outline-none text-sm transition-colors",
+              confirm && password !== confirm ? 'border-destructive focus:border-destructive' : 'border-border focus:border-primary')} />
         </div>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
-
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60"
-      >
+      {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+      <button type="submit" disabled={loading}
+        className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {loading ? 'Creating account…' : 'Create Account'}
       </button>
@@ -224,12 +175,10 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
   const hasEthereum = typeof window !== 'undefined' && !!(window as any).ethereum;
 
   const handleConnect = async () => {
-    setError('');
-    setLoading(true);
+    setError(''); setLoading(true);
     try {
       const eth = (window as any).ethereum;
       if (!eth) throw new Error('No Web3 wallet detected. Install MetaMask or another wallet.');
@@ -237,74 +186,55 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
       if (!accounts[0]) throw new Error('No account selected');
       const addr = accounts[0].toLowerCase();
       setAddress(addr);
-
-      // Fetch nonce from server
       const res = await fetch(`/api/auth/nonce?address=${encodeURIComponent(addr)}`, { credentials: 'include' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to get nonce');
       setMessage(data.message);
       setStep('sign');
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
   };
 
   const handleSign = async () => {
-    setError('');
-    setLoading(true);
+    setError(''); setLoading(true);
     try {
       const eth = (window as any).ethereum;
-      const signature = await eth.request({
-        method: 'personal_sign',
-        params: [message, address],
-      });
+      const signature = await eth.request({ method: 'personal_sign', params: [message, address] });
       await api('/api/auth/web3', { address, signature });
       setStep('done');
       setTimeout(onSuccess, 800);
     } catch (err: any) {
       if (err.code === 4001) setError('Signature rejected. Please try again.');
       else setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  if (step === 'done') {
-    return (
-      <div className="flex flex-col items-center gap-3 py-6">
-        <CheckCircle2 className="h-12 w-12 text-green-400" />
-        <p className="font-semibold">Wallet verified!</p>
-        <p className="text-sm text-muted-foreground">Redirecting…</p>
-      </div>
-    );
-  }
+  if (step === 'done') return (
+    <div className="flex flex-col items-center gap-3 py-6">
+      <CheckCircle2 className="h-12 w-12 text-green-400" />
+      <p className="font-semibold">Wallet verified!</p>
+      <p className="text-sm text-muted-foreground">Redirecting…</p>
+    </div>
+  );
 
   return (
     <div className="space-y-4">
       {step === 'connect' && (
         <>
-          <p className="text-sm text-muted-foreground text-center">
-            Connect your Web3 wallet to sign in. No password needed.
-          </p>
+          <p className="text-sm text-muted-foreground text-center">Connect your Web3 wallet to sign in. No password needed.</p>
           {!hasEthereum && (
             <div className="flex items-start gap-2 text-amber-500 text-sm bg-amber-500/10 rounded-lg px-3 py-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              No wallet detected. Install <a href="https://metamask.io" target="_blank" rel="noopener noreferrer" className="underline ml-1">MetaMask</a> or another browser wallet.
+              No wallet detected. Install <a href="https://metamask.io" target="_blank" rel="noopener noreferrer" className="underline ml-1">MetaMask</a>.
             </div>
           )}
-          <button
-            onClick={handleConnect}
-            disabled={loading || !hasEthereum}
-            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60"
-          >
+          <button onClick={handleConnect} disabled={loading || !hasEthereum}
+            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
             {loading ? 'Connecting…' : 'Connect Wallet'}
           </button>
         </>
       )}
-
       {step === 'sign' && (
         <>
           <div className="p-3 rounded-lg bg-card border border-border">
@@ -315,14 +245,9 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
             <p className="text-xs text-muted-foreground mb-1">Message to sign</p>
             <p className="text-xs font-mono whitespace-pre-wrap break-all">{message}</p>
           </div>
-          <p className="text-xs text-muted-foreground text-center">
-            Sign this message in your wallet to verify ownership. No gas required.
-          </p>
-          <button
-            onClick={handleSign}
-            disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60"
-          >
+          <p className="text-xs text-muted-foreground text-center">Sign this message in your wallet to verify ownership. No gas required.</p>
+          <button onClick={handleSign} disabled={loading}
+            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
             {loading ? 'Waiting for signature…' : 'Sign & Verify'}
           </button>
@@ -332,12 +257,253 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
           </button>
         </>
       )}
+      {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+    </div>
+  );
+};
 
-      {error && (
-        <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
+// ── Password Reset form ───────────────────────────────────────────────────────
+const ResetForm = ({ onBack }: { onBack: () => void }) => {
+  const [step, setStep] = useState<'request' | 'confirm' | 'done'>('request');
+  const [username, setUsername] = useState('');
+  const [token, setToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [resetToken, setResetToken] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const handleRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    try {
+      const data = await api('/api/auth/reset-password/request', { username: username.trim().toLowerCase() });
+      if (data.token) {
+        setResetToken(data.token);
+      }
+      setStep('confirm');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (newPassword !== confirm) { setError('Passwords do not match'); return; }
+    if (newPassword.length < 6) { setError('Password must be at least 6 characters'); return; }
+    setLoading(true);
+    try {
+      await api('/api/auth/reset-password/confirm', { token: token || resetToken, newPassword });
+      setStep('done');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const copyToken = () => {
+    navigator.clipboard.writeText(resetToken).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  if (step === 'done') return (
+    <div className="flex flex-col items-center gap-3 py-4">
+      <CheckCircle2 className="h-12 w-12 text-green-400" />
+      <p className="font-semibold">Password updated!</p>
+      <p className="text-sm text-muted-foreground">You can now sign in with your new password.</p>
+      <button onClick={onBack} className="text-sm text-primary hover:underline mt-2">← Back to Sign In</button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/30">
+        <KeyRound className="h-5 w-5 text-primary shrink-0" />
+        <div>
+          <p className="text-sm font-medium">Password Reset</p>
+          <p className="text-xs text-muted-foreground">
+            {step === 'request' ? 'Enter your username to generate a reset token.' : 'Enter your reset token and new password.'}
+          </p>
         </div>
+      </div>
+
+      {step === 'request' && (
+        <form onSubmit={handleRequest} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-muted-foreground">Username</label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input type="text" value={username} onChange={e => setUsername(e.target.value)}
+                placeholder="your_username"
+                className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm" />
+            </div>
+          </div>
+          {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+          <button type="submit" disabled={loading}
+            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {loading ? 'Generating…' : 'Generate Reset Token'}
+          </button>
+          <button type="button" onClick={onBack} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+            ← Back to Sign In
+          </button>
+        </form>
+      )}
+
+      {step === 'confirm' && (
+        <form onSubmit={handleConfirm} className="space-y-4">
+          {resetToken && (
+            <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 space-y-2">
+              <p className="text-xs text-green-400 font-medium">Reset token generated — copy it now:</p>
+              <div className="flex items-center gap-2">
+                <code className="text-xs font-mono break-all flex-1 text-foreground">{resetToken.slice(0, 24)}…</code>
+                <button type="button" onClick={copyToken} className="shrink-0 p-1.5 rounded bg-green-500/20 hover:bg-green-500/30 transition-colors">
+                  {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5 text-green-400" />}
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">Token expires in 1 hour. In production, this is sent by email.</p>
+            </div>
+          )}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-muted-foreground">Reset Token</label>
+            <div className="relative">
+              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input type="text" value={token || resetToken} onChange={e => setToken(e.target.value)}
+                placeholder="Paste your reset token"
+                className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm font-mono" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-muted-foreground">New Password</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input type={showPw ? 'text' : 'password'} value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                placeholder="••••••••" autoComplete="new-password"
+                className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm" />
+              <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-muted-foreground">Confirm Password</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input type={showPw ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)}
+                placeholder="••••••••" autoComplete="new-password"
+                className={cn("w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border focus:outline-none text-sm",
+                  confirm && newPassword !== confirm ? 'border-destructive' : 'border-border focus:border-primary')} />
+            </div>
+          </div>
+          {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+          <button type="submit" disabled={loading}
+            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {loading ? 'Updating…' : 'Set New Password'}
+          </button>
+          <button type="button" onClick={() => setStep('request')} className="w-full text-xs text-muted-foreground hover:text-foreground">
+            ← Enter a different username
+          </button>
+        </form>
+      )}
+    </div>
+  );
+};
+
+// ── 2FA Setup form (for logged-in users — shown from profile) ─────────────────
+export const TotpSetup = ({ onDone }: { onDone?: () => void }) => {
+  const [step, setStep] = useState<'idle' | 'scan' | 'verify' | 'done'>('idle');
+  const [secret, setSecret] = useState('');
+  const [otpauth, setOtpauth] = useState('');
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const startSetup = async () => {
+    setError(''); setLoading(true);
+    try {
+      const data = await api('/api/auth/totp/setup');
+      setSecret(data.secret);
+      setOtpauth(data.otpauth);
+      setStep('scan');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const verifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    try {
+      await api('/api/auth/totp/verify', { code: code.trim() });
+      setStep('done');
+      onDone?.();
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  if (step === 'done') return (
+    <div className="flex flex-col items-center gap-3 py-4">
+      <CheckCircle2 className="h-10 w-10 text-green-400" />
+      <p className="font-semibold text-green-400">2FA Enabled!</p>
+      <p className="text-sm text-muted-foreground text-center">Your account is now protected with two-factor authentication.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {step === 'idle' && (
+        <>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/30">
+            <Smartphone className="h-5 w-5 text-primary shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Two-Factor Authentication</p>
+              <p className="text-xs text-muted-foreground">Use an authenticator app (Google Authenticator, Authy) for extra security.</p>
+            </div>
+          </div>
+          {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+          <button onClick={startSetup} disabled={loading}
+            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}
+            {loading ? 'Setting up…' : 'Set Up 2FA'}
+          </button>
+        </>
+      )}
+
+      {step === 'scan' && (
+        <>
+          <p className="text-sm text-muted-foreground">Scan this QR code with your authenticator app, or enter the secret manually:</p>
+          <div className="p-4 rounded-lg bg-white flex items-center justify-center">
+            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(otpauth)}`}
+              alt="TOTP QR Code" className="w-44 h-44 rounded" />
+          </div>
+          <div className="p-3 rounded-lg bg-secondary/30">
+            <p className="text-xs text-muted-foreground mb-1">Manual entry secret:</p>
+            <p className="font-mono text-sm break-all">{secret}</p>
+          </div>
+          <button onClick={() => setStep('verify')}
+            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors">
+            I've scanned it →
+          </button>
+        </>
+      )}
+
+      {step === 'verify' && (
+        <form onSubmit={verifyCode} className="space-y-4">
+          <p className="text-sm text-muted-foreground">Enter the 6-digit code from your authenticator app to confirm setup:</p>
+          <input type="text" inputMode="numeric" maxLength={6} value={code} onChange={e => setCode(e.target.value)}
+            placeholder="000000" autoComplete="one-time-code"
+            className="w-full text-center text-2xl tracking-widest font-mono py-3 rounded-lg bg-background border border-border focus:border-primary focus:outline-none" />
+          {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+          <button type="submit" disabled={loading || code.length < 6}
+            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {loading ? 'Verifying…' : 'Verify & Enable 2FA'}
+          </button>
+          <button type="button" onClick={() => setStep('scan')} className="w-full text-xs text-muted-foreground hover:text-foreground">
+            ← Back to QR code
+          </button>
+        </form>
       )}
     </div>
   );
@@ -348,14 +514,12 @@ const Auth = () => {
   const { user, refetch } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('login');
-  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     if (user) navigate('/');
   }, [user, navigate]);
 
   const handleSuccess = async () => {
-    setSuccess(true);
     await refetch();
     navigate('/');
   };
@@ -366,15 +530,18 @@ const Auth = () => {
     { id: 'web3',     label: 'Web3 Wallet' },
   ];
 
+  const footerText = {
+    login:    <><button onClick={() => setTab('register')} className="text-primary hover:underline">Create account</button> · <button onClick={() => setTab('web3')} className="text-primary hover:underline">Web3</button></>,
+    register: <><button onClick={() => setTab('login')} className="text-primary hover:underline">Sign in</button></>,
+    web3:     <><button onClick={() => setTab('login')} className="text-primary hover:underline">Use password</button></>,
+    reset:    null,
+    totp:     null,
+  };
+
   return (
     <div className="min-h-screen bg-background grid-pattern flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md"
-      >
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
         <div className="glass-card p-8 rounded-2xl border border-border/50">
-          {/* Header */}
           <div className="text-center mb-6">
             <div className="inline-flex p-3 rounded-xl bg-gradient-primary mb-4">
               <Cpu className="w-8 h-8 text-primary-foreground" />
@@ -383,52 +550,34 @@ const Auth = () => {
             <p className="text-muted-foreground text-sm mt-1">GYDS Blockchain Network</p>
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-1 p-1 rounded-lg bg-muted/50 mb-6">
-            {tabs.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={cn(
-                  'flex-1 py-1.5 rounded-md text-sm font-medium transition-all',
-                  tab === t.id
-                    ? 'bg-card text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+          {tab !== 'reset' && tab !== 'totp' && (
+            <div className="flex gap-1 p-1 rounded-lg bg-muted/50 mb-6">
+              {tabs.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className={cn('flex-1 py-1.5 rounded-md text-sm font-medium transition-all',
+                    tab === t.id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
 
-          {/* Tab content */}
           <AnimatePresence mode="wait">
-            <motion.div
-              key={tab}
-              initial={{ opacity: 0, x: 8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -8 }}
-              transition={{ duration: 0.15 }}
-            >
-              {tab === 'login'    && <LoginForm    onSuccess={handleSuccess} />}
+            <motion.div key={tab} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.15 }}>
+              {tab === 'login'    && <LoginForm    onSuccess={handleSuccess} onReset={() => setTab('reset')} />}
               {tab === 'register' && <RegisterForm onSuccess={handleSuccess} />}
               {tab === 'web3'     && <Web3Form     onSuccess={handleSuccess} />}
+              {tab === 'reset'    && <ResetForm    onBack={() => setTab('login')} />}
             </motion.div>
           </AnimatePresence>
 
-          {/* Footer switch */}
-          <p className="text-center text-xs text-muted-foreground mt-5">
-            {tab === 'login' ? (
-              <>No account? <button onClick={() => setTab('register')} className="text-primary hover:underline">Register</button></>
-            ) : tab === 'register' ? (
-              <>Already have an account? <button onClick={() => setTab('login')} className="text-primary hover:underline">Sign in</button></>
-            ) : (
-              <>Prefer a password? <button onClick={() => setTab('login')} className="text-primary hover:underline">Sign in</button></>
-            )}
-          </p>
+          {footerText[tab] && (
+            <p className="text-center text-xs text-muted-foreground mt-5">
+              {footerText[tab]}
+            </p>
+          )}
         </div>
       </motion.div>
-
       <div className="fixed inset-0 pointer-events-none scanning-line opacity-30" />
     </div>
   );

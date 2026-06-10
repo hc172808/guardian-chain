@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -38,6 +38,57 @@ export const MobileBackButton = () => {
     </button>
   );
 };
+
+// ── Pull-to-refresh hook ──────────────────────────────────────────────────────
+const PULL_THRESHOLD = 72; // px to trigger refresh
+
+function usePullToRefresh(onRefresh: () => Promise<void>) {
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const startYRef = useRef(0);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onTouchStart = useCallback((e: TouchEvent) => {
+    const el = scrollRef.current;
+    if (!el || el.scrollTop > 0) return;
+    startYRef.current = e.touches[0].clientY;
+  }, []);
+
+  const onTouchMove = useCallback((e: TouchEvent) => {
+    const el = scrollRef.current;
+    if (!el || el.scrollTop > 0 || refreshing) return;
+    const delta = e.touches[0].clientY - startYRef.current;
+    if (delta > 0) {
+      e.preventDefault();
+      setPullDistance(Math.min(delta * 0.45, PULL_THRESHOLD + 24));
+    }
+  }, [refreshing]);
+
+  const onTouchEnd = useCallback(async () => {
+    if (pullDistance >= PULL_THRESHOLD && !refreshing) {
+      setRefreshing(true);
+      setPullDistance(0);
+      try { await onRefresh(); } finally { setRefreshing(false); }
+    } else {
+      setPullDistance(0);
+    }
+  }, [pullDistance, refreshing, onRefresh]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [onTouchStart, onTouchMove, onTouchEnd]);
+
+  return { scrollRef, pullDistance, refreshing };
+}
 
 // ── Status Bar ────────────────────────────────────────────────────────────────
 const StatusBar = () => {
@@ -635,12 +686,25 @@ const titles: Record<Tab, string> = {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const MobilePage = () => {
   const [tab, setTab] = useState<Tab>('home');
+  const [refreshKey, setRefreshKey] = useState(0);
   const { user } = useAuth();
   const go = useMobileNavigate();
 
   useEffect(() => {
     sessionStorage.removeItem('fromMobileHub');
   }, []);
+
+  const handleRefresh = useCallback(async () => {
+    // Simulate async data refresh — bump key to remount active tab
+    await new Promise<void>(res => setTimeout(res, 800));
+    setRefreshKey(k => k + 1);
+  }, []);
+
+  const { scrollRef, pullDistance, refreshing } = usePullToRefresh(handleRefresh);
+
+  const clampedPull = Math.min(pullDistance, PULL_THRESHOLD + 24);
+  const showPullIndicator = clampedPull > 8 || refreshing;
+  const pullProgress = Math.min(clampedPull / PULL_THRESHOLD, 1);
 
   return (
     <div className="min-h-screen max-w-md mx-auto bg-background flex flex-col relative overflow-hidden">
@@ -674,11 +738,36 @@ const MobilePage = () => {
         </div>
       </header>
 
+      {/* Pull-to-refresh indicator */}
+      <AnimatePresence>
+        {showPullIndicator && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: refreshing ? 44 : Math.max(clampedPull * 0.5, 8) }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-center justify-center overflow-hidden bg-primary/5"
+          >
+            <RefreshCw
+              className={cn('h-5 w-5 text-primary transition-transform', refreshing && 'animate-spin')}
+              style={!refreshing ? { transform: `rotate(${pullProgress * 270}deg)` } : undefined}
+            />
+            <span className="text-xs text-primary font-medium ml-2">
+              {refreshing ? 'Refreshing…' : pullProgress >= 1 ? 'Release to refresh' : 'Pull to refresh'}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Scrollable content */}
-      <main className="flex-1 overflow-y-auto px-4 pt-4 pb-28 scrollbar-none">
+      <main
+        ref={el => { scrollRef.current = el; }}
+        className="flex-1 overflow-y-auto px-4 pt-4 pb-28 scrollbar-none"
+        style={{ transform: clampedPull > 0 ? `translateY(${clampedPull * 0.3}px)` : undefined, transition: clampedPull === 0 ? 'transform 0.25s ease' : undefined }}
+      >
         <AnimatePresence mode="wait">
           <motion.div
-            key={tab}
+            key={`${tab}-${refreshKey}`}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}

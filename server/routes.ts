@@ -462,6 +462,30 @@ export function registerRoutes(app: Express) {
     res.json(row);
   });
 
+  // ── Admin: All Users ───────────────────────────────────────────────────────
+  app.get("/api/admin/users", requireAdmin, async (_req, res) => {
+    const users = await storage.getAllUsersWithRoles();
+    res.json(users);
+  });
+
+  app.patch("/api/admin/users/:id/role", requireAdmin, async (req, res) => {
+    const actor = req.user as any;
+    const { role } = req.body;
+    if (!["user", "admin", "founder"].includes(role)) return res.status(400).json({ error: "Invalid role" });
+    if (!actor._isFounder && role === "founder") return res.status(403).json({ error: "Only founders can grant founder role" });
+    await storage.setUserRole(req.params.id, role);
+    await storage.insertAuditLog({ userId: actor.id, userEmail: actor.email, action: "set_user_role", category: "admin", targetType: "user", targetId: req.params.id, details: { role }, ipAddress: req.ip ?? null });
+    res.json({ ok: true });
+  });
+
+  app.patch("/api/admin/users/:id/ban", requireAdmin, async (req, res) => {
+    const actor = req.user as any;
+    const { banned } = req.body;
+    await storage.setBanStatus(req.params.id, !!banned);
+    await storage.insertAuditLog({ userId: actor.id, userEmail: actor.email, action: banned ? "ban_user" : "unban_user", category: "admin", targetType: "user", targetId: req.params.id, details: { banned }, ipAddress: req.ip ?? null });
+    res.json({ ok: true });
+  });
+
   // ── Git sync (admin — trigger a git pull on the deployed server) ────────────
   app.post("/api/admin/git-pull", requireAdmin, async (req, res) => {
     const user = req.user as any;

@@ -2,3 +2,5 @@
 - [New pages wired](new-pages.md) — 9 new pages added (governance, nft, analytics, community, developer, leaderboard, multisig, identity, rwa); Sidebar has collapsible Core/Ecosystem/Resources sections.
 - [DeFi tabs](defi-tabs.md) — DeFi page has 8 tabs: swap, pools, stake, orderbook, vaults, bridge, launchpad, portfolio. DeFiBottomNav updated to match.
 - [Notification bell](notification-bell.md) — NotificationBell lives in Layout.tsx header (desktop only); reads from demo data; wired to user_notifications table pattern.
+- [TOTP implementation](totp-impl.md) — otplib v12 dropped the `authenticator` export; use server/totp.ts (built-in crypto, zero-dep RFC 6238 TOTP) instead.
+- [Admin camelCase](admin-camelcase.md) — Drizzle returns camelCase; NodeInstallation interface and nodes tab now use nodeType, isApproved, isSynced, wireguardPublicKey, createdAt.

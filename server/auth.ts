@@ -5,6 +5,7 @@ import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import { ethers } from "ethers";
+import { totp } from "./totp";
 import { pool } from "./db";
 import { storage } from "./storage";
 
@@ -135,6 +136,115 @@ export async function setupAuth(app: Express): Promise<void> {
     } catch (err: any) {
       console.error("Web3 auth error:", err.message);
       res.status(500).json({ error: "Web3 authentication failed" });
+    }
+  });
+
+  // ── Change password (authenticated) ───────────────────────────────────────
+  app.post("/api/auth/change-password", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const user = req.user as any;
+    const { currentPassword, newPassword } = req.body ?? {};
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: "currentPassword and newPassword required" });
+    if (String(newPassword).length < 6) return res.status(400).json({ error: "New password must be at least 6 characters" });
+    try {
+      const dbUser = await storage.getUser(user.id);
+      if (!dbUser?.passwordHash) return res.status(400).json({ error: "Account has no password set" });
+      const ok = await bcrypt.compare(currentPassword, dbUser.passwordHash);
+      if (!ok) return res.status(401).json({ error: "Current password is incorrect" });
+      const hash = await bcrypt.hash(newPassword, 12);
+      await storage.updateUserPassword(user.id, hash);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Password reset: request token ─────────────────────────────────────────
+  app.post("/api/auth/reset-password/request", async (req, res) => {
+    try {
+      const { username } = req.body ?? {};
+      if (!username) return res.status(400).json({ error: "username required" });
+      const user = await storage.getUserByUsername(String(username).trim().toLowerCase());
+      // Always return ok (don't leak whether username exists)
+      if (!user) return res.json({ ok: true, message: "If that account exists, a reset token has been generated." });
+      const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      await storage.createPasswordResetToken(user.id, token, expiresAt);
+      // In production: send email. For now, return token directly (founder/dev use).
+      res.json({ ok: true, token, message: "Reset token generated. Use it within 1 hour.", expiresAt });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Password reset: confirm with token ────────────────────────────────────
+  app.post("/api/auth/reset-password/confirm", async (req, res) => {
+    try {
+      const { token, newPassword } = req.body ?? {};
+      if (!token || !newPassword) return res.status(400).json({ error: "token and newPassword required" });
+      if (String(newPassword).length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+      const row = await storage.getPasswordResetToken(String(token));
+      if (!row) return res.status(400).json({ error: "Invalid or expired token" });
+      if (row.usedAt) return res.status(400).json({ error: "Token already used" });
+      if (new Date(row.expiresAt) < new Date()) return res.status(400).json({ error: "Token expired" });
+      const hash = await bcrypt.hash(newPassword, 12);
+      await storage.updateUserPassword(row.userId, hash);
+      await storage.markPasswordResetTokenUsed(String(token));
+      res.json({ ok: true, message: "Password updated successfully" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── TOTP: setup (generate secret + QR URI) ────────────────────────────────
+  app.post("/api/auth/totp/setup", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const user = req.user as any;
+    try {
+      const secret = totp.generateSecret();
+      await storage.setTotpSecret(user.id, secret);
+      const label = user.username ?? user.email ?? user.id;
+      const otpauth = totp.keyuri(label, "GYDSchain", secret);
+      res.json({ ok: true, secret, otpauth });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── TOTP: verify and enable ────────────────────────────────────────────────
+  app.post("/api/auth/totp/verify", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const user = req.user as any;
+    const { code } = req.body ?? {};
+    if (!code) return res.status(400).json({ error: "code required" });
+    try {
+      const totpData = await storage.getUserTotp(user.id);
+      if (!totpData?.totpSecret) return res.status(400).json({ error: "TOTP not set up yet" });
+      const valid = totp.verify({ token: String(code), secret: totpData.totpSecret });
+      if (!valid) return res.status(401).json({ error: "Invalid code" });
+      await storage.enableTotp(user.id);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── TOTP: disable ─────────────────────────────────────────────────────────
+  app.delete("/api/auth/totp", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const user = req.user as any;
+    const { code } = req.body ?? {};
+    try {
+      const totpData = await storage.getUserTotp(user.id);
+      if (totpData?.totpEnabled && totpData?.totpSecret) {
+        if (!code) return res.status(400).json({ error: "code required to disable 2FA" });
+        const valid = totp.verify({ token: String(code), secret: totpData.totpSecret });
+        if (!valid) return res.status(401).json({ error: "Invalid code" });
+      }
+      await storage.disableTotp(user.id);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

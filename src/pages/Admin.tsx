@@ -45,6 +45,7 @@ import { ComponentVisibility } from '@/components/admin/ComponentVisibility';
 import { MainnetPromotion } from '@/components/admin/MainnetPromotion';
 import { MiningPoolAdmin } from '@/components/admin/MiningPoolAdmin';
 import { NodeVisibilitySettings } from '@/components/admin/NodeVisibilitySettings';
+import { UserManager } from '@/components/admin/UserManager';
 import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe, Wrench, Link2, Search as SearchIcon } from 'lucide-react';
 import { MaintenanceManager } from '@/components/admin/MaintenanceManager';
 import { BridgeNetworkManager } from '@/components/admin/BridgeNetworkManager';
@@ -133,12 +134,12 @@ interface UserProfile {
 
 interface NodeInstallation {
   id: string;
-  user_id: string;
-  node_type: string;
-  wireguard_public_key: string | null;
-  is_synced: boolean;
-  is_approved: boolean;
-  created_at: string;
+  userId: string;
+  nodeType: string;
+  wireguardPublicKey: string | null;
+  isSynced: boolean;
+  isApproved: boolean;
+  createdAt: string;
   profiles?: { email: string | null };
 }
 
@@ -146,7 +147,6 @@ const AdminContent = () => {
   const { user, isFounder, isAdmin } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [users, setUsers] = useState<UserProfile[]>([]);
   const [nodes, setNodes] = useState<NodeInstallation[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -161,11 +161,7 @@ const AdminContent = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [usersRes, nodesRes] = await Promise.all([
-        fetch('/api/profile').then(r => r.ok ? r.json() : null),
-        fetch('/api/nodes').then(r => r.ok ? r.json() : []),
-      ]);
-      if (usersRes) setUsers(Array.isArray(usersRes) ? usersRes : [usersRes]);
+      const nodesRes = await fetch('/api/nodes', { credentials: 'include' }).then(r => r.ok ? r.json() : []);
       if (nodesRes) setNodes(Array.isArray(nodesRes) ? nodesRes : []);
     } catch (e) {
       toast({ title: 'Failed to load admin data', variant: 'destructive' });
@@ -223,20 +219,20 @@ const AdminContent = () => {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <GlassCard className="p-4 text-center">
-          <p className="text-2xl font-bold">{users.length}</p>
-          <p className="text-sm text-muted-foreground">Total Users</p>
-        </GlassCard>
-        <GlassCard className="p-4 text-center">
-          <p className="text-2xl font-bold">{nodes.filter(n => n.node_type === 'litenode').length}</p>
+          <p className="text-2xl font-bold">{nodes.filter(n => n.nodeType === 'litenode').length}</p>
           <p className="text-sm text-muted-foreground">Lite Nodes</p>
         </GlassCard>
         <GlassCard className="p-4 text-center">
-          <p className="text-2xl font-bold">{nodes.filter(n => n.node_type === 'fullnode').length}</p>
+          <p className="text-2xl font-bold">{nodes.filter(n => n.nodeType === 'fullnode').length}</p>
           <p className="text-sm text-muted-foreground">Full Nodes</p>
         </GlassCard>
         <GlassCard className="p-4 text-center">
-          <p className="text-2xl font-bold">{nodes.filter(n => !n.is_approved).length}</p>
+          <p className="text-2xl font-bold">{nodes.filter(n => !n.isApproved).length}</p>
           <p className="text-sm text-muted-foreground">Pending Approval</p>
+        </GlassCard>
+        <GlassCard className="p-4 text-center">
+          <p className="text-2xl font-bold">{nodes.filter(n => n.isApproved).length}</p>
+          <p className="text-sm text-muted-foreground">Approved</p>
         </GlassCard>
       </div>
 
@@ -438,46 +434,46 @@ const AdminContent = () => {
             </GlassCard>
           ) : (
             nodes.map((node) => (
-              <GlassCard key={node.id} className={`p-4 ${!node.is_approved ? 'border-yellow-500/30' : ''}`}>
+              <GlassCard key={node.id} className={`p-4 ${!node.isApproved ? 'border-yellow-500/30' : ''}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-lg ${node.node_type === 'fullnode' ? 'bg-yellow-500/20' : 'bg-primary/20'}`}>
-                      <Server className={`h-5 w-5 ${node.node_type === 'fullnode' ? 'text-yellow-500' : 'text-primary'}`} />
+                    <div className={`p-3 rounded-lg ${node.nodeType === 'fullnode' ? 'bg-yellow-500/20' : 'bg-primary/20'}`}>
+                      <Server className={`h-5 w-5 ${node.nodeType === 'fullnode' ? 'text-yellow-500' : 'text-primary'}`} />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{node.node_type === 'fullnode' ? 'Full Node' : 'Lite Node'}</p>
-                        {node.is_approved ? (
-                          <Badge variant="outline" className="text-neon-emerald border-neon-emerald">Approved</Badge>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium capitalize">{node.nodeType.replace('node', ' Node')}</p>
+                        {node.isApproved ? (
+                          <Badge variant="outline" className="text-green-400 border-green-400">Approved</Badge>
                         ) : (
                           <Badge variant="outline" className="text-yellow-500 border-yellow-500">Pending</Badge>
                         )}
-                        {node.is_synced && (
+                        {node.isSynced && (
                           <Badge variant="outline" className="text-primary border-primary">Synced</Badge>
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        User: {node.profiles?.email || 'Unknown'}
+                        User: {node.profiles?.email || node.userId?.slice(0, 12) || 'Unknown'}
                       </p>
-                      {node.wireguard_public_key && (
+                      {node.wireguardPublicKey && (
                         <div className="flex items-center gap-2 mt-1">
                           <Key className="h-3 w-3 text-muted-foreground" />
                           <code className="text-xs bg-background/50 px-2 py-0.5 rounded">
-                            {node.wireguard_public_key.substring(0, 20)}...
+                            {node.wireguardPublicKey.substring(0, 20)}...
                           </code>
-                          <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => copyToClipboard(node.wireguard_public_key!)}>
+                          <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => copyToClipboard(node.wireguardPublicKey!)}>
                             <Copy className="h-3 w-3" />
                           </Button>
                         </div>
                       )}
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                         <Clock className="h-3 w-3" />
-                        {new Date(node.created_at).toLocaleString()}
+                        {new Date(node.createdAt).toLocaleString()}
                       </p>
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    {!node.is_approved && (
+                    {!node.isApproved && (
                       <>
                         <Button size="sm" onClick={() => handleApproveNode(node.id, true)} className="gap-1">
                           <Check className="h-4 w-4" />
@@ -489,7 +485,7 @@ const AdminContent = () => {
                         </Button>
                       </>
                     )}
-                    {node.is_approved && (
+                    {node.isApproved && (
                       <Button size="sm" variant="outline" onClick={() => handleApproveNode(node.id, false)}>
                         Revoke
                       </Button>
@@ -501,42 +497,8 @@ const AdminContent = () => {
           )}
         </TabsContent>
 
-        <TabsContent value="users" className="space-y-4">
-          {loading ? (
-            <GlassCard className="p-6 text-center">Loading...</GlassCard>
-          ) : users.length === 0 ? (
-            <GlassCard className="p-12 text-center">
-              <Users className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">No users yet</p>
-            </GlassCard>
-          ) : (
-            users.map((profile) => (
-              <GlassCard key={profile.id} className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-lg bg-primary/20">
-                      <Users className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{profile.email || 'No email'}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline" className={
-                          profile.role === 'founder' ? 'text-yellow-500 border-yellow-500' :
-                          profile.role === 'admin' ? 'text-primary border-primary' :
-                          'text-muted-foreground border-muted-foreground'
-                        }>
-                          {profile.role}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          Joined {new Date(profile.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </GlassCard>
-            ))
-          )}
+        <TabsContent value="users">
+          <UserManager />
         </TabsContent>
       </Tabs>
     </motion.div>

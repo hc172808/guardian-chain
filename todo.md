@@ -96,14 +96,15 @@
 ## 🔧 In Progress
 
 ### Dashboard — Auth & Users
-- [ ] Password reset via email
+- [x] Password reset via token (request + confirm routes)
+- [x] 2FA / TOTP (setup, verify, disable — RFC 6238, built-in crypto)
+- [x] Admin → Users tab: full UserManager — all profiles, search, role selector, ban/unban, stats
+- [x] Admin → Nodes: fixed camelCase/snake_case mapping (nodeType, isApproved, isSynced, wireguardPublicKey, etc.)
 - [ ] Email verification on register
-- [ ] 2FA / TOTP
-- [ ] Admin → Users tab: show all profiles (currently only current user)
-- [ ] Admin → Nodes: fix camelCase/snake_case mapping
+- [ ] Email delivery for password reset tokens (currently returns token in API response)
 
 ### Mobile App
-- [ ] Pull-to-refresh
+- [x] Pull-to-refresh (touch gesture, progress indicator, 72px threshold, remounts active tab)
 - [ ] QR code scanner
 - [ ] Biometric unlock
 - [ ] Push notifications (web push)
@@ -111,11 +112,12 @@
 - [ ] Offline mode / service worker
 
 ### GydsSwap Phase 2 — Tests
-- [ ] Hardhat project in contracts/ (Chain ID 13370)
-- [ ] Deploy scripts: scripts/deploy.ts
-- [ ] Unit tests: GydsSwapPair (mint, burn, swap, K invariant, fee math)
-- [ ] Unit tests: GydsSwapRouter (slippage, deadline, multi-hop)
-- [ ] Unit tests: GydsSwapFarm (stake, unstake, harvest, emergency withdraw)
+- [x] Hardhat project in contracts/ (Chain ID 13370, hardhat.config.ts, tsconfig.json, package.json)
+- [x] Deploy scripts: contracts/scripts/deploy.ts (WGYDS, Factory, Router, Farm)
+- [x] Unit tests: GydsSwapPair (mint, burn, swap, K invariant, fee math, sync)
+- [x] Unit tests: GydsSwapRouter (addLiquidity, removeLiquidity, swapExact, slippage, deadline, getAmountsOut)
+- [x] Unit tests: GydsSwapFarm (stake, unstake, harvest, emergency withdraw, multi-user split)
+- [x] MockERC20.sol test helper contract
 - [ ] Update INIT_CODE_HASH after pair deploy
 
 ### ChainCore Pages — Wire to Real Data
