@@ -58,11 +58,11 @@
 
 ### Deploy Scripts
 - [x] `deploy-dashboard.sh` — PM2 for API, nginx proxies /api → :5001, git auto-pull cron
-- [x] `install-fullnode.sh` → github.com/hc172808/fullnode.git
-- [x] `install-litenode.sh` → github.com/hc172808/fullnode.git
-- [x] `install-boostnode.sh` → github.com/hc172808/fullnode.git
-- [x] `install-rpcnode.sh` → github.com/hc172808/fullnode.git
-- [x] `install-genesis.sh` → github.com/hc172808/fullnode.git
+- [x] `install-fullnode.sh` → github.com/hc172808/fullnode.git — builds `gyds-fullnode`, env vars GYDS_*, `gyds-fullnode start`
+- [x] `install-litenode.sh` → github.com/hc172808/fullnode.git — user-mode, GYDS_NODE_MODE=lite, user systemd service
+- [x] `install-boostnode.sh` → github.com/hc172808/fullnode.git — GYDS_NODE_MODE=boost, port 8547/30304
+- [x] `install-rpcnode.sh` → github.com/hc172808/fullnode.git — GYDS_NODE_MODE=rpc, nginx TLS proxy
+- [x] `install-genesis.sh` → github.com/hc172808/fullnode.git — GYDS_NODE_MODE=full, genesis.json seeded from Go core, founder key in keystore/
 
 ### Portainer Stacks — Dashboard
 - [x] `portainer-dashboard.yml` — PostgreSQL + Express API + Nginx + auto-pull cron
@@ -122,11 +122,14 @@
 
 ### ChainCore Pages — Wire to Real Data
 - [x] Explorer: DB transaction fallback when WebSocket offline; network stats from /api/network-stats shown in stat cards and side panel; "DB Mode" status indicator
+- [x] Explorer: `networkStats` from /api/network-stats powers stat cards (Validators, Total Txs, Tokens, Live Nodes); side panel always visible when data loads
 - [x] Wallet: GYDS on-chain balance via useRpcBalance hook (all wallet addresses queried against ALL_RPC_ENDPOINTS, displayed with refresh button + RPC offline indicator)
+- [x] Dashboard Index: block time shows 5s (matches Go consensus engine — pos.go blockTime = 5*time.Second)
+- [x] Download page: respects node visibility settings from /api/node-visibility — litenode/rpcnode/boostnode/fullnode/genesis/bootnode each shown only when admin enables them and user has required role
+- [x] Download page: Quick Stats binary name corrected to `gyds-fullnode`; litenode install command uses correct env var `GYDS_BOOTSTRAP_NODES`; NodeInstaller.tsx repo URLs all point to github.com/hc172808/fullnode.git
 - [ ] DeFi: all 8 tabs working end-to-end
 - [ ] Token Launchpad: test token creation flow
 - [ ] Faucet: test claim → cooldown → re-claim
-- [x] Download page: respects node visibility settings from /api/node-visibility — litenode/rpcnode/boostnode/fullnode/genesis/bootnode each shown only when admin enables them and user has required role
 
 ---
 

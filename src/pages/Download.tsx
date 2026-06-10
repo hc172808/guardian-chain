@@ -86,7 +86,7 @@ const DownloadPage = () => {
     downloadAndInstall('fullnode');
   };
 
-  const liteNodeCommand = `curl -sSL https://netlifegy.com/install-litenode.sh | RPC_ENDPOINTS="${rpcEndpoint}" STORAGE_SIZE=${storageSize} ENABLE_MINING=${enableMining} bash`;
+  const liteNodeCommand = `curl -sSL https://netlifegy.com/install-litenode.sh | GYDS_BOOTSTRAP_NODES="${rpcEndpoint}" bash`;
   const fullNodeCommand = `curl -sSL https://netlifegy.com/install-fullnode.sh | sudo bash`;
 
   return (
@@ -108,8 +108,8 @@ const DownloadPage = () => {
             { label: 'Block Time', value: '5s' },
             { label: 'Chain ID', value: '13370' },
             { label: 'Consensus', value: 'PoS' },
-            { label: 'Node Binary', value: 'gydsd' },
-            { label: 'CLI Tool', value: 'gydsctl' },
+            { label: 'Node Binary', value: 'gyds-fullnode' },
+            { label: 'Node Mode', value: 'GYDS_NODE_MODE' },
           ].map((s, i) => (
             <GlassCard key={i} className="p-3 text-center">
               <p className="text-lg font-bold text-primary">{s.value}</p>

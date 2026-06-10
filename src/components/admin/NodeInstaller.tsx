@@ -49,7 +49,7 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Globe,
     ports: '8545, 8546, 8080',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/rpcnode.git',
+    repo: 'https://github.com/hc172808/fullnode.git',
     portainerStack: 'portainer-rpcnode.yml',
   },
   {
@@ -59,7 +59,7 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Server,
     ports: '3030 (api)',
     needsRoot: false,
-    repo: 'https://github.com/hc172808/litenode.git',
+    repo: 'https://github.com/hc172808/fullnode.git',
     portainerStack: 'portainer-litenode.yml',
   },
   {
@@ -69,7 +69,7 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Zap,
     ports: '8547, 30304',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/boostnode.git',
+    repo: 'https://github.com/hc172808/fullnode.git',
     portainerStack: 'portainer-boostnode.yml',
   },
   {
@@ -79,7 +79,7 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Smartphone,
     ports: 'n/a',
     needsRoot: false,
-    repo: 'https://github.com/hc172808/litenode.git',
+    repo: 'https://github.com/hc172808/fullnode.git',
     portainerStack: '',
   },
 ];
