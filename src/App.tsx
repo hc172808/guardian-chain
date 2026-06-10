@@ -49,9 +49,19 @@ const MobileRedirect = () => {
   const navigate = useNavigate();
   const location = useLocation();
   useEffect(() => {
-    const EXEMPT = ['/mobile', '/auth', '/reset-password'];
+    // When the user arrives back at /mobile, reset the navigation flag
+    if (location.pathname === '/mobile') {
+      sessionStorage.removeItem('fromMobileHub');
+      return;
+    }
+
+    const EXEMPT = ['/auth', '/reset-password'];
     const preferDesktop = sessionStorage.getItem('preferDesktop') === 'true';
     if (preferDesktop) return;
+
+    // If the user explicitly navigated here from the mobile hub, let them through
+    if (sessionStorage.getItem('fromMobileHub') === 'true') return;
+
     const isMobileDevice = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)
       || window.innerWidth < 768;
     if (isMobileDevice && !EXEMPT.includes(location.pathname)) {

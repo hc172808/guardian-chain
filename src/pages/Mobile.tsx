@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -7,15 +7,40 @@ import {
   Send, Download, RefreshCw, TrendingUp, Zap, Shield,
   Blocks, Pickaxe, Coins, Vote, Trophy, Droplets,
   Bell, Settings, LogIn, ChevronRight, Activity,
-  ArrowUp, ArrowDown, MonitorSmartphone, Globe
+  ArrowUp, ArrowDown, MonitorSmartphone, Globe, ArrowLeft
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Tab = 'home' | 'explorer' | 'defi' | 'wallet' | 'more';
 
+/** Set the flag so MobileRedirect allows the navigation, then navigate */
+function useMobileNavigate() {
+  const navigate = useNavigate();
+  return (path: string, options?: Parameters<typeof navigate>[1]) => {
+    sessionStorage.setItem('fromMobileHub', 'true');
+    navigate(path, options as any);
+  };
+}
+
+// ── Back button shown on pages reached from mobile hub ──────────────────────
+export const MobileBackButton = () => {
+  const navigate = useNavigate();
+  const fromMobile = sessionStorage.getItem('fromMobileHub') === 'true';
+  if (!fromMobile) return null;
+  return (
+    <button
+      onClick={() => { sessionStorage.removeItem('fromMobileHub'); navigate('/mobile'); }}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border text-sm font-medium hover:border-primary/40 transition-all mb-4"
+    >
+      <ArrowLeft className="h-4 w-4" />
+      Back to Mobile
+    </button>
+  );
+};
+
 const MobileHome = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
+  const go = useMobileNavigate();
 
   const quickActions = [
     { icon: Send,          label: 'Send',    color: 'text-blue-400',   bg: 'bg-blue-400/10',   path: '/wallet',  state: undefined },
@@ -67,7 +92,7 @@ const MobileHome = () => {
           {quickActions.map(action => (
             <button
               key={action.label}
-              onClick={() => navigate(action.path, action.state ? { state: action.state } : undefined)}
+              onClick={() => go(action.path, action.state ? { state: action.state } : undefined)}
               className="flex flex-col items-center gap-2 p-3 rounded-xl bg-card border border-border hover:border-primary/40 transition-all active:scale-95"
             >
               <div className={cn('p-2.5 rounded-xl', action.bg)}>
@@ -106,7 +131,7 @@ const MobileHome = () => {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Recent Activity</h3>
           <button
-            onClick={() => navigate('/transactions')}
+            onClick={() => go('/transactions')}
             className="text-xs text-primary font-medium"
           >
             See all
@@ -143,13 +168,13 @@ const MobileHome = () => {
 };
 
 const MobileExplorer = () => {
-  const navigate = useNavigate();
+  const go = useMobileNavigate();
   const [query, setQuery] = useState('');
 
   const handleSearch = () => {
     const q = query.trim();
     if (!q) return;
-    navigate(`/explorer?q=${encodeURIComponent(q)}`);
+    go(`/explorer?q=${encodeURIComponent(q)}`);
   };
 
   return (
@@ -173,16 +198,16 @@ const MobileExplorer = () => {
         </button>
       </div>
       {[
-        { label: 'Latest Blocks',  icon: Blocks,    path: '/explorer',      state: undefined },
-        { label: 'Transactions',   icon: Activity,  path: '/transactions',  state: undefined },
-        { label: 'Validators',     icon: Shield,    path: '/validators',    state: undefined },
-        { label: 'Mining',         icon: Pickaxe,   path: '/mining',        state: undefined },
-        { label: 'Token Factory',  icon: Coins,     path: '/tokens',        state: undefined },
-        { label: 'Analytics',      icon: TrendingUp,path: '/analytics',     state: undefined },
+        { label: 'Latest Blocks',  icon: Blocks,    path: '/explorer' },
+        { label: 'Transactions',   icon: Activity,  path: '/transactions' },
+        { label: 'Validators',     icon: Shield,    path: '/validators' },
+        { label: 'Mining',         icon: Pickaxe,   path: '/mining' },
+        { label: 'Token Factory',  icon: Coins,     path: '/tokens' },
+        { label: 'Analytics',      icon: TrendingUp,path: '/analytics' },
       ].map(item => (
         <button
           key={item.label}
-          onClick={() => navigate(item.path)}
+          onClick={() => go(item.path)}
           className="w-full flex items-center gap-4 p-4 rounded-xl bg-card border border-border hover:border-primary/40 transition-all text-left active:scale-[0.98]"
         >
           <div className="p-2.5 rounded-lg bg-primary/10">
@@ -197,7 +222,7 @@ const MobileExplorer = () => {
 };
 
 const MobileDefi = () => {
-  const navigate = useNavigate();
+  const go = useMobileNavigate();
 
   const items = [
     { label: 'Swap Tokens',       icon: ArrowLeftRight, desc: 'Instantly swap between GYDS and GYD',  tab: 'swap',       color: 'text-purple-400', bg: 'bg-purple-400/10' },
@@ -215,7 +240,7 @@ const MobileDefi = () => {
       {items.map(item => (
         <button
           key={item.label}
-          onClick={() => navigate('/defi', { state: { tab: item.tab } })}
+          onClick={() => go('/defi', { state: { tab: item.tab } })}
           className="w-full flex items-center gap-4 p-4 rounded-xl bg-card border border-border hover:border-primary/40 transition-all text-left active:scale-[0.98]"
         >
           <div className={cn('p-2.5 rounded-lg', item.bg)}>
@@ -233,7 +258,7 @@ const MobileDefi = () => {
 };
 
 const MobileWallet = () => {
-  const navigate = useNavigate();
+  const go = useMobileNavigate();
   return (
     <div className="space-y-4">
       <div className="p-5 rounded-2xl bg-gradient-to-br from-card to-secondary border border-border text-center">
@@ -242,7 +267,7 @@ const MobileWallet = () => {
         <p className="font-mono text-sm">Not connected</p>
       </div>
       <button
-        onClick={() => navigate('/wallet')}
+        onClick={() => go('/wallet')}
         className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm"
       >
         Open Full Wallet
@@ -253,7 +278,7 @@ const MobileWallet = () => {
         { label: 'Testnet Faucet',      icon: Droplets,    path: '/faucet' },
         { label: 'Network Config',      icon: Settings,    path: '/network' },
       ].map(item => (
-        <button key={item.label} onClick={() => navigate(item.path)}
+        <button key={item.label} onClick={() => go(item.path)}
           className="w-full flex items-center gap-4 p-4 rounded-xl bg-card border border-border text-left active:scale-[0.98] hover:border-primary/40 transition-all"
         >
           <div className="p-2.5 rounded-lg bg-primary/10">
@@ -268,11 +293,13 @@ const MobileWallet = () => {
 };
 
 const MobileMore = () => {
+  const go = useMobileNavigate();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
 
   const handleSwitchToDesktop = () => {
     sessionStorage.setItem('preferDesktop', 'true');
+    sessionStorage.removeItem('fromMobileHub');
     navigate('/', { replace: true });
   };
 
@@ -290,7 +317,7 @@ const MobileMore = () => {
         { label: 'Download',       icon: Download,    path: '/download' },
         { label: 'CLI Reference',  icon: RefreshCw,   path: '/cli' },
       ].map(item => (
-        <button key={item.label} onClick={() => navigate(item.path)}
+        <button key={item.label} onClick={() => go(item.path)}
           className="w-full flex items-center gap-4 p-4 rounded-xl bg-card border border-border text-left active:scale-[0.98] hover:border-primary/40 transition-all"
         >
           <div className="p-2.5 rounded-lg bg-primary/10">
@@ -318,7 +345,7 @@ const MobileMore = () => {
           </button>
         ) : (
           <button
-            onClick={() => navigate('/auth')}
+            onClick={() => go('/auth')}
             className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2"
           >
             <LogIn className="h-4 w-4" /> Sign In
@@ -339,6 +366,11 @@ const navTabs: { id: Tab; icon: any; label: string }[] = [
 
 const MobilePage = () => {
   const [tab, setTab] = useState<Tab>('home');
+
+  // Clear the mobile navigation flag whenever we return to the hub
+  useEffect(() => {
+    sessionStorage.removeItem('fromMobileHub');
+  }, []);
 
   const titles: Record<Tab, string> = {
     home:     'ChainCore',
