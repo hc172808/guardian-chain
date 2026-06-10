@@ -1,18 +1,42 @@
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║  GydsChain BOOST NODE — Portainer Stack                                  ║
-# ║  Chain ID: 13370 | github.com/hc172808/boostnode                         ║
-# ║  A high-performance relay/boost node                                     ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  GYDSchain BOOST NODE — Portainer Stack                                      ║
+# ║  Repo: https://github.com/hc172808/fullnode.git                              ║
+# ║  Chain ID: 13370 | High-performance relay + mining accelerator               ║
+# ║                                                                               ║
+# ║  SETUP:                                                                       ║
+# ║    1. wg genkey | tee /etc/gydschain/bn-privkey                              ║
+# ║       wg pubkey < /etc/gydschain/bn-privkey  (send pubkey to VPN admin)      ║
+# ║    2. Create /etc/gydschain/wg-boostnode.conf  (see WG template below)       ║
+# ║    3. Set env vars in Portainer → Stack → Environment                        ║
+# ║    4. Open port 30304 TCP+UDP on your firewall                               ║
+# ║    5. Deploy                                                                  ║
+# ║                                                                               ║
+# ║  WG CONFIG TEMPLATE (/etc/gydschain/wg-boostnode.conf):                      ║
+# ║    [Interface]                                                                ║
+# ║    PrivateKey = <your_private_key>                                            ║
+# ║    Address    = 10.0.0.4/32                                                  ║
+# ║    DNS        = 1.1.1.1                                                      ║
+# ║    MTU        = 1420                                                          ║
+# ║    [Peer]                                                                     ║
+# ║    PublicKey        = <vpn_server_pubkey>                                    ║
+# ║    Endpoint         = vpn.netlifegy.com:51820                                ║
+# ║    AllowedIPs       = 10.0.0.0/24                                            ║
+# ║    PersistentKeepalive = 25                                                  ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
 
 version: "3.8"
 
-# WG_CONF_PATH         WireGuard client config on host      default: /etc/gydschain/wg-boostnode.conf
-# GYDS_BOOST_PORT      API/relay port                       default: 8547
-# GYDS_P2P_PORT        P2P port                             default: 30304
-# GYDS_CHAIN_ID        Chain ID                             default: 13370
-# GYDS_RPC_PRIMARY     Primary upstream RPC                 default: https://rpc.netlifegy.com
-# GYDS_STORAGE_GB      Storage in GB                        default: 50
-# NODE_REPO            Source repo                          default: https://github.com/hc172808/boostnode.git
+# ENV VARS (set in Portainer → Stack → Environment tab)
+# NODE_REPO         Git repo URL                  default: https://github.com/hc172808/fullnode.git
+# GITHUB_TOKEN      GitHub PAT for private repo   default: (empty)
+# WG_CONF_PATH      WireGuard config on host       default: /etc/gydschain/wg-boostnode.conf
+# GYDS_RPC_URL      Upstream full node RPC        default: https://rpc.netlifegy.com
+# GYDS_P2P_PORT     P2P port (open on firewall)   default: 30304
+# GYDS_CHAIN_ID     Chain ID                      default: 13370
+# GYDS_STORAGE_GB   Storage GB                    default: 50
+# GYDS_BOOST_PEERS  Max peer connections          default: 100
+# GYDS_MINING       Enable mining (true/false)    default: true
+# GYDS_THREADS      Mining threads                default: 4
 
 services:
 
@@ -30,7 +54,6 @@ services:
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
     ports:
-      - "${GYDS_BOOST_PORT:-8547}:8547"
       - "${GYDS_P2P_PORT:-30304}:30304/tcp"
       - "${GYDS_P2P_PORT:-30304}:30304/udp"
     restart: unless-stopped
@@ -51,12 +74,15 @@ services:
       wireguard:
         condition: service_healthy
     environment:
-      NODE_REPO:          "${NODE_REPO:-https://github.com/hc172808/boostnode.git}"
-      GYDS_BOOST_PORT:    "${GYDS_BOOST_PORT:-8547}"
+      NODE_REPO:          "${NODE_REPO:-https://github.com/hc172808/fullnode.git}"
+      GITHUB_TOKEN:       "${GITHUB_TOKEN:-}"
+      GYDS_RPC_URL:       "${GYDS_RPC_URL:-https://rpc.netlifegy.com}"
       GYDS_P2P_PORT:      "${GYDS_P2P_PORT:-30304}"
       GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-13370}"
-      GYDS_RPC_PRIMARY:   "${GYDS_RPC_PRIMARY:-https://rpc.netlifegy.com}"
       GYDS_STORAGE_GB:    "${GYDS_STORAGE_GB:-50}"
+      GYDS_BOOST_PEERS:   "${GYDS_BOOST_PEERS:-100}"
+      GYDS_MINING:        "${GYDS_MINING:-true}"
+      GYDS_THREADS:       "${GYDS_THREADS:-4}"
     volumes:
       - boostnode-data:/var/lib/gydschain
       - boostnode-logs:/var/log/gydschain
@@ -64,41 +90,52 @@ services:
     command: >
       sh -c "
         apk add --no-cache git go bash curl jq openssl ca-certificates &&
-        mkdir -p /opt && cd /opt &&
-        if [ -d boostnode/.git ]; then
-          git -C boostnode pull --ff-only;
+        mkdir -p /opt /var/lib/gydschain /var/log/gydschain &&
+
+        if [ -n \"$$GITHUB_TOKEN\" ]; then
+          CLONE_URL=$$(echo \"$$NODE_REPO\" | sed 's|https://|https://'"'"'$$GITHUB_TOKEN'"'"'@|');
         else
-          git clone --depth=1 \"$$NODE_REPO\" boostnode;
+          CLONE_URL=\"$$NODE_REPO\";
         fi &&
-        cd boostnode && go mod download &&
-        go build -ldflags '-s -w' -o /usr/local/bin/gyds-boostnode . 2>/dev/null ||
-        go build -ldflags '-s -w' -o /usr/local/bin/gyds-boostnode ./cmd/boostnode &&
-        mkdir -p /var/lib/gydschain /var/log/gydschain &&
+
+        if [ -d /opt/fullnode/.git ]; then
+          echo '[boostnode] Pulling latest...' && git -C /opt/fullnode pull --ff-only;
+        else
+          echo '[boostnode] Cloning...' && git clone --depth=1 \"$$CLONE_URL\" /opt/fullnode;
+        fi &&
+
+        cd /opt/fullnode &&
+        echo '[boostnode] Building...' &&
+        go mod download &&
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-boostnode ./cmd/boostnode 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-boostnode ./cmd/main 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-boostnode . &&
+
+        echo '[boostnode] Starting...' &&
         exec gyds-boostnode
-          --port=$$GYDS_BOOST_PORT
+          --rpc=$$GYDS_RPC_URL
           --p2pport=$$GYDS_P2P_PORT
-          --chain-id=$$GYDS_CHAIN_ID
-          --rpc=$$GYDS_RPC_PRIMARY
           --datadir=/var/lib/gydschain
+          --chain-id=$$GYDS_CHAIN_ID
           --storage=$$GYDS_STORAGE_GB
+          --max-peers=$$GYDS_BOOST_PEERS
+          $$([ \"$$GYDS_MINING\" = 'true' ] && echo '--mining --threads='$$GYDS_THREADS)
           2>&1 | tee /var/log/gydschain/boostnode.log
       "
     deploy:
       resources:
         limits:
-          cpus: "2"
+          cpus: "4"
           memory: 4G
     logging:
       driver: "json-file"
       options:
         max-size: "50m"
-        max-file: "3"
+        max-file: "5"
 
 volumes:
-  boostnode-data:
-    driver: local
-  boostnode-logs:
-    driver: local
+  boostnode-data:  { driver: local }
+  boostnode-logs:  { driver: local }
 
 networks:
   gyds-boostnode-net:

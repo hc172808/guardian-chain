@@ -11,14 +11,8 @@
 
 | Project | Repo | Status |
 |---|---|---|
-| ChainCore Dashboard | https://github.com/hc172808/guardian-chain.git | ✅ Active |
-| Full Node | https://github.com/hc172808/fullnode.git | 🔧 In progress |
-| Lite Node | https://github.com/hc172808/litenode.git | 🔧 In progress |
-| Boost Node | https://github.com/hc172808/boostnode.git | 🔧 In progress |
-| Genesis Node | https://github.com/hc172808/genesis.git | 🔧 In progress |
-| RPC Node | https://github.com/hc172808/rpcnode.git | 🔧 In progress |
-| MobileCore | https://github.com/hc172808/chaincore-mobile.git | ⏳ Planned |
-| Digital Wallet | https://github.com/hc172808/your-digital-wallet.git | ⏳ Planned |
+| GYDSchain Dashboard | https://github.com/hc172808/guardian-chain.git | ✅ Active |
+| All Nodes (full/lite/boost/rpc/validator/genesis) | https://github.com/hc172808/fullnode.git | 🔧 In progress |
 
 ---
 
@@ -65,16 +59,21 @@
 ### Deploy Scripts
 - [x] `deploy-dashboard.sh` — PM2 for API, nginx proxies /api → :5001, git auto-pull cron
 - [x] `install-fullnode.sh` → github.com/hc172808/fullnode.git
-- [x] `install-litenode.sh` → github.com/hc172808/litenode.git
-- [x] `install-boostnode.sh` → github.com/hc172808/boostnode.git
-- [x] `install-rpcnode.sh` → github.com/hc172808/rpcnode.git
-- [x] `install-genesis.sh` → github.com/hc172808/genesis.git
+- [x] `install-litenode.sh` → github.com/hc172808/fullnode.git
+- [x] `install-boostnode.sh` → github.com/hc172808/fullnode.git
+- [x] `install-rpcnode.sh` → github.com/hc172808/fullnode.git
+- [x] `install-genesis.sh` → github.com/hc172808/fullnode.git
 
-### Portainer Stacks (all with WireGuard VPN client)
-- [x] `portainer-litenode.yml`
-- [x] `portainer-rpcnode.yml` + nginx-rpc.conf
-- [x] `portainer-fullnode.yml`
-- [x] `portainer-boostnode.yml`
+### Portainer Stacks — Dashboard
+- [x] `portainer-dashboard.yml` — PostgreSQL + Express API + Nginx + auto-pull cron
+
+### Portainer Stacks — Nodes (all from github.com/hc172808/fullnode.git + WireGuard VPN)
+- [x] `portainer-fullnode.yml` — Full node, P2P 30303, founder-level
+- [x] `portainer-litenode.yml` — Lite node, headers only, low disk
+- [x] `portainer-boostnode.yml` — Boost node, high-perf relay + mining
+- [x] `portainer-rpcnode.yml` — RPC node + Nginx proxy (rpc.netlifegy.com / ws.netlifegy.com)
+- [x] `portainer-validatornode.yml` — Validator node, earns staking rewards
+- [x] `portainer-genesis.yml` — Genesis node, FOUNDER ONLY, bootstraps the network
 
 ### GydsSwap Smart Contracts
 - [x] WGYDS.sol

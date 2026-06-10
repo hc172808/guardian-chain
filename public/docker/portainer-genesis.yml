@@ -1,0 +1,178 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  GYDSchain GENESIS NODE — Portainer Stack                                    ║
+# ║  Repo: https://github.com/hc172808/fullnode.git                              ║
+# ║  Chain ID: 13370 | FOUNDER ONLY — bootstraps the network from genesis block  ║
+# ║                                                                               ║
+# ║  ⚠️  RUN ONCE — Only deploy this when launching the network for the first time ║
+# ║  ⚠️  Keep the genesis key (founder.key) in COLD STORAGE after network launch  ║
+# ║                                                                               ║
+# ║  SETUP:                                                                       ║
+# ║    1. wg genkey | tee /etc/gydschain/genesis-privkey                         ║
+# ║       wg pubkey < /etc/gydschain/genesis-privkey  (this is the VPN server)   ║
+# ║    2. Create /etc/gydschain/wg-genesis.conf  (see WG template below)         ║
+# ║    3. Set env vars in Portainer → Stack → Environment                        ║
+# ║    4. Open ports 30300 TCP+UDP + 8545 on your firewall                       ║
+# ║    5. Deploy — once peers connect, set GENESIS_BOOTSTRAP_MODE=false          ║
+# ║                                                                               ║
+# ║  WG CONFIG TEMPLATE (/etc/gydschain/wg-genesis.conf):                        ║
+# ║    [Interface]                                                                ║
+# ║    PrivateKey = <your_private_key>                                            ║
+# ║    Address    = 10.0.0.1/24    ← /24 so the genesis node routes all VPN     ║
+# ║    ListenPort = 51820                                                         ║
+# ║    DNS        = 1.1.1.1                                                      ║
+# ║    [Peer]  ← add one [Peer] block per node that joins                        ║
+# ║    PublicKey  = <node_pubkey>                                                 ║
+# ║    AllowedIPs = 10.0.0.X/32                                                  ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+version: "3.8"
+
+# ENV VARS (set in Portainer → Stack → Environment tab)
+# NODE_REPO                Git repo URL                  default: https://github.com/hc172808/fullnode.git
+# GITHUB_TOKEN             GitHub PAT for private repo   default: (empty)
+# WG_CONF_PATH             WireGuard config on host       default: /etc/gydschain/wg-genesis.conf
+# GENESIS_KEY_PATH         Host dir for founder key      default: /etc/gydschain/genesis
+# GYDS_CHAIN_ID            Chain ID                      default: 13370
+# GYDS_BLOCK_TIME          Block time seconds            default: 120
+# GYDS_INITIAL_SUPPLY      Initial GYDS supply           default: 1000000000
+# GYDS_TREASURY_ADDRESS    Treasury wallet address       default: (required)
+# GYDS_P2P_PORT            P2P port                      default: 30300
+# GYDS_RPC_PORT            RPC port                      default: 8545
+# GYDS_STORAGE_GB          Storage GB                    default: 500
+# GENESIS_BOOTSTRAP_MODE   true = genesis / false = normal mode  default: true
+
+services:
+
+  # ── WireGuard — acts as the VPN SERVER for all nodes ─────────────────────────
+  wireguard:
+    image: linuxserver/wireguard:latest
+    container_name: gyds-genesis-vpn
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "UTC"
+    volumes:
+      - "${WG_CONF_PATH:-/etc/gydschain/wg-genesis.conf}:/config/wg_confs/wg0.conf:ro"
+      - /lib/modules:/lib/modules:ro
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
+    ports:
+      - "51820:51820/udp"
+      - "${GYDS_P2P_PORT:-30300}:30300/tcp"
+      - "${GYDS_P2P_PORT:-30300}:30300/udp"
+      - "${GYDS_RPC_PORT:-8545}:8545"
+    restart: unless-stopped
+    networks:
+      - gyds-genesis-net
+    healthcheck:
+      test: ["CMD", "wg", "show", "wg0"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  genesisnode:
+    image: alpine:3.19
+    container_name: gyds-genesisnode
+    network_mode: "service:wireguard"
+    depends_on:
+      wireguard:
+        condition: service_healthy
+    environment:
+      NODE_REPO:                 "${NODE_REPO:-https://github.com/hc172808/fullnode.git}"
+      GITHUB_TOKEN:              "${GITHUB_TOKEN:-}"
+      GYDS_CHAIN_ID:             "${GYDS_CHAIN_ID:-13370}"
+      GYDS_BLOCK_TIME:           "${GYDS_BLOCK_TIME:-120}"
+      GYDS_INITIAL_SUPPLY:       "${GYDS_INITIAL_SUPPLY:-1000000000}"
+      GYDS_TREASURY_ADDRESS:     "${GYDS_TREASURY_ADDRESS:-}"
+      GYDS_P2P_PORT:             "${GYDS_P2P_PORT:-30300}"
+      GYDS_RPC_PORT:             "${GYDS_RPC_PORT:-8545}"
+      GYDS_STORAGE_GB:           "${GYDS_STORAGE_GB:-500}"
+      GENESIS_BOOTSTRAP_MODE:    "${GENESIS_BOOTSTRAP_MODE:-true}"
+    volumes:
+      - genesis-data:/var/lib/gydschain
+      - genesis-logs:/var/log/gydschain
+      - "${GENESIS_KEY_PATH:-/etc/gydschain/genesis}:/var/lib/gydschain/keys"
+    restart: unless-stopped
+    command: >
+      sh -c "
+        apk add --no-cache git go bash curl jq openssl ca-certificates &&
+        mkdir -p /opt /var/lib/gydschain/keys /var/lib/gydschain/data /var/log/gydschain &&
+
+        if [ -n \"$$GITHUB_TOKEN\" ]; then
+          CLONE_URL=$$(echo \"$$NODE_REPO\" | sed 's|https://|https://'"'"'$$GITHUB_TOKEN'"'"'@|');
+        else
+          CLONE_URL=\"$$NODE_REPO\";
+        fi &&
+
+        if [ -d /opt/fullnode/.git ]; then
+          echo '[genesis] Pulling latest...' && git -C /opt/fullnode pull --ff-only;
+        else
+          echo '[genesis] Cloning...' && git clone --depth=1 \"$$CLONE_URL\" /opt/fullnode;
+        fi &&
+
+        cd /opt/fullnode &&
+        echo '[genesis] Building...' &&
+        go mod download &&
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-genesis ./cmd/genesis 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-genesis ./cmd/genesisnode 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-genesis ./cmd/main 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-genesis . &&
+
+        # Generate founder key if not present
+        if [ ! -f /var/lib/gydschain/keys/founder.key ]; then
+          echo '[genesis] ══════════════════════════════════════════════' &&
+          echo '[genesis]  Generating FOUNDER KEY...' &&
+          echo '[genesis]  BACK UP /etc/gydschain/genesis/ IMMEDIATELY!' &&
+          echo '[genesis] ══════════════════════════════════════════════' &&
+          openssl rand -hex 32 > /var/lib/gydschain/keys/founder.key &&
+          chmod 600 /var/lib/gydschain/keys/founder.key;
+        fi &&
+
+        if [ \"$$GENESIS_BOOTSTRAP_MODE\" = 'true' ]; then
+          echo '[genesis] BOOTSTRAP MODE — creating genesis block...' &&
+          exec gyds-genesis
+            --genesis
+            --founder-key=/var/lib/gydschain/keys/founder.key
+            --chain-id=$$GYDS_CHAIN_ID
+            --block-time=$$GYDS_BLOCK_TIME
+            --initial-supply=$$GYDS_INITIAL_SUPPLY
+            $$([ -n \"$$GYDS_TREASURY_ADDRESS\" ] && echo '--treasury='$$GYDS_TREASURY_ADDRESS)
+            --rpcport=$$GYDS_RPC_PORT
+            --p2pport=$$GYDS_P2P_PORT
+            --datadir=/var/lib/gydschain/data
+            --storage=$$GYDS_STORAGE_GB
+            2>&1 | tee /var/log/gydschain/genesis.log;
+        else
+          echo '[genesis] NORMAL MODE — running as genesis node (network already live)...' &&
+          exec gyds-genesis
+            --bootnode
+            --founder-key=/var/lib/gydschain/keys/founder.key
+            --chain-id=$$GYDS_CHAIN_ID
+            --rpcport=$$GYDS_RPC_PORT
+            --p2pport=$$GYDS_P2P_PORT
+            --datadir=/var/lib/gydschain/data
+            --storage=$$GYDS_STORAGE_GB
+            2>&1 | tee /var/log/gydschain/genesis.log;
+        fi
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: 16G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200m"
+        max-file: "10"
+
+volumes:
+  genesis-data:  { driver: local }
+  genesis-logs:  { driver: local }
+
+networks:
+  gyds-genesis-net:
+    driver: bridge

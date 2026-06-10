@@ -1,48 +1,51 @@
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║  GydsChain RPC NODE — Portainer Stack                                    ║
-# ║  Chain ID: 13370 | github.com/hc172808/rpcnode                           ║
-# ║                                                                           ║
-# ║  SETUP:                                                                   ║
-# ║  1. Create /etc/gydschain/wg-rpcnode.conf (WireGuard client config)      ║
-# ║  2. Fill in env vars in Portainer → Stack → Environment tab              ║
-# ║  3. Deploy stack — nginx exposes RPC publicly on :80/:443                ║
-# ║                                                                           ║
-# ║  WG CONFIG TEMPLATE → /etc/gydschain/wg-rpcnode.conf:                   ║
-# ║  [Interface]                                                              ║
-# ║  PrivateKey = <your_private_key>                                          ║
-# ║  Address = 10.0.0.Y/32                                                    ║
-# ║  DNS = 1.1.1.1                                                            ║
-# ║  MTU = 1420                                                               ║
-# ║  [Peer]                                                                   ║
-# ║  PublicKey = <vpn_server_public_key>                                      ║
-# ║  Endpoint = vpn.netlifegy.com:51820                                       ║
-# ║  AllowedIPs = 10.0.0.0/24                                                 ║
-# ║  PersistentKeepalive = 25                                                 ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  GYDSchain RPC NODE — Portainer Stack                                        ║
+# ║  Repo: https://github.com/hc172808/fullnode.git                              ║
+# ║  Chain ID: 13370 | Public RPC + WebSocket endpoint                           ║
+# ║  Subdomains: rpc.netlifegy.com  |  ws.netlifegy.com                          ║
+# ║                                                                               ║
+# ║  SETUP:                                                                       ║
+# ║    1. wg genkey | tee /etc/gydschain/rpc-privkey                             ║
+# ║       wg pubkey < /etc/gydschain/rpc-privkey  (send pubkey to VPN admin)     ║
+# ║    2. Create /etc/gydschain/wg-rpcnode.conf  (see WG template below)         ║
+# ║    3. Set env vars in Portainer → Stack → Environment                        ║
+# ║    4. Point rpc.netlifegy.com + ws.netlifegy.com to this host                ║
+# ║    5. Deploy                                                                  ║
+# ║                                                                               ║
+# ║  WG CONFIG TEMPLATE (/etc/gydschain/wg-rpcnode.conf):                        ║
+# ║    [Interface]                                                                ║
+# ║    PrivateKey = <your_private_key>                                            ║
+# ║    Address    = 10.0.0.5/32                                                  ║
+# ║    DNS        = 1.1.1.1                                                      ║
+# ║    MTU        = 1420                                                          ║
+# ║    [Peer]                                                                     ║
+# ║    PublicKey        = <vpn_server_pubkey>                                    ║
+# ║    Endpoint         = vpn.netlifegy.com:51820                                ║
+# ║    AllowedIPs       = 10.0.0.0/24                                            ║
+# ║    PersistentKeepalive = 25                                                  ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
 
 version: "3.8"
 
-# ── Environment variables (set in Portainer Stack → Environment) ──────────────
-# WG_CONF_PATH         WG client config path on host        default: /etc/gydschain/wg-rpcnode.conf
-# GYDS_RPC_PORT        Internal RPC port                    default: 8545
-# GYDS_WS_PORT         Internal WS port                     default: 8546
-# GYDS_P2P_PORT        P2P port (exposed on host)           default: 30305
-# GYDS_CHAIN_ID        Chain ID                             default: 13370
-# GYDS_UPSTREAM_RPC    Upstream full node RPC               default: http://10.0.0.1:8546
-# GYDS_STORAGE_GB      Storage limit in GB                  default: 200
-# GYDS_RATE_LIMIT      Requests per second per IP           default: 100
-# GYDS_DOMAIN          Public domain for this RPC node      default: rpc.netlifegy.com
-# NODE_REPO            Git repo for rpcnode source          default: https://github.com/hc172808/rpcnode.git
+# ENV VARS (set in Portainer → Stack → Environment tab)
+# NODE_REPO          Git repo URL                  default: https://github.com/hc172808/fullnode.git
+# GITHUB_TOKEN       GitHub PAT for private repo   default: (empty)
+# WG_CONF_PATH       WireGuard config on host       default: /etc/gydschain/wg-rpcnode.conf
+# GYDS_RPC_PORT      Internal RPC port             default: 8545
+# GYDS_WS_PORT       Internal WS port              default: 8546
+# GYDS_P2P_PORT      P2P port (open on firewall)   default: 30305
+# GYDS_CHAIN_ID      Chain ID                      default: 13370
+# GYDS_UPSTREAM_RPC  Upstream full node RPC        default: http://10.0.0.2:8546
+# GYDS_STORAGE_GB    Storage GB                    default: 200
+# GYDS_RATE_LIMIT    Req/sec per IP                default: 100
+# HTTP_PORT          Nginx HTTP port               default: 8080
 
 services:
 
-  # ── WireGuard VPN Client ─────────────────────────────────────────────────────
   wireguard:
     image: linuxserver/wireguard:latest
     container_name: gyds-rpcnode-vpn
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
+    cap_add: [NET_ADMIN, SYS_MODULE]
     environment:
       PUID: "1000"
       PGID: "1000"
@@ -52,6 +55,9 @@ services:
       - /lib/modules:/lib/modules:ro
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
+    ports:
+      - "${GYDS_P2P_PORT:-30305}:30305/tcp"
+      - "${GYDS_P2P_PORT:-30305}:30305/udp"
     restart: unless-stopped
     networks:
       - gyds-rpcnode-net
@@ -62,7 +68,6 @@ services:
       retries: 5
       start_period: 15s
 
-  # ── GydsChain RPC Node ────────────────────────────────────────────────────────
   rpcnode:
     image: alpine:3.19
     container_name: gyds-rpcnode
@@ -71,12 +76,13 @@ services:
       wireguard:
         condition: service_healthy
     environment:
-      NODE_REPO:          "${NODE_REPO:-https://github.com/hc172808/rpcnode.git}"
-      GYDS_RPC_PORT:      "${GYDS_RPC_PORT:-8545}"
-      GYDS_WS_PORT:       "${GYDS_WS_PORT:-8546}"
-      GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-13370}"
-      GYDS_UPSTREAM_RPC:  "${GYDS_UPSTREAM_RPC:-http://10.0.0.1:8546}"
-      GYDS_STORAGE_GB:    "${GYDS_STORAGE_GB:-200}"
+      NODE_REPO:           "${NODE_REPO:-https://github.com/hc172808/fullnode.git}"
+      GITHUB_TOKEN:        "${GITHUB_TOKEN:-}"
+      GYDS_RPC_PORT:       "${GYDS_RPC_PORT:-8545}"
+      GYDS_WS_PORT:        "${GYDS_WS_PORT:-8546}"
+      GYDS_CHAIN_ID:       "${GYDS_CHAIN_ID:-13370}"
+      GYDS_UPSTREAM_RPC:   "${GYDS_UPSTREAM_RPC:-http://10.0.0.2:8546}"
+      GYDS_STORAGE_GB:     "${GYDS_STORAGE_GB:-200}"
     volumes:
       - rpcnode-data:/var/lib/gydschain
       - rpcnode-logs:/var/log/gydschain
@@ -84,24 +90,33 @@ services:
     command: >
       sh -c "
         apk add --no-cache git go bash curl jq openssl ca-certificates &&
-        mkdir -p /opt && cd /opt &&
-        if [ -d rpcnode/.git ]; then
-          echo '[+] Pulling latest rpcnode...' && git -C rpcnode pull --ff-only;
+        mkdir -p /opt /var/lib/gydschain /var/log/gydschain &&
+
+        if [ -n \"$$GITHUB_TOKEN\" ]; then
+          CLONE_URL=$$(echo \"$$NODE_REPO\" | sed 's|https://|https://'"'"'$$GITHUB_TOKEN'"'"'@|');
         else
-          echo '[+] Cloning rpcnode...' && git clone --depth=1 \"$$NODE_REPO\" rpcnode;
+          CLONE_URL=\"$$NODE_REPO\";
         fi &&
-        cd rpcnode &&
-        echo '[+] Building gyds-rpcnode...' &&
+
+        if [ -d /opt/fullnode/.git ]; then
+          echo '[rpcnode] Pulling latest...' && git -C /opt/fullnode pull --ff-only;
+        else
+          echo '[rpcnode] Cloning...' && git clone --depth=1 \"$$CLONE_URL\" /opt/fullnode;
+        fi &&
+
+        cd /opt/fullnode &&
+        echo '[rpcnode] Building...' &&
         go mod download &&
-        go build -ldflags '-s -w' -o /usr/local/bin/gyds-rpcnode . 2>/dev/null ||
-        go build -ldflags '-s -w' -o /usr/local/bin/gyds-rpcnode ./cmd/rpcnode &&
-        mkdir -p /var/lib/gydschain /var/log/gydschain &&
-        echo '[+] Starting gyds-rpcnode...' &&
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-rpcnode ./cmd/rpcnode 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-rpcnode ./cmd/main 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-rpcnode . &&
+
+        echo '[rpcnode] Starting...' &&
         exec gyds-rpcnode
           --rpcport=$$GYDS_RPC_PORT
           --wsport=$$GYDS_WS_PORT
           --chain-id=$$GYDS_CHAIN_ID
-          --rpc-bind=127.0.0.1
+          --rpc-bind=0.0.0.0
           --upstream=$$GYDS_UPSTREAM_RPC
           --datadir=/var/lib/gydschain
           --storage=$$GYDS_STORAGE_GB
@@ -118,31 +133,68 @@ services:
         max-size: "50m"
         max-file: "5"
 
-  # ── Nginx — Public RPC reverse proxy ─────────────────────────────────────────
+  # ── Nginx — public RPC + WS reverse proxy ────────────────────────────────────
   nginx-rpc:
     image: nginx:alpine
     container_name: gyds-rpcnode-nginx
     ports:
-      - "8080:80"            # HTTP public RPC — point your Cloudflare/nginx to this
-      - "${GYDS_P2P_PORT:-30305}:30305"
+      - "${HTTP_PORT:-8080}:80"
     volumes:
-      - ./nginx-rpc.conf:/etc/nginx/conf.d/default.conf:ro
+      - rpcnode-nginx:/etc/nginx/conf.d
     depends_on:
       - rpcnode
     restart: unless-stopped
     networks:
       - gyds-rpcnode-net
+    command: >
+      sh -c "
+        cat > /etc/nginx/conf.d/rpc.conf << 'NGINX'
+        limit_req_zone $$binary_remote_addr zone=rpc_limit:10m rate=${GYDS_RATE_LIMIT:-100}r/s;
+
+        server {
+          listen 80;
+          server_name _;
+
+          location /health {
+            return 200 '{\"status\":\"ok\",\"chain\":13370}';
+            add_header Content-Type application/json;
+          }
+
+          location / {
+            limit_req zone=rpc_limit burst=200 nodelay;
+            proxy_pass http://rpcnode:${GYDS_RPC_PORT:-8545};
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $$http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $$host;
+            proxy_set_header X-Real-IP $$remote_addr;
+            proxy_read_timeout 30s;
+
+            add_header Access-Control-Allow-Origin '*';
+            add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
+            add_header Access-Control-Allow-Headers 'Content-Type';
+
+            if ($$request_method = OPTIONS) { return 204; }
+          }
+        }
+        NGINX
+        nginx -g 'daemon off;'
+      "
     deploy:
       resources:
         limits:
           cpus: "0.5"
           memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
 volumes:
-  rpcnode-data:
-    driver: local
-  rpcnode-logs:
-    driver: local
+  rpcnode-data:   { driver: local }
+  rpcnode-logs:   { driver: local }
+  rpcnode-nginx:  { driver: local }
 
 networks:
   gyds-rpcnode-net:

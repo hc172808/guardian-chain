@@ -1,0 +1,158 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  GYDSchain VALIDATOR NODE — Portainer Stack                                  ║
+# ║  Repo: https://github.com/hc172808/fullnode.git                              ║
+# ║  Chain ID: 13370 | Active consensus participant — earns staking rewards      ║
+# ║                                                                               ║
+# ║  SETUP:                                                                       ║
+# ║    1. wg genkey | tee /etc/gydschain/vn-privkey                              ║
+# ║       wg pubkey < /etc/gydschain/vn-privkey  (send pubkey to VPN admin)      ║
+# ║    2. Create /etc/gydschain/wg-validator.conf  (see WG template below)       ║
+# ║    3. Set env vars in Portainer → Stack → Environment                        ║
+# ║    4. IMPORTANT: Back up /etc/gydschain/validator/ after first run           ║
+# ║       (contains your validator key — losing it = losing your stake)          ║
+# ║    5. Open port 30306 TCP+UDP on your firewall                               ║
+# ║    6. Deploy                                                                  ║
+# ║                                                                               ║
+# ║  WG CONFIG TEMPLATE (/etc/gydschain/wg-validator.conf):                      ║
+# ║    [Interface]                                                                ║
+# ║    PrivateKey = <your_private_key>                                            ║
+# ║    Address    = 10.0.0.6/32                                                  ║
+# ║    DNS        = 1.1.1.1                                                      ║
+# ║    MTU        = 1420                                                          ║
+# ║    [Peer]                                                                     ║
+# ║    PublicKey        = <vpn_server_pubkey>                                    ║
+# ║    Endpoint         = vpn.netlifegy.com:51820                                ║
+# ║    AllowedIPs       = 10.0.0.0/24                                            ║
+# ║    PersistentKeepalive = 25                                                  ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+version: "3.8"
+
+# ENV VARS (set in Portainer → Stack → Environment tab)
+# NODE_REPO            Git repo URL                  default: https://github.com/hc172808/fullnode.git
+# GITHUB_TOKEN         GitHub PAT for private repo   default: (empty)
+# WG_CONF_PATH         WireGuard config on host       default: /etc/gydschain/wg-validator.conf
+# VALIDATOR_KEY_PATH   Host path for validator key   default: /etc/gydschain/validator
+# GYDS_RPC_URL         Upstream full node RPC        default: https://rpc.netlifegy.com
+# GYDS_P2P_PORT        P2P port (open on firewall)   default: 30306
+# GYDS_RPC_PORT        Local RPC port                default: 8547
+# GYDS_CHAIN_ID        Chain ID                      default: 13370
+# GYDS_STORAGE_GB      Storage GB                    default: 100
+# GYDS_STAKE_AMOUNT    GYDS staked to activate       default: 10000
+# GYDS_REWARD_ADDRESS  Wallet address for rewards    default: (required)
+
+services:
+
+  wireguard:
+    image: linuxserver/wireguard:latest
+    container_name: gyds-validator-vpn
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "UTC"
+    volumes:
+      - "${WG_CONF_PATH:-/etc/gydschain/wg-validator.conf}:/config/wg_confs/wg0.conf:ro"
+      - /lib/modules:/lib/modules:ro
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    ports:
+      - "${GYDS_P2P_PORT:-30306}:30306/tcp"
+      - "${GYDS_P2P_PORT:-30306}:30306/udp"
+      - "${GYDS_RPC_PORT:-8547}:8547"
+    restart: unless-stopped
+    networks:
+      - gyds-validator-net
+    healthcheck:
+      test: ["CMD", "wg", "show", "wg0"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  validatornode:
+    image: alpine:3.19
+    container_name: gyds-validatornode
+    network_mode: "service:wireguard"
+    depends_on:
+      wireguard:
+        condition: service_healthy
+    environment:
+      NODE_REPO:             "${NODE_REPO:-https://github.com/hc172808/fullnode.git}"
+      GITHUB_TOKEN:          "${GITHUB_TOKEN:-}"
+      GYDS_RPC_URL:          "${GYDS_RPC_URL:-https://rpc.netlifegy.com}"
+      GYDS_P2P_PORT:         "${GYDS_P2P_PORT:-30306}"
+      GYDS_RPC_PORT:         "${GYDS_RPC_PORT:-8547}"
+      GYDS_CHAIN_ID:         "${GYDS_CHAIN_ID:-13370}"
+      GYDS_STORAGE_GB:       "${GYDS_STORAGE_GB:-100}"
+      GYDS_STAKE_AMOUNT:     "${GYDS_STAKE_AMOUNT:-10000}"
+      GYDS_REWARD_ADDRESS:   "${GYDS_REWARD_ADDRESS:-}"
+    volumes:
+      - validator-data:/var/lib/gydschain
+      - validator-logs:/var/log/gydschain
+      - "${VALIDATOR_KEY_PATH:-/etc/gydschain/validator}:/var/lib/gydschain/keys"
+    restart: unless-stopped
+    command: >
+      sh -c "
+        apk add --no-cache git go bash curl jq openssl ca-certificates &&
+        mkdir -p /opt /var/lib/gydschain/keys /var/lib/gydschain/data /var/log/gydschain &&
+
+        if [ -n \"$$GITHUB_TOKEN\" ]; then
+          CLONE_URL=$$(echo \"$$NODE_REPO\" | sed 's|https://|https://'"'"'$$GITHUB_TOKEN'"'"'@|');
+        else
+          CLONE_URL=\"$$NODE_REPO\";
+        fi &&
+
+        if [ -d /opt/fullnode/.git ]; then
+          echo '[validator] Pulling latest...' && git -C /opt/fullnode pull --ff-only;
+        else
+          echo '[validator] Cloning...' && git clone --depth=1 \"$$CLONE_URL\" /opt/fullnode;
+        fi &&
+
+        cd /opt/fullnode &&
+        echo '[validator] Building...' &&
+        go mod download &&
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-validatornode ./cmd/validatornode 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-validatornode ./cmd/validator 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-validatornode ./cmd/main 2>/dev/null ||
+        go build -ldflags '-s -w' -o /usr/local/bin/gyds-validatornode . &&
+
+        # Generate validator key if not present
+        if [ ! -f /var/lib/gydschain/keys/validator.key ]; then
+          echo '[validator] Generating new validator key...' &&
+          openssl rand -hex 32 > /var/lib/gydschain/keys/validator.key &&
+          chmod 600 /var/lib/gydschain/keys/validator.key &&
+          echo '[validator] KEY GENERATED. BACK UP /etc/gydschain/validator/ NOW!';
+        fi &&
+
+        echo '[validator] Starting validator node...' &&
+        exec gyds-validatornode
+          --validator
+          --validator-key=/var/lib/gydschain/keys/validator.key
+          --rpc=$$GYDS_RPC_URL
+          --rpcport=$$GYDS_RPC_PORT
+          --p2pport=$$GYDS_P2P_PORT
+          --chain-id=$$GYDS_CHAIN_ID
+          --datadir=/var/lib/gydschain/data
+          --storage=$$GYDS_STORAGE_GB
+          $$([ -n \"$$GYDS_REWARD_ADDRESS\" ] && echo '--reward-address='$$GYDS_REWARD_ADDRESS)
+          2>&1 | tee /var/log/gydschain/validatornode.log
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  validator-data:  { driver: local }
+  validator-logs:  { driver: local }
+
+networks:
+  gyds-validator-net:
+    driver: bridge
