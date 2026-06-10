@@ -118,7 +118,8 @@ interface SidebarProps {
 }
 
 export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
-  const { user, roles, signOut, isFounder, isAdmin } = useAuth();
+  const { user, signOut, isFounder, isAdmin } = useAuth();
+  const roles = user?.roles ?? [];
   const navigate = useNavigate();
 
   const handleAuthClick = async () => {
