@@ -37,6 +37,66 @@ export const storage = {
     return user;
   },
 
+  async getUserByUsername(username: string) {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user ?? null;
+  },
+
+  async getUserByWallet(walletAddress: string) {
+    const [user] = await db.select().from(users).where(eq(users.walletAddress, walletAddress));
+    return user ?? null;
+  },
+
+  async createLocalUser(data: { username: string; passwordHash: string; email?: string | null }) {
+    const id = `local_${data.username}_${Date.now()}`;
+    const [user] = await db.insert(users).values({
+      id,
+      username: data.username,
+      passwordHash: data.passwordHash,
+      email: data.email ?? null,
+      updatedAt: new Date(),
+    }).returning();
+    await db.insert(profiles).values({ userId: id, email: data.email ?? null, username: data.username }).onConflictDoNothing();
+    await db.insert(userRoles).values({ userId: id, role: "user" }).onConflictDoNothing();
+    return user;
+  },
+
+  async createWalletUser(walletAddress: string) {
+    const id = `web3_${walletAddress.slice(2, 10)}_${Date.now()}`;
+    const shortAddr = `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`;
+    const [user] = await db.insert(users).values({
+      id,
+      walletAddress,
+      firstName: shortAddr,
+      updatedAt: new Date(),
+    }).returning();
+    await db.insert(profiles).values({ userId: id }).onConflictDoNothing();
+    await db.insert(userRoles).values({ userId: id, role: "user" }).onConflictDoNothing();
+    return user;
+  },
+
+  async setUserNonce(walletAddress: string, nonce: string) {
+    // Upsert: update nonce if wallet user exists, otherwise just store in a temp record
+    const existing = await db.select().from(users).where(eq(users.walletAddress, walletAddress));
+    if (existing.length > 0) {
+      await db.update(users).set({ authNonce: nonce }).where(eq(users.walletAddress, walletAddress));
+    } else {
+      // Pre-create a placeholder so nonce can be stored before first login
+      const id = `web3_pending_${walletAddress.slice(2, 10)}_${Date.now()}`;
+      await db.insert(users).values({ id, walletAddress, authNonce: nonce, updatedAt: new Date() })
+        .onConflictDoUpdate({ target: users.walletAddress, set: { authNonce: nonce } });
+    }
+  },
+
+  async getUserNonce(walletAddress: string) {
+    const [user] = await db.select({ authNonce: users.authNonce }).from(users).where(eq(users.walletAddress, walletAddress));
+    return user?.authNonce ?? null;
+  },
+
+  async clearUserNonce(walletAddress: string) {
+    await db.update(users).set({ authNonce: null }).where(eq(users.walletAddress, walletAddress));
+  },
+
   async getUserRoles(userId: string) {
     return db.select().from(userRoles).where(eq(userRoles.userId, userId));
   },

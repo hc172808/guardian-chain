@@ -6,6 +6,10 @@ export const appRoleEnum = pgEnum("app_role", ["user", "admin", "founder"]);
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email"),
+  username: text("username").unique(),
+  passwordHash: text("password_hash"),
+  walletAddress: text("wallet_address").unique(),
+  authNonce: text("auth_nonce"),
   firstName: text("first_name"),
   lastName: text("last_name"),
   profileImageUrl: text("profile_image_url"),
