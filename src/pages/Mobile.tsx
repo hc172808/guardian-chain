@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { QRScanner } from '@/components/wallet/QRScanner';
 import {
   LayoutDashboard, Search, ArrowLeftRight, Wallet, MoreHorizontal,
   Send, Download, RefreshCw, TrendingUp, Zap, Shield,
@@ -133,6 +134,7 @@ const HomeTab = () => {
   const { user } = useAuth();
   const go = useMobileNavigate();
   const [balanceHidden, setBalanceHidden] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
   const { copied, copy } = useCopy();
   const address = '0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b';
   const shortAddr = `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -143,14 +145,14 @@ const HomeTab = () => {
   ];
 
   const quickActions = [
-    { icon: Send,           label: 'Send',    path: '/wallet',  state: undefined,           color: 'text-primary',   bg: 'bg-primary/10' },
-    { icon: Download,       label: 'Receive', path: '/wallet',  state: undefined,           color: 'text-green-400', bg: 'bg-green-400/10' },
-    { icon: ArrowLeftRight, label: 'Swap',    path: '/defi',    state: { tab: 'swap' },     color: 'text-purple-400',bg: 'bg-purple-400/10' },
-    { icon: Globe,          label: 'Bridge',  path: '/defi',    state: { tab: 'bridge' },   color: 'text-amber-400', bg: 'bg-amber-400/10' },
-    { icon: TrendingUp,     label: 'Stake',   path: '/defi',    state: { tab: 'stake' },    color: 'text-cyan-400',  bg: 'bg-cyan-400/10' },
-    { icon: Droplets,       label: 'Faucet',  path: '/faucet',  state: undefined,           color: 'text-pink-400',  bg: 'bg-pink-400/10' },
-    { icon: Pickaxe,        label: 'Mine',    path: '/mining',  state: undefined,           color: 'text-orange-400',bg: 'bg-orange-400/10' },
-    { icon: QrCode,         label: 'QR Pay',  path: '/wallet',  state: undefined,           color: 'text-indigo-400',bg: 'bg-indigo-400/10' },
+    { icon: Send,           label: 'Send',    path: '/wallet',  state: undefined,           color: 'text-primary',   bg: 'bg-primary/10',   onPress: undefined as (() => void) | undefined },
+    { icon: Download,       label: 'Receive', path: '/wallet',  state: undefined,           color: 'text-green-400', bg: 'bg-green-400/10', onPress: undefined as (() => void) | undefined },
+    { icon: ArrowLeftRight, label: 'Swap',    path: '/defi',    state: { tab: 'swap' },     color: 'text-purple-400',bg: 'bg-purple-400/10',onPress: undefined as (() => void) | undefined },
+    { icon: Globe,          label: 'Bridge',  path: '/defi',    state: { tab: 'bridge' },   color: 'text-amber-400', bg: 'bg-amber-400/10', onPress: undefined as (() => void) | undefined },
+    { icon: TrendingUp,     label: 'Stake',   path: '/defi',    state: { tab: 'stake' },    color: 'text-cyan-400',  bg: 'bg-cyan-400/10',  onPress: undefined as (() => void) | undefined },
+    { icon: Droplets,       label: 'Faucet',  path: '/faucet',  state: undefined,           color: 'text-pink-400',  bg: 'bg-pink-400/10',  onPress: undefined as (() => void) | undefined },
+    { icon: Pickaxe,        label: 'Mine',    path: '/mining',  state: undefined,           color: 'text-orange-400',bg: 'bg-orange-400/10',onPress: undefined as (() => void) | undefined },
+    { icon: QrCode,         label: 'QR Pay',  path: '',         state: undefined,           color: 'text-indigo-400',bg: 'bg-indigo-400/10',onPress: () => setShowQRScanner(true) },
   ];
 
   const networkStats = [
@@ -220,11 +222,22 @@ const HomeTab = () => {
         </div>
       </div>
 
+      {/* QR Scanner overlay */}
+      {showQRScanner && (
+        <QRScanner
+          onScan={(val) => {
+            setShowQRScanner(false);
+            go('/wallet', { state: { prefillAddress: val } });
+          }}
+          onClose={() => setShowQRScanner(false)}
+        />
+      )}
+
       {/* Quick actions */}
       <div className="grid grid-cols-4 gap-2">
         {quickActions.map(a => (
           <button key={a.label}
-            onClick={() => go(a.path, a.state ? { state: a.state } : undefined)}
+            onClick={() => a.onPress ? a.onPress() : go(a.path, a.state ? { state: a.state } : undefined)}
             className="flex flex-col items-center gap-1.5 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-95 transition-all"
           >
             <div className={cn('p-2 rounded-xl', a.bg)}>

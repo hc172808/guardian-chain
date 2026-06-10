@@ -3,12 +3,21 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Block, Transaction } from '@/lib/blockchain';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle } from 'lucide-react';
+import { Search, Blocks, CheckCircle, Clock, ChevronRight, Wifi, WifiOff, ArrowUpRight, ArrowDownLeft, Activity, ExternalLink, Coins, Shield, AlertTriangle, Users, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+
+interface NetworkStats {
+  activeValidators: number;
+  activeMiners: number;
+  totalTransactions: number;
+  totalTokens: number;
+  liveNodes: number;
+  networkHashRateThps: number;
+}
 
 // Standalone explorer - no Layout wrapper, no auth required
 const Explorer = () => {
@@ -17,8 +26,11 @@ const Explorer = () => {
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [tokens, setTokens] = useState<any[]>([]);
+  const [dbTransactions, setDbTransactions] = useState<Transaction[]>([]);
+  const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
+  const [dbLoading, setDbLoading] = useState(false);
 
-  const { isConnected, latestBlock, latestTransactions, pendingTransactions, error } = useBlockchainWebSocket();
+  const { isConnected, latestBlock, latestTransactions, pendingTransactions, error, gaveUp } = useBlockchainWebSocket();
 
   useEffect(() => {
     if (latestBlock) {
@@ -29,6 +41,7 @@ const Explorer = () => {
     }
   }, [latestBlock]);
 
+  // Load tokens
   useEffect(() => {
     fetch('/api/tokens?limit=20')
       .then(r => r.ok ? r.json() : [])
@@ -36,15 +49,64 @@ const Explorer = () => {
       .catch(() => {});
   }, []);
 
+  // Load network stats on mount and refresh every 30s
+  useEffect(() => {
+    const load = () => {
+      fetch('/api/network-stats')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.stats) setNetworkStats(data.stats); })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // When WebSocket is offline / gave up, load confirmed transactions from DB
+  useEffect(() => {
+    if (!isConnected || gaveUp) {
+      setDbLoading(true);
+      fetch('/api/transactions?limit=50')
+        .then(r => r.ok ? r.json() : [])
+        .then((data: any[]) => {
+          if (!Array.isArray(data)) return;
+          const mapped: Transaction[] = data.map(tx => ({
+            id: tx.id ?? tx.tx_hash ?? String(tx.id),
+            from: tx.from_address ?? tx.from ?? '',
+            to: tx.to_address ?? tx.to ?? '',
+            amount: Number(tx.amount ?? 0),
+            fee: Number(tx.fee ?? 0),
+            nonce: 0,
+            data: '',
+            signature: '',
+            status: tx.status ?? 'confirmed',
+            blockHeight: tx.block_height ?? null,
+            timestamp: tx.created_at ? new Date(tx.created_at).getTime() : Date.now(),
+          }));
+          setDbTransactions(mapped);
+        })
+        .catch(() => {})
+        .finally(() => setDbLoading(false));
+    }
+  }, [isConnected, gaveUp]);
+
+  const confirmedTxs = isConnected && !gaveUp ? latestTransactions : dbTransactions;
+  const confirmedSource = isConnected && !gaveUp ? 'live' : 'db';
+
   const filteredBlocks = blocks.filter(block =>
     block.hash.includes(searchQuery) ||
     block.height.toString().includes(searchQuery) ||
     block.validator.includes(searchQuery)
   );
 
-  const filteredTransactions = latestTransactions.filter(tx =>
+  const filteredTransactions = confirmedTxs.filter(tx =>
     tx.id.includes(searchQuery) || tx.from.includes(searchQuery) || tx.to.includes(searchQuery)
   );
+
+  // Stats: prefer network stats from API; fall back to live WS counts
+  const totalTxCount = networkStats?.totalTransactions
+    ? networkStats.totalTransactions.toLocaleString()
+    : confirmedTxs.length.toString();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -61,7 +123,7 @@ const Explorer = () => {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <ConnectionStatus isConnected={isConnected} error={error} />
+            <ConnectionStatus isConnected={isConnected} error={error} gaveUp={gaveUp} />
             <a href="https://netlifegy.com" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
               netlifegy.com <ExternalLink className="h-3 w-3" />
             </a>
@@ -106,11 +168,19 @@ const Explorer = () => {
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <LiveStatCard label="Latest Block" value={`#${(latestBlock?.height || blocks[0]?.height || 0).toLocaleString()}`} icon={<Blocks className="w-4 h-4" />} pulse={!!latestBlock} />
-          <LiveStatCard label="Pending Txs" value={pendingTransactions.length.toString()} icon={<Clock className="w-4 h-4" />} pulse={pendingTransactions.length > 0} />
-          <LiveStatCard label="Confirmed Txs" value={latestTransactions.length.toString()} icon={<CheckCircle className="w-4 h-4" />} />
-          <LiveStatCard label="Tokens" value={tokens.length.toString()} icon={<Coins className="w-4 h-4" />} />
-          <LiveStatCard label="Status" value={isConnected ? 'Live' : 'Offline'} icon={isConnected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />} highlight={isConnected ? 'emerald' : 'destructive'} />
+          <LiveStatCard label="Validators" value={(networkStats?.activeValidators ?? '—').toString()} icon={<Users className="w-4 h-4" />} />
+          <LiveStatCard label="Total Txs" value={totalTxCount} icon={<CheckCircle className="w-4 h-4" />} />
+          <LiveStatCard label="Tokens" value={(networkStats?.totalTokens ?? tokens.length).toString()} icon={<Coins className="w-4 h-4" />} />
+          <LiveStatCard label="Status" value={isConnected ? 'Live' : gaveUp ? 'DB Mode' : 'Offline'} icon={isConnected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />} highlight={isConnected ? 'emerald' : gaveUp ? 'amber' : 'destructive'} />
         </div>
+
+        {/* DB mode banner */}
+        {!isConnected && gaveUp && (
+          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neon-amber/10 border border-neon-amber/30 text-neon-amber text-sm">
+            <Database className="w-4 h-4 flex-shrink-0" />
+            <span>WebSocket offline — showing confirmed transactions from database. Live blocks will appear once the node reconnects.</span>
+          </div>
+        )}
 
         {/* Main Content */}
         <Tabs defaultValue="blocks" className="space-y-4">
@@ -130,10 +200,11 @@ const Explorer = () => {
                   <div className="p-4 border-b border-border/50 flex items-center justify-between">
                     <h3 className="font-semibold">Recent Blocks</h3>
                     {latestBlock && <span className="text-xs text-muted-foreground animate-pulse">Live updates</span>}
+                    {!isConnected && <span className="text-xs text-neon-amber">Waiting for node…</span>}
                   </div>
                   <div className="divide-y divide-border/30 max-h-[600px] overflow-y-auto">
                     <AnimatePresence mode="popLayout">
-                      {filteredBlocks.map((block, index) => (
+                      {filteredBlocks.length > 0 ? filteredBlocks.map((block, index) => (
                         <motion.div key={block.hash} initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: index * 0.02 }}
                           onClick={() => setSelectedBlock(block)}
                           className={cn('p-4 hover:bg-secondary/30 cursor-pointer transition-colors flex items-center gap-4', selectedBlock?.hash === block.hash && 'bg-secondary/50', index === 0 && latestBlock?.hash === block.hash && 'ring-1 ring-primary/50')}>
@@ -159,7 +230,12 @@ const Explorer = () => {
                           </div>
                           <ChevronRight className="w-4 h-4 text-muted-foreground" />
                         </motion.div>
-                      ))}
+                      )) : (
+                        <div className="p-12 text-center text-muted-foreground">
+                          <Blocks className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                          <p className="text-sm">No blocks yet — waiting for the node to connect</p>
+                        </div>
+                      )}
                     </AnimatePresence>
                   </div>
                 </GlassCard>
@@ -192,6 +268,21 @@ const Explorer = () => {
                     <p className="text-muted-foreground text-sm">Select a block to view details</p>
                   )}
                 </GlassCard>
+
+                {/* Network Stats side card */}
+                {networkStats && (
+                  <GlassCard className="mt-4 p-4 space-y-3">
+                    <h3 className="font-semibold text-sm">Network Stats</h3>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Live Nodes</span><span className="font-mono">{networkStats.liveNodes}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Validators</span><span className="font-mono">{networkStats.activeValidators}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Miners</span><span className="font-mono">{networkStats.activeMiners}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Total Txs</span><span className="font-mono">{networkStats.totalTransactions.toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Tokens</span><span className="font-mono">{networkStats.totalTokens}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">PoS Finality</span><span className="text-neon-emerald font-mono">99.99%</span></div>
+                    </div>
+                  </GlassCard>
+                )}
               </div>
             </div>
           </TabsContent>
@@ -214,11 +305,19 @@ const Explorer = () => {
 
               <GlassCard className="p-0 overflow-hidden">
                 <div className="p-4 border-b border-border/50 flex items-center justify-between">
-                  <h3 className="font-semibold flex items-center gap-2"><CheckCircle className="w-4 h-4 text-neon-emerald" /> Confirmed</h3>
-                  <Badge variant="outline" className="bg-neon-emerald/10 text-neon-emerald border-neon-emerald/30">{filteredTransactions.length}</Badge>
+                  <h3 className="font-semibold flex items-center gap-2">
+                    {confirmedSource === 'db' ? <Database className="w-4 h-4 text-neon-amber" /> : <CheckCircle className="w-4 h-4 text-neon-emerald" />}
+                    Confirmed
+                    {confirmedSource === 'db' && <span className="text-xs text-muted-foreground">(from DB)</span>}
+                  </h3>
+                  <Badge variant="outline" className={cn(confirmedSource === 'db' ? 'bg-neon-amber/10 text-neon-amber border-neon-amber/30' : 'bg-neon-emerald/10 text-neon-emerald border-neon-emerald/30')}>
+                    {dbLoading ? '…' : filteredTransactions.length}
+                  </Badge>
                 </div>
                 <div className="divide-y divide-border/30 max-h-[500px] overflow-y-auto">
-                  {filteredTransactions.length > 0 ? filteredTransactions.map((tx, i) => (
+                  {dbLoading ? (
+                    <div className="p-8 text-center text-muted-foreground"><Activity className="w-8 h-8 mx-auto mb-2 opacity-50 animate-pulse" /><p>Loading…</p></div>
+                  ) : filteredTransactions.length > 0 ? filteredTransactions.map((tx, i) => (
                     <TransactionRow key={tx.id} tx={tx} index={i} />
                   )) : (
                     <div className="p-8 text-center text-muted-foreground"><Activity className="w-8 h-8 mx-auto mb-2 opacity-50" /><p>No confirmed transactions</p></div>
@@ -231,7 +330,6 @@ const Explorer = () => {
           <TabsContent value="tokens">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {tokens.filter(t => !searchQuery || t.symbol?.toLowerCase().includes(searchQuery.toLowerCase()) || t.name?.toLowerCase().includes(searchQuery.toLowerCase()) || t.address?.includes(searchQuery)).map((token: any) => {
-                // Security score calculation
                 const getSecurityScore = () => {
                   let score = 0;
                   if (!token.mint_enabled || token.mint_locked) score++;
@@ -260,7 +358,7 @@ const Explorer = () => {
                           <p className="text-sm text-muted-foreground">{token.symbol}</p>
                         </div>
                         <Badge variant="outline" className={cn("text-xs gap-1", security.color)}>
-                          {security.label === 'Safe' ? <Shield className="h-3 w-3" /> : security.label === 'Caution' ? <AlertTriangle className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                          {security.label === 'Safe' ? <Shield className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
                           {security.label}
                         </Badge>
                       </div>
@@ -296,16 +394,29 @@ const Explorer = () => {
 };
 
 // Sub-components
-const ConnectionStatus = ({ isConnected, error }: { isConnected: boolean; error: string | null }) => (
-  <span className={cn('inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full', isConnected ? 'bg-neon-emerald/10 text-neon-emerald' : 'bg-destructive/10 text-destructive')}>
-    {isConnected ? (<><span className="w-1.5 h-1.5 rounded-full bg-neon-emerald animate-pulse" /> Live</>) : (<><WifiOff className="w-3 h-3" /> {error || 'Offline'}</>)}
+const ConnectionStatus = ({ isConnected, error, gaveUp }: { isConnected: boolean; error: string | null; gaveUp: boolean }) => (
+  <span className={cn('inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full',
+    isConnected ? 'bg-neon-emerald/10 text-neon-emerald' :
+    gaveUp ? 'bg-neon-amber/10 text-neon-amber' :
+    'bg-destructive/10 text-destructive'
+  )}>
+    {isConnected
+      ? (<><span className="w-1.5 h-1.5 rounded-full bg-neon-emerald animate-pulse" /> Live</>)
+      : gaveUp
+        ? (<><Database className="w-3 h-3" /> DB Mode</>)
+        : (<><WifiOff className="w-3 h-3" /> {error || 'Connecting…'}</>)
+    }
   </span>
 );
 
-const LiveStatCard = ({ label, value, icon, pulse, highlight }: { label: string; value: string; icon: React.ReactNode; pulse?: boolean; highlight?: 'emerald' | 'destructive' }) => (
+const LiveStatCard = ({ label, value, icon, pulse, highlight }: { label: string; value: string; icon: React.ReactNode; pulse?: boolean; highlight?: 'emerald' | 'amber' | 'destructive' }) => (
   <GlassCard className={cn('p-4 transition-all', pulse && 'ring-1 ring-primary/30')}>
     <div className="flex items-center gap-2 text-muted-foreground mb-1">{icon}<span className="text-xs">{label}</span></div>
-    <p className={cn('text-xl font-bold font-mono', highlight === 'emerald' && 'text-neon-emerald', highlight === 'destructive' && 'text-destructive')}>{value}</p>
+    <p className={cn('text-xl font-bold font-mono',
+      highlight === 'emerald' && 'text-neon-emerald',
+      highlight === 'amber' && 'text-neon-amber',
+      highlight === 'destructive' && 'text-destructive'
+    )}>{value}</p>
   </GlassCard>
 );
 

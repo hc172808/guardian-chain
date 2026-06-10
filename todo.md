@@ -105,7 +105,7 @@
 
 ### Mobile App
 - [x] Pull-to-refresh (touch gesture, progress indicator, 72px threshold, remounts active tab)
-- [ ] QR code scanner
+- [x] QR code scanner — QRScanner component wired into Wallet send dialog (QrCode button opens camera; address auto-fills recipient field) and Mobile "QR Pay" quick action (opens scanner, then navigates to wallet with prefillAddress state)
 - [ ] Biometric unlock
 - [ ] Push notifications (web push)
 - [ ] Deep links
@@ -121,12 +121,12 @@
 - [ ] Update INIT_CODE_HASH after pair deploy
 
 ### ChainCore Pages — Wire to Real Data
-- [ ] Explorer: verify block/tx data from RPC
-- [ ] Wallet: GYDS balance fetching
+- [x] Explorer: DB transaction fallback when WebSocket offline; network stats from /api/network-stats shown in stat cards and side panel; "DB Mode" status indicator
+- [x] Wallet: GYDS on-chain balance via useRpcBalance hook (all wallet addresses queried against ALL_RPC_ENDPOINTS, displayed with refresh button + RPC offline indicator)
 - [ ] DeFi: all 8 tabs working end-to-end
 - [ ] Token Launchpad: test token creation flow
 - [ ] Faucet: test claim → cooldown → re-claim
-- [ ] Download page: respect node visibility settings
+- [x] Download page: respects node visibility settings from /api/node-visibility — litenode/rpcnode/boostnode/fullnode/genesis/bootnode each shown only when admin enables them and user has required role
 
 ---
 

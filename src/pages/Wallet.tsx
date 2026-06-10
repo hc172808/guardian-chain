@@ -39,8 +39,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FounderWalletConfig } from '@/components/wallet/FounderWalletConfig';
 import { cn } from '@/lib/utils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Web3ConnectModal } from '@/components/Web3ConnectModal';
+import { QRScanner } from '@/components/wallet/QRScanner';
+import { useRpcBalance } from '@/hooks/useRpcBalance';
+import { QrCode, Wifi, WifiOff } from 'lucide-react';
 
 interface WalletData {
   id: string;
@@ -83,6 +86,7 @@ import { Fingerprint } from 'lucide-react';
 
 const WalletContent = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isFounder } = useAuth();
   const { toast } = useToast();
   const [wallets, setWallets] = useState<WalletData[]>([]);
@@ -104,6 +108,7 @@ const WalletContent = () => {
   const [sendAmount, setSendAmount] = useState('');
   const [sendLoading, setSendLoading] = useState(false);
   const [linkWalletOpen, setLinkWalletOpen] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   // PIN rotation state
   const [rotatePinDialogOpen, setRotatePinDialogOpen] = useState(false);
@@ -126,6 +131,10 @@ const WalletContent = () => {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(isBiometricEnabled());
 
+  // On-chain RPC balance
+  const walletAddresses = wallets.map(w => w.address);
+  const { gydsBalance: rpcGydsBalance, loading: rpcLoading, error: rpcError, lastFetched: rpcLastFetched, refresh: refreshRpc } = useRpcBalance(walletAddresses);
+
   useEffect(() => {
     isBiometricAvailable().then(setBiometricAvailable);
   }, []);
@@ -134,6 +143,16 @@ const WalletContent = () => {
     fetchWallets();
     loadBalances();
   }, [user]);
+
+  // Pre-fill send dialog when navigated from Mobile QR scanner
+  useEffect(() => {
+    const state = location.state as { prefillAddress?: string } | null;
+    if (state?.prefillAddress) {
+      setSendTo(state.prefillAddress);
+      setSendDialogOpen(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state]);
 
   const fetchWallets = async () => {
     if (!user) return;
@@ -609,7 +628,18 @@ const WalletContent = () => {
                 </div>
                 <div>
                   <Label>Recipient Address</Label>
-                  <Input value={sendTo} onChange={(e) => setSendTo(e.target.value)} placeholder="0x..." />
+                  <div className="flex gap-2">
+                    <Input value={sendTo} onChange={(e) => setSendTo(e.target.value)} placeholder="0x..." className="flex-1" />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      title="Scan QR code"
+                      onClick={() => { setSendDialogOpen(false); setShowQRScanner(true); }}
+                    >
+                      <QrCode className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <Label>Amount ({sendAsset})</Label>
@@ -683,19 +713,60 @@ const WalletContent = () => {
         </div>
       </div>
 
+      {/* QR Scanner overlay */}
+      {showQRScanner && (
+        <QRScanner
+          onScan={(val) => {
+            setSendTo(val);
+            setShowQRScanner(false);
+            setSendDialogOpen(true);
+          }}
+          onClose={() => setShowQRScanner(false)}
+        />
+      )}
+
       {/* Portfolio Overview */}
       <GlassCard className="p-6">
         <div className="flex items-center gap-3 mb-4">
           <Coins className="h-6 w-6 text-primary" />
           <h2 className="text-xl font-bold">Assets & Balances</h2>
         </div>
-        <div className="mb-4">
-          <p className="text-sm text-muted-foreground">Total Portfolio Value</p>
-          <p className="text-3xl font-bold text-foreground">
-            ${totalPortfolioValue < 0.01 && totalPortfolioValue > 0
-              ? totalPortfolioValue.toFixed(7)
-              : totalPortfolioValue.toFixed(2)}
-          </p>
+        <div className="mb-4 space-y-2">
+          <div>
+            <p className="text-sm text-muted-foreground">Total Portfolio Value</p>
+            <p className="text-3xl font-bold text-foreground">
+              ${totalPortfolioValue < 0.01 && totalPortfolioValue > 0
+                ? totalPortfolioValue.toFixed(7)
+                : totalPortfolioValue.toFixed(2)}
+            </p>
+          </div>
+          {/* On-chain RPC balance */}
+          {walletAddresses.length > 0 && (
+            <div className="flex items-center gap-2 text-sm">
+              {rpcError ? (
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  <WifiOff className="h-3.5 w-3.5" />
+                  On-chain: RPC offline
+                </span>
+              ) : rpcLoading ? (
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  Checking on-chain…
+                </span>
+              ) : rpcGydsBalance !== null ? (
+                <span className="flex items-center gap-1 text-emerald-400">
+                  <Wifi className="h-3.5 w-3.5" />
+                  On-chain: {parseFloat(rpcGydsBalance).toLocaleString(undefined, { maximumFractionDigits: 4 })} GYDS
+                  {rpcLastFetched && <span className="text-muted-foreground text-xs ml-1">· {rpcLastFetched.toLocaleTimeString()}</span>}
+                </span>
+              ) : null}
+              {!rpcLoading && (
+                <button onClick={refreshRpc} className="text-muted-foreground hover:text-primary transition-colors" title="Refresh on-chain balance">
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {balancesLoading ? (

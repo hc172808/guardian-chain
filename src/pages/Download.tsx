@@ -25,7 +25,7 @@ import {
   BarChart3,
   Droplets
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useInstaller } from '@/hooks/useInstaller';
@@ -43,6 +43,21 @@ const DownloadPage = () => {
   const [storageSize, setStorageSize] = useState(10);
   const [rpcEndpoint, setRpcEndpoint] = useState('https://rpc.netlifegy.com');
   const [enableMining, setEnableMining] = useState(false);
+  const [nodeVis, setNodeVis] = useState({
+    litenode: true,
+    rpcnode: false,
+    boostnode: false,
+    fullnode: false,
+    genesis: false,
+    bootnode: false,
+  });
+
+  useEffect(() => {
+    fetch('/api/node-visibility')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setNodeVis(prev => ({ ...prev, ...data })); })
+      .catch(() => {});
+  }, []);
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -151,67 +166,129 @@ const DownloadPage = () => {
               ))}
             </div>
 
-            {/* Lite Node Install */}
-            <GlassCard className="p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 rounded-lg bg-primary/20">
-                  <Monitor className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-semibold">Lite Node Installation</h2>
-                  <p className="text-sm text-muted-foreground">Connect to the network, optional CPU mining for rewards</p>
-                </div>
-                <Badge variant="outline" className="ml-auto">Public</Badge>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                {[
-                  { icon: Globe, label: 'Multi-RPC Failover' },
-                  { icon: Cpu, label: 'CPU/Browser Mining' },
-                  { icon: HardDrive, label: 'Configurable Storage' },
-                  { icon: Shield, label: 'SPV Validation' },
-                ].map((f, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <f.icon className="h-4 w-4 text-primary" />
-                    <span>{f.label}</span>
+            {/* Lite Node Install — shown when nodeVis.litenode is true */}
+            {nodeVis.litenode && (
+              <GlassCard className="p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-3 rounded-lg bg-primary/20">
+                    <Monitor className="h-6 w-6 text-primary" />
                   </div>
-                ))}
-              </div>
-
-              {/* Configuration */}
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium mb-2">RPC Endpoint</label>
-                  <input
-                    type="text"
-                    value={rpcEndpoint}
-                    onChange={(e) => setRpcEndpoint(e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg bg-background/50 border border-border focus:border-primary focus:outline-none text-sm"
-                    placeholder="https://rpc.netlifegy.com"
-                  />
+                  <div>
+                    <h2 className="text-xl font-semibold">Lite Node Installation</h2>
+                    <p className="text-sm text-muted-foreground">Connect to the network, optional CPU mining for rewards</p>
+                  </div>
+                  <Badge variant="outline" className="ml-auto">Public</Badge>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Cache Storage: {storageSize}GB</label>
-                  <input type="range" min="1" max="100" value={storageSize} onChange={(e) => setStorageSize(Number(e.target.value))} className="w-full accent-primary" />
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  {[
+                    { icon: Globe, label: 'Multi-RPC Failover' },
+                    { icon: Cpu, label: 'CPU/Browser Mining' },
+                    { icon: HardDrive, label: 'Configurable Storage' },
+                    { icon: Shield, label: 'SPV Validation' },
+                  ].map((f, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <f.icon className="h-4 w-4 text-primary" />
+                      <span>{f.label}</span>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex items-center gap-3">
-                  <input type="checkbox" id="mining" checked={enableMining} onChange={(e) => setEnableMining(e.target.checked)} className="w-4 h-4 accent-primary" />
-                  <label htmlFor="mining" className="text-sm">Enable CPU mining for rewards</label>
+
+                {/* Configuration */}
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">RPC Endpoint</label>
+                    <input
+                      type="text"
+                      value={rpcEndpoint}
+                      onChange={(e) => setRpcEndpoint(e.target.value)}
+                      className="w-full px-4 py-2 rounded-lg bg-background/50 border border-border focus:border-primary focus:outline-none text-sm"
+                      placeholder="https://rpc.netlifegy.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Cache Storage: {storageSize}GB</label>
+                    <input type="range" min="1" max="100" value={storageSize} onChange={(e) => setStorageSize(Number(e.target.value))} className="w-full accent-primary" />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" id="mining" checked={enableMining} onChange={(e) => setEnableMining(e.target.checked)} className="w-4 h-4 accent-primary" />
+                    <label htmlFor="mining" className="text-sm">Enable CPU mining for rewards</label>
+                  </div>
                 </div>
-              </div>
 
-              <CommandBlock command={liteNodeCommand} label="Install Command" onCopy={copyToClipboard} />
+                <CommandBlock command={liteNodeCommand} label="Install Command" onCopy={copyToClipboard} />
 
-              <div className="flex flex-wrap gap-3 mt-4">
-                <Button onClick={handleInstallLitenode} disabled={installing} className="gap-2" size="lg">
-                  {installing ? <span className="animate-spin">⟳</span> : user ? <Play className="h-4 w-4" /> : <LogIn className="h-4 w-4" />}
-                  {user ? 'Install Lite Node' : 'Sign In to Install'}
-                </Button>
-              </div>
-            </GlassCard>
+                <div className="flex flex-wrap gap-3 mt-4">
+                  <Button onClick={handleInstallLitenode} disabled={installing} className="gap-2" size="lg">
+                    {installing ? <span className="animate-spin">⟳</span> : user ? <Play className="h-4 w-4" /> : <LogIn className="h-4 w-4" />}
+                    {user ? 'Install Lite Node' : 'Sign In to Install'}
+                  </Button>
+                </div>
+              </GlassCard>
+            )}
 
-            {/* Full Node - Founder Only */}
-            {isFounder && (
+            {/* RPC Node — Admin/Founder, shown when nodeVis.rpcnode is true */}
+            {nodeVis.rpcnode && (isAdmin || isFounder) && (
+              <GlassCard className="p-6 border-blue-400/30">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 rounded-lg bg-blue-400/20">
+                    <Globe className="h-6 w-6 text-blue-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold">RPC Node</h2>
+                    <p className="text-sm text-muted-foreground">Read-only API endpoint for wallets and explorers</p>
+                  </div>
+                  <Badge variant="outline" className="ml-auto border-blue-400 text-blue-400">Admin</Badge>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                  {[
+                    { icon: Globe, label: 'JSON-RPC on :8545' },
+                    { icon: Server, label: 'WebSocket on :8546' },
+                    { icon: Shield, label: 'Rate-limited' },
+                  ].map((f, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <f.icon className="h-4 w-4 text-blue-400" />
+                      <span>{f.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <CommandBlock command={`curl -sSL https://netlifegy.com/install-node.sh | RPC_MODE=true RPC_ENDPOINT="${rpcEndpoint}" bash`} label="RPC Node Command" onCopy={copyToClipboard} />
+                <p className="text-xs text-muted-foreground mt-3">Requirements: 2 GB RAM, 50 GB SSD, open ports 8545/8546</p>
+              </GlassCard>
+            )}
+
+            {/* Boost Node — Admin/Founder, shown when nodeVis.boostnode is true */}
+            {nodeVis.boostnode && (isAdmin || isFounder) && (
+              <GlassCard className="p-6 border-emerald-400/30">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 rounded-lg bg-emerald-400/20">
+                    <Cpu className="h-6 w-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold">Boost Node</h2>
+                    <p className="text-sm text-muted-foreground">High-throughput relay node for transaction propagation</p>
+                  </div>
+                  <Badge variant="outline" className="ml-auto border-emerald-400 text-emerald-400">Admin</Badge>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                  {[
+                    { icon: Cpu, label: 'Relay transactions' },
+                    { icon: Globe, label: 'Connect to peers' },
+                    { icon: HardDrive, label: 'Minimal storage' },
+                  ].map((f, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <f.icon className="h-4 w-4 text-emerald-400" />
+                      <span>{f.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <CommandBlock command={`curl -sSL https://netlifegy.com/install-node.sh | BOOST_MODE=true RPC_ENDPOINT="${rpcEndpoint}" bash`} label="Boost Node Command" onCopy={copyToClipboard} />
+                <p className="text-xs text-muted-foreground mt-3">Requirements: 2 GB RAM, 20 GB SSD</p>
+              </GlassCard>
+            )}
+
+            {/* Full Node / Validator — Founder only, shown when nodeVis.fullnode is true */}
+            {nodeVis.fullnode && isFounder && (
               <GlassCard className="p-6 border-yellow-500/30">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="p-3 rounded-lg bg-yellow-500/20">
@@ -219,7 +296,7 @@ const DownloadPage = () => {
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold">Full Node / Validator</h2>
-                    <p className="text-sm text-yellow-500">Founder only — PoS consensus</p>
+                    <p className="text-sm text-yellow-500">Founder only — PoS consensus, block production</p>
                   </div>
                   <Badge variant="outline" className="ml-auto border-yellow-500 text-yellow-500">Founder</Badge>
                 </div>
@@ -228,6 +305,50 @@ const DownloadPage = () => {
                   {installing ? <span className="animate-spin">⟳</span> : <Play className="h-4 w-4" />}
                   Install Full Node
                 </Button>
+              </GlassCard>
+            )}
+
+            {/* Genesis Node — Founder only, shown when nodeVis.genesis is true */}
+            {nodeVis.genesis && isFounder && (
+              <GlassCard className="p-6 border-purple-500/30">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 rounded-lg bg-purple-500/20">
+                    <Rocket className="h-6 w-6 text-purple-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold">Genesis Node</h2>
+                    <p className="text-sm text-purple-400">Founder only — bootstraps the chain from genesis block</p>
+                  </div>
+                  <Badge variant="outline" className="ml-auto border-purple-400 text-purple-400">Founder</Badge>
+                </div>
+                <CommandBlock command={`curl -sSL https://netlifegy.com/install-fullnode.sh | GENESIS=true CHAIN_ID=13370 sudo bash`} label="Genesis Command" onCopy={copyToClipboard} />
+                <p className="text-xs text-muted-foreground mt-3">Requirements: 8 GB RAM, 200 GB SSD, static IP, static domain</p>
+              </GlassCard>
+            )}
+
+            {/* Bootnode — Founder only, shown when nodeVis.bootnode is true */}
+            {nodeVis.bootnode && isFounder && (
+              <GlassCard className="p-6 border-orange-500/30">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 rounded-lg bg-orange-500/20">
+                    <Server className="h-6 w-6 text-orange-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold">Bootnode</h2>
+                    <p className="text-sm text-orange-400">Founder only — peer discovery entry point for new nodes</p>
+                  </div>
+                  <Badge variant="outline" className="ml-auto border-orange-400 text-orange-400">Founder</Badge>
+                </div>
+                <CommandBlock command={`curl -sSL https://netlifegy.com/install-node.sh | BOOTNODE=true sudo bash`} label="Bootnode Command" onCopy={copyToClipboard} />
+                <p className="text-xs text-muted-foreground mt-3">Requirements: 1 GB RAM, 10 GB SSD, static IP on port 30301</p>
+              </GlassCard>
+            )}
+
+            {/* No nodes visible message */}
+            {!nodeVis.litenode && !(nodeVis.rpcnode && (isAdmin || isFounder)) && !(nodeVis.boostnode && (isAdmin || isFounder)) && !(nodeVis.fullnode && isFounder) && !(nodeVis.genesis && isFounder) && !(nodeVis.bootnode && isFounder) && (
+              <GlassCard className="p-8 text-center">
+                <Server className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-40" />
+                <p className="text-muted-foreground">No node installers are currently enabled by the admin.</p>
               </GlassCard>
             )}
           </TabsContent>

@@ -69,6 +69,7 @@
     "express-session": "^1.19.0",
     "framer-motion": "^12.23.26",
     "input-otp": "^1.4.2",
+    "jsqr": "^1.4.0",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
     "openid-client": "^6.8.4",
