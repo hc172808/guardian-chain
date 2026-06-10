@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { setupAuth } from "./auth";
 import { registerRoutes } from "./routes";
+import { seedFounder } from "./seed";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,6 +13,7 @@ app.use(express.urlencoded({ extended: true }));
 
 await setupAuth(app);
 registerRoutes(app);
+await seedFounder();
 
 // Serve static frontend in production only
 if (process.env.NODE_ENV === "production") {

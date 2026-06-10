@@ -1,5 +1,9 @@
-# ChainCore — Master Project TODO
-> Last updated: 2026-06-09 | Always update this file when work is done or started.
+# GYDSchain — Master Project TODO & Roadmap
+
+> Last updated: 2026-06-10 | Always update this file when work is done or started.
+
+**Blockchain:** GYDSchain | **Coin:** GYDS | **Stablecoin:** GYD | **Chain ID:** 13370
+**Domain:** netlifegy.com — subdomains ONLY (ws. rpc. node. explorer. app. faucet. swap. bridge. docs. api.)
 
 ---
 
@@ -16,225 +20,289 @@
 | MobileCore | https://github.com/hc172808/chaincore-mobile.git | ⏳ Planned |
 | Digital Wallet | https://github.com/hc172808/your-digital-wallet.git | ⏳ Planned |
 
-> **Add your GitHub Personal Access Token as `GITHUB_TOKEN` in Replit secrets.**
-> This enables auto-pull/push on deploy and from the Admin → GitHub tab.
-
 ---
 
-## Network & Identity
+## Network & Subdomains
 
-| Property | Value |
+| Subdomain | Purpose |
 |---|---|
-| Blockchain | GydsChain |
-| Native Coin | GYDS |
-| Chain ID | 13370 |
-| Domain | netlifegy.com |
-| Dashboard Deploy Path | `/var/www/gydschain` |
-| VPN Server | vpn.netlifegy.com:51820 |
-| RPC | https://rpc.netlifegy.com |
-| WS | wss://ws.netlifegy.com |
-| Explorer | https://netlifegy.com |
+| app.netlifegy.com | Dashboard |
+| explorer.netlifegy.com | Block Explorer |
+| rpc.netlifegy.com | RPC Endpoint |
+| ws.netlifegy.com | WebSocket RPC |
+| node.netlifegy.com | Node Portal |
+| api.netlifegy.com | REST / GraphQL API |
+| faucet.netlifegy.com | Testnet Faucet |
+| bridge.netlifegy.com | Cross-Chain Bridge |
+| swap.netlifegy.com | GydsSwap DEX |
+| docs.netlifegy.com | Documentation |
 
 ---
 
-## ✅ Completed Work
+## ✅ Completed
+
+### Auth & Access
+- [x] Username + password login (bcrypt + passport-local)
+- [x] Web3 wallet login (ECDSA signature challenge + ethers.verifyMessage)
+- [x] Session persistence via connect-pg-simple
+- [x] Register with username / email / password
+- [x] netlifegy@gmail.com seeded as admin + founder
+- [x] Role-based middleware (requireAuth, requireAdmin, enrichUserWithRoles)
+
+### Mobile Experience
+- [x] Mobile device auto-redirect to /mobile
+- [x] Bottom tab navigation (Home, Explorer, DeFi, Wallet, More)
+- [x] Back button when navigating from mobile hub
+- [x] Phone-style UI (status bar, safe area, native app look)
 
 ### Platform Migration
-- [x] Migrated ChainCore from Supabase → Replit Auth (OIDC) + Replit PostgreSQL
-- [x] Built Express API server on port 5001 with Drizzle ORM + full schema
-- [x] All 160 frontend modules loading without errors (zero TypeScript errors)
-- [x] Fixed temporal dead zone crash in `src/lib/miningPools.ts`
-- [x] App renders correctly — login screen visible, Replit OIDC auth wired
+- [x] Migrated from Supabase → Replit Auth + Replit PostgreSQL
+- [x] Express API server on port 5001 with Drizzle ORM + full schema
+- [x] All 160 frontend modules loading without errors
+- [x] Fixed temporal dead zone crash in miningPools.ts
+- [x] Supabase shim routing all calls to /api/*
 
-### Deploy Scripts (all updated)
-- [x] `deploy-dashboard.sh` — deploys to `/var/www/gydschain`, PM2 for API, nginx proxies `/api → :5001`
-  - [x] **Git auto-pull** — if `GITHUB_TOKEN` is set, stores token in git remote for auth'd pulls
-  - [x] **Auto-pull cron** — installs cron job to `git pull --ff-only` every 5 minutes
-- [x] `install-fullnode.sh` — → `github.com/hc172808/fullnode.git`
-- [x] `install-litenode.sh` — → `github.com/hc172808/litenode.git`
-- [x] `install-boostnode.sh` — NEW → `github.com/hc172808/boostnode.git`
-- [x] `install-rpcnode.sh` — NEW → `github.com/hc172808/rpcnode.git`
-- [x] `install-genesis.sh` — NEW → `github.com/hc172808/genesis.git`
+### Deploy Scripts
+- [x] `deploy-dashboard.sh` — PM2 for API, nginx proxies /api → :5001, git auto-pull cron
+- [x] `install-fullnode.sh` → github.com/hc172808/fullnode.git
+- [x] `install-litenode.sh` → github.com/hc172808/litenode.git
+- [x] `install-boostnode.sh` → github.com/hc172808/boostnode.git
+- [x] `install-rpcnode.sh` → github.com/hc172808/rpcnode.git
+- [x] `install-genesis.sh` → github.com/hc172808/genesis.git
 
-### Portainer Stack Files (NEW — all with WireGuard VPN client)
-- [x] `public/docker/portainer-litenode.yml` — Lite Node + WireGuard VPN CLIENT, auto git-pull & build
-- [x] `public/docker/portainer-rpcnode.yml` — RPC Node + WireGuard VPN CLIENT + nginx reverse proxy
-- [x] `public/docker/portainer-fullnode.yml` — Full Node + WireGuard VPN CLIENT + validator key gen
-- [x] `public/docker/portainer-boostnode.yml` — Boost Node + WireGuard VPN CLIENT
-- [x] `public/docker/nginx-rpc.conf` — Nginx config for RPC node (rate limiting, CORS, WS, health)
+### Portainer Stacks (all with WireGuard VPN client)
+- [x] `portainer-litenode.yml`
+- [x] `portainer-rpcnode.yml` + nginx-rpc.conf
+- [x] `portainer-fullnode.yml`
+- [x] `portainer-boostnode.yml`
 
-### Admin: Node Type Visibility (NEW — admin/founder controls)
-- [x] `src/components/admin/NodeVisibilitySettings.tsx` — toggle which node types users can see/run
-- [x] Admin → "Node Types" tab added to Admin page
-- [x] `GET /api/node-visibility` — public endpoint (Download page reads this)
-- [x] `PUT /api/node-visibility` — admin-only endpoint with audit log
-- [x] Founder-only nodes (fullnode, genesis, bootnode) always hidden from regular users
+### GydsSwap Smart Contracts
+- [x] WGYDS.sol
+- [x] GLPToken.sol
+- [x] GydsSwapLibrary.sol
+- [x] GydsSwapPair.sol
+- [x] GydsSwapFactory.sol
+- [x] GydsSwapRouter.sol
+- [x] GydsSwapFarm.sol
+- [x] contracts/README.md
 
-### Admin: Git Sync (NEW)
-- [x] `POST /api/admin/git-pull` — admin endpoint: triggers `git pull --ff-only` in app dir
-- [x] Admin → GitHub tab now has real "Git Pull" button with live output
-- [x] Shows all repository URLs in one place
-- [x] Audit log entry on every git pull
-
-### Node Installer (UPDATED)
-- [x] Updated all repo URLs to correct per-type GitHub repos
-- [x] Added **Boost Node** type
-- [x] Added **3 install modes**: Bash Script / Docker CLI / Portainer Stack
-- [x] Portainer mode: shows stack file URLs + download button + WireGuard config template
-- [x] WireGuard endpoint configurable in the installer UI
-- [x] Removed hardcoded `guardian-chain` repo reference
-
-### Admin Page (FIXED)
-- [x] Removed Supabase imports — all data fetching now uses Express API (`/api/nodes`, `/api/profile`)
-- [x] `handleApproveNode` now calls `PATCH /api/nodes/:id`
-- [x] Added `NodeVisibilitySettings` import and "Node Types" tab
-- [x] `GitSyncPanel` inline component — real git pull with output display
-
-### GydsSwap DEX — Smart Contracts (complete)
-- [x] `contracts/WGYDS.sol` — Wrapped GYDS ERC-20 wrapper for native coin
-- [x] `contracts/GLPToken.sol` — ERC-20 LP token with ERC-2612 permit
-- [x] `contracts/GydsSwapLibrary.sol` — Pure math: sqrt, quote, getAmountOut/In, TWAP
-- [x] `contracts/GydsSwapPair.sol` — AMM pool (x*y=k), 0.3% fee, flash-swap support
-- [x] `contracts/GydsSwapFactory.sol` — CREATE2 pair factory + registry
-- [x] `contracts/GydsSwapRouter.sol` — User router: all liquidity + swap variants
-- [x] `contracts/GydsSwapFarm.sol` — LP staking farm, GYDS rewards, emergency withdraw
-- [x] `contracts/README.md` — Deploy order, security notes, AMM formula
+### Admin Panel
+- [x] Node visibility controls (admin/founder toggles)
+- [x] Git Sync panel (real git pull with live output)
+- [x] Audit logs
+- [x] Node type approval
 
 ---
 
 ## 🔧 In Progress
 
-### GydsSwap DEX — Phase 2: Hardhat/Foundry Tests
-- [ ] Set up Hardhat project in `contracts/` with GydsChain network config (Chain ID 13370)
-- [ ] Write deploy scripts: `scripts/deploy.ts`
-- [ ] Unit tests for GydsSwapPair (mint, burn, swap, K invariant, fee math)
-- [ ] Unit tests for GydsSwapRouter (slippage, deadline, multi-hop)
-- [ ] Unit tests for GydsSwapFarm (stake, unstake, harvest, emergency withdraw)
-- [ ] Update `GydsSwapLibrary.sol` INIT_CODE_HASH after pair is deployed
+### Dashboard — Auth & Users
+- [ ] Password reset via email
+- [ ] Email verification on register
+- [ ] 2FA / TOTP
+- [ ] Admin → Users tab: show all profiles (currently only current user)
+- [ ] Admin → Nodes: fix camelCase/snake_case mapping
 
-### ChainCore Features — Fix & Test
-- [ ] Download page: read `/api/node-visibility` and hide disabled node types
-- [ ] Download page: show Portainer stack download buttons per node type
-- [ ] NodeInstaller: respect visibility settings (hide disabled types for non-admins)
-- [ ] Admin → Users tab: currently shows only current user's profile — fix to fetch all profiles
-- [ ] Admin → Nodes: map `nodeType/isApproved` camelCase from API to snake_case UI fields
-- [ ] Explorer page: verify block/tx data loads from RPC
-- [ ] Wallet page: verify GYDS balance fetching works
-- [ ] DeFi page: all 8 tabs load without errors
-- [ ] Token Launchpad: test token creation flow end-to-end
-- [ ] Faucet: test claim → cooldown → re-claim flow
+### Mobile App
+- [ ] Pull-to-refresh
+- [ ] QR code scanner
+- [ ] Biometric unlock
+- [ ] Push notifications (web push)
+- [ ] Deep links
+- [ ] Offline mode / service worker
+
+### GydsSwap Phase 2 — Tests
+- [ ] Hardhat project in contracts/ (Chain ID 13370)
+- [ ] Deploy scripts: scripts/deploy.ts
+- [ ] Unit tests: GydsSwapPair (mint, burn, swap, K invariant, fee math)
+- [ ] Unit tests: GydsSwapRouter (slippage, deadline, multi-hop)
+- [ ] Unit tests: GydsSwapFarm (stake, unstake, harvest, emergency withdraw)
+- [ ] Update INIT_CODE_HASH after pair deploy
+
+### ChainCore Pages — Wire to Real Data
+- [ ] Explorer: verify block/tx data from RPC
+- [ ] Wallet: GYDS balance fetching
+- [ ] DeFi: all 8 tabs working end-to-end
+- [ ] Token Launchpad: test token creation flow
+- [ ] Faucet: test claim → cooldown → re-claim
+- [ ] Download page: respect node visibility settings
 
 ---
 
 ## ⏳ Planned
 
-### Phase 3 — GydsSwap Frontend Integration
-- [ ] Wire SwapInterface to real contract calls (getAmountsOut, deadline, slippage)
-- [ ] PoolsList: show real reserves, TVL, APR from contracts
-- [ ] Portfolio: show user's GLP balances + earned fees
-- [ ] StakeInterface: wire to GydsSwapFarm stake/unstake/harvest
+### Blockchain Core
+- [ ] Genesis Creation
+- [ ] Genesis Validation
+- [ ] Consensus Engine
+- [ ] Validator Election + Rewards
+- [ ] Slashing Rules
+- [ ] Governance Parameters
+- [ ] Treasury Allocation
+- [ ] Inflation Schedule
+- [ ] Chain Upgrade Framework
+- [ ] Emergency Recovery Procedures
+- [ ] Bootnodes + Peer Discovery
+- [ ] Snapshot Export / Import
+- [ ] Fast Sync
+- [ ] Archive Nodes
+- [ ] Network Partition Recovery
+
+### Node Ecosystem
+- [ ] Full Node
+- [ ] Lite Node
+- [ ] RPC Node
+- [ ] Boost Node
+- [ ] Genesis Node
+- [ ] Validator Node
+- [ ] Local Node
+- [ ] Bootnode
+
+### Wallet
+- [ ] Multi Asset (GYDS + GYD)
+- [ ] QR Payments
+- [ ] Address Book
+- [ ] Transaction History
+- [ ] Hardware Wallet Support
+- [ ] Multi Sig Support
+- [ ] Seed Encryption
+- [ ] Biometric Login
+
+### Explorer
+- [ ] Blocks, Transactions, Addresses
+- [ ] Validators, Tokens, Smart Contracts
+- [ ] NFT Explorer, Pool Explorer
+- [ ] Rich List, Contract Verification
+
+### GydsSwap Phase 3 — Frontend Integration
+- [ ] Wire SwapInterface to real contract calls
+- [ ] PoolsList: real reserves, TVL, APR
+- [ ] Portfolio: GLP balances + earned fees
+- [ ] StakeInterface: wire to GydsSwapFarm
 - [ ] Launchpad: factory.createPair() UI
-- [ ] New: LP Farming Dashboard page (`src/pages/Farm.tsx`)
+- [ ] LP Farming Dashboard (Farm.tsx)
 
-### Phase 4 — Wallet & Explorer Integration
-- [ ] Connect wallet to Chain ID 13370 in WalletConnectBar
-- [ ] Show GYDS + all GLP token balances in wallet panel
-- [ ] Explorer: show liquidity pools with TVL
-- [ ] Explorer: add swap history + LP token holders per pool
+### Cross Chain Bridge
+- [ ] Ethereum, BNB Chain, Avalanche, Arbitrum, Optimism
+- [ ] Base, zkSync, Linea, Fantom, Cronos
+- [~] 25 network support (bridge UI complete, contracts pending)
 
-### Phase 5 — MobileCore
-- [ ] Review `github.com/hc172808/chaincore-mobile.git` codebase
-- [ ] Sync with Replit Auth OIDC
-- [ ] Add GydsSwap swap tab in mobile app
+### Governance DAO
+- [ ] Proposals, Voting, Treasury, Grants
+- [ ] Delegated Voting, Quadratic Voting
+- [ ] Emergency Governance
 
-### Phase 6 — Digital Wallet
-- [ ] Review `github.com/hc172808/your-digital-wallet.git`
-- [ ] Connect to GydsChain (Chain ID 13370) RPC
-- [ ] Send/receive GYDS, sign GydsSwap transactions
+### NFT Ecosystem
+- [ ] Collections, Marketplace, Minting, Batch Minting
+- [ ] Royalties, Dynamic NFTs, NFT Staking
+- [ ] IPFS Integration
 
-### Phase 7 — Production Hardening
-- [ ] Smart contract audit (Pair + Farm)
-- [ ] Mainnet deploy of all GydsSwap contracts
-- [ ] Cloudflare WAF in front of RPC nodes
-- [ ] Automated backups for all node data dirs
-- [ ] PagerDuty / uptime monitoring for all services
+### Identity
+- [ ] DID, Reputation, KYC
+- [ ] Social Verification, Sanctions Screening
+- [ ] Soulbound Tokens
+
+### RWA
+- [ ] Real Estate, Bonds, Commodities, Invoices
+- [ ] Secondary Markets, Compliance Controls
+
+### Community
+- [ ] Forum, Referrals
+- [ ] Trader + Validator Profiles
+- [ ] Token Gated Channels
+
+### Analytics
+- [ ] OHLCV Charts, Network Metrics, TPS Metrics
+- [ ] Mining + Validator Metrics
+- [ ] Export Reports
+
+### Mining
+- [ ] CPU Mining, GPU Mining, Mining Pools
+- [ ] Profitability Calculator, Leaderboards
+
+### Oracle Network
+- [ ] Oracle Nodes, Price Feeds, Aggregation
+- [ ] Outlier Detection, Chainlink Fallback
+
+### Enterprise
+- [ ] Multi Sig Wallets, Treasury Management, Enterprise SDK
+
+### Developer Portal
+- [ ] API Keys, REST API, GraphQL API
+- [ ] JavaScript + Python SDK, API Playground
+
+### Notifications
+- [~] In App Notifications (bell component done)
+- [ ] Email Notifications, Push Notifications
+- [ ] Webhooks, Price Alerts
+
+### Monitoring
+- [ ] Prometheus + Grafana + Loki + AlertManager
+- [ ] RPC Monitoring (rpc.netlifegy.com)
+- [ ] VPN Monitoring (ws.netlifegy.com)
+- [ ] Validator + Explorer Monitoring
+
+### Security
+- [ ] AI Firewall + Threat Detection + Fraud Detection
+- [ ] AI Risk Scoring
+- [ ] DDoS Protection, Rate Limiting, CSP Hardening
+- [ ] Bug Bounty, Security Audit, Cold Storage Treasury
+
+### Mainnet Readiness
+- [ ] Testnet Stable 30 Days
+- [ ] Smart Contract Audit
+- [ ] Monitoring Deployed
+- [ ] Backup Recovery Tested
+- [ ] Validator Onboarding
+- [ ] Public Documentation
+- [ ] Genesis Finalized
+
+### Marketing
+- [ ] Landing Page, Press Kit, Blog
+- [ ] Community Campaigns, Exchange Listings
+- [ ] Ambassador Program
+
+### Long Term Vision
+- [ ] Layer 2 Rollup
+- [ ] ZK Privacy
+- [ ] Decentralized Storage
+- [ ] AI Trading Marketplace
+- [ ] Cross Chain Aggregator
+- [ ] Debit Card
+- [ ] Carbon Credits
+- [ ] Mobile Mining
+- [ ] .gyds Domains
+- [ ] Decentralized Cloud Compute Marketplace
 
 ---
 
-## Server Setup Quick Reference
+## Quick Reference
 
-### Deploy Dashboard (with git auto-pull)
+### Deploy Dashboard
 ```bash
-# On Ubuntu 22.04 server (first time or update):
-DOMAIN=netlifegy.com \
-GYDS_SSL_EMAIL=admin@netlifegy.com \
-GITHUB_TOKEN=your_github_token \
+DOMAIN=app.netlifegy.com \
+GYDS_SSL_EMAIL=netlifegy@gmail.com \
+GITHUB_TOKEN=your_token \
 sudo -E bash public/scripts/deploy-dashboard.sh
-
-# The GITHUB_TOKEN enables:
-# - Auth'd git pull on deploy
-# - Cron job: git pull every 5 minutes automatically
-# - Admin → GitHub tab: "Git Pull" button with live output
 ```
 
 ### Install Nodes
 ```bash
-bash public/scripts/install-litenode.sh      # Lite Node (users)
-sudo bash public/scripts/install-rpcnode.sh  # RPC Node
+bash public/scripts/install-litenode.sh       # Lite Node (users)
+sudo bash public/scripts/install-rpcnode.sh   # RPC Node
 sudo bash public/scripts/install-boostnode.sh # Boost Node
 sudo bash public/scripts/install-fullnode.sh  # Full Node (founder)
 sudo bash public/scripts/install-genesis.sh   # Genesis (founder, ONCE)
 ```
 
-### Portainer Stack Deploy (with WireGuard VPN client)
-```bash
-# 1. Create WireGuard config on host:
-mkdir -p /etc/gydschain
-# Edit /etc/gydschain/wg-litenode.conf (see template in installer UI)
-
-# 2. In Portainer → Stacks → Add stack → Upload file:
-#    public/docker/portainer-litenode.yml    (Lite Node)
-#    public/docker/portainer-rpcnode.yml     (RPC Node)
-#    public/docker/portainer-fullnode.yml    (Full Node)
-#    public/docker/portainer-boostnode.yml   (Boost Node)
-
-# 3. Set env vars in Portainer Stack Environment tab:
-#    WG_CONF_PATH=/etc/gydschain/wg-litenode.conf
-#    GYDS_RPC_URL=https://rpc.netlifegy.com
-#    (see comments at top of each .yml for full list)
+### GydsSwap Deploy Order
 ```
-
-### Update Dashboard
-```bash
-cd /var/www/gydschain
-git pull
-npm run build
-pm2 restart gydschain-api
-nginx -s reload
+1. WGYDS
+2. GydsSwapFactory(feeToSetter)
+3. GydsSwapRouter(factory, WGYDS)
+4. GydsSwapFarm(gydsToken, emissionRate)
+5. factory.createPair(GYDS, USDT) → GLP-GYDS-USDT (40%)
+   factory.createPair(GYDS, BTC)  → GLP-GYDS-BTC  (20%)
+   factory.createPair(GYDS, ETH)  → GLP-GYDS-ETH  (25%)
+   factory.createPair(GYDS, USDC) → GLP-GYDS-USDC (15%)
 ```
-
----
-
-## GydsSwap Deploy Order
-
-```
-1. Deploy WGYDS
-2. Deploy GydsSwapFactory(feeToSetter)
-3. Deploy GydsSwapRouter(factory, WGYDS)
-4. Deploy GydsSwapFarm(gydsTokenAddress, emissionRate)
-5. factory.createPair(GYDS, USDT, "GYDS", "USDT")  → GLP-GYDS-USDT
-   factory.createPair(GYDS, BTC,  "GYDS", "BTC")   → GLP-GYDS-BTC
-   factory.createPair(GYDS, ETH,  "GYDS", "ETH")   → GLP-GYDS-ETH
-   factory.createPair(GYDS, USDC, "GYDS", "USDC")  → GLP-GYDS-USDC
-6. farm.addPool(glpGydsUsdt, 40)
-   farm.addPool(glpGydsBtc,  20)
-   farm.addPool(glpGydsEth,  25)
-   farm.addPool(glpGydsUsdc, 15)
-```
-
-| Pair | LP Symbol | Farm Weight |
-|---|---|---|
-| GYDS / USDT | GLP-GYDS-USDT | 40% |
-| GYDS / BTC | GLP-GYDS-BTC | 20% |
-| GYDS / ETH | GLP-GYDS-ETH | 25% |
-| GYDS / USDC | GLP-GYDS-USDC | 15% |
