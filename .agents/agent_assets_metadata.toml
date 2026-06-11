@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "IcAyIAr34VoM0ShxN8ST7"
+uri = "file://public/gyd-coin.png"
+type = "image"
+title = "generated_image"

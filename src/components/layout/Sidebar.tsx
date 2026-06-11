@@ -2,12 +2,13 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { 
   Blocks, Users, Pickaxe, FileText, Shield, BarChart3,
-  ChevronRight, Cpu, Download, Menu, X, LogIn, LogOut,
+  ChevronRight, Download, Menu, X, LogIn, LogOut,
   User, Wallet, Settings, BookOpen, ArrowRightLeft, Network,
   Coins, Star, Terminal, Droplets, UserCircle, Vote, Image,
   TrendingUp, MessageSquare, Code2, Trophy, ShieldCheck,
   Fingerprint, Building2, Lock, ChevronDown
 } from 'lucide-react';
+import gydsCoinLogo from '/gyds-coin.jpg';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -158,11 +159,9 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
             {/* Logo */}
             <div className="p-5 border-b border-sidebar-border flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-gradient-primary">
-                  <Cpu className="w-5 h-5 text-primary-foreground" />
-                </div>
+                <img src={gydsCoinLogo} alt="GYDS" className="w-10 h-10 rounded-full object-cover ring-2 ring-primary/40 shrink-0" />
                 <div>
-                  <h1 className="font-bold text-base text-gradient-primary">ChainCore</h1>
+                  <h1 className="font-bold text-base text-gradient-primary">GYDSchain</h1>
                   <p className="text-xs text-muted-foreground">PoS + PoW Hybrid</p>
                 </div>
               </div>

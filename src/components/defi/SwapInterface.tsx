@@ -36,8 +36,8 @@ interface Token {
 // Native coins always available
 // GYDS = native fee coin (0x000...0000) | GYD = stablecoin (0x000...0001)
 const NATIVE_TOKENS: Token[] = [
-  { symbol: 'GYDS', name: 'GYDS Native Coin', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000' },
-  { symbol: 'GYD', name: 'GYD Stablecoin', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001' },
+  { symbol: 'GYDS', name: 'GYDS Native Coin', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000', logo: '/gyds-coin.jpg' },
+  { symbol: 'GYD', name: 'GYD Stablecoin', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: '/gyd-coin.png' },
 ];
 
 const TokenSelectorButton = forwardRef<HTMLSpanElement, { token: Token; onClick: () => void }>(
