@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { TrendingUp, Lock, RefreshCw, Zap, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingUp, Lock, RefreshCw, Zap, ChevronDown, ChevronUp, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Vault {
@@ -23,6 +23,20 @@ interface Vault {
   capacity: number;
   filled: number;
   icon: string;
+}
+
+interface VaultPosition {
+  id: string;
+  vaultId: string;
+  vaultName: string;
+  token: string;
+  amount: string;
+  apy: string;
+  autoCompound: boolean;
+  lockDays: number | null;
+  lockedUntil: string | null;
+  status: string;
+  depositedAt: string;
 }
 
 const VAULTS: Vault[] = [
@@ -70,19 +84,79 @@ export const YieldVaults = () => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [depositAmount, setDepositAmount] = useState<Record<string, string>>({});
   const [depositing, setDepositing] = useState<string | null>(null);
+  const [withdrawing, setWithdrawing] = useState<string | null>(null);
+  const [positions, setPositions] = useState<VaultPosition[]>([]);
+  const [loadingPositions, setLoadingPositions] = useState(false);
+
+  const fetchPositions = useCallback(async () => {
+    if (!user) return;
+    setLoadingPositions(true);
+    try {
+      const res = await fetch('/api/vault-positions', { credentials: 'include' });
+      if (res.ok) setPositions(await res.json());
+    } finally {
+      setLoadingPositions(false);
+    }
+  }, [user]);
+
+  useEffect(() => { fetchPositions(); }, [fetchPositions]);
 
   const deposit = async (vault: Vault) => {
     if (!user) { toast({ title: 'Sign in to deposit', variant: 'destructive' }); return; }
     const amt = depositAmount[vault.id];
     if (!amt || parseFloat(amt) <= 0) { toast({ title: 'Enter deposit amount', variant: 'destructive' }); return; }
     setDepositing(vault.id);
-    await new Promise(r => setTimeout(r, 1200));
-    setDepositing(null);
-    toast({
-      title: `Deposited ${parseFloat(amt).toLocaleString()} ${vault.token}`,
-      description: `Now earning ${vault.apy}% APY in ${vault.name}`,
-    });
-    setDepositAmount(prev => ({ ...prev, [vault.id]: '' }));
+    try {
+      const lockedUntil = vault.lockDays
+        ? new Date(Date.now() + vault.lockDays * 24 * 60 * 60 * 1000).toISOString()
+        : null;
+      const res = await fetch('/api/vault-positions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vaultId: vault.id,
+          vaultName: vault.name,
+          token: vault.token,
+          amount: amt,
+          apy: vault.apy,
+          autoCompound: vault.autoCompound,
+          lockDays: vault.lockDays ?? null,
+          lockedUntil,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Deposit failed');
+      toast({
+        title: `Deposited ${parseFloat(amt).toLocaleString()} ${vault.token}`,
+        description: `Now earning ${vault.apy}% APY in ${vault.name}`,
+      });
+      setDepositAmount(prev => ({ ...prev, [vault.id]: '' }));
+      fetchPositions();
+    } catch (err: any) {
+      toast({ title: 'Deposit failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setDepositing(null);
+    }
+  };
+
+  const withdraw = async (position: VaultPosition) => {
+    if (position.lockedUntil && new Date(position.lockedUntil) > new Date()) {
+      const remaining = new Date(position.lockedUntil);
+      toast({ title: 'Locked', description: `Unlocks ${remaining.toLocaleDateString()}`, variant: 'destructive' });
+      return;
+    }
+    setWithdrawing(position.id);
+    try {
+      const res = await fetch(`/api/vault-positions/${position.id}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) throw new Error((await res.json()).error || 'Withdraw failed');
+      toast({ title: `Withdrawn ${parseFloat(position.amount).toLocaleString()} ${position.token}` });
+      fetchPositions();
+    } catch (err: any) {
+      toast({ title: 'Withdraw failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setWithdrawing(null);
+    }
   };
 
   const totalTvl = VAULTS.reduce((s, v) => s + v.tvl, 0);
@@ -112,6 +186,48 @@ export const YieldVaults = () => {
         ))}
       </div>
 
+      {/* My Positions */}
+      {user && positions.length > 0 && (
+        <GlassCard className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold">My Positions</p>
+            <button onClick={fetchPositions} disabled={loadingPositions} className="text-muted-foreground hover:text-foreground transition-colors">
+              <RefreshCw className={cn('w-3.5 h-3.5', loadingPositions && 'animate-spin')} />
+            </button>
+          </div>
+          <div className="space-y-2">
+            {positions.map(pos => {
+              const isLocked = !!pos.lockedUntil && new Date(pos.lockedUntil) > new Date();
+              return (
+                <motion.div key={pos.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="flex items-center justify-between text-xs bg-muted/20 rounded-lg p-2.5 gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{pos.vaultName}</p>
+                    <p className="text-muted-foreground">{parseFloat(pos.amount).toLocaleString()} {pos.token}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-emerald-400 font-bold">{parseFloat(pos.apy).toFixed(1)}% APY</p>
+                    {isLocked && pos.lockedUntil && (
+                      <p className="text-amber-400 text-[10px] flex items-center gap-0.5 justify-end">
+                        <Lock className="w-2.5 h-2.5" /> {new Date(pos.lockedUntil).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => withdraw(pos)}
+                    disabled={withdrawing === pos.id || isLocked}
+                    className={cn('shrink-0 transition-colors', isLocked ? 'text-muted-foreground/30 cursor-not-allowed' : 'text-muted-foreground hover:text-red-400')}
+                    title={isLocked ? 'Position is locked' : 'Withdraw'}
+                  >
+                    {withdrawing === pos.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+                  </button>
+                </motion.div>
+              );
+            })}
+          </div>
+        </GlassCard>
+      )}
+
       {/* Vault cards */}
       <div className="space-y-3">
         {VAULTS.map((vault, i) => {
@@ -122,7 +238,6 @@ export const YieldVaults = () => {
           return (
             <motion.div key={vault.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
               <GlassCard className="overflow-hidden">
-                {/* Header */}
                 <button
                   className="w-full p-4 flex items-center gap-3 text-left hover:bg-sidebar-accent/30 transition-colors"
                   onClick={() => setExpanded(isExpanded ? null : vault.id)}
@@ -153,7 +268,6 @@ export const YieldVaults = () => {
                   {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                 </button>
 
-                {/* Expanded */}
                 <AnimatePresence>
                   {isExpanded && (
                     <motion.div

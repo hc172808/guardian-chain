@@ -1,6 +1,6 @@
 # GYDSchain — Master Project TODO & Roadmap
 
-> Last updated: 2026-06-10 | Always update this file when work is done or started.
+> Last updated: 2026-06-11 | Always update this file when work is done or started.
 
 **Blockchain:** GYDSchain | **Coin:** GYDS | **Stablecoin:** GYD | **Chain ID:** 13370
 **Domain:** netlifegy.com — subdomains ONLY (ws. rpc. node. explorer. app. faucet. swap. bridge. docs. api.)
@@ -127,9 +127,9 @@
 - [x] Dashboard Index: block time shows 5s (matches Go consensus engine — pos.go blockTime = 5*time.Second)
 - [x] Download page: respects node visibility settings from /api/node-visibility — litenode/rpcnode/boostnode/fullnode/genesis/bootnode each shown only when admin enables them and user has required role
 - [x] Download page: Quick Stats binary name corrected to `gyds-fullnode`; litenode install command uses correct env var `GYDS_BOOTSTRAP_NODES`; NodeInstaller.tsx repo URLs all point to github.com/hc172808/fullnode.git
-- [ ] DeFi: all 8 tabs working end-to-end
+- [x] DeFi: all 8 tabs working end-to-end (Swap/Pools/Stake/Bridge/Launchpad/Portfolio wired; Orderbook+Vaults now persist to `orders`+`vault_positions` tables)
 - [ ] Token Launchpad: test token creation flow
-- [ ] Faucet: test claim → cooldown → re-claim
+- [x] Faucet: test claim → cooldown → re-claim (fixed camelCase bug in /api/faucet/claims → now returns snake_case token_type/created_at)
 
 ---
 

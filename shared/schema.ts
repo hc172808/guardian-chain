@@ -343,6 +343,36 @@ export const faucetClaims = pgTable("faucet_claims", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const orders = pgTable("orders", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  side: text("side").notNull(),
+  orderType: text("order_type").notNull(),
+  price: numeric("price"),
+  stopPrice: numeric("stop_price"),
+  amount: numeric("amount").notNull(),
+  filled: numeric("filled").notNull().default("0"),
+  status: text("status").notNull().default("open"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const vaultPositions = pgTable("vault_positions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  vaultId: text("vault_id").notNull(),
+  vaultName: text("vault_name").notNull(),
+  token: text("token").notNull(),
+  amount: numeric("amount").notNull(),
+  apy: numeric("apy").notNull(),
+  autoCompound: boolean("auto_compound").notNull().default(true),
+  lockDays: integer("lock_days"),
+  lockedUntil: timestamp("locked_until"),
+  status: text("status").notNull().default("active"),
+  depositedAt: timestamp("deposited_at").defaultNow(),
+  withdrawnAt: timestamp("withdrawn_at"),
+});
+
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

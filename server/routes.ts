@@ -395,14 +395,62 @@ export function registerRoutes(app: Express) {
     res.json(row);
   });
 
+  // ── Orders ─────────────────────────────────────────────────────────────────
+  app.get("/api/orders", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    res.json(await storage.getUserOrders(user.id));
+  });
+
+  app.post("/api/orders", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { side, orderType, price, stopPrice, amount } = req.body;
+    if (!side || !orderType || !amount) return res.status(400).json({ error: "side, orderType and amount required" });
+    const row = await storage.insertOrder({ userId: user.id, side, orderType, price: price ?? null, stopPrice: stopPrice ?? null, amount: String(amount) });
+    res.json(row);
+  });
+
+  app.delete("/api/orders/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const row = await storage.cancelOrder(req.params.id, user.id);
+    if (!row) return res.status(404).json({ error: "Order not found" });
+    res.json({ ok: true });
+  });
+
+  // ── Vault Positions ────────────────────────────────────────────────────────
+  app.get("/api/vault-positions", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    res.json(await storage.getUserVaultPositions(user.id));
+  });
+
+  app.post("/api/vault-positions", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { vaultId, vaultName, token, amount, apy, autoCompound, lockDays, lockedUntil } = req.body;
+    if (!vaultId || !amount) return res.status(400).json({ error: "vaultId and amount required" });
+    const row = await storage.insertVaultPosition({
+      userId: user.id, vaultId, vaultName, token, amount: String(amount),
+      apy: String(apy), autoCompound: !!autoCompound,
+      lockDays: lockDays ?? null,
+      lockedUntil: lockedUntil ? new Date(lockedUntil) : null,
+    });
+    res.json(row);
+  });
+
+  app.delete("/api/vault-positions/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const row = await storage.withdrawVaultPosition(req.params.id, user.id);
+    if (!row) return res.status(404).json({ error: "Position not found" });
+    res.json({ ok: true });
+  });
+
   // ── Faucet ─────────────────────────────────────────────────────────────────
-  // Get recent claims for cooldown UI
+  // Get recent claims for cooldown UI — return snake_case for frontend compatibility
   app.get("/api/faucet/claims", requireAuth, async (req, res) => {
     const user = req.user as any;
     const COOLDOWN_MS = 24 * 60 * 60 * 1000;
     const since = new Date(Date.now() - COOLDOWN_MS);
     const claims = await storage.getRecentFaucetClaimsForUser(user.id, since);
-    res.json(claims);
+    // Map camelCase Drizzle fields to snake_case for the frontend
+    res.json(claims.map(c => ({ token_type: c.tokenType, created_at: c.createdAt })));
   });
 
   app.post("/api/faucet/claim", requireAuth, async (req, res) => {

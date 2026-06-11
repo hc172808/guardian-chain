@@ -3,7 +3,8 @@ import { users, userRoles, profiles, wallets, nodeInstallations, transactions,
   documentation, adminConfig, tokenOperations, tokenPrice, tokens, tokenLaunches,
   liquidityPools, tokenWatchlist, tokenPriceAlerts, networkValidators,
   validatorDelegations, firewallRules, fail2banJails, ipAccessList,
-  rateLimitRules, ddosProtection, auditLogs, faucetClaims, passwordResetTokens } from "../shared/schema";
+  rateLimitRules, ddosProtection, auditLogs, faucetClaims, passwordResetTokens,
+  orders, vaultPositions } from "../shared/schema";
 import { eq, and, gte, desc, sql, count, inArray } from "drizzle-orm";
 
 export const storage = {
@@ -521,6 +522,38 @@ export const storage = {
     return db.select().from(faucetClaims)
       .where(and(eq(faucetClaims.userId, userId), gte(faucetClaims.createdAt, since)))
       .orderBy(desc(faucetClaims.createdAt));
+  },
+
+  // ── Orders ────────────────────────────────────────────────────────────────
+  async getUserOrders(userId: string) {
+    return db.select().from(orders).where(eq(orders.userId, userId)).orderBy(desc(orders.createdAt)).limit(100);
+  },
+
+  async insertOrder(data: typeof orders.$inferInsert) {
+    const [row] = await db.insert(orders).values(data).returning();
+    return row;
+  },
+
+  async cancelOrder(id: string, userId: string) {
+    const [row] = await db.update(orders).set({ status: "cancelled", updatedAt: new Date() })
+      .where(and(eq(orders.id, id), eq(orders.userId, userId))).returning();
+    return row;
+  },
+
+  // ── Vault Positions ───────────────────────────────────────────────────────
+  async getUserVaultPositions(userId: string) {
+    return db.select().from(vaultPositions).where(and(eq(vaultPositions.userId, userId), eq(vaultPositions.status, "active"))).orderBy(desc(vaultPositions.depositedAt));
+  },
+
+  async insertVaultPosition(data: typeof vaultPositions.$inferInsert) {
+    const [row] = await db.insert(vaultPositions).values(data).returning();
+    return row;
+  },
+
+  async withdrawVaultPosition(id: string, userId: string) {
+    const [row] = await db.update(vaultPositions).set({ status: "withdrawn", withdrawnAt: new Date() })
+      .where(and(eq(vaultPositions.id, id), eq(vaultPositions.userId, userId))).returning();
+    return row;
   },
 
   // ── Network Stats ─────────────────────────────────────────────────────────

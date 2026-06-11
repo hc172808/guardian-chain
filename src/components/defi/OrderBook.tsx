@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,45 +6,61 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { ArrowDown, ArrowUp, RefreshCw, TrendingUp } from 'lucide-react';
+import { ArrowDown, ArrowUp, RefreshCw, TrendingUp, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type OrderSide = 'buy' | 'sell';
 type OrderType = 'limit' | 'stop-limit' | 'market';
 
-interface Order {
+interface BookLevel {
   price: number;
   size: number;
   total: number;
-  depth: number; // 0–1 for bar width
+  depth: number;
 }
 
-const genBook = (mid: number, side: 'buy' | 'sell', levels = 10): Order[] => {
-  const orders: Order[] = [];
-  let cumTotal = 0;
+interface MyOrder {
+  id: string;
+  side: string;
+  orderType: string;
+  price: string | null;
+  amount: string;
+  filled: string;
+  status: string;
+  createdAt: string;
+}
+
+const midPrice = 0.0000001;
+
+const genBook = (mid: number, side: 'buy' | 'sell', levels = 10): BookLevel[] => {
+  const out: BookLevel[] = [];
+  let cum = 0;
   for (let i = 0; i < levels; i++) {
     const offset = (i + 1) * (0.000000001 + Math.random() * 0.000000002);
     const price = side === 'buy' ? mid - offset : mid + offset;
-    const size  = Math.random() * 5_000_000 + 500_000;
-    cumTotal += price * size;
-    orders.push({ price, size, total: cumTotal, depth: 0 });
+    const size = Math.random() * 5_000_000 + 500_000;
+    cum += price * size;
+    out.push({ price, size, total: cum, depth: 0 });
   }
-  const maxTotal = orders[orders.length - 1].total;
-  return orders.map(o => ({ ...o, depth: o.total / maxTotal }));
+  const max = out[out.length - 1].total;
+  return out.map(o => ({ ...o, depth: o.total / max }));
 };
 
 export const OrderBook = () => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const midPrice = 0.0000001;
-  const [asks, setAsks] = useState<Order[]>([]);
-  const [bids, setBids] = useState<Order[]>([]);
+
+  const [asks, setAsks] = useState<BookLevel[]>([]);
+  const [bids, setBids] = useState<BookLevel[]>([]);
   const [side, setSide] = useState<OrderSide>('buy');
   const [type, setType] = useState<OrderType>('limit');
   const [price, setPrice] = useState('0.0000001');
   const [amount, setAmount] = useState('');
   const [stopPrice, setStopPrice] = useState('');
   const [placing, setPlacing] = useState(false);
+  const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [cancelling, setCancelling] = useState<string | null>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -56,21 +72,67 @@ export const OrderBook = () => {
     return () => clearInterval(t);
   }, []);
 
+  const fetchMyOrders = useCallback(async () => {
+    if (!user) return;
+    setLoadingOrders(true);
+    try {
+      const res = await fetch('/api/orders', { credentials: 'include' });
+      if (res.ok) setMyOrders(await res.json());
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, [user]);
+
+  useEffect(() => { fetchMyOrders(); }, [fetchMyOrders]);
+
   const placeOrder = async () => {
     if (!user) { toast({ title: 'Sign in to trade', variant: 'destructive' }); return; }
     if (!amount || parseFloat(amount) <= 0) { toast({ title: 'Enter amount', variant: 'destructive' }); return; }
+    if (type !== 'market' && (!price || parseFloat(price) <= 0)) { toast({ title: 'Enter price', variant: 'destructive' }); return; }
     setPlacing(true);
-    await new Promise(r => setTimeout(r, 800));
-    setPlacing(false);
-    toast({
-      title: `${type.charAt(0).toUpperCase() + type.slice(1)} order placed`,
-      description: `${side.toUpperCase()} ${parseFloat(amount).toLocaleString()} GYDS @ $${price}`,
-    });
-    setAmount('');
+    try {
+      const body: any = { side, orderType: type, amount };
+      if (type !== 'market') body.price = price;
+      if (type === 'stop-limit') body.stopPrice = stopPrice;
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Order failed');
+      toast({
+        title: `${type.charAt(0).toUpperCase() + type.slice(1)} order placed`,
+        description: `${side.toUpperCase()} ${parseFloat(amount).toLocaleString()} GYDS${type !== 'market' ? ` @ $${price}` : ''}`,
+      });
+      setAmount('');
+      fetchMyOrders();
+    } catch (err: any) {
+      toast({ title: 'Order failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setPlacing(false);
+    }
+  };
+
+  const cancelOrder = async (id: string) => {
+    setCancelling(id);
+    try {
+      const res = await fetch(`/api/orders/${id}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) throw new Error((await res.json()).error || 'Cancel failed');
+      toast({ title: 'Order cancelled' });
+      fetchMyOrders();
+    } catch (err: any) {
+      toast({ title: 'Cancel failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setCancelling(null);
+    }
   };
 
   const fmtPrice = (p: number) => p.toFixed(10);
   const fmtSize  = (s: number) => (s / 1_000_000).toFixed(2) + 'M';
+
+  const openOrders = myOrders.filter(o => o.status === 'open');
 
   return (
     <div className="space-y-4">
@@ -90,9 +152,8 @@ export const OrderBook = () => {
       </GlassCard>
 
       <div className="grid grid-cols-1 gap-4">
-        {/* Book */}
+        {/* Live order book */}
         <GlassCard className="p-3 space-y-1">
-          {/* Asks (sells — red, shown in reverse) */}
           <div className="space-y-0.5">
             {[...asks].reverse().map((o, i) => (
               <div key={i} className="relative flex justify-between items-center text-xs py-0.5 px-1 rounded overflow-hidden cursor-pointer hover:bg-red-500/5"
@@ -104,15 +165,11 @@ export const OrderBook = () => {
               </div>
             ))}
           </div>
-
-          {/* Spread */}
           <div className="flex items-center justify-center gap-2 py-1.5 border-y border-border/20 my-1">
             <ArrowDown className="w-3 h-3 text-red-400" />
             <span className="text-xs font-bold text-primary font-mono">${midPrice.toFixed(10)}</span>
             <ArrowUp className="w-3 h-3 text-emerald-400" />
           </div>
-
-          {/* Bids (buys — green) */}
           <div className="space-y-0.5">
             {bids.map((o, i) => (
               <div key={i} className="relative flex justify-between items-center text-xs py-0.5 px-1 rounded overflow-hidden cursor-pointer hover:bg-emerald-500/5"
@@ -131,7 +188,6 @@ export const OrderBook = () => {
 
         {/* Order form */}
         <GlassCard className="p-4 space-y-3">
-          {/* Buy/Sell toggle */}
           <div className="grid grid-cols-2 gap-1 p-1 bg-muted/30 rounded-xl">
             {(['buy', 'sell'] as const).map(s => (
               <button key={s} onClick={() => setSide(s)}
@@ -143,7 +199,6 @@ export const OrderBook = () => {
             ))}
           </div>
 
-          {/* Order type */}
           <div className="flex gap-1">
             {(['limit', 'market', 'stop-limit'] as const).map(t => (
               <button key={t} onClick={() => setType(t)}
@@ -155,7 +210,6 @@ export const OrderBook = () => {
             ))}
           </div>
 
-          {/* Price fields */}
           {type === 'stop-limit' && (
             <div>
               <label className="text-xs text-muted-foreground">Stop Price (USDT)</label>
@@ -187,11 +241,41 @@ export const OrderBook = () => {
             disabled={placing}
           >
             {placing
-              ? <><RefreshCw className="w-4 h-4 animate-spin mr-2" /> Placing…</>
-              : `${side === 'buy' ? 'Buy' : 'Sell'} GYDS`
-            }
+              ? <><RefreshCw className="w-4 h-4 animate-spin mr-2" />Placing…</>
+              : `${side === 'buy' ? 'Buy' : 'Sell'} GYDS`}
           </Button>
         </GlassCard>
+
+        {/* My open orders */}
+        {user && (
+          <GlassCard className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold">My Open Orders</p>
+              <button onClick={fetchMyOrders} disabled={loadingOrders} className="text-muted-foreground hover:text-foreground transition-colors">
+                <RefreshCw className={cn('w-3.5 h-3.5', loadingOrders && 'animate-spin')} />
+              </button>
+            </div>
+            {openOrders.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-4">No open orders</p>
+            ) : (
+              <div className="space-y-2">
+                {openOrders.map(o => (
+                  <motion.div key={o.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="flex items-center justify-between text-xs bg-muted/20 rounded-lg p-2 gap-2">
+                    <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 shrink-0', o.side === 'buy' ? 'text-emerald-400 border-emerald-500/30' : 'text-red-400 border-red-500/30')}>
+                      {o.side.toUpperCase()}
+                    </Badge>
+                    <span className="font-mono flex-1 truncate">{parseFloat(o.amount).toLocaleString()} GYDS</span>
+                    {o.price && <span className="font-mono text-muted-foreground shrink-0">@ ${parseFloat(o.price).toFixed(10)}</span>}
+                    <button onClick={() => cancelOrder(o.id)} disabled={cancelling === o.id} className="text-muted-foreground hover:text-red-400 transition-colors shrink-0">
+                      {cancelling === o.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                    </button>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+        )}
       </div>
     </div>
   );
