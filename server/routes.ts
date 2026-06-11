@@ -622,6 +622,27 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // ── Analytics ──────────────────────────────────────────────────────────────
+  app.get("/api/analytics/overview", async (_req, res) => {
+    const [tokenPriceRow, validatorCount, nodeCount, txCount, tokenCount] = await Promise.all([
+      storage.getTokenPrice(),
+      storage.countActiveValidators(),
+      storage.countOnlineNodes(),
+      storage.countTransactions(),
+      storage.countTokens(),
+    ]);
+    res.json({
+      price:              tokenPriceRow?.price              ?? "0.0000001",
+      totalSupply:        tokenPriceRow?.totalSupply        ?? "100000000000",
+      circulatingSupply:  tokenPriceRow?.circulatingSupply  ?? "0",
+      burnedTotal:        tokenPriceRow?.burnedTotal        ?? "0",
+      activeValidators:   validatorCount,
+      onlineNodes:        nodeCount,
+      totalTransactions:  txCount,
+      launchedTokens:     tokenCount,
+    });
+  });
+
   // ── Health Check ───────────────────────────────────────────────────────────
   app.get("/api/health", async (_req, res) => {
     const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];

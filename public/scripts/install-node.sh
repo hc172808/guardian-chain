@@ -29,7 +29,13 @@ BACKUP_RPC_1="https://rpc2.netlifegy.com"
 BACKUP_RPC_2="https://rpc3.netlifegy.com"
 WS_ENDPOINT="wss://ws.netlifegy.com"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
+# Select repo based on node type (can be overridden with REPO_URL=)
+case "$NODE_TYPE" in
+  validator|fullnode) REPO_URL="${REPO_URL:-https://github.com/hc172808/validatornode.git}" ;;
+  rpc)                REPO_URL="${REPO_URL:-https://github.com/hc172808/rpcnode.git}" ;;
+  litenode)           REPO_URL="${REPO_URL:-https://github.com/hc172808/litenode.git}" ;;
+  bootnode)           REPO_URL="${REPO_URL:-https://github.com/hc172808/boostnode.git}" ;;
+esac
 REPO_DIR="${REPO_DIR:-/opt/guardian-chain}"
 SRC_DIR="${SRC_DIR:-$(cd "$(dirname "$0")/../blockchain-go" 2>/dev/null && pwd || echo "")}"
 

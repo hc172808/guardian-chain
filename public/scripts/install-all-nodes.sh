@@ -43,7 +43,8 @@ fi
 
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
+# Default repo — individual scripts use their own repos; this is a fallback
+REPO_URL="${REPO_URL:-https://github.com/hc172808/validatornode.git}"
 REPO_DIR="${REPO_DIR:-/opt/guardian-chain}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export SRC_DIR="${SRC_DIR:-$(cd "$SCRIPT_DIR/../blockchain-go" 2>/dev/null && pwd || echo "")}"

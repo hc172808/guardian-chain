@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain RPC Node Installer
-#  Repo:     https://github.com/hc172808/fullnode.git  (rpc mode via GYDS_NODE_MODE)
+#  Repo:     https://github.com/hc172808/rpcnode.git
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
 #  Chain ID: 13370  |  Domain: netlifegy.com
 #  Run:      sudo bash install-rpcnode.sh
@@ -10,7 +10,7 @@ set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
-BINARY="gyds-fullnode"
+BINARY="gyds-rpcnode"
 APP_USER="${APP_USER:-gyds}"
 APP_DIR="${APP_DIR:-/opt/gyds-rpcnode}"
 DATA_DIR="${DATA_DIR:-/var/lib/gyds-rpcnode}"
@@ -27,7 +27,7 @@ RATE_LIMIT="${RATE_LIMIT:-100}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
 DOMAIN="${DOMAIN:-rpc.netlifegy.com}"
 
-REPO_URL="https://github.com/hc172808/fullnode.git"
+REPO_URL="https://github.com/hc172808/rpcnode.git"
 BRANCH="main"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain RPC NODE Installer v${GYDS_VERSION}                    ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Domain: ${DOMAIN}          ║"
-echo "║   Repo: github.com/hc172808/fullnode                        ║"
+echo "║   Repo: github.com/hc172808/rpcnode                        ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
