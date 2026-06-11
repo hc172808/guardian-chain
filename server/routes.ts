@@ -549,6 +549,79 @@ export function registerRoutes(app: Express) {
     });
   });
 
+  // ── Governance ─────────────────────────────────────────────────────────────
+  app.get("/api/governance/proposals", async (_req, res) => {
+    res.json(await storage.getGovernanceProposals());
+  });
+
+  app.post("/api/governance/proposals", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { title, description, proposalType, endDate } = req.body;
+    if (!title || !description) return res.status(400).json({ error: "title and description required" });
+    const row = await storage.insertGovernanceProposal({
+      title, description,
+      proposalType: proposalType ?? "parameter",
+      createdBy: user.id,
+      endDate: endDate ? new Date(endDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+    res.json(row);
+  });
+
+  app.get("/api/governance/my-votes", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const votes = await storage.getUserGovernanceVotes(user.id);
+    res.json(votes.map(v => ({ proposalId: v.proposalId, choice: v.choice })));
+  });
+
+  app.post("/api/governance/proposals/:id/vote", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { id } = req.params;
+    const { choice } = req.body;
+    if (!['for', 'against', 'abstain'].includes(choice)) return res.status(400).json({ error: "choice must be for|against|abstain" });
+    const existing = await storage.getProposalVote(id, user.id);
+    if (existing) return res.status(409).json({ error: "Already voted on this proposal" });
+    await storage.insertGovernanceVote({ proposalId: id, userId: user.id, choice });
+    await storage.incrementProposalVotes(id, choice as 'for' | 'against' | 'abstain');
+    res.json({ ok: true });
+  });
+
+  // ── Community ──────────────────────────────────────────────────────────────
+  app.get("/api/community/posts", async (_req, res) => {
+    res.json(await storage.getCommunityPosts());
+  });
+
+  app.post("/api/community/posts", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { title, body, postType } = req.body;
+    if (!title) return res.status(400).json({ error: "title required" });
+    const row = await storage.insertCommunityPost({ userId: user.id, title, body: body ?? '', postType: postType ?? 'discussion' });
+    res.json(row);
+  });
+
+  app.get("/api/community/posts/:id/comments", async (req, res) => {
+    res.json(await storage.getCommunityComments(req.params.id));
+  });
+
+  app.post("/api/community/posts/:id/comments", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { body } = req.body;
+    if (!body) return res.status(400).json({ error: "body required" });
+    const row = await storage.insertCommunityComment({ postId: req.params.id, userId: user.id, body });
+    res.json({ ...row, authorEmail: user.email });
+  });
+
+  app.post("/api/community/votes", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { targetId, targetType, direction } = req.body;
+    if (!targetId || !targetType || !['up', 'down'].includes(direction)) {
+      return res.status(400).json({ error: "targetId, targetType and direction (up|down) required" });
+    }
+    const existing = await storage.getCommunityVote(user.id, targetId, targetType);
+    if (existing) return res.status(409).json({ error: "Already voted" });
+    const row = await storage.insertCommunityVote({ userId: user.id, targetId, targetType, direction });
+    res.json({ ok: true });
+  });
+
   // ── Health Check ───────────────────────────────────────────────────────────
   app.get("/api/health", async (_req, res) => {
     const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];

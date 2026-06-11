@@ -1,6 +1,7 @@
 # GYDSchain — Master Project TODO & Roadmap
 
 > Last updated: 2026-06-11 | Always update this file when work is done or started.
+> Legend: `[x]` Done · `[ ]` Not started · `[~]` In progress · `[!]` Blocked
 
 **Blockchain:** GYDSchain | **Coin:** GYDS | **Stablecoin:** GYD | **Chain ID:** 13370
 **Domain:** netlifegy.com — subdomains ONLY (ws. rpc. node. explorer. app. faucet. swap. bridge. docs. api.)
@@ -42,12 +43,16 @@
 - [x] Register with username / email / password
 - [x] netlifegy@gmail.com seeded as admin + founder
 - [x] Role-based middleware (requireAuth, requireAdmin, enrichUserWithRoles)
+- [x] Password reset via token (request + confirm routes)
+- [x] 2FA / TOTP (setup, verify, disable — RFC 6238, built-in crypto)
 
 ### Mobile Experience
 - [x] Mobile device auto-redirect to /mobile
 - [x] Bottom tab navigation (Home, Explorer, DeFi, Wallet, More)
 - [x] Back button when navigating from mobile hub
 - [x] Phone-style UI (status bar, safe area, native app look)
+- [x] Pull-to-refresh (touch gesture, progress indicator, 72px threshold)
+- [x] QR code scanner — wired into Wallet send dialog and Mobile "QR Pay" quick action
 
 ### Platform Migration
 - [x] Migrated from Supabase → Replit Auth + Replit PostgreSQL
@@ -56,189 +61,259 @@
 - [x] Fixed temporal dead zone crash in miningPools.ts
 - [x] Supabase shim routing all calls to /api/*
 
-### Deploy Scripts
-- [x] `deploy-dashboard.sh` — PM2 for API, nginx proxies /api → :5001, git auto-pull cron
-- [x] `install-fullnode.sh` → github.com/hc172808/fullnode.git — builds `gyds-fullnode`, env vars GYDS_*, `gyds-fullnode start`
-- [x] `install-litenode.sh` → github.com/hc172808/fullnode.git — user-mode, GYDS_NODE_MODE=lite, user systemd service
-- [x] `install-boostnode.sh` → github.com/hc172808/fullnode.git — GYDS_NODE_MODE=boost, port 8547/30304
-- [x] `install-rpcnode.sh` → github.com/hc172808/fullnode.git — GYDS_NODE_MODE=rpc, nginx TLS proxy
-- [x] `install-genesis.sh` → github.com/hc172808/fullnode.git — GYDS_NODE_MODE=full, genesis.json seeded from Go core, founder key in keystore/
-
-### Portainer Stacks — Dashboard
-- [x] `portainer-dashboard.yml` — PostgreSQL + Express API + Nginx + auto-pull cron
-
-### Portainer Stacks — Nodes (all from github.com/hc172808/fullnode.git + WireGuard VPN)
-- [x] `portainer-fullnode.yml` — Full node, P2P 30303, founder-level
-- [x] `portainer-litenode.yml` — Lite node, headers only, low disk
-- [x] `portainer-boostnode.yml` — Boost node, high-perf relay + mining
-- [x] `portainer-rpcnode.yml` — RPC node + Nginx proxy (rpc.netlifegy.com / ws.netlifegy.com)
-- [x] `portainer-validatornode.yml` — Validator node, earns staking rewards
-- [x] `portainer-genesis.yml` — Genesis node, FOUNDER ONLY, bootstraps the network
-
-### GydsSwap Smart Contracts
-- [x] WGYDS.sol
-- [x] GLPToken.sol
-- [x] GydsSwapLibrary.sol
-- [x] GydsSwapPair.sol
-- [x] GydsSwapFactory.sol
-- [x] GydsSwapRouter.sol
-- [x] GydsSwapFarm.sol
-- [x] contracts/README.md
-
 ### Admin Panel
 - [x] Node visibility controls (admin/founder toggles)
 - [x] Git Sync panel (real git pull with live output)
 - [x] Audit logs
 - [x] Node type approval
+- [x] Admin → Users tab: full UserManager — all profiles, search, role selector, ban/unban, stats
+- [x] Admin → Nodes: fixed camelCase/snake_case mapping (nodeType, isApproved, isSynced, etc.)
+
+### DeFi & Trading
+- [x] Swap interface (mempool simulation, real token balances)
+- [x] Liquidity pools (DB-persisted, add/remove liquidity)
+- [x] Staking interface (mempool, hardcoded APR)
+- [x] Orderbook DEX (limit, market, stop-limit — orders persisted to `orders` table)
+- [x] Yield Vaults (5 vaults, deposits/withdrawals persisted to `vault_positions` table)
+- [x] Cross-chain bridge (25 networks, real wallet balance checks)
+- [x] Token Launchpad (real `token_launches` table, realtime subscriptions)
+- [x] Portfolio (dynamic positions from transaction history)
+- [x] Faucet (24h cooldown enforced server-side; camelCase bug fixed in /api/faucet/claims)
+
+### Explorer & Wallet
+- [x] Explorer: DB transaction fallback when WebSocket offline; network stats from /api/network-stats
+- [x] Explorer: "DB Mode" status indicator + side panel always visible when data loads
+- [x] Wallet: GYDS on-chain balance via useRpcBalance hook (all RPC endpoints, refresh button)
+- [x] Dashboard Index: block time shows 5s (matches Go consensus engine)
+
+### Deploy Scripts
+- [x] `deploy-dashboard.sh` — PM2 for API, nginx proxies /api → :5001, git auto-pull cron
+- [x] `install-fullnode.sh` → github.com/hc172808/fullnode.git
+- [x] `install-litenode.sh` → user-mode, GYDS_NODE_MODE=lite
+- [x] `install-boostnode.sh` → GYDS_NODE_MODE=boost, port 8547/30304
+- [x] `install-rpcnode.sh` → GYDS_NODE_MODE=rpc, nginx TLS proxy
+- [x] `install-genesis.sh` → GYDS_NODE_MODE=full, genesis.json seeded from Go core
+
+### Portainer Stacks
+- [x] `portainer-dashboard.yml` — PostgreSQL + Express API + Nginx + auto-pull cron
+- [x] `portainer-fullnode.yml`, `portainer-litenode.yml`, `portainer-boostnode.yml`
+- [x] `portainer-rpcnode.yml`, `portainer-validatornode.yml`, `portainer-genesis.yml`
+
+### GydsSwap Smart Contracts
+- [x] WGYDS.sol, GLPToken.sol, GydsSwapLibrary.sol, GydsSwapPair.sol
+- [x] GydsSwapFactory.sol, GydsSwapRouter.sol, GydsSwapFarm.sol
+- [x] Hardhat project + deploy scripts + unit tests (Pair, Router, Farm)
+- [x] MockERC20.sol test helper
+
+### Download Page
+- [x] Respects node visibility settings from /api/node-visibility
+- [x] Quick Stats binary name corrected to `gyds-fullnode`
+- [x] All repo URLs point to github.com/hc172808/fullnode.git
 
 ---
 
 ## 🔧 In Progress
 
 ### Dashboard — Auth & Users
-- [x] Password reset via token (request + confirm routes)
-- [x] 2FA / TOTP (setup, verify, disable — RFC 6238, built-in crypto)
-- [x] Admin → Users tab: full UserManager — all profiles, search, role selector, ban/unban, stats
-- [x] Admin → Nodes: fixed camelCase/snake_case mapping (nodeType, isApproved, isSynced, wireguardPublicKey, etc.)
 - [ ] Email verification on register
 - [ ] Email delivery for password reset tokens (currently returns token in API response)
 
 ### Mobile App
-- [x] Pull-to-refresh (touch gesture, progress indicator, 72px threshold, remounts active tab)
-- [x] QR code scanner — QRScanner component wired into Wallet send dialog (QrCode button opens camera; address auto-fills recipient field) and Mobile "QR Pay" quick action (opens scanner, then navigates to wallet with prefillAddress state)
-- [ ] Biometric unlock
-- [ ] Push notifications (web push)
+- [ ] Biometric unlock (Face ID / fingerprint via WebAuthn)
+- [ ] Push notifications (Web Push API)
 - [ ] Deep links
 - [ ] Offline mode / service worker
 
-### GydsSwap Phase 2 — Tests
-- [x] Hardhat project in contracts/ (Chain ID 13370, hardhat.config.ts, tsconfig.json, package.json)
-- [x] Deploy scripts: contracts/scripts/deploy.ts (WGYDS, Factory, Router, Farm)
-- [x] Unit tests: GydsSwapPair (mint, burn, swap, K invariant, fee math, sync)
-- [x] Unit tests: GydsSwapRouter (addLiquidity, removeLiquidity, swapExact, slippage, deadline, getAmountsOut)
-- [x] Unit tests: GydsSwapFarm (stake, unstake, harvest, emergency withdraw, multi-user split)
-- [x] MockERC20.sol test helper contract
+### PHASE 2 — DeFi Expansion
+- [ ] Bridge fee config in `admin_config`
+- [ ] Bridge status tracker in wallet page
+- [ ] Orderbook: depth chart visualization
+- [ ] Orderbook: trade history public feed
+- [ ] Orderbook: TWAP + iceberg order types
+- [ ] Vault auto-compound strategy for GYDS staking
+- [ ] Vault LP fee compounding
+- [ ] Perpetuals & options (long/short on GYDS/USD, funding rate)
+- [ ] Prediction markets (binary outcome, price prediction)
+- [ ] Liquidity pool analytics (volume chart, fee distribution)
+- [ ] Flash loan circuit breaker
+
+### PHASE 3 — Governance & DAO
+> Tables: `governance_proposals`, `governance_votes`, `governance_treasury`
+- [x] Proposal list (active, passed, rejected) — wired to `governance_proposals` table
+- [x] Proposal detail + voting interface — one-vote-per-user enforced server-side
+- [x] Create proposal form (parameter / treasury / upgrade / grant) — persisted to DB
+- [x] Vote tracking — `governance_votes` table, duplicate vote rejected with 409
+- [ ] Voting power calculator (based on staked GYDS)
+- [ ] Treasury balance display (multi-coin) — wire to DB
+- [ ] Grant application flow
+- [ ] On-chain proposal execution (payload dispatch to chain)
+- [ ] Delegation of voting power (liquid democracy)
+- [ ] Emergency governance (fast-track critical proposals)
+- [ ] Quadratic voting option
+
+### PHASE 4 — NFT Ecosystem
+> Tables: `nft_collections`, `nft_tokens`, `nft_marketplace_listings`
+- [ ] Collection browser with floor price / volume — wire to DB
+- [ ] Individual NFT detail + buy/offer/list
+- [ ] Rarity ranking display
+- [ ] Single mint + batch mint — wire to DB
+- [ ] Metadata editor (name, description, attributes)
+- [ ] IPFS upload integration (Pinata or NFT.Storage)
+- [ ] Royalty configuration
+- [ ] Whitelist/allowlist minting
+- [ ] Dynamic NFTs (metadata updates with validator performance)
+- [ ] NFT staking for yield
+
+### PHASE 5 — Identity & Reputation
+> Tables: `kyc_records`, `on_chain_identities`, `did_documents`, `sanctions_list`
+- [ ] DID creation (`did:gyds:<address>`) — wire to DB
+- [ ] Verified claims display
+- [ ] Reputation score visualization
+- [ ] KYC tier 0 → tier 3 upgrade flow (UI only, no PII in DB)
+- [ ] Sanctions screening on wallet creation and bridge usage
+- [ ] Social link verification (Twitter, Telegram proof-of-ownership)
+- [ ] Soulbound tokens for identity verification
+
+### PHASE 6 — Real-World Assets (RWA)
+> Tables: `rwa_assets`, `rwa_holdings`
+- [ ] Asset listing (real estate, bonds, commodities, invoices) — wire to DB
+- [ ] Investment interface (buy/sell RWA tokens)
+- [ ] Yield tracking dashboard
+- [ ] Legal document CID storage (IPFS links)
+- [ ] Jurisdiction compliance checker
+- [ ] Yield distribution automation (periodic payouts)
+- [ ] Secondary market for RWA tokens
+
+### PHASE 7 — Social & Community
+> Tables: `community_posts`, `community_comments`, `community_votes`, `referrals`
+- [x] Post list with filter by type (discussion, showcase, idea) — wired to DB with author join
+- [x] Post creation form (type: discussion / showcase / idea) — persisted to DB
+- [x] Nested comments — wired to DB, lazy-loaded per post
+- [x] Upvote/downvote system (posts + comments, one-vote enforced) — wired to DB
+- [ ] Rich text post editor
+- [ ] Unique referral code per user — referral tab UI built, backend not yet wired
+- [ ] Referral tracking dashboard
+- [ ] Reward distribution (% of referred user's fees)
+- [ ] Trader profiles (public wallet stats, badges, portfolio)
+- [ ] Follow system (follow traders / validators)
+- [ ] Token-gated community channels
+
+### PHASE 8 — Advanced Analytics
+> Tables: `price_history`, `network_snapshots`, `node_metrics_history`
+- [ ] GYDS price OHLCV chart (candlestick + volume bars) — wire to DB
+- [ ] Network health time-series (nodes, stake, TPS)
+- [ ] On-chain activity heatmap (daily/hourly tx count)
+- [ ] Holder concentration (whale / retail breakdown)
+- [ ] LP inflow/outflow tracking
+- [ ] Mining profitability calculator v2 (electricity cost input)
+- [ ] Validator performance history charts
+- [ ] Automated network snapshot cron (hourly insert)
+- [ ] Export to CSV / PDF reports
+
+### PHASE 9 — Multi-Sig & Enterprise
+> Tables: `multisig_wallets`, `multisig_transactions`, `multisig_signatures`
+- [ ] Create 2-of-3, 3-of-5 wallets — wire to DB
+- [ ] Propose transaction interface
+- [ ] Co-signer approval/rejection UI
+- [ ] Transaction execution on threshold met
+- [ ] Hardware wallet support (Ledger, Trezor via WebHID)
+- [ ] Multi-sig for DAO treasury spend
+
+### PHASE 10 — Notifications & Webhooks
+> Tables: `user_notifications`, `webhook_endpoints`, `webhook_deliveries`
+- [~] In-app notification bell + drawer (desktop header — done)
+- [ ] Email notifications (Resend or nodemailer)
+- [ ] Push notifications (Web Push API)
+- [ ] Webhook management page (register URL + secret, event subs, delivery log)
+- [ ] Price alert notifications (email + push when target hit)
+- [ ] Governance proposal notifications
+
+### PHASE 11 — API Access & Developer Portal
+> Tables: `api_keys`, `api_usage_logs`
+- [ ] API key generation (scope selection) — wire to DB
+- [ ] Usage dashboard (requests/day, rate limit status)
+- [ ] Interactive API docs (Swagger/OpenAPI)
+- [ ] REST API: GET /v1/network/stats, /v1/tokens, /v1/blocks/:height, /v1/address/:address/balance, POST /v1/transactions/submit
+- [ ] SDK: JavaScript/TypeScript client (`@gydschain/sdk`)
+- [ ] SDK: Python client (`gydschain-py`)
+
+### PHASE 12 — Oracle Network
+> Tables: `oracle_feeds`, `oracle_submissions`
+- [ ] Oracle admin panel — feed config, submission history
+- [ ] Decentralized oracle node (Go binary extension)
+- [ ] On-chain oracle contract integration
+- [ ] Chainlink Data Feed fallback
+
+### PHASE 13 — Insurance Protocol
+> Tables: `insurance_pools`, `insurance_policies`
+- [ ] Insurance pool UI (/insurance) — pool list, buy coverage, active policies
+- [ ] Claims process (evidence submission + DAO vote)
+- [ ] Underwriter staking (earn premiums by providing capital)
+- [ ] Parametric insurance (auto-trigger on oracle data)
+
+### PHASE 14 — Gamification
+> Tables: `achievements`, `user_achievements`, `user_xp`
+- [ ] XP award on key actions (first tx 50 XP, first node 200 XP, first delegation 100 XP, first token 300 XP, 30-day streak 500 XP)
+- [ ] Achievement badges UI (profile page)
+- [ ] Leaderboard wired to DB (top validators, traders, node operators)
+- [ ] Monthly reset leaderboard
+- [ ] Seasonal campaigns (bonus XP events)
+
+### GydsSwap Phase 3 — Frontend Integration
+- [ ] Wire SwapInterface to real contract calls
+- [ ] PoolsList: real reserves, TVL, APR from contracts
+- [ ] StakeInterface: wire to GydsSwapFarm
+- [ ] LP Farming Dashboard (Farm.tsx)
 - [ ] Update INIT_CODE_HASH after pair deploy
 
-### ChainCore Pages — Wire to Real Data
-- [x] Explorer: DB transaction fallback when WebSocket offline; network stats from /api/network-stats shown in stat cards and side panel; "DB Mode" status indicator
-- [x] Explorer: `networkStats` from /api/network-stats powers stat cards (Validators, Total Txs, Tokens, Live Nodes); side panel always visible when data loads
-- [x] Wallet: GYDS on-chain balance via useRpcBalance hook (all wallet addresses queried against ALL_RPC_ENDPOINTS, displayed with refresh button + RPC offline indicator)
-- [x] Dashboard Index: block time shows 5s (matches Go consensus engine — pos.go blockTime = 5*time.Second)
-- [x] Download page: respects node visibility settings from /api/node-visibility — litenode/rpcnode/boostnode/fullnode/genesis/bootnode each shown only when admin enables them and user has required role
-- [x] Download page: Quick Stats binary name corrected to `gyds-fullnode`; litenode install command uses correct env var `GYDS_BOOTSTRAP_NODES`; NodeInstaller.tsx repo URLs all point to github.com/hc172808/fullnode.git
-- [x] DeFi: all 8 tabs working end-to-end (Swap/Pools/Stake/Bridge/Launchpad/Portfolio wired; Orderbook+Vaults now persist to `orders`+`vault_positions` tables)
-- [ ] Token Launchpad: test token creation flow
-- [x] Faucet: test claim → cooldown → re-claim (fixed camelCase bug in /api/faucet/claims → now returns snake_case token_type/created_at)
+### Token Launchpad
+- [ ] Test token creation flow end-to-end (fee deduction → DB insert → logo upload → purchase limits)
+- [ ] Admin visibility controls for pending launches
 
 ---
 
 ## ⏳ Planned
 
 ### Blockchain Core
-- [ ] Genesis Creation
-- [ ] Genesis Validation
-- [ ] Consensus Engine
-- [ ] Validator Election + Rewards
-- [ ] Slashing Rules
-- [ ] Governance Parameters
-- [ ] Treasury Allocation
-- [ ] Inflation Schedule
-- [ ] Chain Upgrade Framework
-- [ ] Emergency Recovery Procedures
+- [ ] Genesis Creation & Validation
+- [ ] Consensus Engine (PoS finality)
+- [ ] Validator Election + Rewards + Slashing
+- [ ] Governance Parameters, Treasury Allocation, Inflation Schedule
+- [ ] Chain Upgrade Framework + Emergency Recovery
 - [ ] Bootnodes + Peer Discovery
-- [ ] Snapshot Export / Import
-- [ ] Fast Sync
-- [ ] Archive Nodes
+- [ ] Snapshot Export/Import, Fast Sync, Archive Nodes
 - [ ] Network Partition Recovery
 
-### Node Ecosystem
-- [ ] Full Node
-- [ ] Lite Node
-- [ ] RPC Node
-- [ ] Boost Node
-- [ ] Genesis Node
-- [ ] Validator Node
-- [ ] Local Node
-- [ ] Bootnode
+### Node Ecosystem (from github.com/hc172808/fullnode.git)
+- [ ] Full Node, Lite Node, RPC Node, Boost Node
+- [ ] Genesis Node, Validator Node, Local Node, Bootnode
 
-### Wallet
-- [ ] Multi Asset (GYDS + GYD)
-- [ ] QR Payments
-- [ ] Address Book
-- [ ] Transaction History
-- [ ] Hardware Wallet Support
-- [ ] Multi Sig Support
-- [ ] Seed Encryption
-- [ ] Biometric Login
-
-### Explorer
+### Explorer (full)
 - [ ] Blocks, Transactions, Addresses
 - [ ] Validators, Tokens, Smart Contracts
 - [ ] NFT Explorer, Pool Explorer
 - [ ] Rich List, Contract Verification
 
-### GydsSwap Phase 3 — Frontend Integration
-- [ ] Wire SwapInterface to real contract calls
-- [ ] PoolsList: real reserves, TVL, APR
-- [ ] Portfolio: GLP balances + earned fees
-- [ ] StakeInterface: wire to GydsSwapFarm
-- [ ] Launchpad: factory.createPair() UI
-- [ ] LP Farming Dashboard (Farm.tsx)
-
-### Cross Chain Bridge
-- [ ] Ethereum, BNB Chain, Avalanche, Arbitrum, Optimism
+### Cross Chain Bridge (contracts)
+- [ ] Bridge contracts: Ethereum, BNB Chain, Avalanche, Arbitrum, Optimism
 - [ ] Base, zkSync, Linea, Fantom, Cronos
-- [~] 25 network support (bridge UI complete, contracts pending)
+- [~] 25 network UI complete — contracts pending
 
-### Governance DAO
-- [ ] Proposals, Voting, Treasury, Grants
-- [ ] Delegated Voting, Quadratic Voting
-- [ ] Emergency Governance
+### Infrastructure & DevOps
+- [ ] Automated DB backups + node metrics pruner cron (90-day retention)
+- [ ] Automated network snapshot cron (hourly `network_snapshots` insert)
+- [ ] Multi-region deployment
+- [ ] Load testing (k6 or Vegeta) before mainnet
+- [ ] Penetration test + security audit
+- [ ] Bug bounty program setup
 
-### NFT Ecosystem
-- [ ] Collections, Marketplace, Minting, Batch Minting
-- [ ] Royalties, Dynamic NFTs, NFT Staking
-- [ ] IPFS Integration
-
-### Identity
-- [ ] DID, Reputation, KYC
-- [ ] Social Verification, Sanctions Screening
-- [ ] Soulbound Tokens
-
-### RWA
-- [ ] Real Estate, Bonds, Commodities, Invoices
-- [ ] Secondary Markets, Compliance Controls
-
-### Community
-- [ ] Forum, Referrals
-- [ ] Trader + Validator Profiles
-- [ ] Token Gated Channels
-
-### Analytics
-- [ ] OHLCV Charts, Network Metrics, TPS Metrics
-- [ ] Mining + Validator Metrics
-- [ ] Export Reports
-
-### Mining
-- [ ] CPU Mining, GPU Mining, Mining Pools
-- [ ] Profitability Calculator, Leaderboards
-
-### Oracle Network
-- [ ] Oracle Nodes, Price Feeds, Aggregation
-- [ ] Outlier Detection, Chainlink Fallback
-
-### Enterprise
-- [ ] Multi Sig Wallets, Treasury Management, Enterprise SDK
-
-### Developer Portal
-- [ ] API Keys, REST API, GraphQL API
-- [ ] JavaScript + Python SDK, API Playground
-
-### Notifications
-- [~] In App Notifications (bell component done)
-- [ ] Email Notifications, Push Notifications
-- [ ] Webhooks, Price Alerts
+### Security Hardening
+- [ ] ZK proof of wallet ownership
+- [ ] Rate limiting on all API calls
+- [ ] Encrypted message channel (E2E between wallets)
+- [ ] Anti-bot CAPTCHA on faucet (hCaptcha)
+- [ ] CSP hardening for dashboard
+- [ ] SBOM generation + dependency audit CI gate
 
 ### Monitoring
 - [ ] Prometheus + Grafana + Loki + AlertManager
@@ -246,37 +321,45 @@
 - [ ] VPN Monitoring (ws.netlifegy.com)
 - [ ] Validator + Explorer Monitoring
 
-### Security
-- [ ] AI Firewall + Threat Detection + Fraud Detection
-- [ ] AI Risk Scoring
-- [ ] DDoS Protection, Rate Limiting, CSP Hardening
-- [ ] Bug Bounty, Security Audit, Cold Storage Treasury
-
 ### Mainnet Readiness
 - [ ] Testnet Stable 30 Days
 - [ ] Smart Contract Audit
-- [ ] Monitoring Deployed
-- [ ] Backup Recovery Tested
-- [ ] Validator Onboarding
-- [ ] Public Documentation
+- [ ] Monitoring Deployed + Backup Recovery Tested
+- [ ] Validator Onboarding + Public Documentation
 - [ ] Genesis Finalized
 
 ### Marketing
-- [ ] Landing Page, Press Kit, Blog
-- [ ] Community Campaigns, Exchange Listings
-- [ ] Ambassador Program
+- [ ] Landing page (hero, tokenomics, roadmap, team)
+- [ ] Press kit (logo assets, brand colors, chain stats)
+- [ ] Blog / news section
+- [ ] Community airdrop campaigns
+- [ ] Validator onboarding guide (video walkthrough)
+- [ ] YouTube channel (node install walkthroughs)
+- [ ] Exchange Listings, Ambassador Program
 
-### Long Term Vision
-- [ ] Layer 2 Rollup
-- [ ] ZK Privacy
-- [ ] Decentralized Storage
-- [ ] AI Trading Marketplace
-- [ ] Cross Chain Aggregator
-- [ ] Debit Card
-- [ ] Carbon Credits
-- [ ] Mobile Mining
-- [ ] .gyds Domains
-- [ ] Decentralized Cloud Compute Marketplace
+---
+
+## 🐛 Known Bugs / Tech Debt
+- [x] Replace hardcoded `192.168.18.106` IP in `src/config/tokens.ts` with `VITE_RPC_LAN` env var
+- [ ] `node_installations.updated_at` trigger fires on every heartbeat — add dedicated `last_heartbeat` column
+- [ ] Wallet seed storage: migrate from `encrypted_seed TEXT` to server-side encryption
+- [ ] Token price alert trigger: currently polling — convert to Postgres LISTEN/NOTIFY
+- [ ] `ip_access_list` vs `ip_address_list` — migration uses old name; alias or rename
+- [ ] Remove Vite `optimizeDeps.esbuildOptions` deprecation warning (upgrade vite-plugin-react-swc)
+
+---
+
+## 🔭 Long-Term Vision
+- [ ] Layer-2 rollup on GYDSchain (ZK-rollup for high-throughput)
+- [ ] Privacy transactions (Groth16 ZK-SNARK shielded transfers)
+- [ ] Decentralized storage integration (IPFS pinning node bundled)
+- [ ] AI trading agent marketplace (permissioned, audited strategies)
+- [ ] Cross-chain DEX aggregator (route across 10+ chains)
+- [ ] Physical GYDS debit card (GYD stablecoin settlement)
+- [ ] Enterprise SDK (corporate treasury management on-chain)
+- [ ] GYDSchain mobile miner (Termux-based, earns rewards on phone)
+- [ ] Tokenized carbon credits (RWA extension)
+- [ ] Decentralized DNS (`.gyds` domains mapped to wallet addresses)
 
 ---
 

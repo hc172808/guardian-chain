@@ -373,6 +373,62 @@ export const vaultPositions = pgTable("vault_positions", {
   withdrawnAt: timestamp("withdrawn_at"),
 });
 
+export const governanceProposals = pgTable("governance_proposals", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  proposalType: text("proposal_type").notNull().default("parameter"),
+  status: text("status").notNull().default("active"),
+  votesFor: numeric("votes_for").notNull().default("0"),
+  votesAgainst: numeric("votes_against").notNull().default("0"),
+  votesAbstain: numeric("votes_abstain").notNull().default("0"),
+  quorumRequired: numeric("quorum_required").notNull().default("1000000"),
+  createdBy: text("created_by").notNull().references(() => users.id),
+  endDate: timestamp("end_date").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const governanceVotes = pgTable("governance_votes", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  proposalId: uuid("proposal_id").notNull().references(() => governanceProposals.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id),
+  choice: text("choice").notNull(),
+  votingPower: numeric("voting_power").notNull().default("1"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const communityPosts = pgTable("community_posts", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull().references(() => users.id),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  postType: text("post_type").notNull().default("discussion"),
+  upvotes: integer("upvotes").notNull().default(0),
+  downvotes: integer("downvotes").notNull().default(0),
+  replyCount: integer("reply_count").notNull().default(0),
+  pinned: boolean("pinned").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const communityComments = pgTable("community_comments", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: uuid("post_id").notNull().references(() => communityPosts.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id),
+  body: text("body").notNull(),
+  upvotes: integer("upvotes").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const communityVotes = pgTable("community_votes", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull().references(() => users.id),
+  targetId: uuid("target_id").notNull(),
+  targetType: text("target_type").notNull(),
+  direction: text("direction").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

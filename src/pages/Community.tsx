@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -9,115 +9,186 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import {
-  MessageSquare, ThumbsUp, ThumbsDown, Plus, Search,
-  Flame, Lightbulb, Trophy, Clock, ChevronDown, ChevronUp,
-  Gift, Users, Link2
-} from 'lucide-react';
+import { MessageSquare, ThumbsUp, ThumbsDown, Plus, Search, Flame, Lightbulb, Trophy, Clock, ChevronDown, ChevronUp, Gift, Users, Link2, RefreshCw } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 type PostType = 'discussion' | 'showcase' | 'idea' | 'announcement';
 
 interface Post {
   id: string;
+  userId: string;
   title: string;
   body: string;
-  type: PostType;
-  author: string;
+  postType: PostType;
   upvotes: number;
   downvotes: number;
-  replies: number;
+  replyCount: number;
+  pinned: boolean;
   createdAt: string;
-  pinned?: boolean;
-  comments?: Comment[];
+  authorEmail?: string;
 }
 
 interface Comment {
   id: string;
-  author: string;
+  userId: string;
   body: string;
   upvotes: number;
   createdAt: string;
+  authorEmail?: string;
 }
 
 const TYPE_CONFIG: Record<PostType, { label: string; icon: any; color: string }> = {
-  discussion:    { label: 'Discussion',   icon: MessageSquare, color: 'text-primary border-primary/30 bg-primary/10' },
-  showcase:      { label: 'Showcase',     icon: Trophy,        color: 'text-amber-400 border-amber-500/30 bg-amber-500/10' },
-  idea:          { label: 'Idea',         icon: Lightbulb,     color: 'text-neon-cyan border-neon-cyan/30 bg-neon-cyan/10' },
-  announcement:  { label: 'Announcement', icon: Flame,         color: 'text-red-400 border-red-500/30 bg-red-500/10' },
+  discussion:   { label: 'Discussion',   icon: MessageSquare, color: 'text-primary border-primary/30 bg-primary/10' },
+  showcase:     { label: 'Showcase',     icon: Trophy,        color: 'text-amber-400 border-amber-500/30 bg-amber-500/10' },
+  idea:         { label: 'Idea',         icon: Lightbulb,     color: 'text-neon-cyan border-neon-cyan/30 bg-neon-cyan/10' },
+  announcement: { label: 'Announcement', icon: Flame,         color: 'text-red-400 border-red-500/30 bg-red-500/10' },
 };
 
-const DEMO_POSTS: Post[] = [
-  {
-    id: '1', type: 'announcement', pinned: true,
-    title: 'GYDSchain Mainnet Launch — Date Confirmed!',
-    body: 'We are excited to announce the GYDSchain mainnet launch is confirmed for Q4 2026. Validators will need to upgrade their nodes to v2.0.0 at least 24 hours before launch. Full migration guide coming soon.',
-    author: 'Core Team', upvotes: 342, downvotes: 2, replies: 45,
-    createdAt: '2 hours ago',
-    comments: [
-      { id: 'c1', author: 'validator_99', body: 'Amazing news! When will the node upgrade guide be released?', upvotes: 28, createdAt: '1h ago' },
-      { id: 'c2', author: 'defi_whale',   body: 'Will the bridge contracts be audited before mainnet?', upvotes: 19, createdAt: '45m ago' },
-    ],
-  },
-  {
-    id: '2', type: 'showcase',
-    title: 'I built a GYDS portfolio tracker — open source!',
-    body: 'After using ChainCore for 3 months, I built a companion mobile app that tracks your GYDS holdings, validator rewards, and LP positions. Source on GitHub, feel free to contribute!',
-    author: 'gyds_dev42', upvotes: 187, downvotes: 5, replies: 23,
-    createdAt: '5 hours ago',
-  },
-  {
-    id: '3', type: 'idea',
-    title: 'Proposal: Add a Dark PoW mining pool for mobile devices',
-    body: 'Mobile mining is growing. What if we optimized the kHeavyHash algorithm for ARM chips? We could have a lite mining mode that works on phones without draining battery in 2 minutes.',
-    author: 'mobile_miner', upvotes: 124, downvotes: 18, replies: 31,
-    createdAt: '1 day ago',
-  },
-  {
-    id: '4', type: 'discussion',
-    title: 'What\'s your GYDS staking strategy?',
-    body: 'Been staking for 6 months. Currently using a validator with 5% commission. Thinking of switching to self-delegating once I have enough. What do others do for max rewards?',
-    author: 'staking_nerd', upvotes: 89, downvotes: 3, replies: 67,
-    createdAt: '2 days ago',
-  },
-];
+const fmt = (d: string) => {
+  const diff = Date.now() - new Date(d).getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return `${Math.floor(diff / 86400000)}d ago`;
+};
+
+const authorName = (email?: string) => email ? email.split('@')[0] : 'anon';
 
 const CommunityPage = () => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [posts, setPosts] = useState<Post[]>(DEMO_POSTS);
+
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | PostType>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [comments, setComments] = useState<Record<string, Comment[]>>({});
+  const [loadingComments, setLoadingComments] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState<Record<string, string>>({});
+  const [postingReply, setPostingReply] = useState<string | null>(null);
+
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newBody, setNewBody] = useState('');
   const [newType, setNewType] = useState<PostType>('discussion');
-  const [votes, setVotes] = useState<Record<string, 'up' | 'down'>>({});
+  const [submitting, setSubmitting] = useState(false);
 
-  const filtered = posts.filter(p =>
-    (filter === 'all' || p.type === filter) &&
-    (p.title.toLowerCase().includes(search.toLowerCase()) || p.body.toLowerCase().includes(search.toLowerCase()))
-  );
+  const [myVotes, setMyVotes] = useState<Record<string, 'up' | 'down'>>({});
 
-  const handleVote = (id: string, dir: 'up' | 'down') => {
-    if (!user) { toast({ title: 'Sign in to vote', variant: 'destructive' }); return; }
-    setVotes(v => ({ ...v, [id]: dir }));
-    toast({ title: dir === 'up' ? '👍 Upvoted' : '👎 Downvoted' });
+  const fetchPosts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/community/posts');
+      if (res.ok) setPosts(await res.json());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchPosts(); }, [fetchPosts]);
+
+  const fetchComments = async (postId: string) => {
+    if (comments[postId]) return;
+    setLoadingComments(postId);
+    try {
+      const res = await fetch(`/api/community/posts/${postId}/comments`);
+      if (res.ok) { const data = await res.json(); setComments(c => ({ ...c, [postId]: data })); }
+    } finally {
+      setLoadingComments(null);
+    }
   };
 
-  const handlePost = () => {
+  const toggleExpand = (postId: string) => {
+    const next = expanded === postId ? null : postId;
+    setExpanded(next);
+    if (next) fetchComments(next);
+  };
+
+  const handleVote = async (targetId: string, targetType: 'post' | 'comment', direction: 'up' | 'down') => {
+    if (!user) { toast({ title: 'Sign in to vote', variant: 'destructive' }); return; }
+    const key = `${targetType}-${targetId}`;
+    if (myVotes[key]) { toast({ title: 'Already voted' }); return; }
+    try {
+      const res = await fetch('/api/community/votes', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetId, targetType, direction }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      setMyVotes(v => ({ ...v, [key]: direction }));
+      setPosts(prev => prev.map(p => {
+        if (targetType === 'post' && p.id === targetId) {
+          return { ...p, upvotes: p.upvotes + (direction === 'up' ? 1 : 0), downvotes: p.downvotes + (direction === 'down' ? 1 : 0) };
+        }
+        return p;
+      }));
+      if (targetType === 'comment') {
+        setComments(c => {
+          const updated = { ...c };
+          for (const pid in updated) {
+            updated[pid] = updated[pid].map(cm => cm.id === targetId
+              ? { ...cm, upvotes: cm.upvotes + (direction === 'up' ? 1 : 0) } : cm);
+          }
+          return updated;
+        });
+      }
+    } catch (err: any) {
+      toast({ title: 'Vote failed', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handlePost = async () => {
     if (!user) { toast({ title: 'Sign in to post', variant: 'destructive' }); return; }
     if (!newTitle.trim()) { toast({ title: 'Title required', variant: 'destructive' }); return; }
-    const p: Post = {
-      id: Date.now().toString(), title: newTitle, body: newBody, type: newType,
-      author: user.email?.split('@')[0] ?? 'anon',
-      upvotes: 0, downvotes: 0, replies: 0, createdAt: 'Just now',
-    };
-    setPosts(prev => [p, ...prev]);
-    setNewTitle(''); setNewBody('');
-    setShowCreate(false);
-    toast({ title: 'Post published!' });
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/community/posts', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle, body: newBody, postType: newType }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast({ title: 'Post published!' });
+      setShowCreate(false);
+      setNewTitle(''); setNewBody('');
+      fetchPosts();
+    } catch (err: any) {
+      toast({ title: 'Post failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  const postReply = async (postId: string) => {
+    if (!user) { toast({ title: 'Sign in to reply', variant: 'destructive' }); return; }
+    const body = replyText[postId]?.trim();
+    if (!body) return;
+    setPostingReply(postId);
+    try {
+      const res = await fetch(`/api/community/posts/${postId}/comments`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setComments(c => ({ ...c, [postId]: [...(c[postId] ?? []), data] }));
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, replyCount: p.replyCount + 1 } : p));
+      setReplyText(r => ({ ...r, [postId]: '' }));
+      toast({ title: 'Reply posted!' });
+    } catch (err: any) {
+      toast({ title: 'Reply failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setPostingReply(null);
+    }
+  };
+
+  const filtered = posts.filter(p =>
+    (filter === 'all' || p.postType === filter) &&
+    (p.title.toLowerCase().includes(search.toLowerCase()) || p.body.toLowerCase().includes(search.toLowerCase()))
+  );
 
   return (
     <Layout>
@@ -130,16 +201,21 @@ const CommunityPage = () => {
             </h1>
             <p className="text-muted-foreground text-sm mt-1">Discuss, showcase, and share ideas with the GYDSchain community</p>
           </div>
-          <Button onClick={() => setShowCreate(true)} className="gap-2 shrink-0">
-            <Plus className="w-4 h-4" /> New Post
-          </Button>
+          <div className="flex gap-2 shrink-0">
+            <Button variant="outline" size="sm" onClick={fetchPosts} disabled={loading}>
+              <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+            </Button>
+            <Button onClick={() => setShowCreate(true)} className="gap-2">
+              <Plus className="w-4 h-4" /> New Post
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: 'Members', value: '2,847', icon: Users },
             { label: 'Posts', value: posts.length, icon: MessageSquare },
+            { label: 'Active', value: posts.filter(p => p.postType !== 'announcement').length, icon: Users },
             { label: 'Referral Code', value: user ? 'GYDS-' + user.id.slice(0, 6).toUpperCase() : 'Sign in', icon: Gift },
           ].map(s => (
             <GlassCard key={s.label} className="p-4">
@@ -159,7 +235,6 @@ const CommunityPage = () => {
           </TabsList>
 
           <TabsContent value="feed" className="mt-4 space-y-4">
-            {/* Search + filter */}
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -173,87 +248,116 @@ const CommunityPage = () => {
               </div>
             </div>
 
-            {/* Posts */}
-            <div className="space-y-3">
-              {filtered.map(p => {
-                const cfg = TYPE_CONFIG[p.type];
-                const TypeIcon = cfg.icon;
-                const isExpanded = expanded === p.id;
-                return (
-                  <GlassCard key={p.id} className={`p-5 ${p.pinned ? 'border-primary/40' : ''}`}>
-                    {p.pinned && (
-                      <div className="flex items-center gap-1 text-xs text-primary mb-2">
-                        <Flame className="w-3 h-3" /> Pinned
-                      </div>
-                    )}
-                    <div className="flex items-start gap-3">
-                      {/* Vote column */}
-                      <div className="flex flex-col items-center gap-1 shrink-0">
-                        <button onClick={() => handleVote(p.id, 'up')} className={`p-1 rounded hover:bg-primary/10 transition-colors ${votes[p.id] === 'up' ? 'text-primary' : 'text-muted-foreground'}`}>
-                          <ThumbsUp className="w-4 h-4" />
-                        </button>
-                        <span className="text-sm font-bold">{p.upvotes - p.downvotes + (votes[p.id] === 'up' ? 1 : votes[p.id] === 'down' ? -1 : 0)}</span>
-                        <button onClick={() => handleVote(p.id, 'down')} className={`p-1 rounded hover:bg-red-500/10 transition-colors ${votes[p.id] === 'down' ? 'text-red-400' : 'text-muted-foreground'}`}>
-                          <ThumbsDown className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      {/* Content */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <Badge variant="outline" className={`text-xs ${cfg.color}`}>
-                            <TypeIcon className="w-3 h-3 mr-1" />{cfg.label}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">by {p.author}</span>
-                          <span className="text-xs text-muted-foreground flex items-center gap-0.5">
-                            <Clock className="w-3 h-3" /> {p.createdAt}
-                          </span>
+            {loading ? (
+              <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+                <RefreshCw className="w-5 h-5 animate-spin" /> Loading posts…
+              </div>
+            ) : filtered.length === 0 ? (
+              <GlassCard className="p-12 text-center text-muted-foreground">
+                <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="font-medium">No posts yet</p>
+                <p className="text-sm mt-1">Be the first to post something!</p>
+              </GlassCard>
+            ) : (
+              <div className="space-y-3">
+                {filtered.map(p => {
+                  const cfg = TYPE_CONFIG[p.postType] ?? TYPE_CONFIG.discussion;
+                  const TypeIcon = cfg.icon;
+                  const isExpanded = expanded === p.id;
+                  const voteKey = `post-${p.id}`;
+                  return (
+                    <GlassCard key={p.id} className={cn('p-5', p.pinned && 'border-primary/40')}>
+                      {p.pinned && (
+                        <div className="flex items-center gap-1 text-xs text-primary mb-2">
+                          <Flame className="w-3 h-3" /> Pinned
                         </div>
-                        <h3 className="font-semibold">{p.title}</h3>
-                        <p className={`text-sm text-muted-foreground mt-1 ${isExpanded ? '' : 'line-clamp-2'}`}>{p.body}</p>
+                      )}
+                      <div className="flex items-start gap-3">
+                        {/* Vote column */}
+                        <div className="flex flex-col items-center gap-1 shrink-0">
+                          <button onClick={() => handleVote(p.id, 'post', 'up')}
+                            className={cn('p-1 rounded hover:bg-primary/10 transition-colors', myVotes[voteKey] === 'up' ? 'text-primary' : 'text-muted-foreground')}>
+                            <ThumbsUp className="w-4 h-4" />
+                          </button>
+                          <span className="text-sm font-bold">{p.upvotes - p.downvotes}</span>
+                          <button onClick={() => handleVote(p.id, 'post', 'down')}
+                            className={cn('p-1 rounded hover:bg-red-500/10 transition-colors', myVotes[voteKey] === 'down' ? 'text-red-400' : 'text-muted-foreground')}>
+                            <ThumbsDown className="w-4 h-4" />
+                          </button>
+                        </div>
 
-                        {/* Comments preview */}
-                        {isExpanded && p.comments && (
-                          <div className="mt-4 space-y-3 pl-3 border-l border-border/30">
-                            {p.comments.map(c => (
-                              <div key={c.id} className="space-y-0.5">
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  <span className="font-medium text-foreground">{c.author}</span>
-                                  <span>·</span>
-                                  <span>{c.createdAt}</span>
-                                </div>
-                                <p className="text-sm">{c.body}</p>
-                                <button className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
-                                  <ThumbsUp className="w-3 h-3" /> {c.upvotes}
-                                </button>
-                              </div>
-                            ))}
-                            <div className="flex gap-2 mt-2">
-                              <Input placeholder="Write a reply…" className="text-sm h-8" />
-                              <Button size="sm" className="h-8" onClick={() => toast({ title: 'Reply posted!' })}>Reply</Button>
-                            </div>
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <Badge variant="outline" className={`text-xs ${cfg.color}`}>
+                              <TypeIcon className="w-3 h-3 mr-1" />{cfg.label}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">by {authorName(p.authorEmail)}</span>
+                            <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                              <Clock className="w-3 h-3" /> {fmt(p.createdAt)}
+                            </span>
                           </div>
-                        )}
+                          <h3 className="font-semibold">{p.title}</h3>
+                          <p className={cn('text-sm text-muted-foreground mt-1', !isExpanded && 'line-clamp-2')}>{p.body}</p>
 
-                        <div className="flex items-center gap-3 mt-2">
-                          <button
-                            onClick={() => setExpanded(isExpanded ? null : p.id)}
-                            className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
-                          >
-                            <MessageSquare className="w-3 h-3" /> {p.replies} replies
-                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                          </button>
-                          <button onClick={() => { navigator.clipboard.writeText(window.location.href); toast({ title: 'Link copied!' }); }}
-                            className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
-                            <Link2 className="w-3 h-3" /> Share
-                          </button>
+                          {/* Comments section */}
+                          {isExpanded && (
+                            <div className="mt-4 space-y-3 pl-3 border-l border-border/30">
+                              {loadingComments === p.id ? (
+                                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                  <RefreshCw className="w-3 h-3 animate-spin" /> Loading comments…
+                                </p>
+                              ) : (comments[p.id] ?? []).length === 0 ? (
+                                <p className="text-xs text-muted-foreground">No comments yet.</p>
+                              ) : (
+                                (comments[p.id] ?? []).map(c => (
+                                  <div key={c.id} className="space-y-0.5">
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                      <span className="font-medium text-foreground">{authorName(c.authorEmail)}</span>
+                                      <span>·</span>
+                                      <span>{fmt(c.createdAt)}</span>
+                                    </div>
+                                    <p className="text-sm">{c.body}</p>
+                                    <button onClick={() => handleVote(c.id, 'comment', 'up')}
+                                      className={cn('text-xs flex items-center gap-1 hover:text-primary transition-colors', myVotes[`comment-${c.id}`] === 'up' ? 'text-primary' : 'text-muted-foreground')}>
+                                      <ThumbsUp className="w-3 h-3" /> {c.upvotes}
+                                    </button>
+                                  </div>
+                                ))
+                              )}
+                              <div className="flex gap-2 mt-2">
+                                <Input
+                                  placeholder="Write a reply…"
+                                  className="text-sm h-8"
+                                  value={replyText[p.id] ?? ''}
+                                  onChange={e => setReplyText(r => ({ ...r, [p.id]: e.target.value }))}
+                                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && postReply(p.id)}
+                                />
+                                <Button size="sm" className="h-8 shrink-0" onClick={() => postReply(p.id)} disabled={postingReply === p.id}>
+                                  {postingReply === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'Reply'}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-3 mt-2">
+                            <button onClick={() => toggleExpand(p.id)}
+                              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors">
+                              <MessageSquare className="w-3 h-3" /> {p.replyCount} {p.replyCount === 1 ? 'reply' : 'replies'}
+                              {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            </button>
+                            <button onClick={() => { navigator.clipboard.writeText(window.location.href); toast({ title: 'Link copied!' }); }}
+                              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                              <Link2 className="w-3 h-3" /> Share
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </GlassCard>
-                );
-              })}
-            </div>
+                    </GlassCard>
+                  );
+                })}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="referral" className="mt-4">
@@ -282,7 +386,10 @@ const CommunityPage = () => {
                     <p>Share your code → when someone signs up and makes their first transaction, you both earn <strong className="text-primary">500 GYDS</strong>.</p>
                     <p>When they stake for the first time, you earn <strong className="text-primary">1% of their first month's rewards</strong>.</p>
                   </div>
-                  <Button className="w-full gap-2" onClick={() => { navigator.clipboard.writeText(`Join GYDSchain with my code: GYDS-${user.id.slice(0, 6).toUpperCase()} — https://netlifegy.com`); toast({ title: 'Referral link copied!' }); }}>
+                  <Button className="w-full gap-2" onClick={() => {
+                    navigator.clipboard.writeText(`Join GYDSchain with my code: GYDS-${user.id.slice(0, 6).toUpperCase()} — https://netlifegy.com`);
+                    toast({ title: 'Referral link copied!' });
+                  }}>
                     <Link2 className="w-4 h-4" /> Copy Referral Link
                   </Button>
                 </>
@@ -295,11 +402,9 @@ const CommunityPage = () => {
 
         {/* Create Post Modal */}
         {showCreate && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setShowCreate(false)}
-          >
+            onClick={() => setShowCreate(false)}>
             <GlassCard className="p-6 w-full max-w-lg space-y-4" onClick={e => e.stopPropagation()}>
               <h2 className="font-bold text-lg">Create Post</h2>
               <div className="flex gap-1.5 flex-wrap">
@@ -307,7 +412,7 @@ const CommunityPage = () => {
                   const cfg = TYPE_CONFIG[t]; const Icon = cfg.icon;
                   return (
                     <button key={t} onClick={() => setNewType(t)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-all ${newType === t ? cfg.color : 'border-border/40 text-muted-foreground'}`}>
+                      className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-all', newType === t ? cfg.color : 'border-border/40 text-muted-foreground')}>
                       <Icon className="w-3.5 h-3.5" /> {cfg.label}
                     </button>
                   );
@@ -317,7 +422,9 @@ const CommunityPage = () => {
               <Textarea value={newBody} onChange={e => setNewBody(e.target.value)} placeholder="What's on your mind?" rows={4} />
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-                <Button onClick={handlePost}>Publish</Button>
+                <Button onClick={handlePost} disabled={submitting}>
+                  {submitting ? <><RefreshCw className="w-4 h-4 animate-spin mr-2" />Publishing…</> : 'Publish'}
+                </Button>
               </div>
             </GlassCard>
           </motion.div>

@@ -4,7 +4,9 @@ import { users, userRoles, profiles, wallets, nodeInstallations, transactions,
   liquidityPools, tokenWatchlist, tokenPriceAlerts, networkValidators,
   validatorDelegations, firewallRules, fail2banJails, ipAccessList,
   rateLimitRules, ddosProtection, auditLogs, faucetClaims, passwordResetTokens,
-  orders, vaultPositions } from "../shared/schema";
+  orders, vaultPositions,
+  governanceProposals, governanceVotes,
+  communityPosts, communityComments, communityVotes } from "../shared/schema";
 import { eq, and, gte, desc, sql, count, inArray } from "drizzle-orm";
 
 export const storage = {
@@ -522,6 +524,103 @@ export const storage = {
     return db.select().from(faucetClaims)
       .where(and(eq(faucetClaims.userId, userId), gte(faucetClaims.createdAt, since)))
       .orderBy(desc(faucetClaims.createdAt));
+  },
+
+  // ── Governance ────────────────────────────────────────────────────────────
+  async getGovernanceProposals() {
+    return db.select().from(governanceProposals).orderBy(desc(governanceProposals.createdAt));
+  },
+
+  async insertGovernanceProposal(data: typeof governanceProposals.$inferInsert) {
+    const [row] = await db.insert(governanceProposals).values(data).returning();
+    return row;
+  },
+
+  async getUserGovernanceVotes(userId: string) {
+    return db.select().from(governanceVotes).where(eq(governanceVotes.userId, userId));
+  },
+
+  async getProposalVote(proposalId: string, userId: string) {
+    const [row] = await db.select().from(governanceVotes)
+      .where(and(eq(governanceVotes.proposalId, proposalId), eq(governanceVotes.userId, userId)));
+    return row ?? null;
+  },
+
+  async insertGovernanceVote(data: typeof governanceVotes.$inferInsert) {
+    const [row] = await db.insert(governanceVotes).values(data).returning();
+    return row;
+  },
+
+  async incrementProposalVotes(proposalId: string, choice: 'for' | 'against' | 'abstain') {
+    const col = choice === 'for' ? governanceProposals.votesFor
+      : choice === 'against' ? governanceProposals.votesAgainst
+      : governanceProposals.votesAbstain;
+    await db.update(governanceProposals)
+      .set({ [col.name]: sql`${col} + 1` })
+      .where(eq(governanceProposals.id, proposalId));
+  },
+
+  // ── Community ─────────────────────────────────────────────────────────────
+  async getCommunityPosts() {
+    const rows = await db.select({
+      id: communityPosts.id, userId: communityPosts.userId,
+      title: communityPosts.title, body: communityPosts.body,
+      postType: communityPosts.postType, upvotes: communityPosts.upvotes,
+      downvotes: communityPosts.downvotes, replyCount: communityPosts.replyCount,
+      pinned: communityPosts.pinned, createdAt: communityPosts.createdAt,
+      authorEmail: users.email,
+    }).from(communityPosts)
+      .leftJoin(users, eq(communityPosts.userId, users.id))
+      .orderBy(desc(communityPosts.pinned), desc(communityPosts.createdAt))
+      .limit(200);
+    return rows;
+  },
+
+  async insertCommunityPost(data: typeof communityPosts.$inferInsert) {
+    const [row] = await db.insert(communityPosts).values(data).returning();
+    return row;
+  },
+
+  async getCommunityComments(postId: string) {
+    return db.select({
+      id: communityComments.id, userId: communityComments.userId,
+      body: communityComments.body, upvotes: communityComments.upvotes,
+      createdAt: communityComments.createdAt, authorEmail: users.email,
+    }).from(communityComments)
+      .leftJoin(users, eq(communityComments.userId, users.id))
+      .where(eq(communityComments.postId, postId))
+      .orderBy(communityComments.createdAt);
+  },
+
+  async insertCommunityComment(data: typeof communityComments.$inferInsert) {
+    const [row] = await db.insert(communityComments).values(data).returning();
+    // bump reply count
+    await db.update(communityPosts)
+      .set({ replyCount: sql`${communityPosts.replyCount} + 1` })
+      .where(eq(communityPosts.id, data.postId as string));
+    return row;
+  },
+
+  async getCommunityVote(userId: string, targetId: string, targetType: string) {
+    const [row] = await db.select().from(communityVotes)
+      .where(and(eq(communityVotes.userId, userId), eq(communityVotes.targetId, targetId), eq(communityVotes.targetType, targetType)));
+    return row ?? null;
+  },
+
+  async insertCommunityVote(data: typeof communityVotes.$inferInsert) {
+    const [row] = await db.insert(communityVotes).values(data).returning();
+    // bump upvotes/downvotes on the target
+    if (data.targetType === 'post') {
+      const col = data.direction === 'up' ? communityPosts.upvotes : communityPosts.downvotes;
+      await db.update(communityPosts)
+        .set({ [col.name]: sql`${col} + 1` })
+        .where(eq(communityPosts.id, data.targetId as string));
+    } else if (data.targetType === 'comment' && data.direction === 'up') {
+      await db.update(communityComments)
+        .set({ upvotes: sql`${communityComments.upvotes} + 1` })
+        .where(eq(communityComments.id, data.targetId as string));
+    }
+    return row;
   },
 
   // ── Orders ────────────────────────────────────────────────────────────────

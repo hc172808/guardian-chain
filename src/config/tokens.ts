@@ -68,7 +68,7 @@ export const CHAIN_CONFIG: ChainConfig = {
     'https://rpc2.netlifegy.com',
     'https://rpc3.netlifegy.com',
     'http://localhost:8546',
-    'http://192.168.18.106:8546',
+    ...(import.meta.env.VITE_RPC_LAN ? [`http://${import.meta.env.VITE_RPC_LAN}:8546`] : []),
   ],
   blockExplorerUrls: ['https://explorer.netlifegy.com'],
   iconUrls: ['https://netlifegy.com/icon.png'],
