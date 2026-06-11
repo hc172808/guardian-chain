@@ -49,11 +49,11 @@ const LoginForm = ({ onSuccess, onReset }: { onSuccess: () => void; onReset: () 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium text-muted-foreground">Username</label>
+        <label className="text-sm font-medium text-muted-foreground">Username or Email</label>
         <div className="relative">
           <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input type="text" value={username} onChange={e => setUsername(e.target.value)}
-            placeholder="your_username" autoComplete="username"
+            placeholder="username or email" autoComplete="username"
             className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
         </div>
       </div>

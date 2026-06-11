@@ -42,6 +42,18 @@ export const storage = {
     return user ?? null;
   },
 
+  async getUserByEmail(email: string) {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user ?? null;
+  },
+
+  async getUserByUsernameOrEmail(input: string) {
+    const byUsername = await db.select().from(users).where(eq(users.username, input));
+    if (byUsername[0]) return byUsername[0];
+    const byEmail = await db.select().from(users).where(eq(users.email, input));
+    return byEmail[0] ?? null;
+  },
+
   async getUserByWallet(walletAddress: string) {
     const [user] = await db.select().from(users).where(eq(users.walletAddress, walletAddress));
     return user ?? null;

@@ -35,7 +35,7 @@ export async function setupAuth(app: Express): Promise<void> {
     { usernameField: "username", passwordField: "password" },
     async (username, password, done) => {
       try {
-        const user = await storage.getUserByUsername(username.trim().toLowerCase());
+        const user = await storage.getUserByUsernameOrEmail(username.trim().toLowerCase());
         if (!user) return done(null, false, { message: "Invalid username or password" });
         if (!user.passwordHash) return done(null, false, { message: "Invalid username or password" });
         const ok = await bcrypt.compare(password, user.passwordHash);
