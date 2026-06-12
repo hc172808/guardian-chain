@@ -11,6 +11,9 @@ import { CrossChainBridge } from '@/components/defi/CrossChainBridge';
 import { OrderBook } from '@/components/defi/OrderBook';
 import { YieldVaults } from '@/components/defi/YieldVaults';
 import { ImpermanentLossCalc } from '@/components/defi/ImpermanentLossCalc';
+import { Perpetuals } from '@/components/defi/Perpetuals';
+import { PredictionMarkets } from '@/components/defi/PredictionMarkets';
+import { LPFarmingDashboard } from '@/components/defi/LPFarmingDashboard';
 import { DeFiBottomNav } from '@/components/defi/DeFiBottomNav';
 import { WalletConnectBar } from '@/components/defi/WalletConnectBar';
 
@@ -21,7 +24,7 @@ const DeFiPage = () => {
 
   useEffect(() => {
     const tab = (location.state as any)?.tab;
-    const validTabs = ['swap','pools','stake','orderbook','vaults','bridge','launchpad','portfolio','ilcalc'];
+    const validTabs = ['swap','pools','stake','orderbook','vaults','bridge','launchpad','portfolio','ilcalc','perps','predict','farm'];
     if (tab && validTabs.includes(tab)) {
       setActiveTab(tab);
     }
@@ -43,6 +46,9 @@ const DeFiPage = () => {
       case 'orderbook': return <OrderBook />;
       case 'vaults':    return <YieldVaults />;
       case 'ilcalc':    return <ImpermanentLossCalc />;
+      case 'perps':     return <Perpetuals />;
+      case 'predict':   return <PredictionMarkets />;
+      case 'farm':      return <LPFarmingDashboard />;
       case 'position':  return <PositionDetails position={selectedPosition} />;
       default:          return <SwapInterface />;
     }

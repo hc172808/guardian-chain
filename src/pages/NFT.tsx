@@ -287,6 +287,7 @@ const NFTPage = () => {
             <TabsTrigger value="mint">Mint</TabsTrigger>
             <TabsTrigger value="batch-mint">Batch Mint</TabsTrigger>
             <TabsTrigger value="my-nfts">My NFTs {myTokens.length > 0 && `(${myTokens.length})`}</TabsTrigger>
+            <TabsTrigger value="staking">NFT Staking</TabsTrigger>
           </TabsList>
 
           {/* Marketplace */}
@@ -547,6 +548,38 @@ const NFTPage = () => {
                   )}
                 </div>
               </GlassCard>
+
+              {/* Whitelist Minting */}
+              <GlassCard className="p-5 space-y-4">
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-primary" /> Allowlist / Whitelist Minting
+                </h3>
+                <p className="text-xs text-muted-foreground">Collections can restrict minting to approved addresses. Check if your wallet is on an active allowlist.</p>
+                <div className="space-y-2">
+                  {[
+                    { collection: 'GYDS Genesis', status: 'whitelisted', slots: 3, ends: '2026-07-01' },
+                    { collection: 'Validator Badge S1', status: 'not-listed', slots: 0, ends: '2026-08-15' },
+                    { collection: 'DeFi Pioneer', status: 'whitelisted', slots: 1, ends: '2026-09-01' },
+                  ].map(al => (
+                    <div key={al.collection} className="flex items-center justify-between p-3 bg-muted/20 rounded-xl text-sm gap-2 flex-wrap">
+                      <div>
+                        <p className="font-medium">{al.collection}</p>
+                        <p className="text-xs text-muted-foreground">Ends: {al.ends}</p>
+                      </div>
+                      <div className="text-right">
+                        {al.status === 'whitelisted' ? (
+                          <>
+                            <Badge className="text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/30 mb-1">Allowlisted</Badge>
+                            <p className="text-xs text-muted-foreground">{al.slots} slot{al.slots !== 1 ? 's' : ''}</p>
+                          </>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">Not listed</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
             </div>
           </TabsContent>
 
@@ -703,6 +736,62 @@ const NFTPage = () => {
               </div>
             )}
           </TabsContent>
+
+          {/* NFT Staking */}
+          <TabsContent value="staking" className="mt-4 space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total Staked', value: '1,248 NFTs', color: 'text-primary' },
+                { label: 'GYDS Rewarded', value: '284K', color: 'text-emerald-400' },
+                { label: 'Avg APY', value: '18.4%', color: 'text-amber-400' },
+                { label: 'My Staked', value: user ? `${myTokens.filter(t => t.listed).length} NFTs` : '—', color: 'text-blue-400' },
+              ].map(s => (
+                <GlassCard key={s.label} className="p-4 text-center">
+                  <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
+                </GlassCard>
+              ))}
+            </div>
+
+            <GlassCard className="p-5 space-y-4">
+              <h2 className="font-semibold flex items-center gap-2">🔒 Staking Pools</h2>
+              <div className="space-y-3">
+                {[
+                  { name: 'GYDS Genesis Pool', rarity: 'Legendary', apy: '42%', reward: 'GYDS', lock: '30 days', stakers: 12 },
+                  { name: 'Validator Badge Pool', rarity: 'Epic', apy: '28%', reward: 'GYDS + XP', lock: '14 days', stakers: 48 },
+                  { name: 'DeFi Pioneer Pool', rarity: 'Rare', apy: '18%', reward: 'GYDS', lock: '7 days', stakers: 156 },
+                  { name: 'Community Contributor Pool', rarity: 'Uncommon', apy: '12%', reward: 'GYDS + XP', lock: 'None', stakers: 411 },
+                  { name: 'General Pool', rarity: 'Common+', apy: '8%', reward: 'GYDS', lock: 'None', stakers: 621 },
+                ].map(pool => (
+                  <div key={pool.name} className="flex items-center justify-between p-4 bg-muted/20 rounded-xl gap-3 flex-wrap">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm">{pool.name}</p>
+                        <Badge variant="secondary" className="text-xs">{pool.rarity}+</Badge>
+                      </div>
+                      <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
+                        <span>Lock: <span className="text-foreground">{pool.lock}</span></span>
+                        <span>Reward: <span className="text-foreground">{pool.reward}</span></span>
+                        <span>{pool.stakers} stakers</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-emerald-400 font-bold text-lg">{pool.apy}</span>
+                      <Button size="sm" onClick={() => toast({ title: 'NFT Staking', description: 'Staking contracts deploy with mainnet.' })}>
+                        Stake NFT
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="p-4 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">How NFT Staking Works</p>
+              <p>Lock eligible NFTs into a pool to earn GYDS rewards proportional to the NFT's rarity tier. NFTs remain in your wallet — only a stake record is created on-chain. Unstake at any time (subject to lock period).</p>
+            </GlassCard>
+          </TabsContent>
+
         </Tabs>
 
         {/* NFT Detail Modal */}

@@ -1782,6 +1782,84 @@ SELECT 'GYDS Foundation Pool', NULL, 0.0, 0.001, 'randomx', '0x00000000000000000
 WHERE NOT EXISTS (SELECT 1 FROM public.mining_pools WHERE name = 'GYDS Foundation Pool');
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- §29  NEW TABLES — Added 2026-06-12
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- In-app notification inbox (real user_notifications, separate from Supabase shim)
+CREATE TABLE IF NOT EXISTS public.user_notifications (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     TEXT NOT NULL,
+  type        TEXT NOT NULL DEFAULT 'announcement',
+  title       TEXT NOT NULL,
+  body        TEXT NOT NULL,
+  read        BOOLEAN DEFAULT false,
+  dismissed   BOOLEAN DEFAULT false,
+  link        TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS notif_user_idx ON public.user_notifications(user_id, created_at DESC);
+
+-- Webhook delivery log
+CREATE TABLE IF NOT EXISTS public.webhook_deliveries (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  webhook_id      UUID NOT NULL REFERENCES public.webhook_endpoints(id) ON DELETE CASCADE,
+  event           TEXT NOT NULL,
+  payload         JSONB,
+  response_status INTEGER,
+  response_body   TEXT,
+  duration_ms     INTEGER,
+  success         BOOLEAN DEFAULT false,
+  attempted_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS wh_delivery_webhook_idx ON public.webhook_deliveries(webhook_id, attempted_at DESC);
+
+-- Oracle price feeds & submission history
+CREATE TABLE IF NOT EXISTS public.oracle_feeds (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  feed_id      TEXT NOT NULL UNIQUE,
+  description  TEXT,
+  value        NUMERIC DEFAULT 0,
+  decimals     INTEGER DEFAULT 8,
+  provider     TEXT DEFAULT 'internal',
+  active       BOOLEAN DEFAULT true,
+  last_updated TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS public.oracle_submissions (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  feed_id      TEXT NOT NULL,
+  submitter    TEXT NOT NULL,
+  value        NUMERIC NOT NULL,
+  block_height BIGINT,
+  submitted_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS oracle_sub_feed_idx ON public.oracle_submissions(feed_id, submitted_at DESC);
+
+-- Admin key-value config store (bridge fees, feature flags, etc.)
+CREATE TABLE IF NOT EXISTS public.admin_config (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Token launch visibility flag (idempotent column add)
+ALTER TABLE public.token_launches ADD COLUMN IF NOT EXISTS is_visible BOOLEAN DEFAULT true;
+
+-- Default oracle feeds
+INSERT INTO public.oracle_feeds (feed_id, description, value, provider) VALUES
+  ('GYDS/USD', 'GYDSchain native coin price in USD', 0.0000001, 'internal'),
+  ('GYD/USD',  'GYD stablecoin price in USD',        1.0,       'internal'),
+  ('BTC/USD',  'Bitcoin price in USD (reference)',   65000.0,   'external'),
+  ('ETH/USD',  'Ethereum price in USD (reference)',   3500.0,   'external')
+ON CONFLICT (feed_id) DO NOTHING;
+
+-- Default bridge fee config
+INSERT INTO public.admin_config (key, value) VALUES
+  ('bridge_fee_percent', '0.3'),
+  ('bridge_min_fee_usd', '1.0'),
+  ('bridge_max_fee_usd', '100.0')
+ON CONFLICT (key) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- §28  REALTIME SUBSCRIPTIONS
 -- ─────────────────────────────────────────────────────────────────────────────
 ALTER PUBLICATION supabase_realtime ADD TABLE public.node_installations;
@@ -1797,8 +1875,40 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.network_announcements;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.ai_security_events;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.oracle_feeds;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- §30  UNDERWRITER STAKING — Added 2026-06-12
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.underwriter_stakes (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       TEXT NOT NULL,
+  pool_id       TEXT NOT NULL,
+  amount        NUMERIC(36,18) NOT NULL DEFAULT 0,
+  token         TEXT NOT NULL DEFAULT 'GYDS',
+  apy_percent   NUMERIC(8,4) DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'active',   -- active | withdrawn
+  staked_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  withdrawn_at  TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS uw_stakes_user_idx ON public.underwriter_stakes(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS uw_stakes_pool_idx ON public.underwriter_stakes(pool_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- §31  EMAIL VERIFICATION TOKENS — Added 2026-06-12
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.email_verification_tokens (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     TEXT NOT NULL,
+  token       TEXT UNIQUE NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at  TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours',
+  used_at     TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS evt_user_idx ON public.email_verification_tokens(user_id);
+CREATE INDEX IF NOT EXISTS evt_token_idx ON public.email_verification_tokens(token) WHERE used_at IS NULL;
+
 -- ═══════════════════════════════════════════════════════════════════════════
 --  END OF SCHEMA
---  Tables: 68  |  Functions: 4  |  Views: 3  |  Indexes: 25+
+--  Tables: 70  |  Functions: 4  |  Views: 3  |  Indexes: 27+
 --  Safe to run multiple times. Check supabase dashboard after applying.
 -- ═══════════════════════════════════════════════════════════════════════════

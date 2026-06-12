@@ -72,6 +72,9 @@ const DeveloperPage = () => {
   const [newWebhookEvents, setNewWebhookEvents] = useState<string[]>(['tx.confirmed', 'block.new']);
   const [addingWebhook, setAddingWebhook] = useState(false);
   const [newWebhookSecret, setNewWebhookSecret] = useState<string | null>(null);
+  const [webhookDeliveries, setWebhookDeliveries] = useState<Record<string, any[]>>({});
+  const [loadingDeliveries, setLoadingDeliveries] = useState<string | null>(null);
+  const [expandedDeliveries, setExpandedDeliveries] = useState<string | null>(null);
 
   const fetchKeys = useCallback(async () => {
     if (!user) { setKeysLoading(false); return; }
@@ -124,6 +127,17 @@ const DeveloperPage = () => {
       body: JSON.stringify({ active }),
     });
     setWebhooks(prev => prev.map(w => w.id === id ? { ...w, active } : w));
+  };
+
+  const viewDeliveries = async (webhookId: string) => {
+    if (expandedDeliveries === webhookId) { setExpandedDeliveries(null); return; }
+    setExpandedDeliveries(webhookId);
+    if (webhookDeliveries[webhookId]) return;
+    setLoadingDeliveries(webhookId);
+    try {
+      const res = await fetch(`/api/webhooks/${webhookId}/deliveries`, { credentials: 'include' });
+      if (res.ok) { const data = await res.json(); setWebhookDeliveries(prev => ({ ...prev, [webhookId]: data })); }
+    } finally { setLoadingDeliveries(null); }
   };
 
   const fetchUsage = useCallback(async () => {
@@ -551,9 +565,36 @@ const DeveloperPage = () => {
                             </button>
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-1">
-                          {wh.events.map((ev: string) => <Badge key={ev} variant="secondary" className="text-xs">{ev}</Badge>)}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex flex-wrap gap-1">
+                            {wh.events.map((ev: string) => <Badge key={ev} variant="secondary" className="text-xs">{ev}</Badge>)}
+                          </div>
+                          {wh.delivery_count > 0 && (
+                            <button onClick={() => viewDeliveries(wh.id)}
+                              className="text-xs text-primary hover:underline flex items-center gap-0.5">
+                              {expandedDeliveries === wh.id ? 'Hide' : 'View'} deliveries
+                            </button>
+                          )}
                         </div>
+                        {expandedDeliveries === wh.id && (
+                          <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                            {loadingDeliveries === wh.id ? (
+                              <p className="text-xs text-muted-foreground py-2 text-center"><RefreshCw className="inline w-3 h-3 animate-spin mr-1" />Loading…</p>
+                            ) : (webhookDeliveries[wh.id] ?? []).length === 0 ? (
+                              <p className="text-xs text-muted-foreground py-2 text-center">No delivery records yet.</p>
+                            ) : (
+                              (webhookDeliveries[wh.id] ?? []).map((d: any, i: number) => (
+                                <div key={i} className="flex items-center gap-2 text-xs p-2 bg-muted/20 rounded-lg">
+                                  <Badge variant={d.status_code >= 200 && d.status_code < 300 ? 'default' : 'destructive'}
+                                    className="text-[10px] h-4 px-1">{d.status_code ?? 'ERR'}</Badge>
+                                  <span className="text-muted-foreground flex-1 truncate">{d.event_type ?? '—'}</span>
+                                  <span className="text-muted-foreground">{d.duration_ms != null ? `${d.duration_ms}ms` : ''}</span>
+                                  <span className="text-muted-foreground">{d.delivered_at ? new Date(d.delivered_at).toLocaleString() : '—'}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
                       </GlassCard>
                     ))}
                   </div>

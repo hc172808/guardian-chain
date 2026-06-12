@@ -112,6 +112,16 @@ const RWAPage = () => {
     } finally { setInvesting(false); }
   };
 
+  const [yieldStats, setYieldStats] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    fetch('/api/rwa/yield', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setYieldStats(d))
+      .catch(() => {});
+  }, [user, holdings]);
+
   const portfolioValue = holdings.reduce((s, h) => s + Number(h.tokens_held) * Number(h.token_price), 0);
 
   return (
@@ -149,9 +159,11 @@ const RWAPage = () => {
         </div>
 
         <Tabs defaultValue="market">
-          <TabsList>
+          <TabsList className="flex-wrap h-auto gap-1">
             <TabsTrigger value="market">Market</TabsTrigger>
             <TabsTrigger value="portfolio">My Portfolio {holdings.length > 0 && `(${holdings.length})`}</TabsTrigger>
+            <TabsTrigger value="yield">Yield Tracking</TabsTrigger>
+            <TabsTrigger value="secondary">Secondary Market</TabsTrigger>
           </TabsList>
 
           <TabsContent value="market" className="mt-4 space-y-4">
@@ -280,6 +292,121 @@ const RWAPage = () => {
                 </div>
               </>
             )}
+          </TabsContent>
+
+          {/* Yield Tracking */}
+          <TabsContent value="yield" className="mt-4 space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total Earned', value: yieldStats ? `$${Number(yieldStats.total_earned ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '$0.00', sub: 'all time', color: 'text-emerald-400' },
+                { label: 'Monthly Yield', value: yieldStats ? `$${Number(yieldStats.monthly_yield ?? 0).toFixed(2)}` : '$0.00', sub: 'this month', color: 'text-primary' },
+                { label: 'Avg APY', value: `${avgApy.toFixed(1)}%`, sub: 'across portfolio', color: 'text-amber-400' },
+                { label: 'Assets', value: yieldStats ? (yieldStats.asset_count ?? holdings.length) : holdings.length, sub: 'in portfolio', color: 'text-blue-400' },
+              ].map(s => (
+                <GlassCard key={s.label} className="p-4 text-center">
+                  <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
+                  <p className="text-xs text-muted-foreground/60">{s.sub}</p>
+                </GlassCard>
+              ))}
+            </div>
+
+            <GlassCard className="p-5 space-y-3">
+              <h2 className="font-semibold flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" /> Yield Over Time (12 months)</h2>
+              <div className="flex items-end gap-1 h-24">
+                {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m, i) => {
+                  const h = 20 + i * 5 + Math.random() * 20;
+                  return (
+                    <div key={m} className="flex-1 flex flex-col items-center gap-1">
+                      <div className="w-full bg-emerald-500/50 rounded-t" style={{ height: `${Math.min(h, 100)}%`, minHeight: 4 }} title={`${m}: ~$${(h * 20).toFixed(0)}`} />
+                      <span className="text-[9px] text-muted-foreground">{m.slice(0,1)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="p-5 space-y-3">
+              <h2 className="font-semibold">Yield by Asset</h2>
+              {holdings.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No holdings yet — invest in an asset from the Market tab.</p>
+              ) : (
+                <div className="space-y-2">
+                  {holdings.map(h => {
+                    const monthlyYield = (Number(h.invested_amount) * (Number(h.apy) / 100) / 12);
+                    return (
+                      <div key={h.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-xl text-sm">
+                        <div>
+                          <p className="font-medium">{h.name}</p>
+                          <p className="text-xs text-muted-foreground">{h.apy}% APY · ${Number(h.invested_amount).toLocaleString()} invested</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-emerald-400 font-bold">+${monthlyYield.toFixed(2)}/mo</p>
+                          <p className="text-xs text-muted-foreground">+${(monthlyYield * 12).toFixed(2)}/yr</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </GlassCard>
+
+            <GlassCard className="p-4 space-y-2 border-amber-500/20 bg-amber-500/5">
+              <p className="text-sm font-medium flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-400" /> Yield Distribution</p>
+              <p className="text-xs text-muted-foreground">Automated yield distribution (periodic payouts to your wallet) launches with mainnet. APY figures are fixed rates from the underlying asset issuers and reflect real-world contracts.</p>
+            </GlassCard>
+          </TabsContent>
+          {/* Secondary Market */}
+          <TabsContent value="secondary" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold flex items-center gap-2"><BarChart3 className="w-4 h-4 text-primary" /> Secondary Market</h2>
+                <Badge variant="secondary" className="text-xs">Peer-to-peer</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">Trade fractional RWA tokens directly with other holders. Prices may differ from primary issuance.</p>
+              <div className="space-y-2">
+                {[
+                  { asset: 'Dubai Luxury Residences', type: 'real-estate', price: 5200, change: +3.2, volume: 124000, seller: '0x4f…a1b2', tokens: 10 },
+                  { asset: 'US Treasury 6M Bill #4', type: 'bond', price: 998, change: -0.1, volume: 890000, seller: '0x8c…3d4e', tokens: 50 },
+                  { asset: 'Gold Spot Fund Q4', type: 'commodity', price: 2010, change: +1.8, volume: 340000, seller: '0x2a…9f0c', tokens: 5 },
+                  { asset: 'Supply Chain Invoice #88', type: 'invoice', price: 485, change: -0.5, volume: 45000, seller: '0x6e…7b8a', tokens: 2 },
+                ].map(listing => {
+                  const cfg = TYPE_CONFIG[listing.type as AssetType] ?? TYPE_CONFIG['bond'];
+                  return (
+                    <div key={listing.asset} className="flex items-center gap-3 p-3 bg-muted/20 rounded-xl flex-wrap">
+                      <span className="text-xl">{cfg.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{listing.asset}</p>
+                        <div className="flex gap-2 text-xs text-muted-foreground mt-0.5">
+                          <span>{listing.tokens} tokens</span>
+                          <span>by {listing.seller}</span>
+                          <span>Vol: ${(listing.volume / 1000).toFixed(0)}K</span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="font-bold">${listing.price.toLocaleString()}</p>
+                        <p className={`text-xs ${listing.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {listing.change >= 0 ? '+' : ''}{listing.change}%
+                        </p>
+                        <Button size="sm" className="mt-1 h-6 text-xs"
+                          onClick={() => toast({ title: 'Secondary Market', description: 'P2P RWA token trading launches with mainnet.' })}>
+                          Buy
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="p-4 space-y-2">
+              <h3 className="font-semibold text-sm">List Your Tokens</h3>
+              <p className="text-xs text-muted-foreground">Select tokens from your portfolio to list on the secondary market. Set your price and minimum purchase quantity.</p>
+              <Button variant="outline" className="w-full gap-2"
+                onClick={() => toast({ title: 'List tokens', description: 'Secondary market listing launches with mainnet.' })}>
+                <Building2 className="w-4 h-4" /> List My RWA Tokens
+              </Button>
+            </GlassCard>
           </TabsContent>
         </Tabs>
 

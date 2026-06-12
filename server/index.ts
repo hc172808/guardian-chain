@@ -12,6 +12,30 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// Security headers (CSP hardening)
+app.use((_req, res, next) => {
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",   // unsafe-eval needed by Vite HMR in dev
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com data:",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' wss: ws: https:",
+      "frame-ancestors 'self'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; ')
+  );
+  next();
+});
+
 await setupAuth(app);
 registerRoutes(app);
 await seedFounder();
@@ -21,6 +45,7 @@ await storage.initGovernanceTreasury().catch(e => console.warn("initGovernanceTr
 await storage.initApiKeysTables().catch(e => console.warn("initApiKeysTables:", e.message));
 await storage.initApiUsageLogs().catch(e => console.warn("initApiUsageLogs:", e.message));
 await storage.initBridgeTransferTable().catch(e => console.warn("initBridgeTransferTable:", e.message));
+await storage.initGovernanceDelegation().catch(e => console.warn("initGovernanceDelegation:", e.message));
 await storage.initNftTables().catch(e => console.warn("initNftTables:", e.message));
 await storage.initInsuranceTables().catch(e => console.warn("initInsuranceTables:", e.message));
 await storage.initPriceHistory().catch(e => console.warn("initPriceHistory:", e.message));
@@ -30,12 +55,42 @@ await storage.initIdentityTables().catch(e => console.warn("initIdentityTables:"
 await storage.initRwaTables().catch(e => console.warn("initRwaTables:", e.message));
 await storage.initNetworkSnapshotTable().catch(e => console.warn("initNetworkSnapshotTable:", e.message));
 await (storage as any).initTradesTable().catch((e: any) => console.warn("initTradesTable:", e.message));
+await (storage as any).initNotificationTable().catch((e: any) => console.warn("initNotificationTable:", e.message));
+await (storage as any).initWebhookDeliveriesTable().catch((e: any) => console.warn("initWebhookDeliveriesTable:", e.message));
+await (storage as any).initOracleTables().catch((e: any) => console.warn("initOracleTables:", e.message));
+// Ensure admin_config table exists
+await (storage as any).setAdminConfig('bridge_fee_percent', '0.3').catch(() => {});
+// Add is_visible column to token_launches if missing
+(storage as any).updateLaunchVisibility('00000000-0000-0000-0000-000000000000', true).catch(() => {});
 
 // Hourly network snapshot cron
 setInterval(() => {
   storage.captureNetworkSnapshot().catch(e => console.warn("snapshot cron:", e.message));
 }, 60 * 60 * 1000);
 storage.captureNetworkSnapshot().catch(() => {});
+
+// 90-day DB pruner cron — runs once daily at startup + every 24h
+async function runDbPruner() {
+  const pgPool = (storage as any).pgPool;
+  if (!pgPool) return;
+  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const pruneQueries = [
+      `DELETE FROM network_snapshots WHERE created_at < $1`,
+      `DELETE FROM api_usage_logs WHERE created_at < $1`,
+      `DELETE FROM webhook_deliveries WHERE created_at < $1`,
+      `DELETE FROM xp_events WHERE created_at < $1`,
+      `DELETE FROM email_verification_tokens WHERE expires_at < NOW() - INTERVAL '7 days'`,
+    ];
+    for (const q of pruneQueries) {
+      const r = await pgPool.query(q, q.includes('$1') ? [cutoff] : []).catch(() => ({ rowCount: 0 }));
+      if (r.rowCount > 0) console.log(`[pruner] ${q.split(' ').slice(0, 3).join(' ')}: removed ${r.rowCount} rows`);
+    }
+    console.log(`[pruner] Daily pruner complete (90-day retention)`);
+  } catch (e: any) { console.warn("[pruner] error:", e.message); }
+}
+runDbPruner().catch(() => {});
+setInterval(runDbPruner, 24 * 60 * 60 * 1000);
 
 // Serve static frontend in production only
 if (process.env.NODE_ENV === "production") {

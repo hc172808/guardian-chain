@@ -201,9 +201,11 @@ const InsurancePage = () => {
         </div>
 
         <Tabs defaultValue="pools">
-          <TabsList>
+          <TabsList className="flex-wrap h-auto gap-1">
             <TabsTrigger value="pools">Coverage Pools</TabsTrigger>
             <TabsTrigger value="my-policies">My Policies {activePolicies > 0 && `(${activePolicies})`}</TabsTrigger>
+            <TabsTrigger value="underwriter">Underwriter</TabsTrigger>
+            <TabsTrigger value="parametric">Parametric</TabsTrigger>
             <TabsTrigger value="how-it-works">How It Works</TabsTrigger>
           </TabsList>
 
@@ -336,6 +338,148 @@ const InsurancePage = () => {
                 );
               })
             )}
+          </TabsContent>
+
+          {/* Underwriter Staking */}
+          <TabsContent value="underwriter" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-3">
+              <h2 className="font-semibold flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-400" /> Underwriter Staking
+              </h2>
+              <p className="text-xs text-muted-foreground">Earn premiums by providing capital to insurance pools. As an underwriter, you back coverage claims and earn a share of all premiums paid into the pool.</p>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                {[
+                  { label: 'Your Staked', value: '0 GYDS', color: 'text-foreground' },
+                  { label: 'Premiums Earned', value: '0 GYDS', color: 'text-emerald-400' },
+                  { label: 'Coverage Backed', value: '$0', color: 'text-primary' },
+                  { label: 'Current APY', value: '12–28%', color: 'text-amber-400' },
+                ].map(s => (
+                  <div key={s.label} className="p-3 bg-muted/20 rounded-xl">
+                    <p className={`text-base font-bold ${s.color}`}>{s.value}</p>
+                    <p className="text-muted-foreground">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+            <div className="space-y-3">
+              {[
+                { name: 'Smart Contract Pool', apy: '12%', staked: '2.4M GYDS', utilization: 68, minStake: '1,000' },
+                { name: 'Bridge Risk Pool', apy: '28%', staked: '800K GYDS', utilization: 81, minStake: '5,000' },
+                { name: 'Stablecoin Depeg Pool', apy: '18%', staked: '1.1M GYDS', utilization: 55, minStake: '2,000' },
+                { name: 'Validator Slashing Pool', apy: '22%', staked: '500K GYDS', utilization: 42, minStake: '500' },
+              ].map(pool => (
+                <GlassCard key={pool.name} className="p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="font-medium text-sm">{pool.name}</p>
+                    <Badge className="text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/30">{pool.apy} APY</Badge>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Pool Utilization</span>
+                      <span>{pool.utilization}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted/30 overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${pool.utilization > 75 ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pool.utilization}%` }} />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Staked: {pool.staked}</span>
+                    <span>Min: {pool.minStake} GYDS</span>
+                    <Button size="sm" className="h-6 text-xs"
+                      onClick={() => toast({ title: 'Underwriter Staking', description: 'Live underwriter staking launches with mainnet.' })}>
+                      Stake
+                    </Button>
+                  </div>
+                </GlassCard>
+              ))}
+            </div>
+            <GlassCard className="p-4 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">⚠️ Risk Warning</p>
+              <p>As an underwriter, your staked capital may be used to pay out approved claims. High-utilization pools carry higher claim risk. Premiums are credited weekly.</p>
+            </GlassCard>
+          </TabsContent>
+
+          {/* Parametric Insurance */}
+          <TabsContent value="parametric" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-3">
+              <h2 className="font-semibold flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-400" /> Parametric Insurance
+              </h2>
+              <p className="text-xs text-muted-foreground">Parametric policies auto-trigger payouts when oracle-verified conditions are met — no manual claim required. Payouts are instant and trustless.</p>
+            </GlassCard>
+            <div className="space-y-3">
+              {[
+                {
+                  name: 'Price Crash Protection',
+                  trigger: 'GYDS drops >40% in 24h vs. 7-day MA',
+                  payout: '80% of coverage',
+                  premium: '2.5%/yr',
+                  oracle: 'Chainlink + GYDSchain oracle',
+                  status: 'available',
+                },
+                {
+                  name: 'Bridge Delay Cover',
+                  trigger: 'Cross-chain transfer delayed >2 hours',
+                  payout: '0.1% of bridge amount per hour',
+                  premium: '0.5%/yr',
+                  oracle: 'GYDSchain bridge monitor',
+                  status: 'available',
+                },
+                {
+                  name: 'Uptime SLA Protection',
+                  trigger: 'Validator uptime <95% in any epoch',
+                  payout: '50% of staked amount',
+                  premium: '3%/yr',
+                  oracle: 'GYDSchain validator metrics',
+                  status: 'coming-soon',
+                },
+                {
+                  name: 'Stablecoin Depeg Cover',
+                  trigger: 'USDT/USDC pegged token <$0.97',
+                  payout: '90% of exposure',
+                  premium: '1.8%/yr',
+                  oracle: 'Chainlink USD feeds',
+                  status: 'available',
+                },
+              ].map(plan => (
+                <GlassCard key={plan.name} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <p className="font-semibold text-sm">{plan.name}</p>
+                    <Badge variant={plan.status === 'available' ? 'default' : 'secondary'} className="text-xs capitalize">
+                      {plan.status === 'available' ? '✓ Available' : 'Coming Soon'}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <p className="text-muted-foreground">Trigger</p>
+                      <p className="font-medium leading-snug">{plan.trigger}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Payout</p>
+                      <p className="font-medium text-emerald-400">{plan.payout}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Premium</p>
+                      <p className="font-medium">{plan.premium}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Oracle</p>
+                      <p className="font-medium truncate">{plan.oracle}</p>
+                    </div>
+                  </div>
+                  {plan.status === 'available' && (
+                    <Button size="sm" className="w-full text-xs h-7"
+                      onClick={() => toast({ title: plan.name, description: 'Parametric insurance launches with mainnet oracle integration.' })}>
+                      Get Coverage
+                    </Button>
+                  )}
+                </GlassCard>
+              ))}
+            </div>
+            <GlassCard className="p-4 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">How Parametric Works</p>
+              <p>Oracle data is verified by 3-of-5 independent oracles. When the trigger condition is confirmed, smart contracts automatically release the payout — no claims committee, no waiting period.</p>
+            </GlassCard>
           </TabsContent>
 
           {/* How It Works */}

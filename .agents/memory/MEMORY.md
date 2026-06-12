@@ -1,6 +1,6 @@
 - [Bridge networks](bridge-networks.md) — EXTERNAL_CHAINS in CrossChainBridge.tsx now has 25 networks; non-EVM chains skip wallet verification and use a trust-based flow.
 - [New pages wired](new-pages.md) — 9 new pages added (governance, nft, analytics, community, developer, leaderboard, multisig, identity, rwa); Sidebar has collapsible Core/Ecosystem/Resources sections.
-- [DeFi tabs](defi-tabs.md) — DeFi page has 8 tabs: swap, pools, stake, orderbook, vaults, bridge, launchpad, portfolio. DeFiBottomNav updated to match.
+- [DeFi tabs](defi-tabs.md) — DeFi page has 12 tabs: swap, pools, stake, farm, orderbook, vaults, bridge, perps, predict, launchpad, portfolio, ilcalc. DeFiBottomNav updated to match.
 - [Notification bell](notification-bell.md) — NotificationBell lives in Layout.tsx header (desktop only); reads from demo data; wired to user_notifications table pattern.
 - [TOTP implementation](totp-impl.md) — otplib v12 dropped the `authenticator` export; use server/totp.ts (built-in crypto, zero-dep RFC 6238 TOTP) instead.
 - [Admin camelCase](admin-camelcase.md) — Drizzle returns camelCase; NodeInstallation interface and nodes tab now use nodeType, isApproved, isSynced, wireguardPublicKey, createdAt.
@@ -8,3 +8,8 @@
 - [Tokens table creator](tokens-creator.md) — tokens table uses creator_id (no FK to users), not user_id. Use LEFT JOIN + coalesce for leaderboard queries.
 - [XP leaderboard](xp-leaderboard.md) — user_xp, xp_events, achievements, user_achievements tables pushed via raw SQL (db:push has TTY issue). Storage methods use pgPool directly.
 - [Replit migration](replit-migration.md) — db:push needs TTY; use `drizzle-kit generate` then pipe SQL to psql instead. Supabase client.ts is already a shim routing to Express API — no real Supabase keys needed.
+- [Layout import path](layout-import.md) — Always use `import { Layout } from '@/components/layout/Layout'` (named export, lowercase "layout" folder). Wrong path `@/components/Layout` causes Vite 500.
+- [CSP + security headers](csp-headers.md) — Security headers added in server/index.ts middleware before setupAuth; includes CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, X-XSS-Protection, Permissions-Policy.
+- [Email verification](email-verify.md) — email_verification_tokens table created at runtime (CREATE IF NOT EXISTS in auth.ts register); POST /api/auth/verify-email + /api/auth/resend-verification; token logged to console in dev (no SMTP).
+- [DB pruner cron](db-pruner.md) — runDbPruner() in server/index.ts prunes network_snapshots, api_usage_logs, webhook_deliveries, xp_events, expired email tokens; runs on startup + every 24h.
+- [Admin monitoring tab](admin-monitoring.md) — GET /api/admin/monitoring (requireAdmin) returns validators, nodes, RPC health, DB status, uptime, memory. ValidatorExplorerMonitor component in Admin.tsx.

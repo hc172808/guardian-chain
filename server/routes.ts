@@ -444,6 +444,15 @@ export function registerRoutes(app: Express) {
     res.json(row);
   });
 
+  app.patch("/api/vault-positions/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { autoCompound } = req.body;
+    if (typeof autoCompound !== 'boolean') return res.status(400).json({ error: "autoCompound boolean required" });
+    const row = await storage.toggleVaultAutoCompound(req.params.id, user.id, autoCompound);
+    if (!row) return res.status(404).json({ error: "Position not found" });
+    res.json(row);
+  });
+
   app.delete("/api/vault-positions/:id", requireAuth, async (req, res) => {
     const user = req.user as any;
     const row = await storage.withdrawVaultPosition(req.params.id, user.id);
@@ -573,6 +582,15 @@ export function registerRoutes(app: Express) {
       createdBy: user.id,
       endDate: endDate ? new Date(endDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
+    // Notify all users about new governance proposal
+    storage.getAllUsersBasic?.().then((users: any[]) => {
+      (users || []).forEach((u: any) => {
+        const uid = u.id?.toString() ?? u.user_id;
+        if (uid && uid !== user.id.toString()) {
+          (storage as any).createNotification(uid, 'governance', `📜 New Proposal: ${title.slice(0, 50)}`, `A new ${proposalType ?? 'parameter'} proposal has been submitted. Your vote matters!`, '/governance').catch(() => {});
+        }
+      });
+    }).catch(() => {});
     res.json(row);
   });
 
@@ -863,6 +881,52 @@ export function registerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Governance Delegation ──────────────────────────────────────────────────
+  app.get("/api/governance/delegations", requireAuth, async (req, res) => {
+    try { res.json(await storage.getMyDelegations((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/governance/delegate", requireAuth, async (req, res) => {
+    try {
+      const { delegateAddress, delegateUsername, powerDelegated } = req.body;
+      if (!delegateAddress) return res.status(400).json({ error: "delegateAddress required" });
+      const d = await storage.delegateVotingPower((req.user as any).id, delegateAddress, delegateUsername, Number(powerDelegated) || 100);
+      res.json(d);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/governance/delegation/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.revokeDelegation((req.user as any).id, req.params.id);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Social Verifications ───────────────────────────────────────────────────
+  app.get("/api/identity/social", requireAuth, async (req, res) => {
+    try { res.json(await storage.getUserSocialVerifications((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/identity/social/challenge", requireAuth, async (req, res) => {
+    try {
+      const { platform, handle } = req.body;
+      if (!platform || !handle) return res.status(400).json({ error: "platform and handle required" });
+      const code = await storage.generateSocialChallenge((req.user as any).id, platform, handle);
+      res.json({ code, platform, handle });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/identity/social/verify", requireAuth, async (req, res) => {
+    try {
+      const { platform } = req.body;
+      if (!platform) return res.status(400).json({ error: "platform required" });
+      const result = await storage.verifySocialChallenge((req.user as any).id, platform);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Bridge Transfers ───────────────────────────────────────────────────────
   app.get("/api/bridge/history", requireAuth, async (req, res) => {
     try { res.json(await storage.getUserBridgeTransfers((req.user as any).id)); }
@@ -918,6 +982,61 @@ export function registerRoutes(app: Express) {
       const result = await storage.submitInsuranceClaim((req.user as any).id, req.params.policyId, reason);
       res.json(result);
     } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  // ── Underwriter Staking ────────────────────────────────────────────────────
+  app.get("/api/insurance/stakes", requireAuth, async (req, res) => {
+    try {
+      const stakes = await pgPool.query(
+        `SELECT us.*, ip.name as pool_name, ip.premium_rate
+         FROM underwriter_stakes us
+         JOIN insurance_pools ip ON ip.id = us.pool_id
+         WHERE us.user_id = $1 ORDER BY us.created_at DESC`,
+        [(req.user as any).id]
+      ).catch(() => ({ rows: [] }));
+      res.json(stakes.rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/insurance/stake", requireAuth, async (req, res) => {
+    try {
+      const { poolId, amount } = req.body;
+      if (!poolId || !amount || Number(amount) <= 0) return res.status(400).json({ error: "poolId and amount required" });
+      const userId = (req.user as any).id;
+      await pgPool.query(
+        `CREATE TABLE IF NOT EXISTS underwriter_stakes (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id TEXT NOT NULL, pool_id UUID NOT NULL,
+          amount NUMERIC(20,6) NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+          earned NUMERIC(20,6) NOT NULL DEFAULT 0,
+          staked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`
+      );
+      const [row] = (await pgPool.query(
+        `INSERT INTO underwriter_stakes (user_id, pool_id, amount) VALUES ($1,$2,$3) RETURNING *`,
+        [userId, poolId, Number(amount)]
+      )).rows;
+      await pgPool.query(
+        `UPDATE insurance_pools SET total_staked = total_staked + $1 WHERE id = $2`,
+        [Number(amount), poolId]
+      ).catch(() => {});
+      (storage as any).createNotification(userId.toString(), 'stake', '🛡️ Underwriting active', `You staked ${Number(amount).toLocaleString()} GYDS as an underwriter. You will earn premium proportional to your share.`, '/insurance').catch(() => {});
+      res.json(row);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.delete("/api/insurance/stake/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const row = (await pgPool.query(
+        `UPDATE underwriter_stakes SET status='withdrawn' WHERE id=$1 AND user_id=$2 AND status='active' RETURNING *`,
+        [req.params.id, userId]
+      )).rows[0];
+      if (!row) return res.status(404).json({ error: "Stake not found" });
+      await pgPool.query(`UPDATE insurance_pools SET total_staked = GREATEST(total_staked - $1, 0) WHERE id = $2`, [row.amount, row.pool_id]).catch(() => {});
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Analytics: price history ───────────────────────────────────────────────
@@ -1094,7 +1213,206 @@ export function registerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── In-App Notifications ───────────────────────────────────────────────────
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try { res.json(await (storage as any).getUserNotifications((req.user as any).id.toString())); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/notifications", requireAdmin, async (req, res) => {
+    try {
+      const { userId, type = 'announcement', title, body, link } = req.body;
+      if (!userId || !title || !body) return res.status(400).json({ error: "userId, title, body required" });
+      res.json(await (storage as any).createNotification(userId, type, title, body, link));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/notifications/broadcast", requireAdmin, async (req, res) => {
+    try {
+      const { type = 'announcement', title, body, link } = req.body;
+      if (!title || !body) return res.status(400).json({ error: "title and body required" });
+      const users = await storage.getAllUsersBasic();
+      await Promise.all(users.map((u: any) =>
+        (storage as any).createNotification(u.id?.toString() ?? u.user_id, type, title, body, link).catch(() => {})
+      ));
+      res.json({ ok: true, sent: users.length });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      await (storage as any).markNotificationRead((req.user as any).id.toString(), req.params.id);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/notifications/read-all", requireAuth, async (req, res) => {
+    try {
+      await (storage as any).markAllNotificationsRead((req.user as any).id.toString());
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/notifications/:id", requireAuth, async (req, res) => {
+    try {
+      await (storage as any).dismissNotification((req.user as any).id.toString(), req.params.id);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Webhook Deliveries ──────────────────────────────────────────────────────
+  app.get("/api/webhooks/:id/deliveries", requireAuth, async (req, res) => {
+    try {
+      res.json(await (storage as any).getWebhookDeliveries((req.user as any).id.toString(), req.params.id));
+    } catch (e: any) { res.status(404).json({ error: e.message }); }
+  });
+
+  // ── Oracle Admin ────────────────────────────────────────────────────────────
+  app.get("/api/oracle/feeds", async (_req, res) => {
+    try { res.json(await (storage as any).getOracleFeeds()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.put("/api/admin/oracle/feeds/:feedId", requireAdmin, async (req, res) => {
+    try {
+      const { value } = req.body;
+      if (value === undefined) return res.status(400).json({ error: "value required" });
+      res.json(await (storage as any).updateOracleFeed(req.params.feedId, parseFloat(value)));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/oracle/feeds/:feedId/submissions", async (req, res) => {
+    try { res.json(await (storage as any).getOracleSubmissions(req.params.feedId)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Bridge Fee Config ───────────────────────────────────────────────────────
+  app.get("/api/admin/bridge-fee-config", requireAdmin, async (_req, res) => {
+    try {
+      const feePercent = await (storage as any).getAdminConfig('bridge_fee_percent') ?? '0.3';
+      const minFeeUsd  = await (storage as any).getAdminConfig('bridge_min_fee_usd')  ?? '1.0';
+      const maxFeeUsd  = await (storage as any).getAdminConfig('bridge_max_fee_usd')  ?? '100.0';
+      res.json({ feePercent: parseFloat(feePercent), minFeeUsd: parseFloat(minFeeUsd), maxFeeUsd: parseFloat(maxFeeUsd) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.put("/api/admin/bridge-fee-config", requireAdmin, async (req, res) => {
+    try {
+      const { feePercent, minFeeUsd, maxFeeUsd } = req.body;
+      if (feePercent !== undefined) await (storage as any).setAdminConfig('bridge_fee_percent', String(feePercent));
+      if (minFeeUsd   !== undefined) await (storage as any).setAdminConfig('bridge_min_fee_usd',  String(minFeeUsd));
+      if (maxFeeUsd   !== undefined) await (storage as any).setAdminConfig('bridge_max_fee_usd',  String(maxFeeUsd));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Admin: Monthly Leaderboard Reset ───────────────────────────────────────
+  app.post("/api/admin/leaderboard/reset", requireAdmin, async (_req, res) => {
+    try { res.json(await (storage as any).resetLeaderboard()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Admin: Token Launch Visibility ─────────────────────────────────────────
+  app.get("/api/admin/launches", requireAdmin, async (_req, res) => {
+    try { res.json(await (storage as any).getPendingLaunches()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/admin/launches/:id", requireAdmin, async (req, res) => {
+    try {
+      const { visible } = req.body;
+      res.json(await (storage as any).updateLaunchVisibility(req.params.id, !!visible));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── KYC Tier Upgrade ───────────────────────────────────────────────────────
+  app.post("/api/identity/kyc/upgrade", requireAuth, async (req, res) => {
+    try {
+      const { tier } = req.body;
+      if (![1,2,3].includes(tier)) return res.status(400).json({ error: "tier must be 1, 2, or 3" });
+      res.json(await (storage as any).upgradeKycTier((req.user as any).id, tier));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── RWA Yield Dashboard ────────────────────────────────────────────────────
+  app.get("/api/rwa/yield", requireAuth, async (req, res) => {
+    try { res.json(await (storage as any).getRwaYieldStats((req.user as any).id.toString())); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── REST API v1: Missing Endpoints ─────────────────────────────────────────
+  app.get("/v1/blocks/:height", async (req, res) => {
+    try {
+      const height = parseInt(req.params.height);
+      if (isNaN(height) || height < 1) return res.status(400).json({ error: "invalid block height" });
+      const block = await (storage as any).getBlockByHeight(height);
+      if (!block) return res.status(404).json({ error: "block not found" });
+      res.json(block);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/v1/tx/:hash", async (req, res) => {
+    try {
+      const tx = await (storage as any).getTxByHash(req.params.hash);
+      if (!tx) return res.status(404).json({ error: "transaction not found" });
+      res.json(tx);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/v1/transactions/submit", async (req, res) => {
+    try {
+      const { signed_tx, raw } = req.body;
+      const tx = signed_tx || raw;
+      if (!tx) return res.status(400).json({ error: "signed_tx required" });
+      res.json(await (storage as any).submitTransaction(tx));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/v1/pools", async (_req, res) => {
+    try {
+      const pools = await storage.getLiquidityPools?.() ?? [];
+      res.json(pools);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Health Check ───────────────────────────────────────────────────────────
+  // ── Admin Monitoring (Validator + Explorer + System) ──────────────────────
+  app.get("/api/admin/monitoring", requireAdmin, async (_req, res) => {
+    try {
+      const pgPool = (storage as any).pgPool;
+      const [validatorRows, nodeRows, rpcHealth] = await Promise.all([
+        storage.getValidators?.().catch(() => [] as any[]),
+        pgPool?.query(`SELECT COUNT(*) as total, SUM(CASE WHEN is_synced THEN 1 ELSE 0 END) as synced FROM node_installations`).catch(() => ({ rows: [{ total: 0, synced: 0 }] })),
+        (async () => {
+          const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
+          return Promise.all(rpcEndpoints.map(async url => {
+            try {
+              const ctrl = new AbortController();
+              const t = setTimeout(() => ctrl.abort(), 4000);
+              const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
+              clearTimeout(t);
+              const d = await r.json();
+              return { url, reachable: !!d.result, blockNumber: d.result };
+            } catch (e: any) { return { url, reachable: false, error: e.message }; }
+          }));
+        })(),
+      ]);
+      const validators = Array.isArray(validatorRows) ? validatorRows : [];
+      const nodeSummary = nodeRows?.rows?.[0] ?? { total: 0, synced: 0 };
+      let dbOk = false;
+      try { await pgPool?.query('SELECT 1'); dbOk = true; } catch { dbOk = false; }
+      res.json({
+        timestamp: new Date().toISOString(),
+        validators: { total: validators.length, active: validators.filter((v: any) => v.status === 'active').length },
+        nodes: { total: Number(nodeSummary.total ?? 0), synced: Number(nodeSummary.synced ?? 0) },
+        rpc: rpcHealth,
+        db: dbOk,
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get("/api/health", async (_req, res) => {
     const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
     const checkRpc = async (url: string) => {

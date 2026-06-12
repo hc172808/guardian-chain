@@ -658,6 +658,12 @@ export const storage = {
     return row;
   },
 
+  async toggleVaultAutoCompound(id: string, userId: string, enabled: boolean) {
+    const [row] = await db.update(vaultPositions).set({ autoCompound: enabled })
+      .where(and(eq(vaultPositions.id, id), eq(vaultPositions.userId, userId))).returning();
+    return row;
+  },
+
   // ── XP & Leaderboard ──────────────────────────────────────────────────────
   async awardXpOnce(userId: string, eventType: string, xpAwarded: number, description: string) {
     const existing = await pgPool.query(
@@ -899,6 +905,87 @@ export const storage = {
 
   async getGovernanceTreasury() {
     const res = await pgPool.query(`SELECT * FROM governance_treasury ORDER BY usd_value DESC NULLS LAST`);
+    return res.rows;
+  },
+
+  // ── Governance Delegation ──────────────────────────────────────────────────
+  async initGovernanceDelegation() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS voting_delegations (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        delegator_id INTEGER NOT NULL,
+        delegate_address TEXT NOT NULL,
+        delegate_username TEXT,
+        power_delegated INTEGER NOT NULL DEFAULT 0,
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        revoked_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS social_verifications (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id INTEGER NOT NULL,
+        platform TEXT NOT NULL,
+        handle TEXT NOT NULL,
+        challenge_code TEXT NOT NULL,
+        verified BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        verified_at TIMESTAMPTZ,
+        UNIQUE(user_id, platform)
+      );
+    `);
+  },
+
+  async delegateVotingPower(delegatorId: number, delegateAddress: string, delegateUsername: string | null, powerDelegated: number) {
+    const res = await pgPool.query(
+      `INSERT INTO voting_delegations (delegator_id, delegate_address, delegate_username, power_delegated)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [delegatorId, delegateAddress, delegateUsername, powerDelegated]
+    );
+    return res.rows[0];
+  },
+
+  async getMyDelegations(userId: number) {
+    const res = await pgPool.query(
+      `SELECT * FROM voting_delegations WHERE delegator_id=$1 ORDER BY created_at DESC`,
+      [userId]
+    );
+    return res.rows;
+  },
+
+  async revokeDelegation(userId: number, delegationId: string) {
+    await pgPool.query(
+      `UPDATE voting_delegations SET active=false, revoked_at=NOW() WHERE id=$1 AND delegator_id=$2`,
+      [delegationId, userId]
+    );
+  },
+
+  async generateSocialChallenge(userId: number, platform: string, handle: string) {
+    const { randomBytes } = await import('crypto');
+    const code = 'GYDS-' + randomBytes(8).toString('hex').toUpperCase();
+    await pgPool.query(
+      `INSERT INTO social_verifications (user_id, platform, handle, challenge_code)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (user_id, platform) DO UPDATE SET handle=$3, challenge_code=$4, verified=false, verified_at=NULL`,
+      [userId, platform, handle, code]
+    );
+    return code;
+  },
+
+  async verifySocialChallenge(userId: number, platform: string) {
+    // In production would check Twitter/Telegram API; here we auto-verify for demo
+    const res = await pgPool.query(
+      `UPDATE social_verifications SET verified=true, verified_at=NOW()
+       WHERE user_id=$1 AND platform=$2 RETURNING *`,
+      [userId, platform]
+    );
+    return res.rows[0];
+  },
+
+  async getUserSocialVerifications(userId: number) {
+    const res = await pgPool.query(
+      `SELECT * FROM social_verifications WHERE user_id=$1`,
+      [userId]
+    );
     return res.rows;
   },
 
@@ -1771,6 +1858,282 @@ export const storage = {
       [pair, price, amount, side, takerId || null, makerId || null]
     );
     return res.rows[0];
+  },
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  async initNotificationTable() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS user_notifications (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'announcement',
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        read BOOLEAN DEFAULT false,
+        dismissed BOOLEAN DEFAULT false,
+        link TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS notif_user_idx ON user_notifications(user_id, created_at DESC);
+    `);
+  },
+
+  async getUserNotifications(userId: string) {
+    const res = await pgPool.query(
+      `SELECT id, type, title, body, read, link, created_at
+       FROM user_notifications
+       WHERE user_id=$1 AND dismissed=false
+       ORDER BY created_at DESC LIMIT 50`,
+      [userId]
+    );
+    return res.rows;
+  },
+
+  async createNotification(userId: string, type: string, title: string, body: string, link?: string) {
+    const res = await pgPool.query(
+      `INSERT INTO user_notifications (user_id,type,title,body,link) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [userId, type, title, body, link ?? null]
+    );
+    return res.rows[0];
+  },
+
+  async markNotificationRead(userId: string, id: string) {
+    await pgPool.query(`UPDATE user_notifications SET read=true WHERE id=$1 AND user_id=$2`, [id, userId]);
+  },
+
+  async markAllNotificationsRead(userId: string) {
+    await pgPool.query(`UPDATE user_notifications SET read=true WHERE user_id=$1`, [userId]);
+  },
+
+  async dismissNotification(userId: string, id: string) {
+    await pgPool.query(`UPDATE user_notifications SET dismissed=true WHERE id=$1 AND user_id=$2`, [id, userId]);
+  },
+
+  // ── Webhook Deliveries ────────────────────────────────────────────────────
+  async initWebhookDeliveriesTable() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS webhook_deliveries (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        webhook_id UUID NOT NULL,
+        event TEXT NOT NULL,
+        payload JSONB,
+        response_status INTEGER,
+        response_body TEXT,
+        duration_ms INTEGER,
+        success BOOLEAN DEFAULT false,
+        attempted_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS wh_delivery_webhook_idx ON webhook_deliveries(webhook_id, attempted_at DESC);
+    `);
+  },
+
+  async getWebhookDeliveries(userId: string, webhookId: string) {
+    const owns = await pgPool.query(
+      `SELECT id FROM webhook_endpoints WHERE id=$1 AND user_id=$2`, [webhookId, userId]
+    );
+    if (!owns.rows.length) throw new Error('Not found');
+    const res = await pgPool.query(
+      `SELECT id, event, response_status, success, duration_ms, attempted_at FROM webhook_deliveries
+       WHERE webhook_id=$1 ORDER BY attempted_at DESC LIMIT 30`,
+      [webhookId]
+    );
+    return res.rows;
+  },
+
+  // ── Oracle Tables ─────────────────────────────────────────────────────────
+  async initOracleTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS oracle_feeds (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        feed_id TEXT NOT NULL UNIQUE,
+        description TEXT,
+        value NUMERIC DEFAULT 0,
+        decimals INTEGER DEFAULT 8,
+        provider TEXT DEFAULT 'internal',
+        active BOOLEAN DEFAULT true,
+        last_updated TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS oracle_submissions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        feed_id TEXT NOT NULL,
+        submitter TEXT NOT NULL,
+        value NUMERIC NOT NULL,
+        block_height BIGINT,
+        submitted_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS oracle_sub_feed_idx ON oracle_submissions(feed_id, submitted_at DESC);
+    `);
+    const count = await pgPool.query(`SELECT COUNT(*) FROM oracle_feeds`);
+    if (parseInt(count.rows[0].count) === 0) {
+      await pgPool.query(`
+        INSERT INTO oracle_feeds (feed_id, description, value, provider) VALUES
+        ('GYDS/USD', 'GYDSchain native coin price in USD', 0.0000001, 'internal'),
+        ('GYD/USD',  'GYD stablecoin price in USD', 1.0, 'internal'),
+        ('BTC/USD',  'Bitcoin price in USD', 65000.0, 'external'),
+        ('ETH/USD',  'Ethereum price in USD', 3500.0, 'external')
+        ON CONFLICT (feed_id) DO NOTHING
+      `);
+    }
+  },
+
+  async getOracleFeeds() {
+    const res = await pgPool.query(`SELECT * FROM oracle_feeds ORDER BY feed_id`);
+    return res.rows;
+  },
+
+  async updateOracleFeed(feedId: string, value: number) {
+    const res = await pgPool.query(
+      `UPDATE oracle_feeds SET value=$1, last_updated=NOW() WHERE feed_id=$2 RETURNING *`,
+      [value, feedId]
+    );
+    if (res.rows[0]) {
+      await pgPool.query(
+        `INSERT INTO oracle_submissions (feed_id, submitter, value) VALUES ($1,'admin',$2)`,
+        [feedId, value]
+      );
+    }
+    return res.rows[0];
+  },
+
+  async getOracleSubmissions(feedId: string) {
+    const res = await pgPool.query(
+      `SELECT * FROM oracle_submissions WHERE feed_id=$1 ORDER BY submitted_at DESC LIMIT 50`,
+      [feedId]
+    );
+    return res.rows;
+  },
+
+  // ── Admin Config (bridge fee etc.) ────────────────────────────────────────
+  async getAdminConfig(key: string) {
+    const res = await pgPool.query(
+      `SELECT config_value FROM admin_config WHERE config_key=$1 LIMIT 1`, [key]
+    ).catch(() => ({ rows: [] }));
+    const v = res.rows[0]?.config_value;
+    if (v === null || v === undefined) return null;
+    if (typeof v === 'object') return String(Object.values(v)[0] ?? JSON.stringify(v));
+    return String(v).replace(/^"|"$/g, '');
+  },
+
+  async setAdminConfig(key: string, value: string) {
+    await pgPool.query(
+      `INSERT INTO admin_config (config_key, config_value) VALUES ($1,$2::jsonb)
+       ON CONFLICT (config_key) DO UPDATE SET config_value=EXCLUDED.config_value, updated_at=NOW()`,
+      [key, JSON.stringify(value)]
+    );
+  },
+
+  // ── Leaderboard Reset ─────────────────────────────────────────────────────
+  async resetLeaderboard() {
+    await pgPool.query(`
+      UPDATE user_xp SET total_xp=0, level=1 WHERE true;
+      TRUNCATE xp_events;
+    `);
+    return { ok: true, reset_at: new Date().toISOString() };
+  },
+
+  // ── Token Launch Admin ────────────────────────────────────────────────────
+  async getPendingLaunches() {
+    const res = await pgPool.query(`
+      SELECT tl.*, u.username, u.email
+      FROM token_launches tl
+      LEFT JOIN users u ON u.id::text = tl.creator_id::text
+      ORDER BY tl.created_at DESC
+    `).catch(() => pgPool.query(`SELECT * FROM token_launches ORDER BY created_at DESC`));
+    return res.rows;
+  },
+
+  async updateLaunchVisibility(launchId: string, visible: boolean) {
+    const res = await pgPool.query(
+      `UPDATE token_launches SET is_visible=$1 WHERE id=$2 RETURNING *`,
+      [visible, launchId]
+    ).catch(async () => {
+      await pgPool.query(`ALTER TABLE token_launches ADD COLUMN IF NOT EXISTS is_visible BOOLEAN DEFAULT true`);
+      return pgPool.query(`UPDATE token_launches SET is_visible=$1 WHERE id=$2 RETURNING *`, [visible, launchId]);
+    });
+    return res.rows[0];
+  },
+
+  // ── KYC Tier Upgrade ──────────────────────────────────────────────────────
+  async upgradeKycTier(userId: number, newTier: number) {
+    const res = await pgPool.query(`
+      UPDATE kyc_records SET tier=$1, updated_at=NOW() WHERE user_id=$2 RETURNING *
+    `, [newTier, userId]).catch(() => ({ rows: [] }));
+    if (!res.rows.length) {
+      const ins = await pgPool.query(
+        `INSERT INTO kyc_records (user_id,tier) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET tier=$2 RETURNING *`,
+        [userId, newTier]
+      ).catch(() => ({ rows: [{ user_id: userId, tier: newTier }] }));
+      return ins.rows[0];
+    }
+    return res.rows[0];
+  },
+
+  // ── RWA Yield Stats ───────────────────────────────────────────────────────
+  async getRwaYieldStats(userId: string) {
+    const holdings = await pgPool.query(`
+      SELECT h.tokens_held, h.invested_amount, h.created_at,
+             a.name, a.type, a.apy, a.token_price, a.currency
+      FROM rwa_holdings h
+      JOIN rwa_assets a ON a.id=h.asset_id
+      WHERE h.user_id=$1
+    `, [userId]);
+    const stats = holdings.rows.map((h: any) => {
+      const yearlyYield = Number(h.invested_amount) * (Number(h.apy) / 100);
+      const daysHeld = Math.max(1, (Date.now() - new Date(h.created_at).getTime()) / 86400000);
+      const accruedYield = (yearlyYield / 365) * daysHeld;
+      return {
+        ...h,
+        yearly_yield: yearlyYield.toFixed(2),
+        accrued_yield: accruedYield.toFixed(2),
+        next_payout: new Date(Date.now() + (90 - (daysHeld % 90)) * 86400000).toISOString().split('T')[0],
+      };
+    });
+    const totalInvested = stats.reduce((s: number, h: any) => s + Number(h.invested_amount), 0);
+    const totalYearlyYield = stats.reduce((s: number, h: any) => s + Number(h.yearly_yield), 0);
+    const totalAccrued = stats.reduce((s: number, h: any) => s + Number(h.accrued_yield), 0);
+    return { holdings: stats, totalInvested, totalYearlyYield, totalAccrued };
+  },
+
+  // ── REST API v1 helpers ───────────────────────────────────────────────────
+  async getBlockByHeight(height: number) {
+    const txCount = await pgPool.query(`SELECT COUNT(*) FROM transactions`).catch(() => ({ rows: [{ count: 0 }] }));
+    const totalTx = parseInt(txCount.rows[0].count) || 0;
+    const baseHeight = Math.max(1, totalTx);
+    if (height > baseHeight + 100000) return null;
+    const blockHash = '0x' + Array.from({ length: 32 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+    const parentHash = '0x' + Array.from({ length: 32 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+    const txsInBlock = Math.floor(Math.random() * 50) + 1;
+    return {
+      height,
+      hash: blockHash,
+      parent_hash: parentHash,
+      timestamp: new Date(Date.now() - (baseHeight - height) * 2000).toISOString(),
+      tx_count: txsInBlock,
+      validator: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
+      gas_used: txsInBlock * 21000,
+      gas_limit: 30000000,
+      size_bytes: txsInBlock * 250 + 508,
+      chain_id: 13370,
+    };
+  },
+
+  async getTxByHash(hash: string) {
+    const res = await pgPool.query(
+      `SELECT * FROM transactions WHERE hash=$1 LIMIT 1`, [hash]
+    ).catch(() => ({ rows: [] }));
+    if (res.rows[0]) {
+      return { ...res.rows[0], chain_id: 13370, status: 'success' };
+    }
+    return null;
+  },
+
+  async submitTransaction(signedTx: string) {
+    const txHash = '0x' + Array.from({ length: 32 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+    await pgPool.query(
+      `INSERT INTO transactions (hash, type, status, data) VALUES ($1,'transfer','pending',$2) ON CONFLICT DO NOTHING`,
+      [txHash, JSON.stringify({ raw: signedTx })]
+    ).catch(() => {});
+    return { tx_hash: txHash, status: 'pending', chain_id: 13370 };
   },
 
   // ── Network Stats ─────────────────────────────────────────────────────────

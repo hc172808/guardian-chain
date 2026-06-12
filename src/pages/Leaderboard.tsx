@@ -281,6 +281,50 @@ const LeaderboardPage = () => {
           </TabsContent>
         </Tabs>
 
+        {/* Monthly Reset + Seasonal Campaigns */}
+        <GlassCard className="p-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="font-semibold flex items-center gap-2 text-sm">
+              <RefreshCw className="w-4 h-4 text-primary" /> Monthly Leaderboard Reset
+            </h2>
+            <Badge className="text-xs bg-amber-500/20 text-amber-400 border-amber-500/30">Resets in 18 days</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">Rankings reset on the 1st of every month. Top 3 earners receive special season badges + GYDS bonuses.</p>
+          <div className="grid grid-cols-3 gap-3 text-center text-xs">
+            {[
+              { place: '🥇 1st', reward: '5,000 GYDS + Legend badge', bg: 'bg-yellow-500/10 border-yellow-500/30' },
+              { place: '🥈 2nd', reward: '2,000 GYDS + Champion badge', bg: 'bg-slate-400/10 border-slate-400/30' },
+              { place: '🥉 3rd', reward: '500 GYDS + Guardian badge', bg: 'bg-amber-700/10 border-amber-700/30' },
+            ].map(p => (
+              <div key={p.place} className={`p-2.5 rounded-xl border ${p.bg}`}>
+                <p className="text-sm mb-1">{p.place}</p>
+                <p className="text-muted-foreground leading-tight">{p.reward}</p>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+
+        <GlassCard className="p-5 space-y-3">
+          <h2 className="font-semibold flex items-center gap-2 text-sm">
+            <Star className="w-4 h-4 text-amber-400" /> Seasonal Campaigns
+          </h2>
+          <div className="space-y-2">
+            {[
+              { name: 'Genesis Season (Q2 2026)', status: 'active', bonus: '2× XP on all actions', end: 'Jun 30, 2026', color: 'border-emerald-500/30 bg-emerald-500/5' },
+              { name: 'DeFi Summer (Q3 2026)', status: 'upcoming', bonus: '3× XP on swaps + liquidity', end: 'Sep 30, 2026', color: 'border-border/30 bg-muted/5' },
+              { name: 'Validator Season (Q4 2026)', status: 'upcoming', bonus: '5× XP on node operations', end: 'Dec 31, 2026', color: 'border-border/30 bg-muted/5' },
+            ].map(c => (
+              <div key={c.name} className={`p-3 rounded-xl border ${c.color}`}>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <p className="font-medium text-sm">{c.name}</p>
+                  <Badge variant={c.status === 'active' ? 'default' : 'secondary'} className="text-xs capitalize">{c.status}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">🎁 {c.bonus} · Ends {c.end}</p>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+
         {/* XP levels legend */}
         <GlassCard className="p-5">
           <h2 className="font-semibold mb-4 flex items-center gap-2 text-sm">

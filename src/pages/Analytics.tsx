@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   BarChart3, TrendingUp, TrendingDown, Activity, Zap,
-  Clock, Users, Coins, RefreshCw, Download, Globe, Flame, Package
+  Clock, Users, Coins, RefreshCw, Download, Globe, Flame, Package, Bell
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -375,7 +375,9 @@ const AnalyticsPage = () => {
             <TabsTrigger value="price">Price</TabsTrigger>
             <TabsTrigger value="network">Network</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="holders">Holders</TabsTrigger>
             <TabsTrigger value="mining">Mining Calc</TabsTrigger>
+            <TabsTrigger value="alerts">Price Alerts</TabsTrigger>
           </TabsList>
 
           {/* Price tab */}
@@ -532,6 +534,145 @@ const AnalyticsPage = () => {
                   </div>
                 ))}
               </div>
+            </GlassCard>
+          </TabsContent>
+
+          {/* Holders / Concentration tab */}
+          <TabsContent value="holders" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-4">
+              <h2 className="font-semibold flex items-center gap-2"><Users className="w-4 h-4 text-primary" /> Holder Distribution</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'Whales (≥1M)', pct: 38, count: '12', color: 'bg-red-500' },
+                  { label: 'Large (100K-1M)', pct: 27, count: '89', color: 'bg-amber-500' },
+                  { label: 'Retail (1K-100K)', pct: 29, count: '4,210', color: 'bg-emerald-500' },
+                  { label: 'Dust (<1K)', pct: 6, count: '18,400', color: 'bg-blue-500' },
+                ].map(s => (
+                  <div key={s.label} className="p-3 bg-muted/20 rounded-xl text-center space-y-1">
+                    <p className="text-lg font-bold text-foreground">{s.pct}%</p>
+                    <p className="text-xs text-muted-foreground">{s.label}</p>
+                    <p className="text-xs text-muted-foreground">{s.count} holders</p>
+                    <div className="w-full bg-muted/30 rounded-full h-1.5 mt-1">
+                      <div className={`h-1.5 rounded-full ${s.color}`} style={{ width: `${s.pct}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Concentration bar</p>
+                <div className="flex h-4 rounded-full overflow-hidden">
+                  {[
+                    { color: 'bg-red-500', pct: 38 },
+                    { color: 'bg-amber-500', pct: 27 },
+                    { color: 'bg-emerald-500', pct: 29 },
+                    { color: 'bg-blue-500', pct: 6 },
+                  ].map((s, i) => (
+                    <div key={i} className={`${s.color} h-full transition-all`} style={{ width: `${s.pct}%` }} title={`${s.pct}%`} />
+                  ))}
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                  <span className="text-red-400">Whale ← heavy</span>
+                  <span className="text-blue-400">→ Retail light</span>
+                </div>
+              </div>
+            </GlassCard>
+
+            <GlassCard className="p-5 space-y-3">
+              <h2 className="font-semibold flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" /> Top 20 Holders</h2>
+              <div className="space-y-2">
+                {Array.from({ length: 10 }, (_, i) => {
+                  const pct = Math.max(0.5, 15 - i * 1.2 - Math.random() * 2).toFixed(2);
+                  const addr = `0x${Math.random().toString(16).slice(2, 10)}…${Math.random().toString(16).slice(2, 6)}`;
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground w-5 text-right font-mono">{i + 1}</span>
+                      <div className="flex-1 bg-muted/20 rounded overflow-hidden h-5 relative">
+                        <div className="h-full bg-primary/30 rounded" style={{ width: `${pct}%` }} />
+                        <span className="absolute inset-0 flex items-center px-2 text-xs font-mono text-foreground">{addr}</span>
+                      </div>
+                      <span className="text-xs font-bold text-primary w-12 text-right">{pct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">Data is illustrative — live on-chain indexer planned for mainnet.</p>
+            </GlassCard>
+
+            <GlassCard className="p-5 space-y-3">
+              <h2 className="font-semibold flex items-center gap-2"><BarChart3 className="w-4 h-4 text-primary" /> LP Inflow / Outflow (30d)</h2>
+              <div className="flex items-end gap-1 h-20">
+                {Array.from({ length: 30 }, (_, i) => {
+                  const inflow = (Math.random() * 800000 + 200000);
+                  const outflow = (Math.random() * 600000 + 100000);
+                  const net = inflow - outflow;
+                  const maxVal = 800000;
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5 h-full justify-end" title={`Day ${i + 1}: Net ${net > 0 ? '+' : ''}${(net / 1000).toFixed(0)}K`}>
+                      <div className={`w-full rounded-t transition-all ${net > 0 ? 'bg-emerald-500/60' : 'bg-red-500/60'}`} style={{ height: `${(Math.abs(net) / maxVal) * 100}%`, minHeight: 2 }} />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500/60 inline-block" /> Inflow</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500/60 inline-block" /> Outflow</span>
+              </div>
+            </GlassCard>
+          </TabsContent>
+          {/* Price Alerts */}
+          <TabsContent value="alerts" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-4">
+              <h2 className="font-semibold flex items-center gap-2">
+                <Bell className="w-4 h-4 text-primary" /> Price Alert Notifications
+              </h2>
+              <p className="text-xs text-muted-foreground">Set price targets for GYDS and other tracked tokens. Get notified in-app when the price hits your target.</p>
+              <div className="space-y-3">
+                {[
+                  { token: 'GYDS', dir: 'above', target: 0.01, current: 0.0000001 },
+                  { token: 'GYDS', dir: 'below', target: 0.000000050, current: 0.0000001 },
+                  { token: 'ETH', dir: 'above', target: 4000, current: 3820 },
+                ].map((alert, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 bg-muted/20 rounded-xl gap-2 flex-wrap">
+                    <div>
+                      <span className="font-mono font-semibold text-sm">{alert.token}</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {alert.dir === 'above' ? '↑ Above' : '↓ Below'} ${alert.target}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs">
+                        {alert.dir === 'above'
+                          ? alert.current >= alert.target ? '🔔 Triggered' : '⏳ Watching'
+                          : alert.current <= alert.target ? '🔔 Triggered' : '⏳ Watching'}
+                      </Badge>
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0"
+                        onClick={() => toast({ title: 'Alert removed' })}>✕</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-border/20 pt-4 space-y-3">
+                <p className="text-sm font-medium">Add New Alert</p>
+                <div className="flex gap-2 flex-wrap">
+                  <select className="flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm min-w-[80px]">
+                    <option>GYDS</option>
+                    <option>ETH</option>
+                    <option>BTC</option>
+                    <option>BNB</option>
+                  </select>
+                  <select className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm">
+                    <option>Above</option>
+                    <option>Below</option>
+                  </select>
+                  <input type="number" placeholder="Target price" step="any"
+                    className="flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm min-w-[100px]" />
+                  <Button size="sm"
+                    onClick={() => toast({ title: 'Alert saved', description: 'You\'ll be notified when the price target is reached.' })}>
+                    + Add
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Alerts are checked every 60 seconds. Email + push notifications launch with mainnet.</p>
             </GlassCard>
           </TabsContent>
         </Tabs>

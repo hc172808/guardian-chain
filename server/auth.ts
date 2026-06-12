@@ -74,14 +74,69 @@ export async function setupAuth(app: Express): Promise<void> {
       const passwordHash = await bcrypt.hash(password, 12);
       const user = await storage.createLocalUser({ username: slug, passwordHash, email: email ?? null });
 
+      // Generate email verification token (stored; actual email delivery requires SMTP configuration)
+      if (email) {
+        const token = require('crypto').randomBytes(32).toString('hex');
+        await (storage as any).pgPool?.query(
+          `CREATE TABLE IF NOT EXISTS email_verification_tokens (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours',
+            used_at TIMESTAMPTZ
+          )`
+        ).catch(() => {});
+        await (storage as any).pgPool?.query(
+          `INSERT INTO email_verification_tokens (user_id, token) VALUES ($1, $2)`,
+          [user.id, token]
+        ).catch(() => {});
+        // In production, send email to `email` with link: /verify-email?token=<token>
+        console.log(`[email-verify] Token for ${email}: ${token}`);
+      }
+
       await new Promise<void>((resolve, reject) =>
         req.login(user, (err) => (err ? reject(err) : resolve()))
       );
-      res.json({ ok: true });
+      res.json({ ok: true, email_verification: email ? 'pending' : 'not_required' });
     } catch (err: any) {
       console.error("Register error:", err.message);
       res.status(500).json({ error: "Registration failed" });
     }
+  });
+
+  // ── Email Verification ─────────────────────────────────────────────────────
+  app.post("/api/auth/verify-email", async (req, res) => {
+    try {
+      const { token } = req.body;
+      if (!token) return res.status(400).json({ error: "token required" });
+      const pgPool = (storage as any).pgPool;
+      if (!pgPool) return res.status(503).json({ error: "not available" });
+      const row = (await pgPool.query(
+        `SELECT * FROM email_verification_tokens WHERE token=$1 AND used_at IS NULL AND expires_at > NOW() LIMIT 1`,
+        [token]
+      ).catch(() => ({ rows: [] }))).rows[0];
+      if (!row) return res.status(400).json({ error: "Invalid or expired token" });
+      await pgPool.query(`UPDATE email_verification_tokens SET used_at=NOW() WHERE id=$1`, [row.id]);
+      await pgPool.query(`UPDATE profiles SET email_verified=TRUE WHERE id=$1`, [row.user_id]).catch(() => {});
+      res.json({ ok: true, message: "Email verified successfully" });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/auth/resend-verification", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const pgPool = (storage as any).pgPool;
+      if (!user.email) return res.status(400).json({ error: "No email on account" });
+      const token = require('crypto').randomBytes(32).toString('hex');
+      await pgPool?.query(
+        `INSERT INTO email_verification_tokens (user_id, token) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [user.id, token]
+      ).catch(() => {});
+      console.log(`[email-verify] Resend token for ${user.email}: ${token}`);
+      res.json({ ok: true, message: "Verification email sent (check server logs in dev)" });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Login (username + password) ────────────────────────────────────────────

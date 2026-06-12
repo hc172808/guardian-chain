@@ -160,6 +160,22 @@ export const YieldVaults = () => {
     }
   };
 
+  const toggleAutoCompound = async (position: VaultPosition) => {
+    const next = !position.autoCompound;
+    try {
+      const res = await fetch(`/api/vault-positions/${position.id}`, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoCompound: next }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      setPositions(prev => prev.map(p => p.id === position.id ? { ...p, autoCompound: next } : p));
+      toast({ title: next ? '🔄 Auto-compound enabled' : 'Auto-compound disabled', description: `${position.vaultName} updated.` });
+    } catch (err: any) {
+      toast({ title: 'Failed', description: err.message, variant: 'destructive' });
+    }
+  };
+
   const totalTvl = VAULTS.reduce((s, v) => s + v.tvl, 0);
 
   return (
@@ -214,6 +230,13 @@ export const YieldVaults = () => {
                       </p>
                     )}
                   </div>
+                  <button
+                    onClick={() => toggleAutoCompound(pos)}
+                    title={pos.autoCompound ? 'Auto-compound ON — click to disable' : 'Auto-compound OFF — click to enable'}
+                    className={cn('shrink-0 transition-colors p-0.5 rounded', pos.autoCompound ? 'text-primary' : 'text-muted-foreground/40 hover:text-primary/60')}
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
                   <button
                     onClick={() => withdraw(pos)}
                     disabled={withdrawing === pos.id || isLocked}

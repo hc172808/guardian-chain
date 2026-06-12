@@ -212,6 +212,38 @@ const Validators = () => {
           )}
         </GlassCard>
 
+        {/* Validator Performance History */}
+        <GlassCard className="p-5 space-y-4">
+          <h3 className="font-semibold flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-primary" /> Performance History (30 days)
+          </h3>
+          <div className="space-y-3">
+            {(['Uptime', 'Blocks Proposed', 'Stake Growth'] as const).map(metric => (
+              <div key={metric}>
+                <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                  <span>{metric}</span>
+                  <span>{metric === 'Uptime' ? '99.2% avg' : metric === 'Blocks Proposed' ? '~1,440/day' : '+2.4%'}</span>
+                </div>
+                <div className="flex items-end gap-0.5 h-12 bg-muted/10 rounded-lg p-1">
+                  {Array.from({ length: 30 }, (_, i) => {
+                    const base = metric === 'Uptime' ? 97 : metric === 'Blocks Proposed' ? 80 : 40;
+                    const h = Math.min(100, base + Math.random() * (100 - base));
+                    return (
+                      <div key={i} className="flex-1 flex flex-col justify-end h-full">
+                        <div className={`w-full rounded-t ${metric === 'Uptime' ? 'bg-emerald-500/60' : metric === 'Blocks Proposed' ? 'bg-primary/60' : 'bg-amber-500/60'}`}
+                          style={{ height: `${h}%`, minHeight: 2 }}
+                          title={`Day ${i + 1}: ${h.toFixed(1)}%`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">Historical data is illustrative. Live charting with on-chain indexer on mainnet.</p>
+        </GlassCard>
+
         <GlassCard className="border-primary/30">
           <h3 className="font-semibold mb-3 flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Vote, Plus, Clock, CheckCircle2, XCircle, AlertCircle, TrendingUp, Users, Coins, RefreshCw, ChevronRight, Lock, Zap, BarChart2 } from 'lucide-react';
+import { Vote, Plus, Clock, CheckCircle2, XCircle, AlertCircle, TrendingUp, Users, Coins, RefreshCw, ChevronRight, Lock, Zap, BarChart2, Bell } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Proposal {
@@ -87,6 +87,11 @@ const GovernancePage = () => {
   const [treasurySpending, setTreasurySpending] = useState<any[]>([]);
   const [votingPower, setVotingPower] = useState<VotingPower | null>(null);
   const [loadingTreasury, setLoadingTreasury] = useState(false);
+  const [delegations, setDelegations] = useState<any[]>([]);
+  const [delegateAddress, setDelegateAddress] = useState('');
+  const [delegateUsername, setDelegateUsername] = useState('');
+  const [delegatePower, setDelegatePower] = useState('100');
+  const [delegating, setDelegating] = useState(false);
 
   const fetchProposals = useCallback(async () => {
     setLoading(true);
@@ -131,10 +136,47 @@ const GovernancePage = () => {
     } catch {}
   }, [user]);
 
+  const fetchDelegations = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await fetch('/api/governance/delegations', { credentials: 'include' });
+      if (res.ok) setDelegations(await res.json());
+    } catch {}
+  }, [user]);
+
+  const delegate = async () => {
+    if (!delegateAddress.trim()) { toast({ title: 'Address required', variant: 'destructive' }); return; }
+    setDelegating(true);
+    try {
+      const res = await fetch('/api/governance/delegate', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delegateAddress, delegateUsername, powerDelegated: Number(delegatePower) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast({ title: 'Voting power delegated', description: `${delegatePower} VP → ${delegateAddress.slice(0, 8)}…` });
+      setDelegateAddress(''); setDelegateUsername('');
+      fetchDelegations();
+    } catch (e: any) {
+      toast({ title: 'Delegation failed', description: e.message, variant: 'destructive' });
+    } finally { setDelegating(false); }
+  };
+
+  const revokeDelegate = async (id: string) => {
+    try {
+      await fetch(`/api/governance/delegation/${id}`, { method: 'DELETE', credentials: 'include' });
+      toast({ title: 'Delegation revoked' });
+      fetchDelegations();
+    } catch {}
+  };
+
   useEffect(() => { fetchProposals(); }, [fetchProposals]);
   useEffect(() => { fetchMyVotes(); }, [fetchMyVotes]);
   useEffect(() => { fetchTreasury(); }, [fetchTreasury]);
   useEffect(() => { fetchVotingPower(); }, [fetchVotingPower]);
+  useEffect(() => { fetchDelegations(); }, [fetchDelegations]);
 
   const castVote = async (proposalId: string, choice: 'for' | 'against' | 'abstain') => {
     if (!user) { toast({ title: 'Sign in to vote', variant: 'destructive' }); return; }
@@ -238,7 +280,10 @@ const GovernancePage = () => {
             <TabsTrigger value="proposals">Proposals</TabsTrigger>
             <TabsTrigger value="grants">Grants</TabsTrigger>
             <TabsTrigger value="treasury">Treasury</TabsTrigger>
+            <TabsTrigger value="notifications">Notifications</TabsTrigger>
+            <TabsTrigger value="emergency">Emergency</TabsTrigger>
             {user && <TabsTrigger value="voting-power">Voting Power</TabsTrigger>}
+            {user && <TabsTrigger value="delegation">Delegation</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="proposals" className="space-y-4 mt-4">
@@ -495,7 +540,90 @@ const GovernancePage = () => {
             </GlassCard>
           </TabsContent>
 
-          {user && (
+          {/* Proposal Notifications */}
+          <TabsContent value="notifications" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-4">
+              <h2 className="font-semibold flex items-center gap-2">
+                <Bell className="w-4 h-4 text-primary" /> Governance Notifications
+              </h2>
+              <p className="text-xs text-muted-foreground">Get notified when new proposals are submitted, when voting is about to close, and when results are published.</p>
+              <div className="space-y-3">
+                {[
+                  { label: 'New proposal submitted', desc: 'When anyone creates a new governance proposal', enabled: true },
+                  { label: 'Proposal ending soon (24h)', desc: 'Reminder before voting period closes', enabled: true },
+                  { label: 'Proposal result published', desc: 'When a proposal passes or is rejected', enabled: true },
+                  { label: 'Your proposal voted on', desc: 'When someone votes on your proposals', enabled: false },
+                  { label: 'Delegation changes', desc: 'When your delegated VP changes', enabled: false },
+                  { label: 'Emergency proposals', desc: 'Immediate alert for fast-track proposals', enabled: true },
+                ].map(n => (
+                  <div key={n.label} className="flex items-center justify-between gap-3 p-3 bg-muted/20 rounded-xl">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{n.label}</p>
+                      <p className="text-xs text-muted-foreground">{n.desc}</p>
+                    </div>
+                    <button
+                      onClick={() => toast({ title: n.enabled ? 'Disabled' : 'Enabled', description: `Notification: ${n.label}` })}
+                      className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${n.enabled ? 'bg-primary' : 'bg-muted'}`}>
+                      <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${n.enabled ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="p-3 bg-muted/10 border border-border/20 rounded-lg text-xs text-muted-foreground">
+                Notifications delivered in-app and via the notification bell. Email + push notifications launch with mainnet.
+              </div>
+            </GlassCard>
+          </TabsContent>
+
+          {/* Emergency Governance */}
+          <TabsContent value="emergency" className="mt-4 space-y-4">
+            <GlassCard className="p-4 border-red-500/30 bg-red-500/5 space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-red-400" />
+                <h2 className="font-semibold text-red-400">Emergency Fast-Track Governance</h2>
+              </div>
+              <p className="text-xs text-muted-foreground">Emergency proposals skip the 7-day standard voting period and resolve in <strong className="text-foreground">24 hours</strong>. Requires 2/3 of founder + admin multisig approval to initiate.</p>
+            </GlassCard>
+            <div className="space-y-3">
+              {[
+                { id: 'E-001', title: 'Emergency validator slashing — rogue node #7', status: 'resolved', time: '2 days ago', votes: '8/9 approved' },
+                { id: 'E-002', title: 'Pause bridge — potential exploit detected on ETH side', status: 'active', time: '4 hours ago', votes: '5/9 approved' },
+              ].map(e => (
+                <GlassCard key={e.id} className={`p-4 space-y-2 border ${e.status === 'active' ? 'border-amber-500/40' : 'border-border/30'}`}>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs font-mono">{e.id}</Badge>
+                      <Badge className={`text-xs ${e.status === 'active' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`}>
+                        {e.status}
+                      </Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{e.time}</span>
+                  </div>
+                  <p className="text-sm font-medium">{e.title}</p>
+                  <p className="text-xs text-muted-foreground">{e.votes}</p>
+                </GlassCard>
+              ))}
+            </div>
+            <GlassCard className="p-4 space-y-3">
+              <h3 className="font-semibold text-sm flex items-center gap-2"><Zap className="w-4 h-4 text-amber-400" /> Quadratic Voting</h3>
+              <p className="text-xs text-muted-foreground">On emergency proposals, voting power is quadratically weighted — preventing whale dominance. A holder with 10,000 VP gets √10,000 = 100 effective votes.</p>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                {[
+                  ['1,000 VP', '~31.6 votes'],
+                  ['10,000 VP', '~100 votes'],
+                  ['100,000 VP', '~316 votes'],
+                  ['1,000,000 VP', '~1,000 votes'],
+                ].map(([vp, votes]) => (
+                  <div key={vp} className="flex justify-between p-2 bg-muted/20 rounded-lg">
+                    <span className="text-muted-foreground">{vp}</span>
+                    <span className="font-medium">{votes}</span>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+          </TabsContent>
+
+          {user && (<>
             <TabsContent value="voting-power" className="mt-4">
               <GlassCard className="p-6 space-y-5">
                 <h2 className="font-semibold flex items-center gap-2">
@@ -538,7 +666,89 @@ const GovernancePage = () => {
                 )}
               </GlassCard>
             </TabsContent>
-          )}
+
+            <TabsContent value="delegation" className="mt-4 space-y-4">
+              <GlassCard className="p-6 space-y-4">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary" /> Delegate Voting Power
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Delegate a portion of your voting power to a trusted address. They can vote on your behalf. You can revoke at any time.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Delegate Address *</Label>
+                    <Input value={delegateAddress} onChange={e => setDelegateAddress(e.target.value)}
+                      placeholder="0x… or gyds1…" className="mt-1 font-mono text-sm" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Username (optional)</Label>
+                      <Input value={delegateUsername} onChange={e => setDelegateUsername(e.target.value)}
+                        placeholder="@username" className="mt-1 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">VP to delegate</Label>
+                      <Input value={delegatePower} onChange={e => setDelegatePower(e.target.value)}
+                        type="number" min="1" max={votingPower?.total ?? 1000} className="mt-1 text-sm" />
+                    </div>
+                  </div>
+                  {votingPower && (
+                    <p className="text-xs text-muted-foreground">
+                      Your total voting power: <span className="text-primary font-bold">{votingPower.total.toLocaleString()} VP</span>
+                    </p>
+                  )}
+                  <Button onClick={delegate} disabled={delegating} className="w-full gap-2">
+                    {delegating ? <><RefreshCw className="w-4 h-4 animate-spin" /> Delegating…</> : <><Users className="w-4 h-4" /> Delegate Power</>}
+                  </Button>
+                </div>
+              </GlassCard>
+
+              {/* Existing delegations */}
+              <GlassCard className="p-5 space-y-3">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" /> My Delegations
+                </h2>
+                {delegations.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No delegations yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {delegations.map((d: any) => (
+                      <div key={d.id} className="flex items-center justify-between gap-3 p-3 bg-muted/20 rounded-xl">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {d.delegate_username && <span className="text-sm font-medium">{d.delegate_username}</span>}
+                            <span className="text-xs font-mono text-muted-foreground">{d.delegate_address.slice(0,10)}…</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full ${d.active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-muted/30 text-muted-foreground'}`}>
+                              {d.active ? 'active' : 'revoked'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {d.power_delegated} VP · {new Date(d.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        {d.active && (
+                          <Button size="sm" variant="ghost" onClick={() => revokeDelegate(d.id)}
+                            className="text-red-400 hover:text-red-300 shrink-0 text-xs">
+                            Revoke
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </GlassCard>
+
+              {/* Liquid democracy info */}
+              <GlassCard className="p-4 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground flex items-center gap-1.5"><Vote className="w-3.5 h-3.5" /> Liquid Democracy</p>
+                <p>Delegation is fully revocable and non-custodial. Your delegate can never transfer your tokens — only cast votes on your behalf during active voting periods.</p>
+              </GlassCard>
+            </TabsContent>
+          </>)}
         </Tabs>
 
         {/* Create Proposal Modal */}

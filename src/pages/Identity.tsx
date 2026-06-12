@@ -8,9 +8,11 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Fingerprint, Shield, CheckCircle2, AlertCircle,
-  Globe, Link2, Star, Award, Copy, Zap, UserCheck, RefreshCw
+  Globe, Link2, Star, Award, Copy, Zap, UserCheck, RefreshCw, Twitter, Send, X
 } from 'lucide-react';
 
 const KYC_TIERS = [
@@ -38,34 +40,105 @@ const IdentityPage = () => {
   const [kyc, setKyc] = useState<KycRecord | null>(null);
   const [rep, setRep] = useState<Reputation | null>(null);
   const [loading, setLoading] = useState(true);
+  const [socialVerifs, setSocialVerifs] = useState<any[]>([]);
+  const [socialModal, setSocialModal] = useState<{ platform: string; name: string } | null>(null);
+  const [socialHandle, setSocialHandle] = useState('');
+  const [socialChallenge, setSocialChallenge] = useState<string | null>(null);
+  const [socialLoading, setSocialLoading] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (!user) { setLoading(false); return; }
     setLoading(true);
     try {
-      const [didRes, kycRes, repRes] = await Promise.all([
+      const [didRes, kycRes, repRes, socRes] = await Promise.all([
         fetch('/api/identity/did', { credentials: 'include' }),
         fetch('/api/identity/kyc', { credentials: 'include' }),
         fetch('/api/identity/reputation', { credentials: 'include' }),
+        fetch('/api/identity/social', { credentials: 'include' }),
       ]);
       if (didRes.ok) setDidDoc(await didRes.json());
       if (kycRes.ok) setKyc(await kycRes.json());
       if (repRes.ok) setRep(await repRes.json());
+      if (socRes.ok) setSocialVerifs(await socRes.json());
     } finally { setLoading(false); }
   }, [user]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const linkSocial = (name: string) => toast({ title: `${name} verification`, description: 'Social link verification launching with mainnet.' });
-  const upgradeKYC = (tier: number) => toast({ title: `KYC Tier ${tier}`, description: 'KYC provider (Sumsub/Onfido) integration coming with mainnet.' });
+  const openSocialModal = (platform: string, name: string) => {
+    setSocialModal({ platform, name });
+    setSocialHandle('');
+    setSocialChallenge(null);
+  };
+
+  const generateChallenge = async () => {
+    if (!socialHandle.trim() || !socialModal) return;
+    setSocialLoading(true);
+    try {
+      const res = await fetch('/api/identity/social/challenge', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform: socialModal.platform, handle: socialHandle.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) setSocialChallenge(data.code);
+      else throw new Error(data.error);
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
+    } finally { setSocialLoading(false); }
+  };
+
+  const confirmVerification = async () => {
+    if (!socialModal) return;
+    setSocialLoading(true);
+    try {
+      const res = await fetch('/api/identity/social/verify', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform: socialModal.platform }),
+      });
+      const data = await res.json();
+      if (res.ok && data.verified) {
+        toast({ title: `${socialModal.name} verified!`, description: `@${data.handle} linked to your identity.` });
+        setSocialModal(null);
+        fetchAll();
+      } else throw new Error(data.error || 'Verification failed');
+    } catch (e: any) {
+      toast({ title: 'Verification failed', description: e.message, variant: 'destructive' });
+    } finally { setSocialLoading(false); }
+  };
+
+  const upgradeKYC = async (tier: number) => {
+    if (!user) return;
+    try {
+      const res = await fetch('/api/identity/kyc/upgrade', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setKyc(data);
+      toast({ title: `KYC Tier ${tier} unlocked`, description: `You are now at ${KYC_TIERS[tier]?.label} level. Full provider (Sumsub/Onfido) verification launches at mainnet.` });
+    } catch (e: any) {
+      toast({ title: 'Upgrade failed', description: e.message, variant: 'destructive' });
+    }
+  };
+
+  const getSocialVerif = (platform: string) => socialVerifs.find(s => s.platform === platform);
+
+  const twitterVerif = getSocialVerif('twitter');
+  const telegramVerif = getSocialVerif('telegram');
 
   const claimsFromData = [
-    { id: 'email', label: 'Email verified', icon: CheckCircle2, verified: !!user?.email, date: user ? (new Date(Date.now() - 86400000 * 30)).toLocaleDateString() : null },
-    { id: 'twitter', label: 'Twitter linked', icon: Globe, verified: false, date: null },
-    { id: 'telegram', label: 'Telegram linked', icon: Globe, verified: false, date: null },
-    { id: 'kyc1', label: 'KYC Tier 1', icon: UserCheck, verified: (kyc?.tier ?? 0) >= 1, date: null },
-    { id: 'validator', label: 'Registered Validator', icon: Shield, verified: false, date: null },
-    { id: 'node', label: 'Node Operator', icon: Zap, verified: false, date: null },
+    { id: 'email', label: 'Email verified', icon: CheckCircle2, verified: !!user?.email, date: user ? (new Date(Date.now() - 86400000 * 30)).toLocaleDateString() : null, platform: null },
+    { id: 'twitter', label: 'Twitter linked', icon: Twitter, verified: !!twitterVerif?.verified, date: twitterVerif?.verified_at ? new Date(twitterVerif.verified_at).toLocaleDateString() : null, platform: 'twitter' },
+    { id: 'telegram', label: 'Telegram linked', icon: Send, verified: !!telegramVerif?.verified, date: telegramVerif?.verified_at ? new Date(telegramVerif.verified_at).toLocaleDateString() : null, platform: 'telegram' },
+    { id: 'kyc1', label: 'KYC Tier 1', icon: UserCheck, verified: (kyc?.tier ?? 0) >= 1, date: null, platform: null },
+    { id: 'validator', label: 'Registered Validator', icon: Shield, verified: false, date: null, platform: null },
+    { id: 'node', label: 'Node Operator', icon: Zap, verified: false, date: null, platform: null },
   ];
 
   const repScore = rep?.score ?? 0;
@@ -178,7 +251,7 @@ const IdentityPage = () => {
                           <Badge className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">Verified</Badge>
                         ) : (
                           <Button size="sm" variant="outline" className="text-xs h-7"
-                            onClick={() => c.id === 'twitter' || c.id === 'telegram' ? linkSocial(c.label) : upgradeKYC(1)}>
+                            onClick={() => c.platform ? openSocialModal(c.platform, c.label) : upgradeKYC(1)}>
                             Verify
                           </Button>
                         )}
@@ -188,6 +261,73 @@ const IdentityPage = () => {
                 </div>
               </GlassCard>
             </TabsContent>
+
+            {/* Social Verification Modal */}
+            {socialModal && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                onClick={() => setSocialModal(null)}>
+                <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md space-y-4" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                      {socialModal.platform === 'twitter' ? <Twitter className="w-5 h-5 text-sky-400" /> : <Send className="w-5 h-5 text-blue-400" />}
+                      Link {socialModal.name}
+                    </h3>
+                    <button onClick={() => setSocialModal(null)} className="text-muted-foreground hover:text-foreground">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {!socialChallenge ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted-foreground">Enter your {socialModal.name} handle to begin the verification process.</p>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">{socialModal.name} Handle</Label>
+                        <div className="flex gap-2 mt-1">
+                          <span className="flex items-center pl-3 text-muted-foreground bg-muted/30 border border-border rounded-l-lg text-sm">@</span>
+                          <Input value={socialHandle} onChange={e => setSocialHandle(e.target.value.replace('@', ''))}
+                            placeholder={socialModal.platform === 'twitter' ? 'yourhandle' : 'yourusername'}
+                            className="rounded-l-none" />
+                        </div>
+                      </div>
+                      <Button onClick={generateChallenge} disabled={socialLoading || !socialHandle.trim()} className="w-full">
+                        {socialLoading ? <><RefreshCw className="w-4 h-4 animate-spin mr-2" />Generating…</> : 'Generate Challenge Code'}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-primary/10 border border-primary/30 rounded-xl text-center">
+                        <p className="text-xs text-muted-foreground mb-2">Post this code to your {socialModal.name} profile or bio:</p>
+                        <p className="font-mono text-lg font-bold text-primary tracking-widest">{socialChallenge}</p>
+                        <button onClick={() => { navigator.clipboard.writeText(socialChallenge); toast({ title: 'Copied!' }); }}
+                          className="mt-2 text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mx-auto">
+                          <Copy className="w-3 h-3" /> Copy code
+                        </button>
+                      </div>
+                      <div className="text-xs text-muted-foreground space-y-1">
+                        <p className="font-medium">Instructions:</p>
+                        {socialModal.platform === 'twitter' ? (
+                          <ol className="list-decimal list-inside space-y-0.5">
+                            <li>Tweet the code above, or add it to your Twitter bio</li>
+                            <li>Click "I've posted it" below to complete verification</li>
+                          </ol>
+                        ) : (
+                          <ol className="list-decimal list-inside space-y-0.5">
+                            <li>Add the code to your Telegram bio/username</li>
+                            <li>Click "I've posted it" below to complete verification</li>
+                          </ol>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => setSocialChallenge(null)} className="flex-1">Back</Button>
+                        <Button onClick={confirmVerification} disabled={socialLoading} className="flex-1">
+                          {socialLoading ? <><RefreshCw className="w-4 h-4 animate-spin mr-2" />Verifying…</> : "I've posted it"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* KYC */}
             <TabsContent value="kyc" className="mt-4 space-y-4">
@@ -280,6 +420,41 @@ const IdentityPage = () => {
                     </div>
                   ))}
                 </div>
+              </GlassCard>
+
+              {/* Soulbound Tokens */}
+              <GlassCard className="p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-primary" /> Soulbound Tokens (SBT)
+                  </h2>
+                  <Badge variant="secondary" className="text-xs">Non-transferable</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">Soulbound tokens are permanently bound to your wallet. They cannot be sold, transferred, or burned — they prove your identity and achievements on-chain.</p>
+                <div className="space-y-2">
+                  {[
+                    { name: 'Genesis Participant', desc: 'Joined GYDSchain during Genesis phase', icon: '🌱', earned: true },
+                    { name: 'KYC Tier 1 Verified', desc: 'Identity verified by attestation oracle', icon: '✅', earned: (kyc?.tier ?? 0) >= 1 },
+                    { name: 'Node Operator', desc: 'Successfully operated a GYDS node', icon: '⚡', earned: false },
+                    { name: 'DAO Voter', desc: 'Voted on ≥5 governance proposals', icon: '🗳️', earned: false },
+                    { name: 'DeFi Pioneer', desc: 'Used all 8 DeFi modules', icon: '🔥', earned: false },
+                    { name: 'Bridge Traveler', desc: 'Bridged assets to ≥3 chains', icon: '🌉', earned: false },
+                  ].map(sbt => (
+                    <div key={sbt.name} className={`flex items-center gap-3 p-3 rounded-xl border ${sbt.earned ? 'border-primary/30 bg-primary/5' : 'border-border/20 bg-muted/10 opacity-50'}`}>
+                      <span className="text-2xl shrink-0">{sbt.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{sbt.name}</p>
+                        <p className="text-xs text-muted-foreground">{sbt.desc}</p>
+                      </div>
+                      <div className="shrink-0">
+                        {sbt.earned
+                          ? <Badge className="text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Issued</Badge>
+                          : <Badge variant="secondary" className="text-xs">Locked</Badge>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">SBTs are minted automatically when conditions are met. Requires mainnet deployment.</p>
               </GlassCard>
             </TabsContent>
           </Tabs>

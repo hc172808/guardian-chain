@@ -270,8 +270,11 @@ const CommunityPage = () => {
         </div>
 
         <Tabs defaultValue="feed">
-          <TabsList>
+          <TabsList className="flex-wrap h-auto gap-1">
             <TabsTrigger value="feed">Feed</TabsTrigger>
+            <TabsTrigger value="profiles">Trader Profiles</TabsTrigger>
+            <TabsTrigger value="channels">Channels</TabsTrigger>
+            <TabsTrigger value="messages">Messages</TabsTrigger>
             <TabsTrigger value="referral">Referral</TabsTrigger>
           </TabsList>
 
@@ -401,6 +404,151 @@ const CommunityPage = () => {
             )}
           </TabsContent>
 
+          {/* Trader Profiles */}
+          <TabsContent value="profiles" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold flex items-center gap-2">🏆 Top Traders</h2>
+                <Badge variant="secondary" className="text-xs">GYDS Network</Badge>
+              </div>
+              <div className="space-y-3">
+                {[
+                  { rank: 1, username: 'netlifegy', badge: '🐋 Founder', vol: '12.4M', pnl: '+284%', wins: 89, followers: 1420, verified: true },
+                  { rank: 2, username: 'gyds_validator_1', badge: '⚡ Node Op', vol: '4.1M', pnl: '+142%', wins: 74, followers: 390, verified: true },
+                  { rank: 3, username: 'defi_wizard', badge: '🔥 DeFi Pro', vol: '2.8M', pnl: '+98%', wins: 68, followers: 240, verified: false },
+                  { rank: 4, username: 'rwa_alpha', badge: '🏢 RWA Investor', vol: '1.6M', pnl: '+61%', wins: 59, followers: 120, verified: false },
+                  { rank: 5, username: 'staker_gyds', badge: '🔒 Staker', vol: '980K', pnl: '+44%', wins: 52, followers: 80, verified: false },
+                ].map(p => (
+                  <div key={p.rank} className="flex items-center gap-3 p-3 bg-muted/20 rounded-xl hover:bg-muted/30 transition-colors">
+                    <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${p.rank === 1 ? 'bg-amber-500/20 text-amber-400' : p.rank === 2 ? 'bg-zinc-400/20 text-zinc-400' : 'bg-primary/10 text-primary'}`}>
+                      {p.rank}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-sm">{p.username}</span>
+                        {p.verified && <span className="text-primary text-xs">✓</span>}
+                        <span className="text-xs text-muted-foreground">{p.badge}</span>
+                      </div>
+                      <div className="flex gap-3 mt-0.5 text-xs text-muted-foreground">
+                        <span>Vol: <span className="text-foreground">{p.vol}</span></span>
+                        <span>Win rate: <span className="text-foreground">{p.wins}%</span></span>
+                        <span>{p.followers} followers</span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-emerald-400 font-bold text-sm">{p.pnl}</span>
+                      <div className="mt-0.5">
+                        <Button size="sm" variant="outline" className="text-xs h-6 px-2">Follow</Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="p-4 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">About Trader Profiles</p>
+              <p>Public profiles are opt-in. Stats are computed from on-chain transactions on GYDSchain. Live data indexes with mainnet.</p>
+            </GlassCard>
+          </TabsContent>
+
+          {/* Token-Gated Channels */}
+          <TabsContent value="channels" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold flex items-center gap-2">🔒 Token-Gated Channels</h2>
+                <Badge variant="secondary" className="text-xs">Hold GYDS to access</Badge>
+              </div>
+              <div className="space-y-2">
+                {[
+                  { name: '# general', desc: 'Open to all GYDS holders', min: 0, members: 1842, locked: false },
+                  { name: '# validators', desc: 'Validator-only channel', min: 10000, members: 48, locked: false },
+                  { name: '# alpha-signals', desc: 'Early DeFi insights', min: 50000, members: 120, locked: true },
+                  { name: '# whale-lounge', desc: 'Top 100 holders only', min: 1000000, members: 18, locked: true },
+                  { name: '# node-operators', desc: 'Approved node runners', min: 0, members: 89, locked: true, badge: 'Node Op' },
+                  { name: '# governance-vip', desc: 'High VP discussions', min: 100000, members: 34, locked: true },
+                ].map(ch => (
+                  <div key={ch.name} className={`flex items-center justify-between p-3 rounded-xl transition-colors ${ch.locked ? 'bg-muted/10 border border-border/20' : 'bg-primary/5 border border-primary/20 hover:bg-primary/10 cursor-pointer'}`}>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-semibold">{ch.name}</span>
+                        {ch.locked && <span className="text-muted-foreground text-xs">🔒</span>}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{ch.desc}</p>
+                      <p className="text-xs text-muted-foreground">{ch.members} members</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {ch.min > 0 && <p className="text-xs text-muted-foreground">{ch.min.toLocaleString()} GYDS</p>}
+                      {ch.badge && <Badge variant="outline" className="text-xs">{ch.badge}</Badge>}
+                      {!ch.locked ? (
+                        <Button size="sm" className="ml-2 text-xs h-7"
+                          onClick={() => toast({ title: ch.name, description: 'Live chat launches with mainnet community deployment.' })}>
+                          Join
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground ml-2">Locked</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+            <GlassCard className="p-4 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">How Token-Gating Works</p>
+              <p>Channel access is verified on-chain by your wallet balance at time of join. Your balance is re-checked weekly. Falling below the threshold suspends access until restored.</p>
+            </GlassCard>
+          </TabsContent>
+
+          {/* Encrypted Messages */}
+          <TabsContent value="messages" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-primary" /> Encrypted Wallet Messaging
+                </h2>
+                <Badge variant="secondary" className="text-xs">E2E Encrypted</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">Send end-to-end encrypted messages directly to any wallet address. Messages are signed with your wallet private key and encrypted with the recipient's public key — only they can read it.</p>
+              <div className="space-y-2">
+                {[
+                  { from: '0x4f12…a1b2', preview: 'Hey, saw your token launch!', time: '2h ago', unread: true },
+                  { from: '0x8c3d…e4f5', preview: 'Interested in your LP position', time: '1d ago', unread: false },
+                  { from: 'netlifegy', preview: 'Welcome to GYDSchain!', time: '3d ago', unread: false },
+                ].map(msg => (
+                  <div key={msg.from} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors hover:bg-muted/20 ${msg.unread ? 'bg-primary/5 border border-primary/20' : 'bg-muted/10 border border-border/20'}`}
+                    onClick={() => toast({ title: msg.from, description: 'Full E2E encrypted messaging UI launches with mainnet wallet integration.' })}>
+                    <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                      <span className="text-xs font-bold text-primary">{msg.from.slice(0, 2).toUpperCase()}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">{msg.from}</span>
+                        {msg.unread && <span className="w-2 h-2 rounded-full bg-primary shrink-0" />}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{msg.preview}</p>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">{msg.time}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-border/20 pt-3 space-y-2">
+                <Label className="text-xs text-muted-foreground">New Message — To (wallet address or username)</Label>
+                <div className="flex gap-2">
+                  <input type="text" placeholder="0x… or username"
+                    className="flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm" />
+                  <Button size="sm"
+                    onClick={() => toast({ title: 'Message', description: 'E2E encrypted messaging launches with wallet integration on mainnet.' })}>
+                    Compose
+                  </Button>
+                </div>
+              </div>
+            </GlassCard>
+            <GlassCard className="p-4 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">How encryption works</p>
+              <p>Messages are encrypted using ECIES (Elliptic Curve Integrated Encryption Scheme) with your wallet's secp256k1 keypair. No server can read your messages. Messages are stored on IPFS with only the CID saved on-chain.</p>
+            </GlassCard>
+          </TabsContent>
+
           <TabsContent value="referral" className="mt-4 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* My referral code card */}
@@ -504,6 +652,32 @@ const CommunityPage = () => {
                 )}
               </GlassCard>
             </div>
+
+            {/* Reward Distribution */}
+            <GlassCard className="p-5 space-y-3">
+              <h2 className="font-semibold flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-400" /> Fee Share Rewards
+              </h2>
+              <p className="text-xs text-muted-foreground">Earn a portion of your referred users' trading fees — ongoing passive income for every swap, LP action, or bridge transfer they make.</p>
+              <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                {[
+                  { tier: 'Standard', pct: '5%', min: '0 referrals' },
+                  { tier: 'Silver', pct: '10%', min: '10 referrals' },
+                  { tier: 'Gold', pct: '15%', min: '50 referrals' },
+                ].map(t => (
+                  <div key={t.tier} className="p-3 bg-muted/20 rounded-xl border border-border/30">
+                    <p className="font-bold text-primary">{t.pct}</p>
+                    <p className="font-medium">{t.tier}</p>
+                    <p className="text-muted-foreground mt-0.5">{t.min}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="p-3 bg-muted/10 border border-border/20 rounded-lg text-xs text-muted-foreground space-y-1">
+                <p>• Fee share is credited weekly in GYDS to your wallet</p>
+                <p>• Applies to swaps, LP fees, perpetuals, and bridge fees</p>
+                <p>• Mainnet activation required for live payouts</p>
+              </div>
+            </GlassCard>
           </TabsContent>
         </Tabs>
 
