@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "./storage";
+import { testNodeManager } from "./testNodes";
 
 function requireAuth(req: Request, res: Response, next: any) {
   if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
@@ -641,6 +642,59 @@ export function registerRoutes(app: Express) {
       totalTransactions:  txCount,
       launchedTokens:     tokenCount,
     });
+  });
+
+  // ── Test Nodes (admin/founder only) ────────────────────────────────────────
+  app.get("/api/admin/test-nodes/status", requireAdmin, (_req, res) => {
+    res.json(testNodeManager.status());
+  });
+
+  app.post("/api/admin/test-nodes/:type/start", requireAdmin, (req, res) => {
+    const type = req.params.type as "rpc" | "lite";
+    if (!["rpc", "lite"].includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
+    const result = testNodeManager.start(type);
+    res.json(result);
+  });
+
+  app.post("/api/admin/test-nodes/:type/stop", requireAdmin, (req, res) => {
+    const type = req.params.type as "rpc" | "lite";
+    if (!["rpc", "lite"].includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
+    const result = testNodeManager.stop(type);
+    res.json(result);
+  });
+
+  app.get("/api/admin/test-nodes/:type/logs", requireAdmin, (req, res) => {
+    const type = req.params.type as "rpc" | "lite";
+    if (!["rpc", "lite"].includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
+    res.json(testNodeManager.getLogs(type));
+  });
+
+  // ── Leaderboard ─────────────────────────────────────────────────────────────
+  app.get("/api/leaderboard/xp", async (_req, res) => {
+    res.json(await storage.getXpLeaderboard(20));
+  });
+
+  app.get("/api/leaderboard/transactions", async (_req, res) => {
+    res.json(await storage.getTxLeaderboard(20));
+  });
+
+  app.get("/api/leaderboard/tokens", async (_req, res) => {
+    res.json(await storage.getTokenLeaderboard(20));
+  });
+
+  app.get("/api/leaderboard/my-xp", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    res.json(await storage.getMyXpRank(user.id));
+  });
+
+  app.post("/api/xp/award", requireAdmin, async (req, res) => {
+    const { userId, eventType, xpAwarded, description } = req.body;
+    if (!userId || !eventType || typeof xpAwarded !== "number") {
+      res.status(400).json({ ok: false, message: "Missing required fields" });
+      return;
+    }
+    await storage.awardXp(userId, eventType, xpAwarded, description ?? null);
+    res.json({ ok: true });
   });
 
   // ── Health Check ───────────────────────────────────────────────────────────

@@ -50,6 +50,8 @@ import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe, Wrench, Link2, Searc
 import { MaintenanceManager } from '@/components/admin/MaintenanceManager';
 import { BridgeNetworkManager } from '@/components/admin/BridgeNetworkManager';
 import { ExplorerConfig } from '@/components/admin/ExplorerConfig';
+import { TestNodeManager } from '@/components/admin/TestNodeManager';
+import { FlaskConical } from 'lucide-react';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -334,6 +336,10 @@ const AdminContent = () => {
             <Eye className="h-4 w-4" />
             <span className="hidden md:inline">Node Types</span>
           </TabsTrigger>
+          <TabsTrigger value="test-nodes" className="gap-2" data-testid="tab-test-nodes">
+            <FlaskConical className="h-4 w-4" />
+            <span className="hidden md:inline">Test Nodes</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="maintenance">
@@ -499,6 +505,10 @@ const AdminContent = () => {
 
         <TabsContent value="users">
           <UserManager />
+        </TabsContent>
+
+        <TabsContent value="test-nodes">
+          <TestNodeManager />
         </TabsContent>
       </Tabs>
     </motion.div>

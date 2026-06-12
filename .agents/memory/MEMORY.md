@@ -4,3 +4,6 @@
 - [Notification bell](notification-bell.md) — NotificationBell lives in Layout.tsx header (desktop only); reads from demo data; wired to user_notifications table pattern.
 - [TOTP implementation](totp-impl.md) — otplib v12 dropped the `authenticator` export; use server/totp.ts (built-in crypto, zero-dep RFC 6238 TOTP) instead.
 - [Admin camelCase](admin-camelcase.md) — Drizzle returns camelCase; NodeInstallation interface and nodes tab now use nodeType, isApproved, isSynced, wireguardPublicKey, createdAt.
+- [Test nodes](test-nodes.md) — Two in-process simulated nodes in server/testNodes.ts; admin-only API routes; TestNodeManager component in Admin tab "test-nodes".
+- [Tokens table creator](tokens-creator.md) — tokens table uses creator_id (no FK to users), not user_id. Use LEFT JOIN + coalesce for leaderboard queries.
+- [XP leaderboard](xp-leaderboard.md) — user_xp, xp_events, achievements, user_achievements tables pushed via raw SQL (db:push has TTY issue). Storage methods use pgPool directly.

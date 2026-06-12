@@ -28,14 +28,18 @@ Use it to understand what exists, where the code lives, and how pieces connect.
 
 | Layer | Library | Notes |
 |-------|---------|-------|
-| Build | Vite 5 | Port 5000 in dev |
+| Build | Vite 5 | Port 5000 in dev (proxies /api → 5001) |
+| Backend | Express + tsx | Port 5001 — `server/index.ts` |
+| ORM | Drizzle ORM | Schema in `shared/schema.ts` |
+| Database | Replit PostgreSQL | `DATABASE_URL` env var, pg pool |
+| Auth | passport-local + bcrypt | Sessions via connect-pg-simple |
 | UI | React 18 + TypeScript | Strict mode |
 | Styling | Tailwind CSS + shadcn/ui | Custom CSS vars in `index.css` |
 | Routing | React Router v6 | `BrowserRouter` in `App.tsx` |
 | State | TanStack React Query | Data fetching + caching |
 | Animation | Framer Motion | Page transitions, sidebar, modals |
-| Auth + DB | Supabase | Project `rmwldjwkyhhaoqehdrbr` |
 | Icons | Lucide React | Consistent icon set throughout |
+| Coin logos | `public/gyds-coin.jpg`, `public/gyd-coin.png` | Shown in sidebar + swap |
 
 ---
 
@@ -409,13 +413,13 @@ Three collapsible `NavSection` groups (uses Framer Motion AnimatePresence):
 **Route:** `/admin` — `src/pages/Admin.tsx`
 **Access:** `isFounder || isAdmin` only
 
-### All 23 Admin Tabs
+### All 25 Admin Tabs
 
 | Tab value | Component | Purpose |
 |-----------|-----------|---------|
 | `nodes` | inline | Approve/reject/revoke node installations |
 | `validators` | `ValidatorManager` | Validator management |
-| `users` | inline | View all users and roles |
+| `users` | `UserManager` | View all users, roles, ban/unban |
 | `tokens` | `BurnMintManager` | Token supply operations |
 | `stablecoin` | `StablecoinManager` | GYD/GYDS stablecoin settings |
 | `sponsors` | `SponsorManager` | Project sponsor management |
@@ -436,6 +440,8 @@ Three collapsible `NavSection` groups (uses Framer Motion AnimatePresence):
 | `maintenance` | `MaintenanceManager` | Enable maintenance mode + custom message |
 | `bridge-networks` | `BridgeNetworkManager` | Enable/disable bridge chains per-network |
 | `explorer-config` | `ExplorerConfig` | Explorer deployment mode + endpoints |
+| `node-types` | `NodeVisibilitySettings` | Toggle which node types appear in installer |
+| `test-nodes` | `TestNodeManager` | Start/stop in-process RPC + Lite test nodes (admin/founder only) |
 
 ### Bridge Network Manager (`BridgeNetworkManager.tsx`)
 - Toggle each of 25 networks on/off
@@ -501,34 +507,47 @@ Also exports `saveBridgeNetworkConfig(cfg)` for the admin component.
 
 ---
 
-## Supabase Tables
+## Database Tables (Replit PostgreSQL / Drizzle ORM)
 
-All types auto-generated in `src/integrations/supabase/types.ts`.
+Schema defined in `shared/schema.ts`. Drizzle returns camelCase in JS.
 
 | Table | Purpose |
 |-------|---------|
-| `profiles` | User profiles (id, email, role, created_at) |
+| `users` | Core user accounts (id, email, firstName, lastName) |
 | `user_roles` | Role assignments: `user`, `admin`, `founder` |
-| `node_installations` | Node install requests (type, WireGuard key, approval status) |
+| `profiles` | Extended profiles (userId, email) |
+| `wallets` | Encrypted wallet storage per user |
+| `node_installations` | Node install requests (nodeType, wireguardPublicKey, isApproved, isSynced) |
 | `admin_config` | Key/value config store (maintenance mode, bridge networks, explorer config, visibility) |
 | `bridge_transactions` | Cross-chain bridge tx records |
-| `validators` | Validator registry |
+| `validators` | Validator registry (name, address, totalStaked, commission, uptime, status) |
 | `mining_pools` | Mining pool definitions |
 | `tokens` | Token factory creations |
 | `token_prices` | Historical token price data |
-| `order_book` | DEX order book entries |
-| `yield_vaults` | Vault definitions |
-| `vault_positions` | User vault deposit positions |
+| `token_launches` | Launchpad projects |
+| `liquidity_pools` | LP position records |
+| `token_watchlist` | User price watchlists |
+| `token_price_alerts` | Price alert rules |
+| `orders` | DEX order book entries |
+| `vault_positions` | User yield vault positions |
 | `governance_proposals` | DAO proposals |
 | `governance_votes` | Individual votes |
-| `nft_collections` | NFT collections |
-| `nft_tokens` | Individual NFT metadata |
-| `multisig_wallets` | Multi-sig wallet definitions |
-| `multisig_transactions` | Proposed transactions |
-| `multisig_signatures` | Per-signer approvals |
-| `user_notifications` | In-app notification inbox |
-| `ai_security_events` | AI firewall security events |
+| `community_posts` | Forum posts |
+| `community_comments` | Forum comments |
+| `community_votes` | Upvote/downvote records |
+| `user_xp` | Per-user XP total + level (gamification) |
+| `xp_events` | XP award history |
+| `achievements` | Achievement definitions |
+| `user_achievements` | Unlocked achievement records |
 | `audit_logs` | Admin audit trail |
+| `faucet_claims` | Testnet faucet rate-limiting |
+| `password_reset_tokens` | Password reset flow |
+| `firewall_rules` | IP firewall allow/deny rules |
+| `fail2ban_jails` | Auto-ban after failed auth |
+| `ip_access_list` | IP whitelist/blacklist |
+| `rate_limit_rules` | Per-endpoint rate limiting |
+| `ddos_protection` | DDoS shield config |
+| `documentation` | Editable docs content |
 
 ### Key `admin_config` keys
 | Key | Value shape | Used by |
@@ -583,9 +602,8 @@ All types auto-generated in `src/integrations/supabase/types.ts`.
 
 ### Required Environment Variables
 ```bash
-VITE_SUPABASE_URL=            # Supabase project URL
-VITE_SUPABASE_PUBLISHABLE_KEY= # Supabase anon key
-VITE_SUPABASE_PROJECT_ID=     # Supabase project ID
+DATABASE_URL=                 # Replit PostgreSQL connection string (auto-set)
+SESSION_SECRET=               # Express session secret
 GYDS_RPC_LAN=                 # Node RPC endpoint (no trailing slash)
 GYDS_SSL_EMAIL=               # Email for Let's Encrypt cert
 DOMAIN=                       # Primary domain (e.g. netlifegy.com)

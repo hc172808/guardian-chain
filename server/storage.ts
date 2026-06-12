@@ -8,6 +8,9 @@ import { users, userRoles, profiles, wallets, nodeInstallations, transactions,
   governanceProposals, governanceVotes,
   communityPosts, communityComments, communityVotes } from "../shared/schema";
 import { eq, and, gte, desc, sql, count, inArray } from "drizzle-orm";
+import { Pool } from "pg";
+
+const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 export const storage = {
   // ── Users ────────────────────────────────────────────────────────────────
@@ -653,6 +656,79 @@ export const storage = {
     const [row] = await db.update(vaultPositions).set({ status: "withdrawn", withdrawnAt: new Date() })
       .where(and(eq(vaultPositions.id, id), eq(vaultPositions.userId, userId))).returning();
     return row;
+  },
+
+  // ── XP & Leaderboard ──────────────────────────────────────────────────────
+  async awardXp(userId: string, eventType: string, xpAwarded: number, description: string | null) {
+    // Insert event
+    await pgPool.query(
+      `INSERT INTO xp_events (user_id, event_type, xp_awarded, description) VALUES ($1,$2,$3,$4)`,
+      [userId, eventType, xpAwarded, description]
+    );
+    // Upsert user_xp and recalculate level
+    await pgPool.query(`
+      INSERT INTO user_xp (user_id, total_xp, level, updated_at)
+      VALUES ($1, $2, greatest(1, floor(ln(greatest($2,1)+1)/ln(1.5))::int), now())
+      ON CONFLICT (user_id) DO UPDATE SET
+        total_xp = user_xp.total_xp + $2,
+        level    = greatest(1, floor(ln(greatest(user_xp.total_xp + $2, 1)+1)/ln(1.5))::int),
+        updated_at = now()
+    `, [userId, xpAwarded]);
+  },
+
+  async getXpLeaderboard(limit = 20) {
+    const res = await pgPool.query(`
+      SELECT x.user_id AS "userId", u.email, x.total_xp AS "totalXp", x.level,
+             row_number() OVER (ORDER BY x.total_xp DESC) AS rank
+      FROM user_xp x
+      JOIN users u ON u.id = x.user_id
+      ORDER BY x.total_xp DESC
+      LIMIT $1
+    `, [limit]);
+    return res.rows;
+  },
+
+  async getMyXpRank(userId: string) {
+    const res = await pgPool.query(`
+      WITH ranked AS (
+        SELECT user_id AS "userId", total_xp AS "totalXp", level,
+               row_number() OVER (ORDER BY total_xp DESC) AS rank
+        FROM user_xp
+      )
+      SELECT r.*, u.email
+      FROM ranked r JOIN users u ON u.id = r."userId"
+      WHERE r."userId" = $1
+    `, [userId]);
+    return res.rows[0] ?? null;
+  },
+
+  async getTxLeaderboard(limit = 20) {
+    const res = await pgPool.query(`
+      SELECT t.user_id AS "userId", u.email,
+             count(*) AS value,
+             row_number() OVER (ORDER BY count(*) DESC) AS rank
+      FROM transactions t
+      JOIN users u ON u.id = t.user_id
+      GROUP BY t.user_id, u.email
+      ORDER BY value DESC
+      LIMIT $1
+    `, [limit]);
+    return res.rows;
+  },
+
+  async getTokenLeaderboard(limit = 20) {
+    const res = await pgPool.query(`
+      SELECT t.creator_id AS "userId",
+             coalesce(u.email, t.creator_id) AS email,
+             count(*) AS value,
+             row_number() OVER (ORDER BY count(*) DESC) AS rank
+      FROM tokens t
+      LEFT JOIN users u ON u.id = t.creator_id
+      GROUP BY t.creator_id, u.email
+      ORDER BY value DESC
+      LIMIT $1
+    `, [limit]);
+    return res.rows;
   },
 
   // ── Network Stats ─────────────────────────────────────────────────────────

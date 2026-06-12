@@ -1,6 +1,6 @@
 # GYDSchain — Master Project TODO & Roadmap
 
-> Last updated: 2026-06-11 | Always update this file when work is done or started.
+> Last updated: 2026-06-12 | Always update this file when work is done or started.
 > Legend: `[x]` Done · `[ ]` Not started · `[~]` In progress · `[!]` Blocked
 
 **Blockchain:** GYDSchain | **Coin:** GYDS | **Stablecoin:** GYD | **Chain ID:** 13370
@@ -68,6 +68,10 @@
 - [x] Node type approval
 - [x] Admin → Users tab: full UserManager — all profiles, search, role selector, ban/unban, stats
 - [x] Admin → Nodes: fixed camelCase/snake_case mapping (nodeType, isApproved, isSynced, etc.)
+- [x] Admin → Test Nodes tab: Replit in-process RPC node (port 8545) + Lite node (port 8555) — start/stop/logs, admin/founder only
+- [x] GYDS coin logo displayed in sidebar header (public/gyds-coin.jpg)
+- [x] GYD stablecoin logo generated (public/gyd-coin.png)
+- [x] GYDS + GYD logos added to SwapInterface NATIVE_TOKENS
 
 ### DeFi & Trading
 - [x] Swap interface (mempool simulation, real token balances)
@@ -252,10 +256,14 @@
 - [ ] Parametric insurance (auto-trigger on oracle data)
 
 ### PHASE 14 — Gamification
-> Tables: `achievements`, `user_achievements`, `user_xp`
-- [ ] XP award on key actions (first tx 50 XP, first node 200 XP, first delegation 100 XP, first token 300 XP, 30-day streak 500 XP)
+> Tables: `achievements`, `user_achievements`, `user_xp`, `xp_events`
+- [x] DB tables created: `user_xp`, `xp_events`, `achievements`, `user_achievements`
+- [x] XP storage methods: `awardXp`, `getXpLeaderboard`, `getMyXpRank`, `getTxLeaderboard`, `getTokenLeaderboard`
+- [x] API routes: GET /api/leaderboard/xp, /api/leaderboard/transactions, /api/leaderboard/tokens, /api/leaderboard/my-xp; POST /api/xp/award (admin)
+- [x] Leaderboard wired to DB — XP rankings, validators (by stake), traders (by tx count), builders (by tokens launched)
+- [x] XP levels: 8 tiers (Newcomer → Legend) with progress bar on leaderboard
+- [ ] Auto-award XP on key actions (first tx, first node, first token, vote on proposal)
 - [ ] Achievement badges UI (profile page)
-- [ ] Leaderboard wired to DB (top validators, traders, node operators)
 - [ ] Monthly reset leaderboard
 - [ ] Seasonal campaigns (bonus XP events)
 
