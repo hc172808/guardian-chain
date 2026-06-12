@@ -6,7 +6,7 @@ import {
   User, Wallet, Settings, BookOpen, ArrowRightLeft, Network,
   Coins, Star, Terminal, Droplets, UserCircle, Vote, Image,
   TrendingUp, MessageSquare, Code2, Trophy, ShieldCheck,
-  Fingerprint, Building2, Lock, ChevronDown
+  Fingerprint, Building2, Lock, ChevronDown, HeartHandshake
 } from 'lucide-react';
 import gydsCoinLogo from '/gyds-coin.jpg';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -39,8 +39,9 @@ const ecosystemNav: NavItem[] = [
   { to: '/leaderboard',icon: Trophy,        label: 'Leaderboard' },
   { to: '/multisig',   icon: ShieldCheck,   label: 'Multi-Sig' },
   { to: '/identity',   icon: Fingerprint,   label: 'Identity' },
-  { to: '/rwa',        icon: Building2,     label: 'Real-World Assets' },
-  { to: '/developer',  icon: Code2,         label: 'Developer Portal' },
+  { to: '/rwa',        icon: Building2,       label: 'Real-World Assets' },
+  { to: '/insurance',  icon: HeartHandshake, label: 'Insurance' },
+  { to: '/developer',  icon: Code2,           label: 'Developer Portal' },
 ];
 
 const infoNav: NavItem[] = [

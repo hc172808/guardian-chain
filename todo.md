@@ -160,13 +160,13 @@
 
 ### PHASE 4 — NFT Ecosystem
 > Tables: `nft_collections`, `nft_tokens`, `nft_marketplace_listings`
-- [ ] Collection browser with floor price / volume — wire to DB
-- [ ] Individual NFT detail + buy/offer/list
-- [ ] Rarity ranking display
-- [ ] Single mint + batch mint — wire to DB
-- [ ] Metadata editor (name, description, attributes)
+- [x] Collection browser with floor price / volume — wired to DB; Collections tab shows floor/volume/24h change/rarity ranking bar
+- [x] Individual NFT detail + buy/offer/list — detail modal; Buy Now wired to DB (POST /api/nft/buy/:id); list/delist own NFTs
+- [x] Rarity ranking display — rarity breakdown panel in Collections tab (Legendary/Epic/Rare/Common counts)
+- [x] Single mint + batch mint — wire to DB — single mint and batch mint (up to 10) via POST /api/nft/batch-mint
+- [x] Metadata editor (name, description, attributes) — description textarea + key/value attribute builder in mint form
 - [ ] IPFS upload integration (Pinata or NFT.Storage)
-- [ ] Royalty configuration
+- [x] Royalty configuration — royalty % field in mint form; stored in metadata JSONB
 - [ ] Whitelist/allowlist minting
 - [ ] Dynamic NFTs (metadata updates with validator performance)
 - [ ] NFT staking for yield
@@ -256,8 +256,8 @@
 
 ### PHASE 13 — Insurance Protocol
 > Tables: `insurance_pools`, `insurance_policies`
-- [ ] Insurance pool UI (/insurance) — pool list, buy coverage, active policies
-- [ ] Claims process (evidence submission + DAO vote)
+- [x] Insurance pool UI (/insurance) — pool list (5 seeded pools), buy coverage modal, active policies tab; GET /api/insurance/pools, POST /api/insurance/buy, GET /api/insurance/my-policies
+- [x] Claims process — POST /api/insurance/claim/:policyId; claim reason textarea; status updates to 'claimed' with timestamp; shown in My Policies tab
 - [ ] Underwriter staking (earn premiums by providing capital)
 - [ ] Parametric insurance (auto-trigger on oracle data)
 

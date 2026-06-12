@@ -43,7 +43,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Web3ConnectModal } from '@/components/Web3ConnectModal';
 import { QRScanner } from '@/components/wallet/QRScanner';
 import { useRpcBalance } from '@/hooks/useRpcBalance';
-import { QrCode, Wifi, WifiOff } from 'lucide-react';
+import { QrCode, Wifi, WifiOff, Activity, CheckCircle2, Clock, XCircle, ExternalLink } from 'lucide-react';
 
 interface WalletData {
   id: string;

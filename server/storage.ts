@@ -986,6 +986,111 @@ export const storage = {
     );
   },
 
+  // ── API Usage Logs ────────────────────────────────────────────────────────
+  async initApiUsageLogs() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS api_usage_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        key_id UUID NOT NULL,
+        user_id TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        method TEXT NOT NULL,
+        status_code INTEGER NOT NULL,
+        latency_ms INTEGER DEFAULT 0,
+        logged_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS api_usage_key_ts ON api_usage_logs(key_id, logged_at DESC);
+    `);
+  },
+
+  async logApiUsage(keyId: string, userId: string, endpoint: string, method: string, statusCode: number, latencyMs: number) {
+    await pgPool.query(
+      `INSERT INTO api_usage_logs (key_id,user_id,endpoint,method,status_code,latency_ms) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [keyId, userId, endpoint, method, statusCode, latencyMs]
+    );
+    await pgPool.query(`UPDATE api_keys SET request_count=request_count+1, last_used_at=NOW() WHERE id=$1`, [keyId]);
+  },
+
+  async getApiUsageStats(userId: string) {
+    const keys = await pgPool.query(
+      `SELECT id, name, key_prefix, request_count, request_limit, last_used_at FROM api_keys WHERE user_id=$1 AND revoked=false`,
+      [userId]
+    );
+    const stats: any[] = [];
+    for (const key of keys.rows) {
+      const daily = await pgPool.query(
+        `SELECT date_trunc('day', logged_at) AS day, COUNT(*) AS count
+         FROM api_usage_logs WHERE key_id=$1 AND logged_at > NOW()-INTERVAL '7 days'
+         GROUP BY 1 ORDER BY 1`,
+        [key.id]
+      );
+      const topEndpoints = await pgPool.query(
+        `SELECT endpoint, COUNT(*) AS count FROM api_usage_logs WHERE key_id=$1 AND logged_at > NOW()-INTERVAL '30 days'
+         GROUP BY endpoint ORDER BY count DESC LIMIT 5`,
+        [key.id]
+      );
+      stats.push({
+        ...key,
+        daily_usage: daily.rows,
+        top_endpoints: topEndpoints.rows,
+        usage_pct: Math.round((key.request_count / key.request_limit) * 100),
+      });
+    }
+    return stats;
+  },
+
+  // ── Bridge Transfers ──────────────────────────────────────────────────────
+  async initBridgeTransferTable() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS bridge_transfers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id INTEGER NOT NULL,
+        from_chain TEXT NOT NULL,
+        to_chain TEXT NOT NULL,
+        from_token TEXT NOT NULL,
+        to_token TEXT NOT NULL,
+        amount NUMERIC NOT NULL,
+        received NUMERIC,
+        fee NUMERIC DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        tx_hash TEXT,
+        dest_tx_hash TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+  },
+
+  async createBridgeTransfer(userId: number, data: {
+    fromChain: string; toChain: string;
+    fromToken: string; toToken: string;
+    amount: number; fee: number; txHash?: string;
+  }) {
+    const received = data.amount - data.fee;
+    const res = await pgPool.query(
+      `INSERT INTO bridge_transfers (user_id,from_chain,to_chain,from_token,to_token,amount,received,fee,tx_hash)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [userId, data.fromChain, data.toChain, data.fromToken, data.toToken, data.amount, received, data.fee, data.txHash ?? null]
+    );
+    return res.rows[0];
+  },
+
+  async getUserBridgeTransfers(userId: number) {
+    const res = await pgPool.query(
+      `SELECT * FROM bridge_transfers WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`,
+      [userId]
+    );
+    return res.rows;
+  },
+
+  async updateBridgeTransferStatus(transferId: string, status: string, destTxHash?: string) {
+    const res = await pgPool.query(
+      `UPDATE bridge_transfers SET status=$1, dest_tx_hash=$2, updated_at=NOW() WHERE id=$3 RETURNING *`,
+      [status, destTxHash ?? null, transferId]
+    );
+    return res.rows[0];
+  },
+
   // ── Admin: All Achievements ───────────────────────────────────────────────
   async getAllAchievements() {
     const res = await pgPool.query(`SELECT * FROM achievements ORDER BY category, id`);
@@ -1071,14 +1176,164 @@ export const storage = {
     return res.rows;
   },
 
-  async mintNftToken(userId: number, data: { name: string; collectionId: string; rarity?: string; imageEmoji?: string }) {
+  async mintNftToken(userId: number, data: { name: string; collectionId: string; rarity?: string; imageEmoji?: string; description?: string; royaltyPercent?: number; attributes?: Record<string, string> }) {
     const collId = data.collectionId || (await pgPool.query(`SELECT id FROM nft_collections LIMIT 1`)).rows[0]?.id;
     const tokenId = Math.floor(Math.random() * 9000) + 1000;
+    const metadata = { description: data.description ?? '', royaltyPercent: data.royaltyPercent ?? 5, attributes: data.attributes ?? {} };
     const res = await pgPool.query(
-      `INSERT INTO nft_tokens (collection_id,name,token_id,owner_address,price,last_sale,rarity,image_emoji,listed)
-       VALUES ($1,$2,$3,$4,100000,0,$5,$6,false) RETURNING *`,
-      [collId, data.name, tokenId, `0xUSER${userId}`, data.rarity ?? 'Common', data.imageEmoji ?? '🎨']
+      `INSERT INTO nft_tokens (collection_id,name,token_id,owner_address,price,last_sale,rarity,image_emoji,listed,metadata)
+       VALUES ($1,$2,$3,$4,100000,0,$5,$6,false,$7) RETURNING *`,
+      [collId, data.name, tokenId, `0xUSER${userId}`, data.rarity ?? 'Common', data.imageEmoji ?? '🎨', JSON.stringify(metadata)]
     );
+    return res.rows[0];
+  },
+
+  async getMyNftTokens(userId: number) {
+    const userAddr = `0xUSER${userId}`;
+    const res = await pgPool.query(
+      `SELECT t.*, c.name AS collection_name FROM nft_tokens t
+       JOIN nft_collections c ON c.id = t.collection_id
+       WHERE t.owner_address = $1 ORDER BY t.minted_at DESC`,
+      [userAddr]
+    );
+    return res.rows;
+  },
+
+  async buyNftToken(buyerId: number, tokenId: string) {
+    const tok = await pgPool.query(`SELECT * FROM nft_tokens WHERE id=$1 AND listed=true`, [tokenId]);
+    if (!tok.rows.length) throw new Error('NFT not available');
+    const nft = tok.rows[0];
+    const buyerAddr = `0xUSER${buyerId}`;
+    if (nft.owner_address === buyerAddr) throw new Error('Cannot buy your own NFT');
+    await pgPool.query(
+      `UPDATE nft_tokens SET owner_address=$1, last_sale=price, listed=false WHERE id=$2`,
+      [buyerAddr, tokenId]
+    );
+    await pgPool.query(
+      `UPDATE nft_collections SET volume_24h=volume_24h+$1 WHERE id=$2`,
+      [nft.price, nft.collection_id]
+    );
+    return { ok: true, price: nft.price, name: nft.name };
+  },
+
+  async listNftToken(userId: number, tokenId: string, price: number) {
+    const userAddr = `0xUSER${userId}`;
+    const res = await pgPool.query(
+      `UPDATE nft_tokens SET listed=true, price=$1 WHERE id=$2 AND owner_address=$3 RETURNING *`,
+      [price, tokenId, userAddr]
+    );
+    if (!res.rows.length) throw new Error('NFT not found or not owned by you');
+    return res.rows[0];
+  },
+
+  async delistNftToken(userId: number, tokenId: string) {
+    const userAddr = `0xUSER${userId}`;
+    const res = await pgPool.query(
+      `UPDATE nft_tokens SET listed=false WHERE id=$1 AND owner_address=$2 RETURNING *`,
+      [tokenId, userAddr]
+    );
+    if (!res.rows.length) throw new Error('NFT not found or not owned by you');
+    return res.rows[0];
+  },
+
+  async batchMintNftTokens(userId: number, items: Array<{ name: string; collectionId: string; rarity?: string; imageEmoji?: string }>) {
+    const results = [];
+    for (const item of items) {
+      results.push(await this.mintNftToken(userId, item));
+    }
+    return results;
+  },
+
+  // ── Insurance Protocol ────────────────────────────────────────────────────
+  async initInsuranceTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS insurance_pools (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        coverage_type TEXT NOT NULL,
+        description TEXT,
+        total_coverage NUMERIC DEFAULT 0,
+        total_staked NUMERIC DEFAULT 0,
+        premium_rate NUMERIC DEFAULT 0.02,
+        claim_period INTEGER DEFAULT 30,
+        min_coverage NUMERIC DEFAULT 1000,
+        max_coverage NUMERIC DEFAULT 1000000,
+        image_emoji TEXT DEFAULT '🛡️',
+        active BOOLEAN DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS insurance_policies (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        pool_id UUID REFERENCES insurance_pools(id) ON DELETE CASCADE,
+        holder_id INTEGER NOT NULL,
+        coverage_amount NUMERIC NOT NULL,
+        premium_paid NUMERIC NOT NULL,
+        starts_at TIMESTAMPTZ DEFAULT NOW(),
+        ends_at TIMESTAMPTZ NOT NULL,
+        status TEXT DEFAULT 'active',
+        claim_reason TEXT,
+        claim_submitted_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    const count = await pgPool.query(`SELECT COUNT(*) FROM insurance_pools`);
+    if (parseInt(count.rows[0].count) === 0) {
+      await pgPool.query(`
+        INSERT INTO insurance_pools (name,coverage_type,description,total_coverage,total_staked,premium_rate,claim_period,min_coverage,max_coverage,image_emoji) VALUES
+        ('Smart Contract Shield','smart_contract','Coverage against smart contract exploits and bugs.',5000000,1200000,0.025,30,1000,500000,'🔐'),
+        ('Exchange Hack Guard','exchange_hack','Protection against exchange hacks and unauthorized withdrawals.',3000000,800000,0.018,14,500,250000,'🏦'),
+        ('Stablecoin Depeg Cover','stablecoin_depeg','Hedges against GYD or major stablecoin depegging events.',2000000,600000,0.030,7,1000,100000,'💵'),
+        ('Validator Slashing Shield','slashing','Covers validator slashing penalties and missed attestations.',1500000,400000,0.015,30,500,50000,'🛡️'),
+        ('Bridge Risk Insurance','bridge','Protection for cross-chain bridge exploits and failed transfers.',4000000,1100000,0.022,21,1000,300000,'🌉')
+      `);
+    }
+  },
+
+  async getInsurancePools() {
+    const res = await pgPool.query(`SELECT * FROM insurance_pools WHERE active=true ORDER BY total_coverage DESC`);
+    return res.rows;
+  },
+
+  async buyInsurancePolicy(userId: number, poolId: string, coverageAmount: number, durationDays: number) {
+    const pool = await pgPool.query(`SELECT * FROM insurance_pools WHERE id=$1 AND active=true`, [poolId]);
+    if (!pool.rows.length) throw new Error('Pool not found');
+    const p = pool.rows[0];
+    if (coverageAmount < Number(p.min_coverage) || coverageAmount > Number(p.max_coverage)) {
+      throw new Error(`Coverage must be between ${p.min_coverage} and ${p.max_coverage} GYDS`);
+    }
+    const premium = Math.ceil(coverageAmount * Number(p.premium_rate) * (durationDays / 365));
+    const endsAt = new Date(Date.now() + durationDays * 86400 * 1000);
+    const res = await pgPool.query(
+      `INSERT INTO insurance_policies (pool_id,holder_id,coverage_amount,premium_paid,ends_at)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [poolId, userId, coverageAmount, premium, endsAt]
+    );
+    await pgPool.query(
+      `UPDATE insurance_pools SET total_staked=total_staked+$1, total_coverage=total_coverage+$2 WHERE id=$3`,
+      [premium, coverageAmount, poolId]
+    );
+    return { ...res.rows[0], premium, pool_name: p.name };
+  },
+
+  async getUserInsurancePolicies(userId: number) {
+    const res = await pgPool.query(
+      `SELECT p.*, ip.name AS pool_name, ip.coverage_type, ip.image_emoji
+       FROM insurance_policies p
+       JOIN insurance_pools ip ON ip.id=p.pool_id
+       WHERE p.holder_id=$1 ORDER BY p.created_at DESC`,
+      [userId]
+    );
+    return res.rows;
+  },
+
+  async submitInsuranceClaim(userId: number, policyId: string, reason: string) {
+    const res = await pgPool.query(
+      `UPDATE insurance_policies
+       SET status='claimed', claim_reason=$1, claim_submitted_at=NOW()
+       WHERE id=$2 AND holder_id=$3 AND status='active' RETURNING *`,
+      [reason, policyId, userId]
+    );
+    if (!res.rows.length) throw new Error('Policy not found or not active');
     return res.rows[0];
   },
 

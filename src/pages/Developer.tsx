@@ -64,6 +64,8 @@ const DeveloperPage = () => {
   const [tryResult, setTryResult] = useState('');
   const [revealedKeys, setRevealedKeys] = useState<Record<string, boolean>>({});
   const [newKeyFull, setNewKeyFull] = useState<string | null>(null);
+  const [usageStats, setUsageStats] = useState<any[]>([]);
+  const [usageLoading, setUsageLoading] = useState(false);
   const [webhooks, setWebhooks] = useState<any[]>([]);
   const [webhooksLoading, setWebhooksLoading] = useState(false);
   const [newWebhookUrl, setNewWebhookUrl] = useState('');
@@ -124,8 +126,18 @@ const DeveloperPage = () => {
     setWebhooks(prev => prev.map(w => w.id === id ? { ...w, active } : w));
   };
 
+  const fetchUsage = useCallback(async () => {
+    if (!user) return;
+    setUsageLoading(true);
+    try {
+      const res = await fetch('/api/developer/usage', { credentials: 'include' });
+      if (res.ok) setUsageStats(await res.json());
+    } finally { setUsageLoading(false); }
+  }, [user]);
+
   useEffect(() => { fetchKeys(); }, [fetchKeys]);
   useEffect(() => { fetchWebhooks(); }, [fetchWebhooks]);
+  useEffect(() => { fetchUsage(); }, [fetchUsage]);
 
   const createKey = async () => {
     if (!user) { toast({ title: 'Sign in first', variant: 'destructive' }); return; }
@@ -223,13 +235,118 @@ const DeveloperPage = () => {
         )}
 
         <Tabs defaultValue="keys">
-          <TabsList>
+          <TabsList className="flex-wrap h-auto gap-1">
             <TabsTrigger value="keys">API Keys</TabsTrigger>
+            <TabsTrigger value="usage">Usage</TabsTrigger>
             <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
             <TabsTrigger value="docs">Endpoints</TabsTrigger>
             <TabsTrigger value="playground">Playground</TabsTrigger>
             <TabsTrigger value="sdks">SDKs</TabsTrigger>
           </TabsList>
+
+          {/* Usage Dashboard */}
+          <TabsContent value="usage" className="mt-4 space-y-4">
+            {!user ? (
+              <GlassCard className="p-8 text-center text-muted-foreground">
+                <Activity className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p>Sign in to view usage statistics.</p>
+              </GlassCard>
+            ) : usageLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
+                <RefreshCw className="w-5 h-5 animate-spin" /> Loading usage data…
+              </div>
+            ) : usageStats.length === 0 ? (
+              <GlassCard className="p-8 text-center text-muted-foreground">
+                <Activity className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p>No API keys yet. Create a key to see usage stats.</p>
+              </GlassCard>
+            ) : (
+              <div className="space-y-4">
+                {usageStats.map((stat: any) => (
+                  <GlassCard key={stat.id} className="p-5 space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{stat.name}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{stat.key_prefix}…</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold">{Number(stat.request_count).toLocaleString()} / {Number(stat.request_limit).toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">requests today</p>
+                      </div>
+                    </div>
+
+                    {/* Usage bar */}
+                    <div>
+                      <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                        <span>Rate limit usage</span>
+                        <span className={stat.usage_pct > 80 ? 'text-red-400' : stat.usage_pct > 50 ? 'text-amber-400' : 'text-emerald-400'}>
+                          {stat.usage_pct}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-muted/30 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all ${stat.usage_pct > 80 ? 'bg-red-500' : stat.usage_pct > 50 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                          style={{ width: `${Math.min(100, stat.usage_pct)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Daily usage chart (last 7 days) */}
+                    {stat.daily_usage?.length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-2">Last 7 days</p>
+                        <div className="flex items-end gap-1 h-12">
+                          {stat.daily_usage.map((d: any, i: number) => {
+                            const max = Math.max(...stat.daily_usage.map((x: any) => Number(x.count)));
+                            const pct = max > 0 ? (Number(d.count) / max) * 100 : 0;
+                            return (
+                              <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${new Date(d.day).toLocaleDateString()}: ${d.count} requests`}>
+                                <div className="w-full bg-primary/20 rounded-sm relative" style={{ height: '40px' }}>
+                                  <div className="absolute bottom-0 w-full bg-primary rounded-sm" style={{ height: `${pct}%` }} />
+                                </div>
+                                <p className="text-xs text-muted-foreground">{new Date(d.day).getDate()}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Top endpoints */}
+                    {stat.top_endpoints?.length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-2">Top Endpoints (30 days)</p>
+                        <div className="space-y-1.5">
+                          {stat.top_endpoints.map((ep: any, i: number) => {
+                            const max = Math.max(...stat.top_endpoints.map((x: any) => Number(x.count)));
+                            const pct = max > 0 ? (Number(ep.count) / max) * 100 : 0;
+                            return (
+                              <div key={i} className="flex items-center gap-2 text-xs">
+                                <code className="text-primary flex-1 truncate">{ep.endpoint}</code>
+                                <div className="w-20 bg-muted/30 rounded h-1.5">
+                                  <div className="h-1.5 bg-primary/60 rounded" style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="text-muted-foreground w-8 text-right">{ep.count}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {stat.last_used_at && (
+                      <p className="text-xs text-muted-foreground">Last used: {fmtRelative(stat.last_used_at)}</p>
+                    )}
+                  </GlassCard>
+                ))}
+                <div className="flex justify-end">
+                  <Button variant="outline" size="sm" onClick={fetchUsage} disabled={usageLoading}>
+                    <RefreshCw className={`w-4 h-4 mr-2 ${usageLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                </div>
+              </div>
+            )}
+          </TabsContent>
 
           {/* API Keys */}
           <TabsContent value="keys" className="mt-4 space-y-4">

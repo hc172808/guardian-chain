@@ -780,6 +780,11 @@ export function registerRoutes(app: Express) {
     res.json(key);
   });
 
+  app.get("/api/developer/usage", requireAuth, async (req, res) => {
+    try { res.json(await storage.getApiUsageStats((req.user as any).id.toString())); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.delete("/api/developer/keys/:id", requireAuth, async (req, res) => {
     const user = req.user as any;
     await storage.revokeApiKey(user.id, req.params.id);
@@ -813,11 +818,106 @@ export function registerRoutes(app: Express) {
   app.post("/api/nft/mint", requireAuth, async (req, res) => {
     try {
       const uid = (req.user as any).id;
-      const { name, collectionId, rarity, imageEmoji } = req.body;
+      const { name, collectionId, rarity, imageEmoji, description, royaltyPercent, attributes } = req.body;
       if (!name) return res.status(400).json({ error: "name required" });
-      const token = await storage.mintNftToken(uid, { name, collectionId, rarity, imageEmoji });
+      const token = await storage.mintNftToken(uid, { name, collectionId, rarity, imageEmoji, description, royaltyPercent, attributes });
       res.json(token);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/nft/my-tokens", requireAuth, async (req, res) => {
+    try { res.json(await storage.getMyNftTokens((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/nft/buy/:tokenId", requireAuth, async (req, res) => {
+    try {
+      const result = await storage.buyNftToken((req.user as any).id, req.params.tokenId);
+      res.json(result);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.post("/api/nft/list/:tokenId", requireAuth, async (req, res) => {
+    try {
+      const { price } = req.body;
+      if (!price || Number(price) <= 0) return res.status(400).json({ error: "valid price required" });
+      const result = await storage.listNftToken((req.user as any).id, req.params.tokenId, Number(price));
+      res.json(result);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.post("/api/nft/delist/:tokenId", requireAuth, async (req, res) => {
+    try {
+      const result = await storage.delistNftToken((req.user as any).id, req.params.tokenId);
+      res.json(result);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.post("/api/nft/batch-mint", requireAuth, async (req, res) => {
+    try {
+      const { items } = req.body;
+      if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "items array required" });
+      if (items.length > 10) return res.status(400).json({ error: "max 10 NFTs per batch" });
+      const results = await storage.batchMintNftTokens((req.user as any).id, items);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Bridge Transfers ───────────────────────────────────────────────────────
+  app.get("/api/bridge/history", requireAuth, async (req, res) => {
+    try { res.json(await storage.getUserBridgeTransfers((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/bridge/transfer", requireAuth, async (req, res) => {
+    try {
+      const { fromChain, toChain, fromToken, toToken, amount, fee, txHash } = req.body;
+      if (!fromChain || !toChain || !amount) return res.status(400).json({ error: "fromChain, toChain, amount required" });
+      const transfer = await storage.createBridgeTransfer((req.user as any).id, {
+        fromChain, toChain, fromToken: fromToken ?? 'GYDS', toToken: toToken ?? 'GYDS',
+        amount: Number(amount), fee: Number(fee) || 0, txHash
+      });
+      res.json(transfer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/bridge/transfer/:id", requireAuth, async (req, res) => {
+    try {
+      const { status, destTxHash } = req.body;
+      const result = await storage.updateBridgeTransferStatus(req.params.id, status, destTxHash);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Insurance Protocol ─────────────────────────────────────────────────────
+  app.get("/api/insurance/pools", async (_req, res) => {
+    try { res.json(await storage.getInsurancePools()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/insurance/buy", requireAuth, async (req, res) => {
+    try {
+      const { poolId, coverageAmount, durationDays } = req.body;
+      if (!poolId || !coverageAmount) return res.status(400).json({ error: "poolId and coverageAmount required" });
+      const policy = await storage.buyInsurancePolicy(
+        (req.user as any).id, poolId, Number(coverageAmount), Number(durationDays) || 30
+      );
+      res.json(policy);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.get("/api/insurance/my-policies", requireAuth, async (req, res) => {
+    try { res.json(await storage.getUserInsurancePolicies((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/insurance/claim/:policyId", requireAuth, async (req, res) => {
+    try {
+      const { reason } = req.body;
+      if (!reason) return res.status(400).json({ error: "reason required" });
+      const result = await storage.submitInsuranceClaim((req.user as any).id, req.params.policyId, reason);
+      res.json(result);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
   });
 
   // ── Analytics: price history ───────────────────────────────────────────────

@@ -40,6 +40,7 @@ import LeaderboardPage from "./pages/Leaderboard";
 import MultisigPage from "./pages/Multisig";
 import IdentityPage from "./pages/Identity";
 import RWAPage from "./pages/RWA";
+import InsurancePage from "./pages/Insurance";
 import MobilePage from "./pages/Mobile";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 
@@ -116,6 +117,7 @@ const AppContent = () => {
       <Route path="/multisig" element={<MultisigPage />} />
       <Route path="/identity" element={<IdentityPage />} />
       <Route path="/rwa" element={<RWAPage />} />
+      <Route path="/insurance" element={<InsurancePage />} />
       {/* Auth & Admin */}
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/docs" element={<DocsPage />} />
