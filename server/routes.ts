@@ -653,23 +653,26 @@ export function registerRoutes(app: Express) {
     res.json(testNodeManager.status());
   });
 
+  const VALID_NODE_TYPES = ["rpc", "lite", "fullnode", "boostnode"] as const;
+  type ValidNodeType = typeof VALID_NODE_TYPES[number];
+
   app.post("/api/admin/test-nodes/:type/start", requireAdmin, (req, res) => {
-    const type = req.params.type as "rpc" | "lite";
-    if (!["rpc", "lite"].includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
+    const type = req.params.type as ValidNodeType;
+    if (!VALID_NODE_TYPES.includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     const result = testNodeManager.start(type);
     res.json(result);
   });
 
   app.post("/api/admin/test-nodes/:type/stop", requireAdmin, (req, res) => {
-    const type = req.params.type as "rpc" | "lite";
-    if (!["rpc", "lite"].includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
+    const type = req.params.type as ValidNodeType;
+    if (!VALID_NODE_TYPES.includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     const result = testNodeManager.stop(type);
     res.json(result);
   });
 
   app.get("/api/admin/test-nodes/:type/logs", requireAdmin, (req, res) => {
-    const type = req.params.type as "rpc" | "lite";
-    if (!["rpc", "lite"].includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
+    const type = req.params.type as ValidNodeType;
+    if (!VALID_NODE_TYPES.includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     res.json(testNodeManager.getLogs(type));
   });
 

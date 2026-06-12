@@ -68,8 +68,10 @@
 - [x] Node type approval
 - [x] Admin → Users tab: full UserManager — all profiles, search, role selector, ban/unban, stats
 - [x] Admin → Nodes: fixed camelCase/snake_case mapping (nodeType, isApproved, isSynced, etc.)
-- [x] Admin → Test Nodes tab: Replit in-process RPC node (port 8545) + Lite node (port 8555) — start/stop/logs, admin/founder only
-- [x] Test Nodes: dynamic hostname display (uses actual server host, not localhost) — works on any deployed server; firewall instructions shown for remote hosts
+- [x] Admin → Test Nodes tab: 4 in-process nodes — RPC (8545), Lite (8555), Full Node (8565), Boost Node (8575) — start/stop/logs, admin/founder only
+- [x] Test Nodes: dynamic hostname display (uses actual server host, not localhost) — works on any deployed server; UFW + iptables firewall instructions shown for remote hosts
+- [x] Full Node: full-state JSON-RPC + txpool_status + debug_traceTransaction + eth_getLogs + eth_call + storage queries, 2-second blocks
+- [x] Boost Node: 1-second blocks, MEV bundle endpoint (/boost/bundle), high TPS simulation, elevated peers, priority fee support
 - [x] GYDS coin logo displayed in sidebar header (public/gyds-coin.jpg)
 - [x] GYD stablecoin logo generated (public/gyd-coin.png)
 - [x] GYDS + GYD logos added to SwapInterface NATIVE_TOKENS

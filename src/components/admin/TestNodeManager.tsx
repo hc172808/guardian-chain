@@ -5,9 +5,57 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
-  Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe
+  Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe,
+  Database, Rocket
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+type NodeType = 'rpc' | 'lite' | 'fullnode' | 'boostnode';
+
+interface NodeStatus {
+  running: boolean;
+  startedAt: string | null;
+  port: number;
+  blockHeight: number;
+  peers: number;
+  txPool: number;
+}
+
+interface Status {
+  rpc: NodeStatus;
+  lite: NodeStatus;
+  fullnode: NodeStatus;
+  boostnode: NodeStatus;
+}
+
+const NODE_META: Record<NodeType, { label: string; description: string; color: string; icon: any; badge?: string }> = {
+  rpc: {
+    label: 'RPC Test Node',
+    description: 'Ethereum-compatible JSON-RPC (eth_blockNumber, eth_getBlockByNumber, eth_chainId…). Use for MetaMask / frontend testing.',
+    color: 'text-primary',
+    icon: Cpu,
+  },
+  lite: {
+    label: 'Lite Test Node',
+    description: 'Lightweight header-sync node. Simulates peer discovery and block header propagation without full state.',
+    color: 'text-neon-cyan',
+    icon: Zap,
+  },
+  fullnode: {
+    label: 'Full Node',
+    description: 'Full-state node with mempool, txpool_status, debug_traceTransaction, eth_getLogs, eth_call, eth_getCode, storage queries.',
+    color: 'text-violet-400',
+    icon: Database,
+    badge: 'Full State',
+  },
+  boostnode: {
+    label: 'Boost Node',
+    description: '1-second blocks, high-throughput MEV/priority-tx processing, /boost/bundle endpoint, txpool simulation, elevated peer count.',
+    color: 'text-amber-400',
+    icon: Rocket,
+    badge: 'MEV · 1s blocks',
+  },
+};
 
 function useCopy(text: string) {
   const [copied, setCopied] = useState(false);
@@ -27,35 +75,14 @@ function getNodeHost(): string {
   return hostname;
 }
 
-type NodeType = 'rpc' | 'lite';
-
-interface NodeStatus {
-  running: boolean;
-  startedAt: string | null;
-  port: number;
-  blockHeight: number;
-  peers: number;
+function CopyBtn({ text }: { text: string }) {
+  const { copied, copy } = useCopy(text);
+  return (
+    <button onClick={copy} title="Copy" className="ml-1 text-muted-foreground hover:text-foreground transition-colors shrink-0">
+      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
 }
-
-interface Status {
-  rpc: NodeStatus;
-  lite: NodeStatus;
-}
-
-const NODE_META: Record<NodeType, { label: string; description: string; color: string; icon: any }> = {
-  rpc:  {
-    label: 'RPC Test Node',
-    description: 'Ethereum-compatible JSON-RPC endpoint (eth_blockNumber, eth_getBlockByNumber, net_version…). Use for MetaMask / frontend testing.',
-    color: 'text-primary',
-    icon: Cpu,
-  },
-  lite: {
-    label: 'Lite Test Node',
-    description: 'Lightweight header-sync node. Simulates peer discovery and block header propagation without full state.',
-    color: 'text-neon-cyan',
-    icon: Zap,
-  },
-};
 
 function formatUptime(startedAt: string | null): string {
   if (!startedAt) return '—';
@@ -63,15 +90,6 @@ function formatUptime(startedAt: string | null): string {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-}
-
-function CopyButton({ text }: { text: string }) {
-  const { copied, copy } = useCopy(text);
-  return (
-    <button onClick={copy} title="Copy" className="ml-1.5 text-muted-foreground hover:text-foreground transition-colors">
-      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-    </button>
-  );
 }
 
 function NodeCard({ type, status, onStart, onStop, loading }: {
@@ -87,25 +105,26 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
   const meta = NODE_META[type];
   const Icon = meta.icon;
   const host = getNodeHost();
-  const endpointUrl = type === 'rpc'
+
+  const endpointUrl = type === 'lite'
+    ? `http://${host}:${status.port}/status`
+    : type === 'boostnode'
     ? `http://${host}:${status.port}`
-    : `http://${host}:${status.port}/status`;
+    : `http://${host}:${status.port}`;
 
   const fetchLogs = useCallback(async () => {
     const res = await fetch(`/api/admin/test-nodes/${type}/logs`, { credentials: 'include' });
     if (res.ok) {
       const data: string[] = await res.json();
       setLogs(data);
-      setTimeout(() => {
-        if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-      }, 50);
+      setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, 50);
     }
   }, [type]);
 
   useEffect(() => {
     if (!logsOpen) return;
     fetchLogs();
-    const id = setInterval(fetchLogs, 3000);
+    const id = setInterval(fetchLogs, 2000);
     return () => clearInterval(id);
   }, [logsOpen, fetchLogs, status.running]);
 
@@ -124,8 +143,13 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
             <Icon className={cn('w-5 h-5', status.running ? meta.color : 'text-muted-foreground')} />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold">{meta.label}</span>
+              {meta.badge && (
+                <Badge variant="outline" className="text-xs text-violet-400 border-violet-500/40 bg-violet-500/10">
+                  {meta.badge}
+                </Badge>
+              )}
               <Badge variant="outline" className={cn('text-xs', status.running
                 ? 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10'
                 : 'text-muted-foreground border-border/40')}>
@@ -154,20 +178,26 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-2.5 rounded-lg bg-muted/20 border border-border/20 text-center">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div className="p-2 rounded-lg bg-muted/20 border border-border/20 text-center">
           <p className="text-xs text-muted-foreground">Port</p>
           <p className="font-mono font-bold text-sm">{status.port}</p>
         </div>
-        <div className="p-2.5 rounded-lg bg-muted/20 border border-border/20 text-center">
-          <p className="text-xs text-muted-foreground">Block Height</p>
+        <div className="p-2 rounded-lg bg-muted/20 border border-border/20 text-center">
+          <p className="text-xs text-muted-foreground">Block</p>
           <p className="font-bold text-sm">{status.running ? `#${status.blockHeight.toLocaleString()}` : '—'}</p>
         </div>
-        <div className="p-2.5 rounded-lg bg-muted/20 border border-border/20 text-center">
+        <div className="p-2 rounded-lg bg-muted/20 border border-border/20 text-center">
           <p className="text-xs text-muted-foreground">Peers</p>
           <p className="font-bold text-sm">{status.running ? status.peers : '—'}</p>
         </div>
-        <div className="p-2.5 rounded-lg bg-muted/20 border border-border/20 text-center">
+        {(type === 'fullnode' || type === 'boostnode') && (
+          <div className="p-2 rounded-lg bg-muted/20 border border-border/20 text-center">
+            <p className="text-xs text-muted-foreground">Tx Pool</p>
+            <p className="font-bold text-sm">{status.running ? status.txPool : '—'}</p>
+          </div>
+        )}
+        <div className={cn('p-2 rounded-lg bg-muted/20 border border-border/20 text-center', (type === 'rpc' || type === 'lite') && 'col-span-1')}>
           <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><Clock className="w-3 h-3" /> Uptime</p>
           <p className="font-bold text-sm">{status.running ? uptime : '—'}</p>
         </div>
@@ -181,18 +211,33 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
           </div>
           <div className="flex items-center gap-1">
             <span className="text-primary break-all">{endpointUrl}</span>
-            <CopyButton text={endpointUrl} />
+            <CopyBtn text={endpointUrl} />
           </div>
-          {type === 'rpc' && (
-            <p className="text-muted-foreground/60">JSON-RPC · Chain ID: 13370 · GYDS Testnet</p>
+          {type === 'rpc' && <p className="text-muted-foreground/60">JSON-RPC · Chain ID 13370 · GYDS Testnet</p>}
+          {type === 'lite' && <p className="text-muted-foreground/60">Header sync · peers: {status.peers} · block #{status.blockHeight.toLocaleString()}</p>}
+          {type === 'fullnode' && (
+            <div className="space-y-0.5 text-muted-foreground/60">
+              <p>Full JSON-RPC + txpool_status + debug_traceTransaction</p>
+              <p>Chain ID 13370 · 2-second blocks · {status.peers} peers</p>
+            </div>
           )}
-          {type === 'lite' && (
-            <p className="text-muted-foreground/60">Header sync · peers: {status.peers} · block #{status.blockHeight.toLocaleString()}</p>
+          {type === 'boostnode' && (
+            <div className="space-y-0.5 text-muted-foreground/60">
+              <div className="flex items-center gap-2">
+                <span>RPC: <span className="text-primary">{endpointUrl}</span></span>
+                <CopyBtn text={endpointUrl} />
+              </div>
+              <div className="flex items-center gap-2">
+                <span>Bundle: <span className="text-amber-400">{`http://${host}:${status.port}/boost/bundle`}</span></span>
+                <CopyBtn text={`http://${host}:${status.port}/boost/bundle`} />
+              </div>
+              <p>1-second blocks · {status.peers} peers · pool: {status.txPool} txs</p>
+            </div>
           )}
         </div>
       )}
 
-      {/* Logs toggle */}
+      {/* Logs */}
       <div>
         <button
           onClick={() => setLogsOpen(o => !o)}
@@ -207,20 +252,22 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
             ref={logRef}
             className="mt-2 h-48 overflow-y-auto rounded-lg bg-black/60 border border-border/20 p-3 font-mono text-xs space-y-0.5"
           >
-            {logs.length === 0 ? (
-              <p className="text-muted-foreground">No logs yet…</p>
-            ) : logs.map((line, i) => (
-              <p key={i} className={cn(
-                'leading-relaxed',
-                line.includes('ERROR') ? 'text-red-400'
-                : line.includes('Block #') || line.includes('Header #') ? 'text-emerald-400'
-                : line.includes('started') ? 'text-yellow-400'
-                : line.includes('stopped') ? 'text-orange-400'
-                : 'text-green-300/80'
-              )}>
-                {line}
-              </p>
-            ))}
+            {logs.length === 0
+              ? <p className="text-muted-foreground">No logs yet…</p>
+              : logs.map((line, i) => (
+                <p key={i} className={cn(
+                  'leading-relaxed',
+                  line.includes('ERROR') ? 'text-red-400'
+                  : line.includes('Block #') || line.includes('Header #') ? 'text-emerald-400'
+                  : line.includes('MEV') ? 'text-amber-400'
+                  : line.includes('bundle') ? 'text-amber-300'
+                  : line.includes('started') ? 'text-yellow-400'
+                  : line.includes('stopped') ? 'text-orange-400'
+                  : 'text-green-300/80'
+                )}>
+                  {line}
+                </p>
+              ))}
           </div>
         )}
       </div>
@@ -228,13 +275,91 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
   );
 }
 
+function MetaMaskCard({ status }: { status: Status }) {
+  const host = getNodeHost();
+  const isRemote = host !== 'localhost';
+  const rpcUrl = `http://${host}:${status.rpc.port}`;
+  const fullUrl = `http://${host}:${status.fullnode.port}`;
+  const boostUrl = `http://${host}:${status.boostnode.port}`;
+  const { copied: c1, copy: copy1 } = useCopy(rpcUrl);
+  const { copied: c2, copy: copy2 } = useCopy('13370');
+
+  return (
+    <div className="space-y-3">
+      <GlassCard className="p-4 space-y-3 border border-amber-500/20 bg-amber-500/5">
+        <p className="text-sm font-semibold text-amber-400">Connect MetaMask / any wallet</p>
+        <div className="text-xs text-muted-foreground space-y-2">
+          <p className="font-medium text-foreground/80">Which node to use:</p>
+          <ul className="space-y-1.5 list-none">
+            <li className="flex items-start gap-2">
+              <Cpu className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
+              <span><span className="text-primary font-mono">{rpcUrl}</span> — RPC Test Node, basic MetaMask testing</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <Database className="w-3.5 h-3.5 text-violet-400 mt-0.5 shrink-0" />
+              <span><span className="text-violet-400 font-mono">{fullUrl}</span> — Full Node, use for dApps that need traces / logs / storage</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <Rocket className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+              <span><span className="text-amber-400 font-mono">{boostUrl}</span> — Boost Node, use for MEV / high-throughput tx testing</span>
+            </li>
+          </ul>
+        </div>
+        <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside border-t border-border/20 pt-3">
+          <li>Start any node above</li>
+          <li>MetaMask → Settings → Networks → Add Network</li>
+          <li className="flex flex-wrap items-center gap-1">
+            RPC URL (e.g.):
+            <span className="font-mono text-primary">{rpcUrl}</span>
+            <button onClick={copy1} className="text-muted-foreground hover:text-foreground">
+              {c1 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </li>
+          <li className="flex flex-wrap items-center gap-1">
+            Chain ID:
+            <span className="font-mono text-primary">13370</span>
+            <button onClick={copy2} className="text-muted-foreground hover:text-foreground">
+              {c2 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+            · Currency: <span className="font-mono text-primary">GYDS</span>
+          </li>
+          <li>Explorer: <span className="font-mono text-primary">https://explorer.netlifegy.com</span></li>
+        </ol>
+      </GlassCard>
+
+      {isRemote && (
+        <GlassCard className="p-4 space-y-2 border border-blue-500/20 bg-blue-500/5">
+          <p className="text-sm font-semibold text-blue-400 flex items-center gap-2">
+            <Server className="w-4 h-4" /> Remote Server — Firewall Setup
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Running on <span className="font-mono text-primary">{host}</span>. Nodes bind to{' '}
+            <span className="font-mono">0.0.0.0</span> — allow all four ports through your firewall.
+          </p>
+          <div className="text-xs font-mono bg-black/40 rounded p-2 text-green-300 space-y-0.5">
+            <p className="text-muted-foreground"># UFW (Ubuntu)</p>
+            <p>sudo ufw allow 8545/tcp  # RPC</p>
+            <p>sudo ufw allow 8555/tcp  # Lite</p>
+            <p>sudo ufw allow 8565/tcp  # Full Node</p>
+            <p>sudo ufw allow 8575/tcp  # Boost Node</p>
+            <p className="text-muted-foreground"># iptables</p>
+            <p>for p in 8545 8555 8565 8575; do iptables -A INPUT -p tcp --dport $p -j ACCEPT; done</p>
+          </div>
+        </GlassCard>
+      )}
+    </div>
+  );
+}
+
 export function TestNodeManager() {
   const { toast } = useToast();
   const [status, setStatus] = useState<Status>({
-    rpc:  { running: false, startedAt: null, port: 8545, blockHeight: 1000, peers: 4 },
-    lite: { running: false, startedAt: null, port: 8555, blockHeight: 1000, peers: 2 },
+    rpc:       { running: false, startedAt: null, port: 8545, blockHeight: 1000, peers: 4,  txPool: 0  },
+    lite:      { running: false, startedAt: null, port: 8555, blockHeight: 1000, peers: 2,  txPool: 0  },
+    fullnode:  { running: false, startedAt: null, port: 8565, blockHeight: 1000, peers: 10, txPool: 12 },
+    boostnode: { running: false, startedAt: null, port: 8575, blockHeight: 1000, peers: 18, txPool: 40 },
   });
-  const [loading, setLoading] = useState<Record<NodeType, boolean>>({ rpc: false, lite: false });
+  const [loading, setLoading] = useState<Record<NodeType, boolean>>({ rpc: false, lite: false, fullnode: false, boostnode: false });
 
   const fetchStatus = useCallback(async () => {
     const res = await fetch('/api/admin/test-nodes/status', { credentials: 'include' });
@@ -250,9 +375,7 @@ export function TestNodeManager() {
   const action = async (type: NodeType, act: 'start' | 'stop') => {
     setLoading(l => ({ ...l, [type]: true }));
     try {
-      const res = await fetch(`/api/admin/test-nodes/${type}/${act}`, {
-        method: 'POST', credentials: 'include',
-      });
+      const res = await fetch(`/api/admin/test-nodes/${type}/${act}`, { method: 'POST', credentials: 'include' });
       const data = await res.json();
       toast({ title: data.message, variant: data.ok ? 'default' : 'destructive' });
       if (data.ok) await fetchStatus();
@@ -263,17 +386,21 @@ export function TestNodeManager() {
     }
   };
 
-  const bothRunning = status.rpc.running && status.lite.running;
+  const allRunning = (['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]).every(t => status[t].running);
+  const anyRunning = (['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]).some(t => status[t].running);
+  const runningCount = (['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]).filter(t => status[t].running).length;
 
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Server className="w-5 h-5 text-primary" /> Replit Test Nodes
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            In-process simulated blockchain nodes for local development and integration testing.
+            Four in-process blockchain nodes — RPC, Lite, Full Node, Boost Node. Bind to{' '}
+            <span className="font-mono text-xs">0.0.0.0</span> so they work on any server.
             <span className="text-amber-400 font-medium ml-1">Admin / Founder only.</span>
           </p>
         </div>
@@ -281,17 +408,16 @@ export function TestNodeManager() {
           <Button variant="outline" size="sm" onClick={fetchStatus} className="gap-1.5">
             <RefreshCw className="w-3.5 h-3.5" />
           </Button>
-          {bothRunning ? (
+          {allRunning ? (
             <Button variant="destructive" size="sm" onClick={async () => {
-              await action('rpc', 'stop');
-              await action('lite', 'stop');
+              for (const t of ['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]) await action(t, 'stop');
             }} className="gap-1.5">
               <Square className="w-3.5 h-3.5" /> Stop All
             </Button>
           ) : (
             <Button size="sm" onClick={async () => {
-              if (!status.rpc.running) await action('rpc', 'start');
-              if (!status.lite.running) await action('lite', 'start');
+              for (const t of ['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[])
+                if (!status[t].running) await action(t, 'start');
             }} className="gap-1.5">
               <Play className="w-3.5 h-3.5" /> Start All
             </Button>
@@ -299,98 +425,32 @@ export function TestNodeManager() {
         </div>
       </div>
 
-      {/* Network health */}
+      {/* Network health bar */}
       <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/10 border border-border/20 text-sm">
-        {status.rpc.running || status.lite.running
+        {anyRunning
           ? <Wifi className="w-4 h-4 text-emerald-400 shrink-0" />
           : <WifiOff className="w-4 h-4 text-muted-foreground shrink-0" />}
         <span className="text-muted-foreground">
-          {bothRunning
-            ? 'Both nodes running — testnet is live on ports 8545 (RPC) and 8555 (Lite)'
-            : status.rpc.running
-            ? 'RPC node running on port 8545 — lite node stopped'
-            : status.lite.running
-            ? 'Lite node running on port 8555 — RPC node stopped'
-            : 'No test nodes running — start a node to begin testing'}
+          {anyRunning
+            ? `${runningCount}/4 nodes running — ports ${((['rpc','lite','fullnode','boostnode'] as NodeType[]).filter(t=>status[t].running).map(t=>status[t].port)).join(', ')}`
+            : 'No test nodes running — click Start All or start individual nodes below'}
         </span>
-        {(status.rpc.running || status.lite.running) && (
-          <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />
-        )}
+        {anyRunning && <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />}
       </div>
 
-      <NodeCard
-        type="rpc"
-        status={status.rpc}
-        onStart={() => action('rpc', 'start')}
-        onStop={() => action('rpc', 'stop')}
-        loading={loading.rpc}
-      />
-      <NodeCard
-        type="lite"
-        status={status.lite}
-        onStart={() => action('lite', 'start')}
-        onStop={() => action('lite', 'stop')}
-        loading={loading.lite}
-      />
+      {/* Node cards */}
+      {(['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]).map(type => (
+        <NodeCard
+          key={type}
+          type={type}
+          status={status[type]}
+          onStart={() => action(type, 'start')}
+          onStop={() => action(type, 'stop')}
+          loading={loading[type]}
+        />
+      ))}
 
-      <MetaMaskCard rpcPort={status.rpc.port} />
-    </div>
-  );
-}
-
-function MetaMaskCard({ rpcPort }: { rpcPort: number }) {
-  const host = getNodeHost();
-  const rpcUrl = `http://${host}:${rpcPort}`;
-  const isRemote = host !== 'localhost';
-  const { copied: c1, copy: copy1 } = useCopy(rpcUrl);
-  const { copied: c2, copy: copy2 } = useCopy('13370');
-
-  return (
-    <div className="space-y-3">
-      <GlassCard className="p-4 space-y-3 border border-amber-500/20 bg-amber-500/5">
-        <p className="text-sm font-semibold text-amber-400">Connect MetaMask to this node</p>
-        <ol className="text-xs text-muted-foreground space-y-2 list-decimal list-inside">
-          <li>Start the RPC node above (port {rpcPort})</li>
-          <li>Open MetaMask → Settings → Networks → Add Network</li>
-          <li className="flex flex-wrap items-center gap-1">
-            RPC URL:
-            <span className="font-mono text-primary">{rpcUrl}</span>
-            <button onClick={copy1} className="text-muted-foreground hover:text-foreground">
-              {c1 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-          </li>
-          <li className="flex flex-wrap items-center gap-1">
-            Chain ID:
-            <span className="font-mono text-primary">13370</span>
-            <button onClick={copy2} className="text-muted-foreground hover:text-foreground">
-              {c2 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-            | Currency: <span className="font-mono text-primary">GYDS</span>
-          </li>
-          <li>Explorer URL: <span className="font-mono text-primary">https://explorer.netlifegy.com</span></li>
-        </ol>
-      </GlassCard>
-
-      {isRemote && (
-        <GlassCard className="p-4 space-y-2 border border-blue-500/20 bg-blue-500/5">
-          <p className="text-sm font-semibold text-blue-400 flex items-center gap-2">
-            <Server className="w-4 h-4" /> Remote Server Setup
-          </p>
-          <p className="text-xs text-muted-foreground">
-            This dashboard is running on <span className="font-mono text-primary">{host}</span>.
-            The test nodes bind to <span className="font-mono">0.0.0.0</span> so they are reachable on your server's public IP.
-            Make sure your firewall allows ports <span className="font-mono text-primary">{rpcPort}</span> and <span className="font-mono text-primary">8555</span>.
-          </p>
-          <div className="text-xs font-mono bg-black/40 rounded p-2 text-green-300 space-y-0.5">
-            <p className="text-muted-foreground"># Open ports on UFW (Ubuntu)</p>
-            <p>sudo ufw allow {rpcPort}/tcp</p>
-            <p>sudo ufw allow 8555/tcp</p>
-            <p className="text-muted-foreground"># Or iptables</p>
-            <p>iptables -A INPUT -p tcp --dport {rpcPort} -j ACCEPT</p>
-            <p>iptables -A INPUT -p tcp --dport 8555 -j ACCEPT</p>
-          </div>
-        </GlassCard>
-      )}
+      <MetaMaskCard status={status} />
     </div>
   );
 }
