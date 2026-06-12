@@ -69,6 +69,7 @@
 - [x] Admin → Users tab: full UserManager — all profiles, search, role selector, ban/unban, stats
 - [x] Admin → Nodes: fixed camelCase/snake_case mapping (nodeType, isApproved, isSynced, etc.)
 - [x] Admin → Test Nodes tab: Replit in-process RPC node (port 8545) + Lite node (port 8555) — start/stop/logs, admin/founder only
+- [x] Test Nodes: dynamic hostname display (uses actual server host, not localhost) — works on any deployed server; firewall instructions shown for remote hosts
 - [x] GYDS coin logo displayed in sidebar header (public/gyds-coin.jpg)
 - [x] GYD stablecoin logo generated (public/gyd-coin.png)
 - [x] GYDS + GYD logos added to SwapInterface NATIVE_TOKENS
@@ -262,7 +263,7 @@
 - [x] API routes: GET /api/leaderboard/xp, /api/leaderboard/transactions, /api/leaderboard/tokens, /api/leaderboard/my-xp; POST /api/xp/award (admin)
 - [x] Leaderboard wired to DB — XP rankings, validators (by stake), traders (by tx count), builders (by tokens launched)
 - [x] XP levels: 8 tiers (Newcomer → Legend) with progress bar on leaderboard
-- [ ] Auto-award XP on key actions (first tx, first node, first token, vote on proposal)
+- [x] Auto-award XP on key actions (first tx +50, first node +200, first token +300, each governance vote +25) — `awardXpOnce` prevents double-award for milestone events
 - [ ] Achievement badges UI (profile page)
 - [ ] Monthly reset leaderboard
 - [ ] Seasonal campaigns (bonus XP events)

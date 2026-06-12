@@ -659,6 +659,16 @@ export const storage = {
   },
 
   // ── XP & Leaderboard ──────────────────────────────────────────────────────
+  async awardXpOnce(userId: string, eventType: string, xpAwarded: number, description: string) {
+    const existing = await pgPool.query(
+      `SELECT 1 FROM xp_events WHERE user_id=$1 AND event_type=$2 LIMIT 1`,
+      [userId, eventType]
+    );
+    if (existing.rows.length > 0) return false;
+    await this.awardXp(userId, eventType, xpAwarded, description);
+    return true;
+  },
+
   async awardXp(userId: string, eventType: string, xpAwarded: number, description: string | null) {
     // Insert event
     await pgPool.query(

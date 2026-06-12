@@ -107,6 +107,7 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const row = await storage.insertTransaction({ ...req.body, userId: user.id });
     res.json(row);
+    storage.awardXpOnce(user.id, 'first_transaction', 50, 'First transaction on GYDSchain! +50 XP').catch(() => {});
   });
 
   // ── Node Installations ─────────────────────────────────────────────────────
@@ -122,6 +123,7 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const row = await storage.insertNode({ ...req.body, userId: user.id });
     res.json(row);
+    storage.awardXpOnce(user.id, 'first_node', 200, 'First node installed on GYDSchain! +200 XP').catch(() => {});
   });
 
   app.patch("/api/nodes/:id", requireAdmin, async (req, res) => {
@@ -235,6 +237,7 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const row = await storage.insertToken({ ...req.body, creatorId: user.id });
     res.json(row);
+    storage.awardXpOnce(user.id, 'first_token', 300, 'First token launched on GYDSchain! +300 XP').catch(() => {});
   });
 
   app.patch("/api/tokens/:id", requireAuth, async (req, res) => {
@@ -584,6 +587,7 @@ export function registerRoutes(app: Express) {
     await storage.insertGovernanceVote({ proposalId: id, userId: user.id, choice });
     await storage.incrementProposalVotes(id, choice as 'for' | 'against' | 'abstain');
     res.json({ ok: true });
+    storage.awardXp(user.id, 'governance_vote', 25, `Voted ${choice} on proposal #${id} +25 XP`).catch(() => {});
   });
 
   // ── Community ──────────────────────────────────────────────────────────────

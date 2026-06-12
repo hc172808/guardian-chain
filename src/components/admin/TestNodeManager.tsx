@@ -5,9 +5,27 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
-  Activity, Cpu, Zap, Server, Clock
+  Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+function useCopy(text: string) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  }, [text]);
+  return { copied, copy };
+}
+
+function getNodeHost(): string {
+  if (typeof window === 'undefined') return 'localhost';
+  const { hostname } = window.location;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return 'localhost';
+  return hostname;
+}
 
 type NodeType = 'rpc' | 'lite';
 
@@ -47,6 +65,15 @@ function formatUptime(startedAt: string | null): string {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
+function CopyButton({ text }: { text: string }) {
+  const { copied, copy } = useCopy(text);
+  return (
+    <button onClick={copy} title="Copy" className="ml-1.5 text-muted-foreground hover:text-foreground transition-colors">
+      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
 function NodeCard({ type, status, onStart, onStop, loading }: {
   type: NodeType;
   status: NodeStatus;
@@ -59,6 +86,10 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
   const logRef = useRef<HTMLDivElement>(null);
   const meta = NODE_META[type];
   const Icon = meta.icon;
+  const host = getNodeHost();
+  const endpointUrl = type === 'rpc'
+    ? `http://${host}:${status.port}`
+    : `http://${host}:${status.port}/status`;
 
   const fetchLogs = useCallback(async () => {
     const res = await fetch(`/api/admin/test-nodes/${type}/logs`, { credentials: 'include' });
@@ -144,15 +175,19 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
 
       {/* Endpoint info when running */}
       {status.running && (
-        <div className="p-3 rounded-lg bg-muted/10 border border-border/20 font-mono text-xs space-y-1">
-          <p className="text-muted-foreground">Endpoint</p>
-          <p className="text-primary break-all">
-            {type === 'rpc'
-              ? `http://localhost:${status.port}`
-              : `http://localhost:${status.port}/status`}
-          </p>
+        <div className="p-3 rounded-lg bg-muted/10 border border-border/20 font-mono text-xs space-y-1.5">
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <Globe className="w-3 h-3" /> Endpoint
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-primary break-all">{endpointUrl}</span>
+            <CopyButton text={endpointUrl} />
+          </div>
           {type === 'rpc' && (
-            <p className="text-muted-foreground/60">JSON-RPC | Chain ID: 13370 | GYDS Testnet</p>
+            <p className="text-muted-foreground/60">JSON-RPC · Chain ID: 13370 · GYDS Testnet</p>
+          )}
+          {type === 'lite' && (
+            <p className="text-muted-foreground/60">Header sync · peers: {status.peers} · block #{status.blockHeight.toLocaleString()}</p>
           )}
         </div>
       )}
@@ -298,16 +333,64 @@ export function TestNodeManager() {
         loading={loading.lite}
       />
 
-      <GlassCard className="p-4 space-y-2 border border-amber-500/20 bg-amber-500/5">
-        <p className="text-sm font-semibold text-amber-400">How to use with MetaMask</p>
-        <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-          <li>Start the RPC node above (port 8545)</li>
+      <MetaMaskCard rpcPort={status.rpc.port} />
+    </div>
+  );
+}
+
+function MetaMaskCard({ rpcPort }: { rpcPort: number }) {
+  const host = getNodeHost();
+  const rpcUrl = `http://${host}:${rpcPort}`;
+  const isRemote = host !== 'localhost';
+  const { copied: c1, copy: copy1 } = useCopy(rpcUrl);
+  const { copied: c2, copy: copy2 } = useCopy('13370');
+
+  return (
+    <div className="space-y-3">
+      <GlassCard className="p-4 space-y-3 border border-amber-500/20 bg-amber-500/5">
+        <p className="text-sm font-semibold text-amber-400">Connect MetaMask to this node</p>
+        <ol className="text-xs text-muted-foreground space-y-2 list-decimal list-inside">
+          <li>Start the RPC node above (port {rpcPort})</li>
           <li>Open MetaMask → Settings → Networks → Add Network</li>
-          <li>Set RPC URL: <span className="font-mono text-primary">http://localhost:8545</span></li>
-          <li>Chain ID: <span className="font-mono text-primary">13370</span> | Currency: <span className="font-mono text-primary">GYDS</span></li>
+          <li className="flex flex-wrap items-center gap-1">
+            RPC URL:
+            <span className="font-mono text-primary">{rpcUrl}</span>
+            <button onClick={copy1} className="text-muted-foreground hover:text-foreground">
+              {c1 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </li>
+          <li className="flex flex-wrap items-center gap-1">
+            Chain ID:
+            <span className="font-mono text-primary">13370</span>
+            <button onClick={copy2} className="text-muted-foreground hover:text-foreground">
+              {c2 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+            | Currency: <span className="font-mono text-primary">GYDS</span>
+          </li>
           <li>Explorer URL: <span className="font-mono text-primary">https://explorer.netlifegy.com</span></li>
         </ol>
       </GlassCard>
+
+      {isRemote && (
+        <GlassCard className="p-4 space-y-2 border border-blue-500/20 bg-blue-500/5">
+          <p className="text-sm font-semibold text-blue-400 flex items-center gap-2">
+            <Server className="w-4 h-4" /> Remote Server Setup
+          </p>
+          <p className="text-xs text-muted-foreground">
+            This dashboard is running on <span className="font-mono text-primary">{host}</span>.
+            The test nodes bind to <span className="font-mono">0.0.0.0</span> so they are reachable on your server's public IP.
+            Make sure your firewall allows ports <span className="font-mono text-primary">{rpcPort}</span> and <span className="font-mono text-primary">8555</span>.
+          </p>
+          <div className="text-xs font-mono bg-black/40 rounded p-2 text-green-300 space-y-0.5">
+            <p className="text-muted-foreground"># Open ports on UFW (Ubuntu)</p>
+            <p>sudo ufw allow {rpcPort}/tcp</p>
+            <p>sudo ufw allow 8555/tcp</p>
+            <p className="text-muted-foreground"># Or iptables</p>
+            <p>iptables -A INPUT -p tcp --dport {rpcPort} -j ACCEPT</p>
+            <p>iptables -A INPUT -p tcp --dport 8555 -j ACCEPT</p>
+          </div>
+        </GlassCard>
+      )}
     </div>
   );
 }
