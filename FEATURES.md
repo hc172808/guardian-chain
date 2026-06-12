@@ -1,4 +1,4 @@
-# ChainCore — GYDS Blockchain Network Dashboard
+# GYDSchain — GYDS Blockchain Network Dashboard
 ## Complete Feature Reference
 
 This document is the single source of truth for every feature in this project.
