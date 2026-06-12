@@ -54,6 +54,13 @@ const fmt = (d: string) => {
 
 const authorName = (email?: string) => email ? email.split('@')[0] : 'anon';
 
+interface ReferralStats {
+  code: string;
+  referred_count: number;
+  total_earned: string;
+  events: { referee_id: string; reward_amount: string; created_at: string; email?: string }[];
+}
+
 const CommunityPage = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -75,6 +82,10 @@ const CommunityPage = () => {
   const [submitting, setSubmitting] = useState(false);
 
   const [myVotes, setMyVotes] = useState<Record<string, 'up' | 'down'>>({});
+  const [referral, setReferral] = useState<ReferralStats | null>(null);
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [useCodeInput, setUseCodeInput] = useState('');
+  const [usingCode, setUsingCode] = useState(false);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -86,7 +97,37 @@ const CommunityPage = () => {
     }
   }, []);
 
+  const fetchReferral = useCallback(async () => {
+    if (!user) return;
+    setReferralLoading(true);
+    try {
+      const res = await fetch('/api/referral', { credentials: 'include' });
+      if (res.ok) setReferral(await res.json());
+    } catch {} finally { setReferralLoading(false); }
+  }, [user]);
+
+  const submitUseCode = async () => {
+    if (!user) { toast({ title: 'Sign in first', variant: 'destructive' }); return; }
+    if (!useCodeInput.trim()) return;
+    setUsingCode(true);
+    try {
+      const res = await fetch('/api/referral/use', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: useCodeInput.trim().toUpperCase() }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast({ title: 'Referral applied!', description: 'Reward will be credited after your first transaction.' });
+        setUseCodeInput('');
+      } else {
+        toast({ title: 'Could not apply code', description: data.message, variant: 'destructive' });
+      }
+    } finally { setUsingCode(false); }
+  };
+
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
+  useEffect(() => { fetchReferral(); }, [fetchReferral]);
 
   const fetchComments = async (postId: string) => {
     if (comments[postId]) return;
@@ -360,43 +401,109 @@ const CommunityPage = () => {
             )}
           </TabsContent>
 
-          <TabsContent value="referral" className="mt-4">
-            <GlassCard className="p-6 space-y-4 max-w-lg">
-              <h2 className="font-semibold flex items-center gap-2">
-                <Gift className="w-4 h-4 text-primary" /> Referral Program
-              </h2>
-              {user ? (
-                <>
-                  <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl text-center">
-                    <p className="text-xs text-muted-foreground mb-1">Your referral code</p>
-                    <p className="text-2xl font-bold font-mono tracking-wider text-primary">
-                      GYDS-{user.id.slice(0, 6).toUpperCase()}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[{ label: 'Referrals', value: 0 }, { label: 'Earned', value: '0 GYDS' }, { label: 'Pending', value: '0 GYDS' }].map(s => (
-                      <div key={s.label} className="text-center p-3 bg-muted/20 rounded-xl">
-                        <p className="text-lg font-bold">{s.value}</p>
-                        <p className="text-xs text-muted-foreground">{s.label}</p>
+          <TabsContent value="referral" className="mt-4 space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* My referral code card */}
+              <GlassCard className="p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold flex items-center gap-2">
+                    <Gift className="w-4 h-4 text-primary" /> Your Referral Code
+                  </h2>
+                  {user && (
+                    <button onClick={fetchReferral} className="text-muted-foreground hover:text-primary transition-colors">
+                      <RefreshCw className={cn('w-3.5 h-3.5', referralLoading && 'animate-spin')} />
+                    </button>
+                  )}
+                </div>
+                {user ? (
+                  <>
+                    {referral ? (
+                      <>
+                        <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl text-center">
+                          <p className="text-xs text-muted-foreground mb-1">Your referral code</p>
+                          <p className="text-2xl font-bold font-mono tracking-wider text-primary">{referral.code}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            { label: 'Referrals', value: referral.referred_count },
+                            { label: 'GYDS Earned', value: Number(referral.total_earned).toLocaleString() },
+                          ].map(s => (
+                            <div key={s.label} className="text-center p-3 bg-muted/20 rounded-xl">
+                              <p className="text-lg font-bold">{s.value}</p>
+                              <p className="text-xs text-muted-foreground">{s.label}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <Button className="w-full gap-2" onClick={() => {
+                          navigator.clipboard.writeText(`Join GYDSchain with my code: ${referral.code} — https://netlifegy.com`);
+                          toast({ title: 'Referral link copied!' });
+                        }}>
+                          <Link2 className="w-4 h-4" /> Copy Referral Link
+                        </Button>
+                        <div className="space-y-2 text-sm text-muted-foreground">
+                          <p className="font-medium text-foreground">How it works</p>
+                          <p>Share your code → when someone signs up and uses it, you earn <strong className="text-primary">500 GYDS + 100 XP</strong>.</p>
+                        </div>
+                        {/* Referred users list */}
+                        {referral.events.length > 0 && (
+                          <div className="space-y-1.5">
+                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Referred Users</p>
+                            {referral.events.map((ev, i) => (
+                              <div key={i} className="flex items-center justify-between py-1.5 border-b border-border/20 text-xs">
+                                <span className="text-muted-foreground">{ev.email ? ev.email.split('@')[0] : ev.referee_id.slice(0, 8)}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-emerald-400">+{Number(ev.reward_amount).toLocaleString()} GYDS</span>
+                                  <span className="text-muted-foreground">{new Date(ev.created_at).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2 text-muted-foreground py-4">
+                        <RefreshCw className="w-4 h-4 animate-spin" /> Loading referral info…
                       </div>
-                    ))}
-                  </div>
-                  <div className="space-y-2 text-sm text-muted-foreground">
-                    <p className="font-medium text-foreground">How it works</p>
-                    <p>Share your code → when someone signs up and makes their first transaction, you both earn <strong className="text-primary">500 GYDS</strong>.</p>
-                    <p>When they stake for the first time, you earn <strong className="text-primary">1% of their first month's rewards</strong>.</p>
-                  </div>
-                  <Button className="w-full gap-2" onClick={() => {
-                    navigator.clipboard.writeText(`Join GYDSchain with my code: GYDS-${user.id.slice(0, 6).toUpperCase()} — https://netlifegy.com`);
-                    toast({ title: 'Referral link copied!' });
-                  }}>
-                    <Link2 className="w-4 h-4" /> Copy Referral Link
-                  </Button>
-                </>
-              ) : (
-                <p className="text-muted-foreground text-sm">Sign in to get your referral code and start earning rewards.</p>
-              )}
-            </GlassCard>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-muted-foreground text-sm">Sign in to get your referral code and start earning rewards.</p>
+                )}
+              </GlassCard>
+
+              {/* Use a referral code */}
+              <GlassCard className="p-6 space-y-4">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <Users className="w-4 h-4 text-neon-cyan" /> Use a Referral Code
+                </h2>
+                {user ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Got a referral code from someone? Enter it here. You can only use one code per account.
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        value={useCodeInput}
+                        onChange={e => setUseCodeInput(e.target.value.toUpperCase())}
+                        placeholder="GYDS-XXXXXX-XXXX"
+                        className="font-mono"
+                        onKeyDown={e => e.key === 'Enter' && submitUseCode()}
+                      />
+                      <Button onClick={submitUseCode} disabled={usingCode || !useCodeInput.trim()} className="shrink-0">
+                        {usingCode ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Apply'}
+                      </Button>
+                    </div>
+                    <div className="p-3 bg-muted/10 border border-border/20 rounded-lg text-xs text-muted-foreground space-y-1">
+                      <p>✅ Both you and the referrer earn <strong className="text-primary">500 GYDS</strong></p>
+                      <p>✅ Referrer gets <strong className="text-primary">+100 XP</strong></p>
+                      <p>⚠️ One code per account — cannot be undone</p>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Sign in to use a referral code.</p>
+                )}
+              </GlassCard>
+            </div>
           </TabsContent>
         </Tabs>
 

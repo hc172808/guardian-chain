@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Vote, Plus, Clock, CheckCircle2, XCircle, AlertCircle, TrendingUp, Users, Coins, RefreshCw, ChevronRight, Lock } from 'lucide-react';
+import { Vote, Plus, Clock, CheckCircle2, XCircle, AlertCircle, TrendingUp, Users, Coins, RefreshCw, ChevronRight, Lock, Zap, BarChart2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Proposal {
@@ -48,6 +48,27 @@ const TYPE_LABELS: Record<string, string> = {
   grant:     'Grant',
 };
 
+interface TreasuryCoin {
+  id: string;
+  coin: string;
+  balance: string;
+  usd_value: string;
+  address: string;
+  updated_at: string;
+}
+
+interface VotingPower {
+  total: number;
+  fromNodes: number;
+  fromXp: number;
+  fromStake: number;
+  fromBase: number;
+  nodes: number;
+  xp: number;
+  level: number;
+  stake: number;
+}
+
 const GovernancePage = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -62,6 +83,10 @@ const GovernancePage = () => {
   const [newType, setNewType] = useState('parameter');
   const [submitting, setSubmitting] = useState(false);
   const [voting, setVoting] = useState<string | null>(null);
+  const [treasury, setTreasury] = useState<TreasuryCoin[]>([]);
+  const [treasurySpending, setTreasurySpending] = useState<any[]>([]);
+  const [votingPower, setVotingPower] = useState<VotingPower | null>(null);
+  const [loadingTreasury, setLoadingTreasury] = useState(false);
 
   const fetchProposals = useCallback(async () => {
     setLoading(true);
@@ -86,8 +111,30 @@ const GovernancePage = () => {
     } catch {}
   }, [user]);
 
+  const fetchTreasury = useCallback(async () => {
+    setLoadingTreasury(true);
+    try {
+      const [t, s] = await Promise.all([
+        fetch('/api/governance/treasury').then(r => r.ok ? r.json() : []),
+        fetch('/api/governance/treasury/spending').then(r => r.ok ? r.json() : []),
+      ]);
+      setTreasury(Array.isArray(t) ? t : []);
+      setTreasurySpending(Array.isArray(s) ? s : []);
+    } finally { setLoadingTreasury(false); }
+  }, []);
+
+  const fetchVotingPower = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await fetch('/api/governance/voting-power', { credentials: 'include' });
+      if (res.ok) setVotingPower(await res.json());
+    } catch {}
+  }, [user]);
+
   useEffect(() => { fetchProposals(); }, [fetchProposals]);
   useEffect(() => { fetchMyVotes(); }, [fetchMyVotes]);
+  useEffect(() => { fetchTreasury(); }, [fetchTreasury]);
+  useEffect(() => { fetchVotingPower(); }, [fetchVotingPower]);
 
   const castVote = async (proposalId: string, choice: 'for' | 'against' | 'abstain') => {
     if (!user) { toast({ title: 'Sign in to vote', variant: 'destructive' }); return; }
@@ -187,9 +234,11 @@ const GovernancePage = () => {
         </div>
 
         <Tabs defaultValue="proposals">
-          <TabsList>
+          <TabsList className="flex-wrap h-auto gap-1">
             <TabsTrigger value="proposals">Proposals</TabsTrigger>
+            <TabsTrigger value="grants">Grants</TabsTrigger>
             <TabsTrigger value="treasury">Treasury</TabsTrigger>
+            {user && <TabsTrigger value="voting-power">Voting Power</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="proposals" className="space-y-4 mt-4">
@@ -287,42 +336,209 @@ const GovernancePage = () => {
             )}
           </TabsContent>
 
-          <TabsContent value="treasury" className="mt-4">
-            <GlassCard className="p-6 space-y-4">
-              <h2 className="font-semibold flex items-center gap-2">
-                <Coins className="w-4 h-4 text-primary" /> DAO Treasury
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Grants Tab */}
+          <TabsContent value="grants" className="mt-4 space-y-4">
+            <GlassCard className="p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-primary" /> Grant Programme
+                </h2>
+                {user && (
+                  <Button size="sm" onClick={() => {
+                    setNewType('grant');
+                    setShowCreate(true);
+                  }} className="gap-2">
+                    <Plus className="w-4 h-4" /> Apply for Grant
+                  </Button>
+                )}
+              </div>
+
+              {/* Grant tiers */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
-                  { label: 'GYDS Balance', value: '12,500,000 GYDS', sub: '≈ $1,250 USD' },
-                  { label: 'GYD Stablecoin', value: '250,000 GYD', sub: '≈ $250,000 USD' },
-                  { label: 'ETH Reserve', value: '45.2 ETH', sub: '≈ $144,640 USD' },
-                ].map(b => (
-                  <div key={b.label} className="p-4 bg-muted/20 rounded-xl border border-border/30">
-                    <p className="text-xs text-muted-foreground">{b.label}</p>
-                    <p className="text-lg font-bold mt-1">{b.value}</p>
-                    <p className="text-xs text-muted-foreground">{b.sub}</p>
+                  { tier: 'Micro Grant', amount: 'Up to 10,000 GYDS', desc: 'Small tools, scripts, and educational content', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
+                  { tier: 'Builder Grant', amount: 'Up to 100,000 GYDS', desc: 'DApps, integrations, and developer tooling', color: 'text-primary', bg: 'bg-primary/10 border-primary/30' },
+                  { tier: 'Foundation Grant', amount: 'Up to 500,000 GYDS', desc: 'Major protocol improvements and core infrastructure', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/30' },
+                ].map(g => (
+                  <div key={g.tier} className={`p-4 rounded-xl border ${g.bg}`}>
+                    <p className={`font-semibold text-sm ${g.color}`}>{g.tier}</p>
+                    <p className="text-sm font-bold mt-1">{g.amount}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{g.desc}</p>
                   </div>
                 ))}
               </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Recent Spending</p>
-                {[
-                  { what: 'Bug Bounty Payout — Critical RPC fix', amount: '-5,000 GYD', date: '3 days ago' },
-                  { what: 'Q2 Developer Grants (3 teams)', amount: '-300,000 GYDS', date: '15 days ago' },
-                  { what: 'Audit — Halborn Security', amount: '-50,000 GYDS', date: '30 days ago' },
-                ].map(tx => (
-                  <div key={tx.what} className="flex justify-between items-center py-2 border-b border-border/20 text-sm">
-                    <span className="text-muted-foreground">{tx.what}</span>
-                    <div className="text-right">
-                      <p className="text-red-400 font-mono text-xs">{tx.amount}</p>
-                      <p className="text-muted-foreground text-xs">{tx.date}</p>
-                    </div>
+
+              {/* Grant proposals from DB */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Active Grant Applications</p>
+                {proposals.filter(p => p.proposalType === 'grant').length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground text-sm">
+                    <Coins className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p>No grant applications yet</p>
+                    {user && <p className="text-xs mt-1">Submit a grant proposal using the "Apply for Grant" button above.</p>}
                   </div>
-                ))}
+                ) : (
+                  <div className="space-y-2">
+                    {proposals.filter(p => p.proposalType === 'grant').map(p => {
+                      const total = totalVotes(p);
+                      const cfg = STATUS_CONFIG[p.status] ?? STATUS_CONFIG.pending;
+                      const StatusIcon = cfg.icon;
+                      const myVote = myVotes[p.id];
+                      return (
+                        <GlassCard key={p.id} className="p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <Badge variant="outline" className={`text-xs ${cfg.color}`}>
+                                  <StatusIcon className="w-3 h-3 mr-1" /> {cfg.label}
+                                </Badge>
+                                {p.status === 'active' && (
+                                  <span className="text-xs text-muted-foreground">{daysLeft(p.endDate)}</span>
+                                )}
+                              </div>
+                              <h3 className="font-semibold text-sm">{p.title}</h3>
+                              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{p.description}</p>
+                            </div>
+                          </div>
+                          <div className="h-1.5 bg-muted rounded-full overflow-hidden flex">
+                            <div className="bg-emerald-500 h-full" style={{ width: `${pct(+p.votesFor, total)}%` }} />
+                            <div className="bg-red-500 h-full" style={{ width: `${pct(+p.votesAgainst, total)}%` }} />
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>For: {pct(+p.votesFor, total)}% · Against: {pct(+p.votesAgainst, total)}%</span>
+                            <span>{total.toLocaleString()} votes</span>
+                          </div>
+                          {p.status === 'active' && !myVote && user && (
+                            <div className="flex gap-2 pt-1 border-t border-border/20">
+                              <Button size="sm" onClick={() => castVote(p.id, 'for')} disabled={!!voting}
+                                className="bg-emerald-600 hover:bg-emerald-700 gap-1 text-xs">
+                                {voting === p.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />} Support
+                              </Button>
+                              <Button size="sm" variant="destructive" onClick={() => castVote(p.id, 'against')} disabled={!!voting} className="gap-1 text-xs">
+                                <XCircle className="w-3 h-3" /> Oppose
+                              </Button>
+                            </div>
+                          )}
+                          {myVote && (
+                            <p className="text-xs text-muted-foreground pt-1 border-t border-border/20">
+                              ✅ You voted: <strong>{myVote}</strong>
+                            </p>
+                          )}
+                        </GlassCard>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* How it works */}
+              <div className="p-4 bg-muted/20 rounded-xl text-sm space-y-2">
+                <p className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">How It Works</p>
+                <div className="space-y-1.5 text-xs text-muted-foreground">
+                  {[
+                    '1. Submit a grant proposal with your project description and funding request',
+                    '2. Community votes during a 7-day voting period',
+                    '3. Grant passes if quorum (1M GYDS) is met and majority votes For',
+                    '4. Funds are disbursed from DAO treasury upon passage',
+                  ].map(s => <p key={s}>{s}</p>)}
+                </div>
               </div>
             </GlassCard>
           </TabsContent>
+
+          <TabsContent value="treasury" className="mt-4">
+            <GlassCard className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-primary" /> DAO Treasury
+                </h2>
+                <Button variant="outline" size="sm" onClick={fetchTreasury} disabled={loadingTreasury}>
+                  <RefreshCw className={cn('w-3.5 h-3.5', loadingTreasury && 'animate-spin')} />
+                </Button>
+              </div>
+              {loadingTreasury ? (
+                <div className="flex items-center gap-2 text-muted-foreground py-4">
+                  <RefreshCw className="w-4 h-4 animate-spin" /> Loading treasury…
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {treasury.map(coin => (
+                    <div key={coin.coin} className="p-4 bg-muted/20 rounded-xl border border-border/30 space-y-1">
+                      <p className="text-xs text-muted-foreground font-medium">{coin.coin} Balance</p>
+                      <p className="text-lg font-bold">{Number(coin.balance).toLocaleString()} {coin.coin}</p>
+                      {coin.usd_value && (
+                        <p className="text-xs text-muted-foreground">≈ ${Number(coin.usd_value).toLocaleString()} USD</p>
+                      )}
+                      {coin.address && (
+                        <p className="text-xs text-muted-foreground font-mono truncate">{coin.address.slice(0, 20)}…</p>
+                      )}
+                    </div>
+                  ))}
+                  {treasury.length === 0 && (
+                    <div className="col-span-3 text-center py-6 text-muted-foreground text-sm">No treasury data</div>
+                  )}
+                </div>
+              )}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Recent Treasury Proposals</p>
+                {treasurySpending.length > 0 ? treasurySpending.map((tx: any, i: number) => (
+                  <div key={i} className="flex justify-between items-center py-2 border-b border-border/20 text-sm">
+                    <span className="text-muted-foreground truncate flex-1 mr-3">{tx.what ?? tx.title}</span>
+                    <p className="text-muted-foreground text-xs shrink-0">
+                      {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : ''}
+                    </p>
+                  </div>
+                )) : (
+                  <p className="text-xs text-muted-foreground py-2">No treasury proposals yet.</p>
+                )}
+              </div>
+            </GlassCard>
+          </TabsContent>
+
+          {user && (
+            <TabsContent value="voting-power" className="mt-4">
+              <GlassCard className="p-6 space-y-5">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-400" /> Your Voting Power
+                </h2>
+                {votingPower ? (
+                  <>
+                    <div className="text-center py-4">
+                      <p className="text-5xl font-bold text-primary">{votingPower.total.toLocaleString()}</p>
+                      <p className="text-sm text-muted-foreground mt-1">Total Voting Power</p>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { label: 'Base Power', value: votingPower.fromBase, desc: 'Every user starts here', color: 'text-muted-foreground' },
+                        { label: 'From Nodes', value: votingPower.fromNodes, desc: `${votingPower.nodes} nodes × 1,000`, color: 'text-emerald-400' },
+                        { label: 'From XP', value: votingPower.fromXp, desc: `${votingPower.xp.toLocaleString()} XP ÷ 10`, color: 'text-primary' },
+                        { label: 'From Stake', value: votingPower.fromStake, desc: `${votingPower.stake} GYDS staked`, color: 'text-amber-400' },
+                      ].map(s => (
+                        <div key={s.label} className="p-3 bg-muted/10 border border-border/20 rounded-xl text-center">
+                          <p className={`text-xl font-bold ${s.color}`}>{s.value.toLocaleString()}</p>
+                          <p className="text-xs font-medium mt-1">{s.label}</p>
+                          <p className="text-xs text-muted-foreground">{s.desc}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl text-sm text-muted-foreground space-y-1">
+                      <p className="font-medium text-foreground flex items-center gap-1.5"><BarChart2 className="w-3.5 h-3.5" /> How to increase your voting power</p>
+                      <ul className="list-disc list-inside space-y-0.5 text-xs">
+                        <li>Run more approved nodes (+1,000 per node)</li>
+                        <li>Earn XP through transactions, governance, and achievements (+1 per 10 XP)</li>
+                        <li>Stake GYDS as a validator (+1 per GYDS staked)</li>
+                      </ul>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Zap className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                    <p>Loading voting power…</p>
+                  </div>
+                )}
+              </GlassCard>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Create Proposal Modal */}

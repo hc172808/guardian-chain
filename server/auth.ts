@@ -5,9 +5,12 @@ import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import { ethers } from "ethers";
+import rateLimit from "express-rate-limit";
 import { totp } from "./totp";
 import { pool } from "./db";
 import { storage } from "./storage";
+
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
 
 export function getSession(): RequestHandler {
   const PgSession = connectPg(session);
@@ -58,7 +61,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Register ───────────────────────────────────────────────────────────────
-  app.post("/api/auth/register", async (req, res) => {
+  app.post("/api/auth/register", authLimiter, async (req, res) => {
     try {
       const { username, password, email } = req.body ?? {};
       if (!username || !password) return res.status(400).json({ error: "Username and password required" });
@@ -82,7 +85,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Login (username + password) ────────────────────────────────────────────
-  app.post("/api/auth/login", (req, res, next) => {
+  app.post("/api/auth/login", authLimiter, (req, res, next) => {
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) return res.status(500).json({ error: "Login error" });
       if (!user) return res.status(401).json({ error: info?.message ?? "Invalid credentials" });

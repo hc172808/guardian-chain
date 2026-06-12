@@ -808,6 +808,716 @@ export const storage = {
     return true;
   },
 
+  // ── Referrals ─────────────────────────────────────────────────────────────
+  async initReferralTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS referrals (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id text NOT NULL UNIQUE,
+        code text NOT NULL UNIQUE,
+        referred_count integer NOT NULL DEFAULT 0,
+        total_earned numeric NOT NULL DEFAULT 0,
+        created_at timestamp DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS referral_events (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        referrer_id text NOT NULL,
+        referee_id text NOT NULL UNIQUE,
+        reward_amount numeric NOT NULL DEFAULT 500,
+        created_at timestamp DEFAULT now()
+      );
+    `);
+  },
+
+  async ensureReferralCode(userId: string) {
+    const existing = await pgPool.query(
+      `SELECT code, referred_count, total_earned FROM referrals WHERE user_id=$1`, [userId]
+    );
+    if (existing.rows.length > 0) return existing.rows[0];
+    const code = 'GYDS-' + userId.slice(0, 6).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+    const res = await pgPool.query(
+      `INSERT INTO referrals (user_id, code) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET user_id=EXCLUDED.user_id RETURNING code, referred_count, total_earned`,
+      [userId, code]
+    );
+    return res.rows[0];
+  },
+
+  async getReferralStats(userId: string) {
+    const row = await this.ensureReferralCode(userId);
+    const events = await pgPool.query(
+      `SELECT re.referee_id, re.reward_amount, re.created_at, u.email
+       FROM referral_events re LEFT JOIN users u ON u.id=re.referee_id
+       WHERE re.referrer_id=$1 ORDER BY re.created_at DESC LIMIT 20`, [userId]
+    );
+    return { ...row, events: events.rows };
+  },
+
+  async useReferralCode(code: string, newUserId: string) {
+    const ref = await pgPool.query(`SELECT user_id FROM referrals WHERE code=$1`, [code]);
+    if (!ref.rows.length) return { ok: false, message: 'Invalid referral code' };
+    const referrerId = ref.rows[0].user_id;
+    if (referrerId === newUserId) return { ok: false, message: 'Cannot use your own referral code' };
+    const dup = await pgPool.query(`SELECT 1 FROM referral_events WHERE referee_id=$1`, [newUserId]);
+    if (dup.rows.length) return { ok: false, message: 'Already used a referral code' };
+    await pgPool.query(
+      `INSERT INTO referral_events (referrer_id, referee_id, reward_amount) VALUES ($1,$2,500)`,
+      [referrerId, newUserId]
+    );
+    await pgPool.query(
+      `UPDATE referrals SET referred_count=referred_count+1, total_earned=total_earned+500 WHERE user_id=$1`,
+      [referrerId]
+    );
+    await this.awardXp(referrerId, 'referral_success', 100, 'Referred a new user');
+    return { ok: true };
+  },
+
+  // ── Governance Treasury ───────────────────────────────────────────────────
+  async initGovernanceTreasury() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS governance_treasury (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        coin text NOT NULL UNIQUE,
+        balance numeric NOT NULL DEFAULT 0,
+        usd_value numeric,
+        address text,
+        updated_at timestamp DEFAULT now()
+      );
+    `);
+    const seed = [
+      { coin: 'GYDS', balance: 12500000, usd_value: 1250, address: '0xDAO000000000000000000000000000000000001' },
+      { coin: 'GYD',  balance: 250000,   usd_value: 250000, address: '0xDAO000000000000000000000000000000000002' },
+      { coin: 'ETH',  balance: 45.2,     usd_value: 144640, address: '0xDAO000000000000000000000000000000000003' },
+    ];
+    for (const s of seed) {
+      await pgPool.query(
+        `INSERT INTO governance_treasury (coin, balance, usd_value, address)
+         VALUES ($1,$2,$3,$4) ON CONFLICT (coin) DO NOTHING`,
+        [s.coin, s.balance, s.usd_value, s.address]
+      );
+    }
+  },
+
+  async getGovernanceTreasury() {
+    const res = await pgPool.query(`SELECT * FROM governance_treasury ORDER BY usd_value DESC NULLS LAST`);
+    return res.rows;
+  },
+
+  async updateTreasuryBalance(coin: string, balance: number, usdValue?: number) {
+    await pgPool.query(
+      `UPDATE governance_treasury SET balance=$2, usd_value=$3, updated_at=now() WHERE coin=$1`,
+      [coin, balance, usdValue ?? null]
+    );
+  },
+
+  async getTreasurySpending() {
+    const res = await pgPool.query(`
+      SELECT p.title AS what, p.description, p.created_at
+      FROM governance_proposals p
+      WHERE p.proposal_type='treasury' AND p.status='passed'
+      ORDER BY p.created_at DESC LIMIT 5
+    `);
+    return res.rows;
+  },
+
+  // ── Voting Power ──────────────────────────────────────────────────────────
+  async getUserVotingPower(userId: string) {
+    const [nodeRes, xpRes, valRes] = await Promise.all([
+      pgPool.query(`SELECT COUNT(*) as cnt FROM node_installations WHERE user_id=$1 AND is_approved=true`, [userId]),
+      pgPool.query(`SELECT total_xp, level FROM user_xp WHERE user_id=$1`, [userId]),
+      pgPool.query(`SELECT stake FROM network_validators WHERE wallet_address IN (SELECT address FROM wallets WHERE user_id=$1) LIMIT 1`, [userId]),
+    ]);
+    const nodes = parseInt(nodeRes.rows[0]?.cnt ?? '0');
+    const xp = parseInt(xpRes.rows[0]?.total_xp ?? '0');
+    const level = parseInt(xpRes.rows[0]?.level ?? '1');
+    const stake = parseFloat(valRes.rows[0]?.stake ?? '0');
+    const fromNodes = nodes * 1000;
+    const fromXp = Math.floor(xp / 10);
+    const fromStake = Math.floor(stake);
+    const total = fromNodes + fromXp + fromStake + 100;
+    return { total, fromNodes, fromXp, fromStake, fromBase: 100, nodes, xp, level, stake };
+  },
+
+  // ── API Keys ──────────────────────────────────────────────────────────────
+  async initApiKeysTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id text NOT NULL,
+        name text NOT NULL,
+        key_prefix text NOT NULL,
+        key_hash text NOT NULL,
+        scopes text[] NOT NULL DEFAULT '{}',
+        request_count integer NOT NULL DEFAULT 0,
+        request_limit integer NOT NULL DEFAULT 10000,
+        last_used_at timestamp,
+        expires_at timestamp,
+        revoked boolean NOT NULL DEFAULT false,
+        created_at timestamp DEFAULT now()
+      );
+    `);
+  },
+
+  async createApiKey(userId: string, name: string, scopes: string[]) {
+    const { createHash, randomBytes } = await import('crypto');
+    const raw = 'gyds_live_' + randomBytes(20).toString('hex');
+    const prefix = raw.slice(0, 18);
+    const hash = createHash('sha256').update(raw).digest('hex');
+    const res = await pgPool.query(
+      `INSERT INTO api_keys (user_id, name, key_prefix, key_hash, scopes)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id, name, key_prefix, scopes, request_count, request_limit, created_at`,
+      [userId, name, prefix, hash, scopes]
+    );
+    return { ...res.rows[0], fullKey: raw };
+  },
+
+  async getUserApiKeys(userId: string) {
+    const res = await pgPool.query(
+      `SELECT id, name, key_prefix, scopes, request_count, request_limit, last_used_at, created_at, revoked
+       FROM api_keys WHERE user_id=$1 AND revoked=false ORDER BY created_at DESC`,
+      [userId]
+    );
+    return res.rows;
+  },
+
+  async revokeApiKey(userId: string, keyId: string) {
+    await pgPool.query(
+      `UPDATE api_keys SET revoked=true WHERE id=$1 AND user_id=$2`,
+      [keyId, userId]
+    );
+  },
+
+  // ── Admin: All Achievements ───────────────────────────────────────────────
+  async getAllAchievements() {
+    const res = await pgPool.query(`SELECT * FROM achievements ORDER BY category, id`);
+    return res.rows;
+  },
+
+  async getAllUsersBasic() {
+    const res = await pgPool.query(
+      `SELECT u.id, u.email, u.username, u.created_at,
+              COALESCE(ux.total_xp, 0) AS total_xp, COALESCE(ux.level,1) AS level,
+              COUNT(ua.achievement_id) AS achievement_count
+       FROM users u
+       LEFT JOIN user_xp ux ON ux.user_id=u.id
+       LEFT JOIN user_achievements ua ON ua.user_id=u.id
+       GROUP BY u.id, u.email, u.username, u.created_at, ux.total_xp, ux.level
+       ORDER BY u.created_at DESC LIMIT 100`
+    );
+    return res.rows;
+  },
+
+  // ── NFT Tables ────────────────────────────────────────────────────────────
+  async initNftTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS nft_collections (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL, symbol TEXT, description TEXT,
+        floor_price NUMERIC DEFAULT 0, volume_24h NUMERIC DEFAULT 0,
+        change_24h NUMERIC DEFAULT 0, total_items INTEGER DEFAULT 0,
+        image_emoji TEXT DEFAULT '🖼️', creator_address TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS nft_tokens (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        collection_id UUID REFERENCES nft_collections(id) ON DELETE CASCADE,
+        name TEXT NOT NULL, token_id INTEGER NOT NULL,
+        owner_address TEXT DEFAULT '0x0000000000000000000000000000000000000000',
+        price NUMERIC DEFAULT 0, last_sale NUMERIC DEFAULT 0,
+        rarity TEXT DEFAULT 'Common', image_emoji TEXT DEFAULT '🖼️',
+        listed BOOLEAN DEFAULT true, metadata JSONB DEFAULT '{}',
+        minted_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    const count = await pgPool.query(`SELECT COUNT(*) FROM nft_collections`);
+    if (parseInt(count.rows[0].count) === 0) {
+      await pgPool.query(`
+        INSERT INTO nft_collections (name,symbol,description,floor_price,volume_24h,change_24h,total_items,image_emoji) VALUES
+        ('GYDSchain Genesis','GCG','The founding NFT collection of the GYDSchain network.',250000,4500000,12.5,1000,'🌐'),
+        ('Validator Badges','VBG','Exclusive badges awarded to network validators.',100000,1200000,-3.2,500,'🛡️'),
+        ('Node Operators','NOC','Commemorative NFTs for node operators.',500000,800000,5.8,250,'⚡'),
+        ('DeFi Degens','DFD','For the most active DeFi users on GYDSchain.',50000,2100000,22.1,2000,'🔥')
+        ON CONFLICT DO NOTHING
+      `);
+      const cols = await pgPool.query(`SELECT id, image_emoji FROM nft_collections ORDER BY created_at`);
+      for (const col of cols.rows) {
+        await pgPool.query(`
+          INSERT INTO nft_tokens (collection_id,name,token_id,owner_address,price,last_sale,rarity,image_emoji) VALUES
+          ($1,$2||' #001',1,'0x1234000000000000000000000000000000005678',$3,$4,'Legendary',$5),
+          ($1,$2||' #042',42,'0xabcd000000000000000000000000000000ef1234',$6,$7,'Epic',$5),
+          ($1,$2||' #099',99,'0x9876000000000000000000000000000000004321',$8,$9,'Common',$5)
+        `, [
+          col.id, col.image_emoji === '🌐' ? 'Genesis' : col.image_emoji === '🛡️' ? 'Validator' : col.image_emoji === '⚡' ? 'Node Op' : 'DeFi Degen',
+          260000, 245000, col.image_emoji,
+          255000, 240000,
+          250000, 230000,
+        ]);
+      }
+    }
+  },
+
+  async getNftCollections() {
+    const res = await pgPool.query(`SELECT * FROM nft_collections ORDER BY volume_24h DESC`);
+    return res.rows;
+  },
+
+  async getNftTokens(search = '', collectionId = '') {
+    let q = `SELECT t.*, c.name AS collection_name FROM nft_tokens t
+             JOIN nft_collections c ON c.id = t.collection_id WHERE t.listed = true`;
+    const params: any[] = [];
+    if (search) { params.push(`%${search}%`); q += ` AND (t.name ILIKE $${params.length} OR c.name ILIKE $${params.length})`; }
+    if (collectionId) { params.push(collectionId); q += ` AND t.collection_id = $${params.length}`; }
+    q += ` ORDER BY t.price DESC LIMIT 50`;
+    const res = await pgPool.query(q, params);
+    return res.rows;
+  },
+
+  async mintNftToken(userId: number, data: { name: string; collectionId: string; rarity?: string; imageEmoji?: string }) {
+    const collId = data.collectionId || (await pgPool.query(`SELECT id FROM nft_collections LIMIT 1`)).rows[0]?.id;
+    const tokenId = Math.floor(Math.random() * 9000) + 1000;
+    const res = await pgPool.query(
+      `INSERT INTO nft_tokens (collection_id,name,token_id,owner_address,price,last_sale,rarity,image_emoji,listed)
+       VALUES ($1,$2,$3,$4,100000,0,$5,$6,false) RETURNING *`,
+      [collId, data.name, tokenId, `0xUSER${userId}`, data.rarity ?? 'Common', data.imageEmoji ?? '🎨']
+    );
+    return res.rows[0];
+  },
+
+  // ── Price History ─────────────────────────────────────────────────────────
+  async initPriceHistory() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS price_history (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        coin TEXT NOT NULL, open NUMERIC NOT NULL, close NUMERIC NOT NULL,
+        high NUMERIC NOT NULL, low NUMERIC NOT NULL, volume BIGINT DEFAULT 0,
+        timestamp TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS price_history_coin_ts ON price_history(coin, timestamp DESC);
+    `);
+    const count = await pgPool.query(`SELECT COUNT(*) FROM price_history WHERE coin='GYDS'`);
+    if (parseInt(count.rows[0].count) < 30) {
+      let last = 0.0000001;
+      const rows: string[] = [];
+      for (let i = 90; i >= 0; i--) {
+        const noise = () => (Math.random() - 0.48) * last * 0.04;
+        const open = last;
+        const close = Math.max(1e-10, open + noise());
+        const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+        const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+        const vol = Math.floor(Math.random() * 5_000_000 + 1_000_000);
+        const ts = new Date(Date.now() - i * 86400000).toISOString();
+        rows.push(`('GYDS',${open},${close},${high},${low},${vol},'${ts}')`);
+        last = close;
+      }
+      await pgPool.query(`INSERT INTO price_history (coin,open,close,high,low,volume,timestamp) VALUES ${rows.join(',')} ON CONFLICT DO NOTHING`);
+    }
+  },
+
+  async getPriceHistory(coin: string, days: number) {
+    const res = await pgPool.query(
+      `SELECT open::float, close::float, high::float, low::float, volume::bigint, timestamp
+       FROM price_history WHERE coin=$1 AND timestamp > NOW() - ($2 || ' days')::INTERVAL
+       ORDER BY timestamp ASC`,
+      [coin, days]
+    );
+    return res.rows;
+  },
+
+  // ── Webhook Tables ────────────────────────────────────────────────────────
+  async initWebhookTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS webhook_endpoints (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL,
+        url TEXT NOT NULL,
+        secret TEXT NOT NULL,
+        events TEXT[] DEFAULT ARRAY['tx.confirmed','block.new'],
+        active BOOLEAN DEFAULT true,
+        delivery_count INTEGER DEFAULT 0,
+        last_delivered_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+  },
+
+  async getUserWebhooks(userId: string) {
+    const res = await pgPool.query(
+      `SELECT id, url, events, active, delivery_count, last_delivered_at, created_at,
+              LEFT(secret, 8) || '…' AS secret_preview
+       FROM webhook_endpoints WHERE user_id=$1 ORDER BY created_at DESC`,
+      [userId]
+    );
+    return res.rows;
+  },
+
+  async createWebhook(userId: string, url: string, events: string[]) {
+    const secret = `whsec_${Array.from(crypto.getRandomValues(new Uint8Array(20))).map(b => b.toString(16).padStart(2, '0')).join('')}`;
+    const res = await pgPool.query(
+      `INSERT INTO webhook_endpoints (user_id,url,secret,events) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [userId, url, secret, events]
+    );
+    return { ...res.rows[0], full_secret: secret };
+  },
+
+  async deleteWebhook(userId: string, id: string) {
+    await pgPool.query(`DELETE FROM webhook_endpoints WHERE id=$1 AND user_id=$2`, [id, userId]);
+  },
+
+  async toggleWebhook(userId: string, id: string, active: boolean) {
+    await pgPool.query(`UPDATE webhook_endpoints SET active=$1 WHERE id=$2 AND user_id=$3`, [active, id, userId]);
+  },
+
+  // ── Real-World Assets ─────────────────────────────────────────────────────
+  async initRwaTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS rwa_assets (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        description TEXT,
+        total_value NUMERIC DEFAULT 0,
+        token_price NUMERIC DEFAULT 1,
+        tokens_available INTEGER DEFAULT 0,
+        total_tokens INTEGER DEFAULT 1,
+        apy NUMERIC DEFAULT 0,
+        currency TEXT DEFAULT 'USDT',
+        jurisdiction TEXT,
+        audited BOOLEAN DEFAULT false,
+        maturity TEXT,
+        doc_cid TEXT,
+        active BOOLEAN DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS rwa_holdings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL,
+        asset_id UUID NOT NULL REFERENCES rwa_assets(id) ON DELETE CASCADE,
+        tokens_held NUMERIC DEFAULT 0,
+        invested_amount NUMERIC DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(user_id, asset_id)
+      );
+    `);
+    const count = await pgPool.query('SELECT COUNT(*) FROM rwa_assets');
+    if (parseInt(count.rows[0].count) === 0) {
+      await pgPool.query(`
+        INSERT INTO rwa_assets (name, type, description, total_value, token_price, tokens_available, total_tokens, apy, currency, jurisdiction, audited, maturity) VALUES
+        ('Dubai Marina Tower — Floor 12', 'real-estate', 'Commercial office space in Dubai Marina. Quarterly yield distribution.', 2500000, 100, 8000, 25000, 8.5, 'USDT', 'UAE', true, '2027-06'),
+        ('GYDSchain Treasury Bond — Series A', 'bond', 'Fixed-income bond backed by GYDSchain treasury reserves. Semi-annual coupon payments.', 1000000, 50, 12000, 20000, 6.2, 'USDT', 'Cayman Islands', true, '2026-12'),
+        ('Gold Bullion Vault — 500 oz', 'commodity', 'Physical gold in a Swiss vault. Each token represents 0.01 oz.', 950000, 19, 5000, 50000, 0, 'USD', 'Switzerland', true, NULL),
+        ('Supply Chain Invoice — TechCorp MENA', 'invoice', 'Short-term trade invoice financing, 90-day term, high yield.', 200000, 20, 2000, 10000, 14.5, 'USDT', 'UAE', false, '2026-09')
+        ON CONFLICT DO NOTHING;
+      `);
+    }
+  },
+
+  async getRwaAssets() {
+    const res = await pgPool.query(`SELECT * FROM rwa_assets WHERE active=true ORDER BY total_value DESC`);
+    return res.rows;
+  },
+
+  async investRwa(userId: string, assetId: string, amount: number) {
+    const asset = await pgPool.query('SELECT * FROM rwa_assets WHERE id=$1', [assetId]);
+    if (!asset.rows[0]) throw new Error('Asset not found');
+    const tokens = Math.floor(amount / asset.rows[0].token_price);
+    if (tokens < 1) throw new Error('Amount too small for at least 1 token');
+    await pgPool.query(`
+      INSERT INTO rwa_holdings (user_id, asset_id, tokens_held, invested_amount)
+      VALUES ($1,$2,$3,$4)
+      ON CONFLICT (user_id, asset_id) DO UPDATE SET
+        tokens_held = rwa_holdings.tokens_held + EXCLUDED.tokens_held,
+        invested_amount = rwa_holdings.invested_amount + EXCLUDED.invested_amount
+    `, [userId, assetId, tokens, amount]);
+    await pgPool.query(`UPDATE rwa_assets SET tokens_available = GREATEST(tokens_available - $1, 0) WHERE id=$2`, [tokens, assetId]);
+    return { tokens, amount };
+  },
+
+  async getUserRwaHoldings(userId: string) {
+    const res = await pgPool.query(`
+      SELECT h.*, a.name, a.type, a.token_price, a.apy, a.currency, a.maturity
+      FROM rwa_holdings h
+      JOIN rwa_assets a ON a.id = h.asset_id
+      WHERE h.user_id=$1 ORDER BY h.created_at DESC
+    `, [userId]);
+    return res.rows;
+  },
+
+  // ── Network Snapshots ──────────────────────────────────────────────────────
+  async initNetworkSnapshotTable() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS network_snapshots (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        active_validators INTEGER DEFAULT 0,
+        active_nodes INTEGER DEFAULT 0,
+        total_transactions BIGINT DEFAULT 0,
+        total_tokens INTEGER DEFAULT 0,
+        tps NUMERIC DEFAULT 0,
+        captured_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS network_snapshots_captured_idx ON network_snapshots(captured_at DESC);
+    `);
+  },
+
+  async captureNetworkSnapshot() {
+    const stats = await pgPool.query(`
+      SELECT
+        COUNT(DISTINCT v.id) FILTER (WHERE v.status='active') AS active_validators,
+        COUNT(DISTINCT n.id) FILTER (WHERE n.status='active') AS active_nodes,
+        COUNT(DISTINCT t.id) AS total_transactions,
+        COUNT(DISTINCT tok.id) AS total_tokens
+      FROM validators v
+      CROSS JOIN node_installations n
+      CROSS JOIN transactions t
+      CROSS JOIN tokens tok
+    `).catch(() => ({ rows: [{ active_validators: 0, active_nodes: 0, total_transactions: 0, total_tokens: 0 }] }));
+    const s = stats.rows[0];
+    await pgPool.query(
+      `INSERT INTO network_snapshots (active_validators, active_nodes, total_transactions, total_tokens, tps)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [s.active_validators, s.active_nodes, s.total_transactions, s.total_tokens, 1250]
+    );
+  },
+
+  async getNetworkHistory(hours = 24) {
+    const res = await pgPool.query(`
+      SELECT * FROM network_snapshots
+      WHERE captured_at >= NOW() - INTERVAL '${hours} hours'
+      ORDER BY captured_at ASC
+    `);
+    return res.rows;
+  },
+
+  // ── Multi-Sig ─────────────────────────────────────────────────────────────
+  async initMultisigTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS multisig_wallets (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        address TEXT NOT NULL UNIQUE,
+        threshold INTEGER NOT NULL DEFAULT 2,
+        creator_id TEXT NOT NULL,
+        balance NUMERIC DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS multisig_signers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        wallet_id UUID NOT NULL REFERENCES multisig_wallets(id) ON DELETE CASCADE,
+        address TEXT NOT NULL,
+        name TEXT,
+        user_id TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(wallet_id, address)
+      );
+      CREATE TABLE IF NOT EXISTS multisig_transactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        wallet_id UUID NOT NULL REFERENCES multisig_wallets(id) ON DELETE CASCADE,
+        proposer_id TEXT NOT NULL,
+        to_address TEXT NOT NULL,
+        amount NUMERIC NOT NULL,
+        symbol TEXT DEFAULT 'GYDS',
+        description TEXT,
+        approvals INTEGER DEFAULT 0,
+        rejections INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS multisig_signatures (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tx_id UUID NOT NULL REFERENCES multisig_transactions(id) ON DELETE CASCADE,
+        signer_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        signed_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(tx_id, signer_id)
+      );
+    `);
+  },
+
+  async getUserMultisigWallets(userId: string) {
+    const res = await pgPool.query(`
+      SELECT w.*, 
+        json_agg(json_build_object('id',s.id,'address',s.address,'name',s.name,'user_id',s.user_id)) AS signers
+      FROM multisig_wallets w
+      JOIN multisig_signers s ON s.wallet_id = w.id
+      WHERE w.creator_id=$1 OR s.user_id=$1
+      GROUP BY w.id ORDER BY w.created_at DESC
+    `, [userId]);
+    return res.rows;
+  },
+
+  async createMultisigWallet(userId: string, name: string, threshold: number, signers: { address: string; name?: string; userId?: string }[]) {
+    const addr = `0xmulti${Date.now().toString(16).slice(-8)}`;
+    const wallet = await pgPool.query(
+      `INSERT INTO multisig_wallets (name, address, threshold, creator_id) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [name, addr, threshold, userId]
+    );
+    const wid = wallet.rows[0].id;
+    for (const s of signers) {
+      await pgPool.query(
+        `INSERT INTO multisig_signers (wallet_id, address, name, user_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+        [wid, s.address, s.name ?? null, s.userId ?? null]
+      );
+    }
+    return wallet.rows[0];
+  },
+
+  async getMultisigTransactions(walletId: string) {
+    const res = await pgPool.query(
+      `SELECT t.*, 
+        json_agg(json_build_object('signer_id',s.signer_id,'action',s.action,'signed_at',s.signed_at)) 
+          FILTER (WHERE s.id IS NOT NULL) AS signatures
+       FROM multisig_transactions t
+       LEFT JOIN multisig_signatures s ON s.tx_id = t.id
+       WHERE t.wallet_id=$1 GROUP BY t.id ORDER BY t.created_at DESC`,
+      [walletId]
+    );
+    return res.rows;
+  },
+
+  async proposeMultisigTx(userId: string, walletId: string, toAddress: string, amount: number, symbol: string, description: string) {
+    const tx = await pgPool.query(
+      `INSERT INTO multisig_transactions (wallet_id, proposer_id, to_address, amount, symbol, description, approvals)
+       VALUES ($1,$2,$3,$4,$5,$6,1) RETURNING *`,
+      [walletId, userId, toAddress, amount, symbol, description]
+    );
+    await pgPool.query(
+      `INSERT INTO multisig_signatures (tx_id, signer_id, action) VALUES ($1,$2,'approve') ON CONFLICT DO NOTHING`,
+      [tx.rows[0].id, userId]
+    );
+    return tx.rows[0];
+  },
+
+  async signMultisigTx(userId: string, txId: string, action: 'approve' | 'reject') {
+    await pgPool.query(
+      `INSERT INTO multisig_signatures (tx_id, signer_id, action) VALUES ($1,$2,$3)
+       ON CONFLICT (tx_id, signer_id) DO UPDATE SET action=$3`,
+      [txId, userId, action]
+    );
+    if (action === 'approve') {
+      await pgPool.query(`UPDATE multisig_transactions SET approvals = approvals+1 WHERE id=$1 AND status='pending'`, [txId]);
+    } else {
+      await pgPool.query(`UPDATE multisig_transactions SET rejections = rejections+1, status='rejected' WHERE id=$1`, [txId]);
+    }
+    const t = await pgPool.query(`SELECT t.*, w.threshold FROM multisig_transactions t JOIN multisig_wallets w ON w.id=t.wallet_id WHERE t.id=$1`, [txId]);
+    if (t.rows[0] && t.rows[0].approvals >= t.rows[0].threshold) {
+      await pgPool.query(`UPDATE multisig_transactions SET status='executed' WHERE id=$1`, [txId]);
+    }
+    return t.rows[0];
+  },
+
+  // ── Identity ──────────────────────────────────────────────────────────────
+  async initIdentityTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS did_documents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL UNIQUE,
+        did TEXT NOT NULL UNIQUE,
+        document JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS kyc_records (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL UNIQUE,
+        tier INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'none',
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+  },
+
+  async getOrCreateDID(userId: string, email?: string) {
+    const did = `did:gyds:${userId.replace(/-/g, '').slice(0, 32)}`;
+    await pgPool.query(
+      `INSERT INTO did_documents (user_id, did, document) VALUES ($1,$2,$3)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId, did, JSON.stringify({ id: did, controller: did, email_hash: email ? Buffer.from(email).toString('base64') : null })]
+    );
+    const res = await pgPool.query(`SELECT * FROM did_documents WHERE user_id=$1`, [userId]);
+    return res.rows[0];
+  },
+
+  async getUserKYC(userId: string) {
+    const res = await pgPool.query(`SELECT * FROM kyc_records WHERE user_id=$1`, [userId]);
+    if (res.rows.length === 0) {
+      await pgPool.query(`INSERT INTO kyc_records (user_id, tier, status) VALUES ($1,0,'none') ON CONFLICT DO NOTHING`, [userId]);
+      return { user_id: userId, tier: 0, status: 'none' };
+    }
+    return res.rows[0];
+  },
+
+  async getUserReputation(userId: string) {
+    const res = await pgPool.query(`
+      SELECT 
+        COALESCE(ux.total_xp, 0) AS total_xp,
+        COALESCE(ux.level, 1) AS level,
+        COUNT(DISTINCT ua.achievement_id) AS achievement_count,
+        COUNT(DISTINCT ni.id) FILTER (WHERE ni.status='active') AS active_nodes,
+        COUNT(DISTINCT t.id) AS tx_count
+      FROM users u
+      LEFT JOIN user_xp ux ON ux.user_id=u.id
+      LEFT JOIN user_achievements ua ON ua.user_id=u.id
+      LEFT JOIN node_installations ni ON ni.user_id=u.id
+      LEFT JOIN transactions t ON t.user_id=u.id
+      WHERE u.id=$1
+      GROUP BY u.id, ux.total_xp, ux.level
+    `, [userId]);
+    if (!res.rows[0]) return { score: 0, breakdown: {} };
+    const r = res.rows[0];
+    const txScore     = Math.min(Number(r.tx_count) * 5, 100);
+    const nodeScore   = Math.min(Number(r.active_nodes) * 50, 200);
+    const xpScore     = Math.min(Math.floor(Number(r.total_xp) / 10), 200);
+    const achieveScore = Math.min(Number(r.achievement_count) * 15, 150);
+    const score = txScore + nodeScore + xpScore + achieveScore;
+    return { score, level: r.level, breakdown: { txScore, nodeScore, xpScore, achieveScore, totalXp: r.total_xp, achievements: r.achievement_count } };
+  },
+
+  // ── Trade History ─────────────────────────────────────────────────────────
+  async initTradesTable() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS trade_history (
+        id          SERIAL PRIMARY KEY,
+        pair        TEXT NOT NULL DEFAULT 'GYDS/USDT',
+        price       NUMERIC(30,18) NOT NULL,
+        amount      NUMERIC(30,6)  NOT NULL,
+        side        TEXT NOT NULL CHECK (side IN ('buy','sell')),
+        taker_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+        maker_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+        executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_trade_hist_pair ON trade_history(pair, executed_at DESC)`);
+    const count = await pgPool.query(`SELECT COUNT(*) FROM trade_history`);
+    if (+count.rows[0].count === 0) {
+      const mid = 0.0000001;
+      for (let i = 0; i < 50; i++) {
+        const side = Math.random() > 0.5 ? 'buy' : 'sell';
+        const offset = (Math.random() - 0.5) * mid * 0.05;
+        const price = Math.max(mid + offset, 0.000000001);
+        const amount = Math.floor(Math.random() * 5_000_000 + 100_000);
+        const ts = new Date(Date.now() - i * 60_000 * (Math.random() * 5 + 1));
+        await pgPool.query(
+          `INSERT INTO trade_history (pair, price, amount, side, executed_at) VALUES ($1,$2,$3,$4,$5)`,
+          ['GYDS/USDT', price, amount, side, ts.toISOString()]
+        );
+      }
+    }
+  },
+
+  async getTradeHistory(pair = 'GYDS/USDT', limit = 40) {
+    const res = await pgPool.query(
+      `SELECT id, pair, price::text, amount::text, side, executed_at FROM trade_history WHERE pair=$1 ORDER BY executed_at DESC LIMIT $2`,
+      [pair, limit]
+    );
+    return res.rows;
+  },
+
+  async recordTrade(pair: string, price: string, amount: string, side: string, takerId?: string, makerId?: string) {
+    const res = await pgPool.query(
+      `INSERT INTO trade_history (pair, price, amount, side, taker_id, maker_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [pair, price, amount, side, takerId || null, makerId || null]
+    );
+    return res.rows[0];
+  },
+
   // ── Network Stats ─────────────────────────────────────────────────────────
   async getNetworkStats() {
     const cutoff = new Date(Date.now() - 90 * 1000);

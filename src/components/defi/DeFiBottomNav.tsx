@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Droplets, Briefcase, ArrowLeftRight, Layers, Rocket, Link2, BookOpen, TrendingUp } from 'lucide-react';
+import { Droplets, Briefcase, ArrowLeftRight, Layers, Rocket, Link2, BookOpen, TrendingUp, Calculator } from 'lucide-react';
 
 interface DeFiBottomNavProps {
   activeTab: string;
@@ -15,6 +15,7 @@ const navItems = [
   { id: 'bridge',    icon: Link2,          label: 'Bridge' },
   { id: 'launchpad', icon: Rocket,         label: 'Launch' },
   { id: 'portfolio', icon: Briefcase,      label: 'Portfolio' },
+  { id: 'ilcalc',    icon: Calculator,     label: 'IL Calc' },
 ];
 
 export const DeFiBottomNav = ({ activeTab, onTabChange }: DeFiBottomNavProps) => {

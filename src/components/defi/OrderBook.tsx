@@ -50,6 +50,8 @@ export const OrderBook = () => {
   const { user } = useAuth();
   const { toast } = useToast();
 
+  interface Trade { id: number; price: string; amount: string; side: string; executed_at: string; }
+
   const [asks, setAsks] = useState<BookLevel[]>([]);
   const [bids, setBids] = useState<BookLevel[]>([]);
   const [side, setSide] = useState<OrderSide>('buy');
@@ -61,6 +63,8 @@ export const OrderBook = () => {
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [showTrades, setShowTrades] = useState(true);
 
   useEffect(() => {
     const refresh = () => {
@@ -83,7 +87,18 @@ export const OrderBook = () => {
     }
   }, [user]);
 
-  useEffect(() => { fetchMyOrders(); }, [fetchMyOrders]);
+  const fetchTrades = useCallback(async () => {
+    try {
+      const res = await fetch('/api/trades?pair=GYDS/USDT&limit=20');
+      if (res.ok) setTrades(await res.json());
+    } catch {}
+  }, []);
+
+  useEffect(() => { fetchMyOrders(); fetchTrades(); }, [fetchMyOrders, fetchTrades]);
+  useEffect(() => {
+    const id = setInterval(fetchTrades, 10_000);
+    return () => clearInterval(id);
+  }, [fetchTrades]);
 
   const placeOrder = async () => {
     if (!user) { toast({ title: 'Sign in to trade', variant: 'destructive' }); return; }
@@ -134,6 +149,8 @@ export const OrderBook = () => {
 
   const openOrders = myOrders.filter(o => o.status === 'open');
 
+  const maxDepth = Math.max(...asks.map(o => o.total), ...bids.map(o => o.total), 1);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -149,6 +166,38 @@ export const OrderBook = () => {
       <GlassCard className="p-3 text-center">
         <p className="text-2xl font-bold font-mono text-primary">${midPrice.toFixed(10)}</p>
         <p className="text-xs text-muted-foreground mt-0.5">Mid price · GYDS/USDT</p>
+      </GlassCard>
+
+      {/* Depth Chart */}
+      <GlassCard className="p-4">
+        <p className="text-xs font-semibold text-muted-foreground mb-3">Depth Chart</p>
+        <div className="relative h-28 flex items-end gap-px overflow-hidden rounded-lg bg-muted/10">
+          {/* Bid side (left) */}
+          <div className="flex-1 flex items-end h-full gap-px">
+            {[...bids].reverse().map((o, i) => (
+              <div key={i} className="flex-1 flex flex-col justify-end h-full" title={`Bid $${o.price.toFixed(10)}: ${(o.total / 1e6).toFixed(1)}M`}>
+                <div className="w-full bg-emerald-500/40 rounded-t transition-all"
+                  style={{ height: `${(o.total / maxDepth) * 100}%`, minHeight: 2 }} />
+              </div>
+            ))}
+          </div>
+          {/* Center line */}
+          <div className="w-px bg-border/60 h-full shrink-0" />
+          {/* Ask side (right) */}
+          <div className="flex-1 flex items-end h-full gap-px">
+            {asks.map((o, i) => (
+              <div key={i} className="flex-1 flex flex-col justify-end h-full" title={`Ask $${o.price.toFixed(10)}: ${(o.total / 1e6).toFixed(1)}M`}>
+                <div className="w-full bg-red-500/40 rounded-t transition-all"
+                  style={{ height: `${(o.total / maxDepth) * 100}%`, minHeight: 2 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5">
+          <span className="text-emerald-400">← Bids</span>
+          <span className="text-xs font-mono">Mid: ${midPrice.toFixed(10)}</span>
+          <span className="text-red-400">Asks →</span>
+        </div>
       </GlassCard>
 
       <div className="grid grid-cols-1 gap-4">
@@ -244,6 +293,43 @@ export const OrderBook = () => {
               ? <><RefreshCw className="w-4 h-4 animate-spin mr-2" />Placing…</>
               : `${side === 'buy' ? 'Buy' : 'Sell'} GYDS`}
           </Button>
+        </GlassCard>
+
+        {/* Trade History Feed */}
+        <GlassCard className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold">Recent Trades</p>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              <button onClick={() => setShowTrades(v => !v)} className="text-xs text-muted-foreground hover:text-foreground">
+                {showTrades ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </div>
+          {showTrades && (
+            <>
+              <div className="flex justify-between text-[10px] text-muted-foreground mb-1 px-1">
+                <span>Price (USDT)</span><span>Amount (GYDS)</span><span>Time</span>
+              </div>
+              <div className="space-y-px max-h-48 overflow-y-auto">
+                {trades.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-4">No trades yet</p>
+                ) : trades.map(t => (
+                  <div key={t.id} className="flex justify-between items-center text-xs py-0.5 px-1 hover:bg-muted/20 rounded">
+                    <span className={`font-mono ${t.side === 'buy' ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {parseFloat(t.price).toFixed(10)}
+                    </span>
+                    <span className="text-muted-foreground font-mono">
+                      {(parseFloat(t.amount) / 1_000_000).toFixed(2)}M
+                    </span>
+                    <span className="text-muted-foreground text-[10px]">
+                      {new Date(t.executed_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </GlassCard>
 
         {/* My open orders */}

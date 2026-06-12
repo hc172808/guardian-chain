@@ -134,8 +134,8 @@
 ### PHASE 2 — DeFi Expansion
 - [ ] Bridge fee config in `admin_config`
 - [ ] Bridge status tracker in wallet page
-- [ ] Orderbook: depth chart visualization
-- [ ] Orderbook: trade history public feed
+- [x] Orderbook: depth chart visualization — DepthChart in OrderBook.tsx renders bid/ask cumulative volume bars side-by-side with mid-price indicator; updates every 3 s
+- [x] Orderbook: trade history public feed — `trade_history` table seeded with 50 realistic trades; GET /api/trades; OrderBook renders live scrollable feed with price/amount/time, refreshes every 10s
 - [ ] Orderbook: TWAP + iceberg order types
 - [ ] Vault auto-compound strategy for GYDS staking
 - [ ] Vault LP fee compounding
@@ -150,9 +150,9 @@
 - [x] Proposal detail + voting interface — one-vote-per-user enforced server-side
 - [x] Create proposal form (parameter / treasury / upgrade / grant) — persisted to DB
 - [x] Vote tracking — `governance_votes` table, duplicate vote rejected with 409
-- [ ] Voting power calculator (based on staked GYDS)
-- [ ] Treasury balance display (multi-coin) — wire to DB
-- [ ] Grant application flow
+- [x] Voting power calculator (based on nodes × 1000 + XP ÷ 10 + staked GYDS) — wired to DB via GET /api/governance/voting-power
+- [x] Treasury balance display (multi-coin) — GYDS, GYD, ETH seeded + wired to DB via GET /api/governance/treasury
+- [x] Grant application flow — Grants tab in Governance with 3-tier structure (Micro/Builder/Foundation); "Apply for Grant" button opens proposal form pre-set to type=grant; grants pulled from governance_proposals where type=grant with full voting UI
 - [ ] On-chain proposal execution (payload dispatch to chain)
 - [ ] Delegation of voting power (liquid democracy)
 - [ ] Emergency governance (fast-track critical proposals)
@@ -173,18 +173,20 @@
 
 ### PHASE 5 — Identity & Reputation
 > Tables: `kyc_records`, `on_chain_identities`, `did_documents`, `sanctions_list`
-- [ ] DID creation (`did:gyds:<address>`) — wire to DB
+- [x] DID creation (`did:gyds:<address>`) — wire to DB; GET /api/identity/did; getOrCreateDID auto-provisions on first access
+- [x] Reputation score visualization — GET /api/identity/reputation; composite score from nodes+xp+governance+referrals
+- [x] KYC tier display (tier 0-3) — GET /api/identity/kyc; tier names: None/Basic/Advanced/Full
 - [ ] Verified claims display
-- [ ] Reputation score visualization
-- [ ] KYC tier 0 → tier 3 upgrade flow (UI only, no PII in DB)
+- [ ] KYC tier upgrade flow (UI only, no PII in DB)
 - [ ] Sanctions screening on wallet creation and bridge usage
 - [ ] Social link verification (Twitter, Telegram proof-of-ownership)
 - [ ] Soulbound tokens for identity verification
 
 ### PHASE 6 — Real-World Assets (RWA)
 > Tables: `rwa_assets`, `rwa_holdings`
-- [ ] Asset listing (real estate, bonds, commodities, invoices) — wire to DB
-- [ ] Investment interface (buy/sell RWA tokens)
+- [x] Asset listing (real estate, bonds, commodities, invoices) — wire to DB; 4 seeded assets; GET /api/rwa/assets
+- [x] Investment interface — POST /api/rwa/invest; writes rwa_holdings to DB
+- [x] Portfolio holdings tab — GET /api/rwa/holdings; shows current user positions
 - [ ] Yield tracking dashboard
 - [ ] Legal document CID storage (IPFS links)
 - [ ] Jurisdiction compliance checker
@@ -198,8 +200,8 @@
 - [x] Nested comments — wired to DB, lazy-loaded per post
 - [x] Upvote/downvote system (posts + comments, one-vote enforced) — wired to DB
 - [ ] Rich text post editor
-- [ ] Unique referral code per user — referral tab UI built, backend not yet wired
-- [ ] Referral tracking dashboard
+- [x] Unique referral code per user — fully wired to DB (referrals + referral_events tables); GET /api/referral, POST /api/referral/use; +500 GYDS + 100 XP on successful referral
+- [x] Referral tracking dashboard — referred users list with dates + earnings shown in Community → Referral tab; "Use a code" card for new users
 - [ ] Reward distribution (% of referred user's fees)
 - [ ] Trader profiles (public wallet stats, badges, portfolio)
 - [ ] Follow system (follow traders / validators)
@@ -207,22 +209,22 @@
 
 ### PHASE 8 — Advanced Analytics
 > Tables: `price_history`, `network_snapshots`, `node_metrics_history`
-- [ ] GYDS price OHLCV chart (candlestick + volume bars) — wire to DB
-- [ ] Network health time-series (nodes, stake, TPS)
-- [ ] On-chain activity heatmap (daily/hourly tx count)
+- [x] GYDS price OHLCV chart (candlestick + volume bars) — wired to DB via GET /api/analytics/price-history/GYDS; falls back to generated data
+- [x] Network health time-series (nodes, stake, TPS) — GET /api/analytics/network-history; live snapshots chart in Analytics Network tab
+- [x] On-chain activity heatmap (daily/hourly tx count) — TxHeatmap component in Activity tab
+- [x] Automated network snapshot cron (hourly insert) — `captureNetworkSnapshot` via setInterval in index.ts; fires on startup
 - [ ] Holder concentration (whale / retail breakdown)
 - [ ] LP inflow/outflow tracking
-- [ ] Mining profitability calculator v2 (electricity cost input)
+- [x] Mining profitability calculator v2 (electricity cost input) — Mining Calc tab in Analytics; hashrate, power, electricity cost, pool fee inputs; real-time daily/monthly/annual GYDS + USD estimates
 - [ ] Validator performance history charts
-- [ ] Automated network snapshot cron (hourly insert)
 - [ ] Export to CSV / PDF reports
 
 ### PHASE 9 — Multi-Sig & Enterprise
 > Tables: `multisig_wallets`, `multisig_transactions`, `multisig_signatures`
-- [ ] Create 2-of-3, 3-of-5 wallets — wire to DB
-- [ ] Propose transaction interface
-- [ ] Co-signer approval/rejection UI
-- [ ] Transaction execution on threshold met
+- [x] Create 2-of-3, 3-of-5 wallets — wire to DB; POST /api/multisig/wallets; `multisig_wallets` + `multisig_signers` tables
+- [x] Propose transaction interface — POST /api/multisig/transactions; full validation of signer membership
+- [x] Co-signer approval/rejection UI — POST /api/multisig/transactions/:id/sign; Multisig.tsx fully rewritten (no DEMO_ data)
+- [x] Transaction execution on threshold met — auto-executes when signatures ≥ required threshold
 - [ ] Hardware wallet support (Ledger, Trezor via WebHID)
 - [ ] Multi-sig for DAO treasury spend
 
@@ -237,10 +239,11 @@
 
 ### PHASE 11 — API Access & Developer Portal
 > Tables: `api_keys`, `api_usage_logs`
-- [ ] API key generation (scope selection) — wire to DB
+- [x] API key generation (scope selection) — wired to DB; create/list/revoke; full key shown once on creation, hashed in DB; max 10 per user
 - [ ] Usage dashboard (requests/day, rate limit status)
 - [ ] Interactive API docs (Swagger/OpenAPI)
-- [ ] REST API: GET /v1/network/stats, /v1/tokens, /v1/blocks/:height, /v1/address/:address/balance, POST /v1/transactions/submit
+- [x] REST API v1: GET /v1/network/stats, /v1/tokens, /v1/validators, /v1/oracle/prices, /v1/address/:address/balance — live responses
+- [ ] REST API v1: POST /v1/transactions/submit, GET /v1/blocks/:height, GET /v1/tx/:hash
 - [ ] SDK: JavaScript/TypeScript client (`@gydschain/sdk`)
 - [ ] SDK: Python client (`gydschain-py`)
 
@@ -320,7 +323,7 @@
 
 ### Security Hardening
 - [ ] ZK proof of wallet ownership
-- [ ] Rate limiting on all API calls
+- [x] Rate limiting on all API calls — express-rate-limit: auth 20/15min, faucet 5/hour, API 120/min
 - [ ] Encrypted message channel (E2E between wallets)
 - [ ] Anti-bot CAPTCHA on faucet (hCaptcha)
 - [ ] CSP hardening for dashboard

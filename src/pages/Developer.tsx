@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -11,17 +11,20 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import {
   Code2, Key, Plus, Copy, Trash2, Activity,
-  BookOpen, Zap, Shield, Globe, ChevronRight
+  BookOpen, Zap, Shield, Globe, ChevronRight, RefreshCw, Eye, EyeOff,
+  Webhook, ToggleLeft, ToggleRight, ExternalLink
 } from 'lucide-react';
 
 interface ApiKey {
   id: string;
   name: string;
-  key: string;
-  scope: string[];
-  requests: number;
-  limit: number;
-  createdAt: string;
+  key_prefix: string;
+  scopes: string[];
+  request_count: number;
+  request_limit: number;
+  last_used_at: string | null;
+  created_at: string;
+  fullKey?: string;
 }
 
 const ENDPOINTS = [
@@ -39,51 +42,125 @@ const ENDPOINTS = [
 
 const SCOPES = ['read:chain', 'read:wallet', 'write:tx', 'read:oracle', 'webhooks'];
 
+const fmtDate = (d: string) => new Date(d).toLocaleDateString();
+const fmtRelative = (d: string) => {
+  const diff = Date.now() - new Date(d).getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return fmtDate(d);
+};
+
 const DeveloperPage = () => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [keys, setKeys] = useState<ApiKey[]>([
-    {
-      id: '1',
-      name: 'My App',
-      key: 'gyds_live_' + 'x'.repeat(32),
-      scope: ['read:chain', 'read:wallet'],
-      requests: 1_247,
-      limit: 10_000,
-      createdAt: '7 days ago',
-    },
-  ]);
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [keysLoading, setKeysLoading] = useState(true);
   const [newName, setNewName] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>(['read:chain']);
   const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [tryEndpoint, setTryEndpoint] = useState(ENDPOINTS[0]);
   const [tryResult, setTryResult] = useState('');
+  const [revealedKeys, setRevealedKeys] = useState<Record<string, boolean>>({});
+  const [newKeyFull, setNewKeyFull] = useState<string | null>(null);
+  const [webhooks, setWebhooks] = useState<any[]>([]);
+  const [webhooksLoading, setWebhooksLoading] = useState(false);
+  const [newWebhookUrl, setNewWebhookUrl] = useState('');
+  const [newWebhookEvents, setNewWebhookEvents] = useState<string[]>(['tx.confirmed', 'block.new']);
+  const [addingWebhook, setAddingWebhook] = useState(false);
+  const [newWebhookSecret, setNewWebhookSecret] = useState<string | null>(null);
 
-  const createKey = () => {
+  const fetchKeys = useCallback(async () => {
+    if (!user) { setKeysLoading(false); return; }
+    setKeysLoading(true);
+    try {
+      const res = await fetch('/api/developer/keys', { credentials: 'include' });
+      if (res.ok) setKeys(await res.json());
+    } finally { setKeysLoading(false); }
+  }, [user]);
+
+  const fetchWebhooks = useCallback(async () => {
+    if (!user) return;
+    setWebhooksLoading(true);
+    try {
+      const res = await fetch('/api/webhooks', { credentials: 'include' });
+      if (res.ok) setWebhooks(await res.json());
+    } finally { setWebhooksLoading(false); }
+  }, [user]);
+
+  const createWebhook = async () => {
+    if (!newWebhookUrl.trim()) return;
+    setAddingWebhook(true);
+    try {
+      const res = await fetch('/api/webhooks', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: newWebhookUrl.trim(), events: newWebhookEvents }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setNewWebhookSecret(data.full_secret);
+      setWebhooks(prev => [...prev, data]);
+      setNewWebhookUrl('');
+      toast({ title: '🔗 Webhook created', description: 'Copy the signing secret — shown once!' });
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
+    } finally { setAddingWebhook(false); }
+  };
+
+  const deleteWebhook = async (id: string) => {
+    await fetch(`/api/webhooks/${id}`, { method: 'DELETE', credentials: 'include' });
+    setWebhooks(prev => prev.filter(w => w.id !== id));
+    toast({ title: 'Webhook deleted' });
+  };
+
+  const toggleWebhook = async (id: string, active: boolean) => {
+    await fetch(`/api/webhooks/${id}`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active }),
+    });
+    setWebhooks(prev => prev.map(w => w.id === id ? { ...w, active } : w));
+  };
+
+  useEffect(() => { fetchKeys(); }, [fetchKeys]);
+  useEffect(() => { fetchWebhooks(); }, [fetchWebhooks]);
+
+  const createKey = async () => {
     if (!user) { toast({ title: 'Sign in first', variant: 'destructive' }); return; }
     if (!newName.trim()) { toast({ title: 'Name required', variant: 'destructive' }); return; }
-    const k: ApiKey = {
-      id: Date.now().toString(),
-      name: newName,
-      key: 'gyds_live_' + Math.random().toString(36).slice(2).padEnd(32, '0'),
-      scope: selectedScopes,
-      requests: 0,
-      limit: 10_000,
-      createdAt: 'Just now',
-    };
-    setKeys(prev => [...prev, k]);
-    setNewName('');
-    setCreating(false);
-    toast({ title: 'API key created', description: 'Copy it now — it won\'t be shown again.' });
+    setSaving(true);
+    try {
+      const res = await fetch('/api/developer/keys', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim(), scopes: selectedScopes }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed');
+      setNewKeyFull(data.fullKey);
+      setKeys(prev => [...prev, data]);
+      setNewName('');
+      setCreating(false);
+      toast({ title: '🔑 API key created', description: 'Copy your full key now — it will not be shown again!' });
+    } catch (e: any) {
+      toast({ title: 'Failed to create key', description: e.message, variant: 'destructive' });
+    } finally { setSaving(false); }
   };
 
-  const deleteKey = (id: string) => {
-    setKeys(prev => prev.filter(k => k.id !== id));
-    toast({ title: 'API key deleted' });
+  const revokeKey = async (id: string) => {
+    try {
+      await fetch(`/api/developer/keys/${id}`, { method: 'DELETE', credentials: 'include' });
+      setKeys(prev => prev.filter(k => k.id !== id));
+      toast({ title: 'API key revoked' });
+    } catch {
+      toast({ title: 'Error', variant: 'destructive' });
+    }
   };
 
-  const copyKey = (key: string) => {
-    navigator.clipboard.writeText(key);
+  const copyKey = (val: string) => {
+    navigator.clipboard.writeText(val);
     toast({ title: 'Copied to clipboard' });
   };
 
@@ -116,7 +193,7 @@ const DeveloperPage = () => {
         <div className="grid grid-cols-3 gap-4">
           {[
             { label: 'API Keys', value: keys.length, icon: Key },
-            { label: 'Total Requests', value: keys.reduce((a, k) => a + k.requests, 0).toLocaleString(), icon: Activity },
+            { label: 'Total Requests', value: keys.reduce((a, k) => a + k.request_count, 0).toLocaleString(), icon: Activity },
             { label: 'Endpoints', value: ENDPOINTS.length, icon: Globe },
           ].map(s => (
             <GlassCard key={s.label} className="p-4">
@@ -129,9 +206,26 @@ const DeveloperPage = () => {
           ))}
         </div>
 
+        {/* New key reveal banner */}
+        {newKeyFull && (
+          <GlassCard className="p-4 border-amber-500/40 bg-amber-500/5">
+            <p className="text-sm font-semibold text-amber-400 mb-2">⚠️ Copy your API key now — it will not be shown again!</p>
+            <div className="flex items-center gap-2 bg-muted/30 rounded-lg p-2">
+              <code className="text-xs font-mono flex-1 break-all text-primary">{newKeyFull}</code>
+              <button onClick={() => copyKey(newKeyFull)} className="text-muted-foreground hover:text-primary p-1 transition-colors shrink-0">
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+            <button onClick={() => setNewKeyFull(null)} className="mt-2 text-xs text-muted-foreground hover:text-foreground">
+              I've copied it, dismiss
+            </button>
+          </GlassCard>
+        )}
+
         <Tabs defaultValue="keys">
           <TabsList>
             <TabsTrigger value="keys">API Keys</TabsTrigger>
+            <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
             <TabsTrigger value="docs">Endpoints</TabsTrigger>
             <TabsTrigger value="playground">Playground</TabsTrigger>
             <TabsTrigger value="sdks">SDKs</TabsTrigger>
@@ -139,72 +233,216 @@ const DeveloperPage = () => {
 
           {/* API Keys */}
           <TabsContent value="keys" className="mt-4 space-y-4">
-            <div className="flex justify-end">
-              <Button onClick={() => setCreating(true)} className="gap-2">
-                <Plus className="w-4 h-4" /> New API Key
-              </Button>
-            </div>
-
-            {creating && (
-              <GlassCard className="p-5 space-y-4 border-primary/30">
-                <h3 className="font-semibold">Create API Key</h3>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Key Name</Label>
-                  <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="My Application" />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground mb-2 block">Scopes</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {SCOPES.map(s => (
-                      <button key={s} onClick={() => setSelectedScopes(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])}
-                        className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${selectedScopes.includes(s) ? 'border-primary bg-primary/10 text-primary' : 'border-border/40 text-muted-foreground'}`}>
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button onClick={createKey}>Create</Button>
-                  <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
-                </div>
+            {!user && (
+              <GlassCard className="p-6 text-center text-muted-foreground">
+                <Key className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p>Sign in to manage your API keys.</p>
               </GlassCard>
             )}
+            {user && (
+              <>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={fetchKeys} disabled={keysLoading}>
+                    <RefreshCw className={`w-4 h-4 ${keysLoading ? 'animate-spin' : ''}`} />
+                  </Button>
+                  <Button onClick={() => setCreating(true)} className="gap-2" disabled={keys.length >= 10}>
+                    <Plus className="w-4 h-4" /> New API Key
+                  </Button>
+                </div>
 
-            <div className="space-y-3">
-              {keys.map(k => (
-                <GlassCard key={k.id} className="p-5 space-y-3">
-                  <div className="flex items-start justify-between gap-3">
+                {creating && (
+                  <GlassCard className="p-5 space-y-4 border-primary/30">
+                    <h3 className="font-semibold">Create API Key</h3>
                     <div>
-                      <p className="font-semibold">{k.name}</p>
-                      <p className="text-xs text-muted-foreground">{k.createdAt}</p>
+                      <Label className="text-xs text-muted-foreground">Key Name</Label>
+                      <Input value={newName} onChange={e => setNewName(e.target.value)}
+                        placeholder="My Application" onKeyDown={e => e.key === 'Enter' && createKey()} />
                     </div>
-                    <button onClick={() => deleteKey(k.id)} className="text-muted-foreground hover:text-red-400 transition-colors p-1">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2 bg-muted/20 rounded-lg p-2">
-                    <code className="text-xs font-mono flex-1 truncate text-muted-foreground">{k.key}</code>
-                    <button onClick={() => copyKey(k.key)} className="text-muted-foreground hover:text-primary p-1 transition-colors">
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs">
-                    <div className="flex-1">
-                      <div className="flex justify-between text-muted-foreground mb-1">
-                        <span>Requests</span>
-                        <span>{k.requests.toLocaleString()} / {k.limit.toLocaleString()}</span>
-                      </div>
-                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${(k.requests / k.limit) * 100}%` }} />
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-2 block">Scopes</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {SCOPES.map(s => (
+                          <button key={s} onClick={() => setSelectedScopes(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])}
+                            className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${selectedScopes.includes(s) ? 'border-primary bg-primary/10 text-primary' : 'border-border/40 text-muted-foreground'}`}>
+                            {s}
+                          </button>
+                        ))}
                       </div>
                     </div>
+                    <div className="flex gap-2">
+                      <Button onClick={createKey} disabled={saving}>
+                        {saving ? <><RefreshCw className="w-4 h-4 animate-spin mr-2" />Creating…</> : 'Create'}
+                      </Button>
+                      <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
+                    </div>
+                  </GlassCard>
+                )}
+
+                {keysLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground py-6">
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Loading keys…
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {k.scope.map(s => <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
+                ) : keys.length === 0 ? (
+                  <GlassCard className="p-8 text-center text-muted-foreground">
+                    <Key className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                    <p>No API keys yet. Create one to get started.</p>
+                  </GlassCard>
+                ) : (
+                  <div className="space-y-3">
+                    {keys.map(k => (
+                      <GlassCard key={k.id} className="p-5 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-semibold">{k.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Created {fmtRelative(k.created_at)}
+                              {k.last_used_at && ` · Last used ${fmtRelative(k.last_used_at)}`}
+                            </p>
+                          </div>
+                          <button onClick={() => revokeKey(k.id)} className="text-muted-foreground hover:text-red-400 transition-colors p-1" title="Revoke key">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 bg-muted/20 rounded-lg p-2">
+                          <code className="text-xs font-mono flex-1 truncate text-muted-foreground">
+                            {revealedKeys[k.id] ? `${k.key_prefix}…` : `${k.key_prefix.slice(0, 14)}${'•'.repeat(20)}`}
+                          </code>
+                          <button onClick={() => setRevealedKeys(v => ({ ...v, [k.id]: !v[k.id] }))}
+                            className="text-muted-foreground hover:text-primary p-1 transition-colors">
+                            {revealedKeys[k.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                          <button onClick={() => copyKey(k.key_prefix + '…')} className="text-muted-foreground hover:text-primary p-1 transition-colors">
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                          <div className="flex-1">
+                            <div className="flex justify-between text-muted-foreground mb-1">
+                              <span>Requests</span>
+                              <span>{k.request_count.toLocaleString()} / {k.request_limit.toLocaleString()}</span>
+                            </div>
+                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min(100, (k.request_count / k.request_limit) * 100)}%` }} />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {k.scopes.map(s => <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
+                        </div>
+                      </GlassCard>
+                    ))}
                   </div>
+                )}
+
+                {keys.length >= 10 && (
+                  <p className="text-xs text-muted-foreground text-center">Maximum 10 API keys per account.</p>
+                )}
+              </>
+            )}
+          </TabsContent>
+
+          {/* Webhooks */}
+          <TabsContent value="webhooks" className="mt-4 space-y-4">
+            {!user ? (
+              <GlassCard className="p-6 text-center text-muted-foreground">
+                <Webhook className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p>Sign in to manage your webhooks.</p>
+              </GlassCard>
+            ) : (
+              <>
+                {newWebhookSecret && (
+                  <GlassCard className="p-4 border-amber-500/40 bg-amber-500/5">
+                    <p className="text-sm font-semibold text-amber-400 mb-2">⚠️ Copy your signing secret — shown only once!</p>
+                    <div className="flex items-center gap-2 bg-muted/30 rounded-lg p-2">
+                      <code className="text-xs font-mono flex-1 break-all text-primary">{newWebhookSecret}</code>
+                      <button onClick={() => { copyKey(newWebhookSecret); }} className="text-muted-foreground hover:text-primary p-1">
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <button onClick={() => setNewWebhookSecret(null)} className="mt-2 text-xs text-muted-foreground hover:text-foreground">
+                      I've copied it, dismiss
+                    </button>
+                  </GlassCard>
+                )}
+
+                {/* Add webhook form */}
+                <GlassCard className="p-5 space-y-4 border-primary/20">
+                  <h3 className="font-semibold text-sm">Register Endpoint</h3>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Endpoint URL (HTTPS)</Label>
+                    <Input value={newWebhookUrl} onChange={e => setNewWebhookUrl(e.target.value)}
+                      placeholder="https://your-app.com/webhook" className="mt-1 font-mono text-sm"
+                      onKeyDown={e => e.key === 'Enter' && createWebhook()} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-2 block">Events</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {['tx.confirmed', 'tx.failed', 'block.new', 'validator.slashed', 'token.launched', 'proposal.created', 'proposal.passed'].map(ev => (
+                        <button key={ev} onClick={() => setNewWebhookEvents(prev => prev.includes(ev) ? prev.filter(x => x !== ev) : [...prev, ev])}
+                          className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${newWebhookEvents.includes(ev) ? 'border-primary bg-primary/10 text-primary' : 'border-border/40 text-muted-foreground'}`}>
+                          {ev}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <Button onClick={createWebhook} disabled={addingWebhook || !newWebhookUrl.trim()} className="gap-2">
+                    {addingWebhook ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Register Webhook
+                  </Button>
                 </GlassCard>
-              ))}
-            </div>
+
+                {/* Webhook list */}
+                {webhooksLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground py-4">
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Loading webhooks…
+                  </div>
+                ) : webhooks.length === 0 ? (
+                  <GlassCard className="p-8 text-center text-muted-foreground">
+                    <Webhook className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                    <p>No webhooks registered. Add one above to receive real-time events.</p>
+                  </GlassCard>
+                ) : (
+                  <div className="space-y-3">
+                    {webhooks.map(wh => (
+                      <GlassCard key={wh.id} className={`p-4 space-y-3 ${wh.active ? '' : 'opacity-60'}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <a href={wh.url} target="_blank" rel="noopener noreferrer"
+                                className="font-mono text-sm text-primary hover:underline flex items-center gap-1 truncate">
+                                {wh.url.length > 50 ? wh.url.slice(0, 50) + '…' : wh.url}
+                                <ExternalLink className="w-3 h-3 shrink-0" />
+                              </a>
+                              <Badge variant={wh.active ? 'default' : 'secondary'} className="text-xs">
+                                {wh.active ? 'Active' : 'Paused'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Secret: <code className="font-mono">{wh.secret_preview}</code>
+                              {wh.delivery_count > 0 && ` · ${wh.delivery_count} deliveries`}
+                              {wh.last_delivered_at && ` · last ${fmtRelative(wh.last_delivered_at)}`}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => toggleWebhook(wh.id, !wh.active)}
+                              className="text-muted-foreground hover:text-primary p-1 transition-colors" title={wh.active ? 'Pause' : 'Resume'}>
+                              {wh.active ? <ToggleRight className="w-5 h-5 text-emerald-400" /> : <ToggleLeft className="w-5 h-5" />}
+                            </button>
+                            <button onClick={() => deleteWebhook(wh.id)}
+                              className="text-muted-foreground hover:text-red-400 p-1 transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {wh.events.map((ev: string) => <Badge key={ev} variant="secondary" className="text-xs">{ev}</Badge>)}
+                        </div>
+                      </GlassCard>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </TabsContent>
 
           {/* Endpoints */}
@@ -285,6 +523,12 @@ const DeveloperPage = () => {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Rate limit notice */}
+        <GlassCard className="p-4 flex items-center gap-3 text-sm text-muted-foreground">
+          <Shield className="w-4 h-4 text-primary shrink-0" />
+          <span>API keys are rate-limited to <strong className="text-foreground">10,000 requests/day</strong>. Rate limits reset daily at midnight UTC. Contact support for higher limits.</span>
+        </GlassCard>
       </motion.div>
     </Layout>
   );

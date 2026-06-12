@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import {
   Building2, TrendingUp, Coins, Search, Globe,
-  Lock, BarChart3, FileText, CheckCircle2, AlertCircle
+  CheckCircle2, AlertCircle, RefreshCw, Wallet, BarChart3
 } from 'lucide-react';
 
 type AssetType = 'real-estate' | 'bond' | 'commodity' | 'invoice';
@@ -21,15 +21,29 @@ interface RWAAsset {
   name: string;
   type: AssetType;
   description: string;
-  totalValue: number;
-  tokenPrice: number;
-  tokensAvailable: number;
-  totalTokens: number;
+  total_value: number;
+  token_price: number;
+  tokens_available: number;
+  total_tokens: number;
   apy: number;
   currency: string;
   jurisdiction: string;
   audited: boolean;
   maturity?: string;
+}
+
+interface RWAHolding {
+  id: string;
+  asset_id: string;
+  name: string;
+  type: string;
+  tokens_held: number;
+  invested_amount: number;
+  token_price: number;
+  apy: number;
+  currency: string;
+  maturity?: string;
+  created_at: string;
 }
 
 const TYPE_CONFIG: Record<AssetType, { label: string; icon: string; color: string }> = {
@@ -39,74 +53,90 @@ const TYPE_CONFIG: Record<AssetType, { label: string; icon: string; color: strin
   'invoice':     { label: 'Invoice',     icon: '🧾', color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' },
 };
 
-const DEMO_ASSETS: RWAAsset[] = [
-  {
-    id: '1', type: 'real-estate', name: 'Dubai Marina Tower — Floor 12',
-    description: 'Commercial office space in Dubai Marina. 12-month lock-up, quarterly yield distribution.',
-    totalValue: 2_500_000, tokenPrice: 100, tokensAvailable: 8_000, totalTokens: 25_000,
-    apy: 8.5, currency: 'USDT', jurisdiction: 'UAE', audited: true, maturity: '2027-06',
-  },
-  {
-    id: '2', type: 'bond', name: 'GYDSchain Treasury Bond — Series A',
-    description: 'Fixed-income bond backed by GYDSchain treasury reserves. Semi-annual coupon payments.',
-    totalValue: 1_000_000, tokenPrice: 50, tokensAvailable: 12_000, totalTokens: 20_000,
-    apy: 6.2, currency: 'USDT', jurisdiction: 'Cayman Islands', audited: true, maturity: '2026-12',
-  },
-  {
-    id: '3', type: 'commodity', name: 'Gold Bullion Vault — 500 oz',
-    description: 'Physical gold stored in a certified Swiss vault. Each token represents 0.01 oz of gold.',
-    totalValue: 950_000, tokenPrice: 19, tokensAvailable: 5_000, totalTokens: 50_000,
-    apy: 0, currency: 'USD', jurisdiction: 'Switzerland', audited: true,
-  },
-  {
-    id: '4', type: 'invoice', name: 'Supply Chain Invoice — TechCorp MENA',
-    description: 'Short-term trade invoice financing. 90-day term, high-yield, single large counterparty.',
-    totalValue: 200_000, tokenPrice: 20, tokensAvailable: 2_000, totalTokens: 10_000,
-    apy: 14.5, currency: 'USDT', jurisdiction: 'UAE', audited: false, maturity: '2026-09',
-  },
-];
-
 const RWAPage = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [assets, setAssets] = useState<RWAAsset[]>([]);
+  const [holdings, setHoldings] = useState<RWAHolding[]>([]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | AssetType>('all');
   const [selected, setSelected] = useState<RWAAsset | null>(null);
   const [investAmount, setInvestAmount] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [investing, setInvesting] = useState(false);
 
-  const filtered = DEMO_ASSETS.filter(a =>
+  const fetchAssets = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/rwa/assets');
+      if (res.ok) setAssets(await res.json());
+    } finally { setLoading(false); }
+  }, []);
+
+  const fetchHoldings = useCallback(async () => {
+    if (!user) return;
+    const res = await fetch('/api/rwa/holdings', { credentials: 'include' });
+    if (res.ok) setHoldings(await res.json());
+  }, [user]);
+
+  useEffect(() => { fetchAssets(); }, [fetchAssets]);
+  useEffect(() => { fetchHoldings(); }, [fetchHoldings]);
+
+  const filtered = assets.filter(a =>
     (typeFilter === 'all' || a.type === typeFilter) &&
     a.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const totalTvl = DEMO_ASSETS.reduce((s, a) => s + (a.totalValue * (a.totalTokens - a.tokensAvailable) / a.totalTokens), 0);
-  const avgApy   = DEMO_ASSETS.filter(a => a.apy > 0).reduce((s, a) => s + a.apy, 0) / DEMO_ASSETS.filter(a => a.apy > 0).length;
+  const totalTvl = assets.reduce((s, a) => s + (Number(a.total_value) * (a.total_tokens - a.tokens_available) / Math.max(a.total_tokens, 1)), 0);
+  const avgApy   = assets.filter(a => a.apy > 0).reduce((s, a) => s + Number(a.apy), 0) / Math.max(assets.filter(a => a.apy > 0).length, 1);
 
-  const invest = () => {
+  const invest = async () => {
     if (!user) { toast({ title: 'Sign in to invest', variant: 'destructive' }); return; }
     if (!investAmount || parseFloat(investAmount) <= 0) { toast({ title: 'Enter amount', variant: 'destructive' }); return; }
-    toast({ title: '🏦 Investment submitted', description: `${investAmount} USDT into ${selected?.name}` });
-    setInvestAmount(''); setSelected(null);
+    if (!selected) return;
+    setInvesting(true);
+    try {
+      const res = await fetch('/api/rwa/invest', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetId: selected.id, amount: parseFloat(investAmount) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const tokens = data.tokens;
+      toast({ title: '🏦 Investment recorded!', description: `${tokens} token${tokens !== 1 ? 's' : ''} of ${selected.name} added to your portfolio.` });
+      setInvestAmount(''); setSelected(null);
+      fetchAssets(); fetchHoldings();
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } finally { setInvesting(false); }
   };
+
+  const portfolioValue = holdings.reduce((s, h) => s + Number(h.tokens_held) * Number(h.token_price), 0);
 
   return (
     <Layout>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-primary" /> Real-World Assets
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">Invest in tokenized real-world assets on GYDSchain</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Building2 className="w-6 h-6 text-primary" /> Real-World Assets
+            </h1>
+            <p className="text-muted-foreground text-sm mt-1">Invest in tokenized real-world assets on GYDSchain</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => { fetchAssets(); fetchHoldings(); }} disabled={loading}>
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Total TVL', value: `$${(totalTvl / 1000).toFixed(0)}K`, icon: Coins },
-            { label: 'Assets Listed', value: DEMO_ASSETS.length, icon: Building2 },
+            { label: 'Assets Listed', value: assets.length, icon: Building2 },
             { label: 'Avg APY', value: `${avgApy.toFixed(1)}%`, icon: TrendingUp },
-            { label: 'Jurisdictions', value: new Set(DEMO_ASSETS.map(a => a.jurisdiction)).size, icon: Globe },
+            { label: 'Jurisdictions', value: new Set(assets.map(a => a.jurisdiction)).size, icon: Globe },
           ].map(s => (
             <GlassCard key={s.label} className="p-4">
               <div className="flex items-center gap-2 mb-1">
@@ -118,75 +148,140 @@ const RWAPage = () => {
           ))}
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets…" className="pl-9" />
-          </div>
-          <div className="flex gap-1.5 flex-wrap">
-            {(['all', 'real-estate', 'bond', 'commodity', 'invoice'] as const).map(t => (
-              <Button key={t} size="sm" variant={typeFilter === t ? 'default' : 'outline'}
-                onClick={() => setTypeFilter(t)} className="text-xs h-8 capitalize">{t === 'all' ? 'All' : TYPE_CONFIG[t]?.label ?? t}</Button>
-            ))}
-          </div>
-        </div>
+        <Tabs defaultValue="market">
+          <TabsList>
+            <TabsTrigger value="market">Market</TabsTrigger>
+            <TabsTrigger value="portfolio">My Portfolio {holdings.length > 0 && `(${holdings.length})`}</TabsTrigger>
+          </TabsList>
 
-        {/* Asset list */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filtered.map((a, i) => {
-            const cfg = TYPE_CONFIG[a.type];
-            const fundedPct = ((a.totalTokens - a.tokensAvailable) / a.totalTokens) * 100;
-            return (
-              <motion.div key={a.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                <GlassCard className="p-5 space-y-4 cursor-pointer hover:border-primary/40 transition-colors" onClick={() => setSelected(a)}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <span className="text-3xl">{cfg.icon}</span>
-                      <div>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <Badge variant="outline" className={`text-xs ${cfg.color}`}>{cfg.label}</Badge>
-                          {a.audited && <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
-                            <CheckCircle2 className="w-3 h-3 mr-1" /> Audited
-                          </Badge>}
+          <TabsContent value="market" className="mt-4 space-y-4">
+            {/* Filters */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets…" className="pl-9" />
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                {(['all', 'real-estate', 'bond', 'commodity', 'invoice'] as const).map(t => (
+                  <Button key={t} size="sm" variant={typeFilter === t ? 'default' : 'outline'}
+                    onClick={() => setTypeFilter(t)} className="text-xs h-8 capitalize">
+                    {t === 'all' ? 'All' : TYPE_CONFIG[t as AssetType]?.label ?? t}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
+                <RefreshCw className="w-5 h-5 animate-spin" /> Loading assets…
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filtered.map((a, i) => {
+                  const cfg = TYPE_CONFIG[a.type] ?? TYPE_CONFIG['bond'];
+                  const fundedPct = ((a.total_tokens - a.tokens_available) / Math.max(a.total_tokens, 1)) * 100;
+                  return (
+                    <motion.div key={a.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+                      <GlassCard className="p-5 space-y-4 cursor-pointer hover:border-primary/40 transition-colors" onClick={() => setSelected(a)}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <span className="text-3xl">{cfg.icon}</span>
+                            <div>
+                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                <Badge variant="outline" className={`text-xs ${cfg.color}`}>{cfg.label}</Badge>
+                                {a.audited && (
+                                  <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
+                                    <CheckCircle2 className="w-3 h-3 mr-1" /> Audited
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="font-semibold">{a.name}</p>
+                              <p className="text-xs text-muted-foreground">{a.jurisdiction}</p>
+                            </div>
+                          </div>
+                          {a.apy > 0 && (
+                            <div className="text-right shrink-0">
+                              <p className="text-lg font-bold text-emerald-400">{a.apy}%</p>
+                              <p className="text-xs text-muted-foreground">APY</p>
+                            </div>
+                          )}
                         </div>
-                        <p className="font-semibold">{a.name}</p>
-                        <p className="text-xs text-muted-foreground">{a.jurisdiction}</p>
-                      </div>
-                    </div>
-                    {a.apy > 0 && (
-                      <div className="text-right shrink-0">
-                        <p className="text-lg font-bold text-emerald-400">{a.apy}%</p>
-                        <p className="text-xs text-muted-foreground">APY</p>
-                      </div>
-                    )}
-                  </div>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{a.description}</p>
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Funded</span>
+                            <span>{fundedPct.toFixed(0)}% · {Number(a.tokens_available).toLocaleString()} tokens left</span>
+                          </div>
+                          <Progress value={fundedPct} className="h-1.5" />
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <div>
+                            <span className="font-bold text-primary">${Number(a.token_price).toLocaleString()}</span>
+                            <span className="text-muted-foreground text-xs"> / token</span>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold">${(Number(a.total_value) / 1000).toFixed(0)}K total</p>
+                            {a.maturity && <p className="text-xs text-muted-foreground">Matures {a.maturity}</p>}
+                          </div>
+                        </div>
+                      </GlassCard>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
 
-                  <p className="text-sm text-muted-foreground line-clamp-2">{a.description}</p>
-
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Funded</span>
-                      <span>{fundedPct.toFixed(0)}% · {a.tokensAvailable.toLocaleString()} tokens left</span>
-                    </div>
-                    <Progress value={fundedPct} className="h-1.5" />
-                  </div>
-
-                  <div className="flex items-center justify-between text-sm">
-                    <div>
-                      <span className="font-bold text-primary">${a.tokenPrice}</span>
-                      <span className="text-muted-foreground text-xs"> / token</span>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold">${(a.totalValue / 1000).toFixed(0)}K total</p>
-                      {a.maturity && <p className="text-xs text-muted-foreground">Matures {a.maturity}</p>}
-                    </div>
-                  </div>
+          <TabsContent value="portfolio" className="mt-4 space-y-4">
+            {!user ? (
+              <GlassCard className="p-8 text-center text-muted-foreground">
+                <Wallet className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p>Sign in to view your RWA portfolio</p>
+              </GlassCard>
+            ) : holdings.length === 0 ? (
+              <GlassCard className="p-8 text-center text-muted-foreground">
+                <BarChart3 className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p className="font-semibold">No holdings yet</p>
+                <p className="text-sm mt-1">Invest in assets from the Market tab to build your portfolio.</p>
+              </GlassCard>
+            ) : (
+              <>
+                <GlassCard className="p-4">
+                  <p className="text-xs text-muted-foreground">Portfolio Value</p>
+                  <p className="text-2xl font-bold text-primary">${portfolioValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{holdings.length} position{holdings.length !== 1 ? 's' : ''}</p>
                 </GlassCard>
-              </motion.div>
-            );
-          })}
-        </div>
+                <div className="space-y-3">
+                  {holdings.map(h => {
+                    const cfg = TYPE_CONFIG[h.type as AssetType] ?? TYPE_CONFIG['bond'];
+                    const currentValue = Number(h.tokens_held) * Number(h.token_price);
+                    const pnl = currentValue - Number(h.invested_amount);
+                    return (
+                      <GlassCard key={h.id} className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <span className="text-2xl">{cfg.icon}</span>
+                            <div>
+                              <p className="font-semibold text-sm">{h.name}</p>
+                              <p className="text-xs text-muted-foreground">{Number(h.tokens_held).toLocaleString()} tokens</p>
+                              {h.apy > 0 && <p className="text-xs text-emerald-400">{h.apy}% APY</p>}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="font-bold">${currentValue.toFixed(2)}</p>
+                            <p className={`text-xs ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+                      </GlassCard>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </TabsContent>
+        </Tabs>
 
         {/* Invest Modal */}
         {selected && (
@@ -195,7 +290,7 @@ const RWAPage = () => {
             onClick={() => setSelected(null)}>
             <GlassCard className="p-6 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
               <div className="flex items-start gap-3">
-                <span className="text-3xl">{TYPE_CONFIG[selected.type].icon}</span>
+                <span className="text-3xl">{TYPE_CONFIG[selected.type]?.icon ?? '📄'}</span>
                 <div>
                   <h2 className="font-bold">{selected.name}</h2>
                   <p className="text-xs text-muted-foreground">{selected.description}</p>
@@ -203,11 +298,12 @@ const RWAPage = () => {
               </div>
               <div className="space-y-1 text-sm">
                 {[
-                  ['Token price', `$${selected.tokenPrice} ${selected.currency}`],
-                  ['Min investment', `$${selected.tokenPrice} (1 token)`],
+                  ['Token price', `$${Number(selected.token_price)} ${selected.currency}`],
+                  ['Min investment', `$${Number(selected.token_price)} (1 token)`],
                   ...(selected.apy ? [['Expected APY', `${selected.apy}%`]] : []),
                   ...(selected.maturity ? [['Maturity', selected.maturity]] : []),
-                  ['Jurisdiction', selected.jurisdiction],
+                  ['Jurisdiction', selected.jurisdiction ?? '—'],
+                  ['Tokens remaining', Number(selected.tokens_available).toLocaleString()],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between">
                     <span className="text-muted-foreground">{k}</span>
@@ -216,9 +312,12 @@ const RWAPage = () => {
                 ))}
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Investment amount ({selected.currency})</label>
+                <label className="text-xs text-muted-foreground">
+                  Investment amount ({selected.currency})
+                  {investAmount && ` → ${Math.floor(parseFloat(investAmount || '0') / Number(selected.token_price))} tokens`}
+                </label>
                 <Input type="number" value={investAmount} onChange={e => setInvestAmount(e.target.value)}
-                  placeholder={`Min $${selected.tokenPrice}`} className="mt-1" />
+                  placeholder={`Min $${Number(selected.token_price)}`} className="mt-1" />
               </div>
               {!selected.audited && (
                 <div className="flex gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-200/80">
@@ -226,7 +325,9 @@ const RWAPage = () => {
                 </div>
               )}
               <div className="flex gap-2">
-                <Button className="flex-1" onClick={invest}>Invest</Button>
+                <Button className="flex-1" onClick={invest} disabled={investing}>
+                  {investing ? <><RefreshCw className="w-4 h-4 animate-spin mr-2" />Investing…</> : 'Invest'}
+                </Button>
                 <Button variant="outline" onClick={() => setSelected(null)}>Cancel</Button>
               </div>
             </GlassCard>

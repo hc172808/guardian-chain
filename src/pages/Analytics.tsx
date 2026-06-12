@@ -131,10 +131,92 @@ const fmtBig = (n: string | number) => {
   return String(v);
 };
 
+interface PriceCandle { open: number; close: number; high: number; low: number; volume: number; timestamp: string; }
+interface NetworkSnapshot { active_validators: number; active_nodes: number; total_transactions: number; tps: number; captured_at: string; }
+
+const MiningCalc = ({ overview }: { overview: Overview | null }) => {
+  const [hashrate, setHashrate] = useState('100');
+  const [power, setPower]       = useState('500');
+  const [elec, setElec]         = useState('0.10');
+  const [poolFee, setPoolFee]   = useState('1');
+
+  const price = overview ? +overview.price : 0.0000001;
+  const networkHashrate = 1_000_000;
+  const blockReward     = 50;
+  const blocksPerDay    = 720;
+
+  const shareRatio  = +hashrate / networkHashrate;
+  const dailyGYDS   = shareRatio * blockReward * blocksPerDay * (1 - +poolFee / 100);
+  const dailyUSD    = dailyGYDS * price;
+  const electricDay = (+power / 1000) * 24 * +elec;
+  const profitDay   = dailyUSD - electricDay;
+  const monthlyGYDS = dailyGYDS * 30;
+  const monthlyUSD  = profitDay * 30;
+  const annualGYDS  = dailyGYDS * 365;
+  const annualUSD   = profitDay * 365;
+  const breakeven   = electricDay > 0 && dailyUSD > 0 ? electricDay / dailyUSD * 365 : null;
+
+  const fmtG = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : n.toFixed(2);
+  const fmtU = (n: number) => `$${Math.abs(n) < 0.01 ? n.toExponential(2) : n.toFixed(4)}`;
+
+  return (
+    <div className="space-y-4">
+      <GlassCard className="p-5">
+        <h2 className="font-semibold mb-4 text-sm flex items-center gap-2">
+          <Zap className="w-4 h-4 text-amber-400" /> Mining Profitability Calculator
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          {[
+            { label: 'Hashrate (MH/s)', value: hashrate, set: setHashrate, placeholder: '100' },
+            { label: 'Power (W)', value: power, set: setPower, placeholder: '500' },
+            { label: 'Electricity ($/kWh)', value: elec, set: setElec, placeholder: '0.10' },
+            { label: 'Pool Fee (%)', value: poolFee, set: setPoolFee, placeholder: '1' },
+          ].map(f => (
+            <div key={f.label}>
+              <label className="text-xs text-muted-foreground">{f.label}</label>
+              <input
+                type="number"
+                value={f.value}
+                onChange={e => f.set(e.target.value)}
+                placeholder={f.placeholder}
+                className="mt-1 w-full bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary/60"
+              />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {[
+            { label: 'Daily GYDS', value: fmtG(dailyGYDS), sub: fmtU(dailyUSD), color: 'text-primary' },
+            { label: 'Daily Profit', value: fmtU(profitDay), sub: profitDay >= 0 ? '✓ Profitable' : '✗ Loss', color: profitDay >= 0 ? 'text-emerald-400' : 'text-red-400' },
+            { label: 'Monthly GYDS', value: fmtG(monthlyGYDS), sub: fmtU(monthlyUSD), color: 'text-primary' },
+            { label: 'Monthly Profit', value: fmtU(monthlyUSD), sub: monthlyUSD >= 0 ? '✓ Profitable' : '✗ Loss', color: monthlyUSD >= 0 ? 'text-emerald-400' : 'text-red-400' },
+            { label: 'Annual GYDS', value: fmtG(annualGYDS), sub: fmtU(annualUSD), color: 'text-primary' },
+            { label: 'Break-even', value: breakeven != null ? `${breakeven.toFixed(0)} days` : 'N/A', sub: 'at current price', color: 'text-amber-400' },
+          ].map(s => (
+            <div key={s.label} className="p-3 bg-muted/20 rounded-xl border border-border/30">
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+              <p className={`font-bold text-sm font-mono mt-0.5 ${s.color}`}>{s.value}</p>
+              <p className="text-xs text-muted-foreground">{s.sub}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 p-3 bg-muted/10 rounded-xl text-xs text-muted-foreground space-y-1">
+          <p className="font-semibold text-foreground">Assumptions</p>
+          <p>Network hashrate: {(networkHashrate / 1e6).toFixed(0)}M MH/s · Block reward: {blockReward} GYDS · {blocksPerDay} blocks/day</p>
+          <p>GYDS price: {price < 0.001 ? price.toExponential(3) : price.toFixed(6)} USD (live from DB)</p>
+        </div>
+      </GlassCard>
+    </div>
+  );
+};
+
 const AnalyticsPage = () => {
   const [period, setPeriod]   = useState<'7d' | '30d' | '90d'>('30d');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [priceHistory, setPriceHistory] = useState<PriceCandle[]>([]);
+  const [priceLoading, setPriceLoading] = useState(true);
+  const [netHistory, setNetHistory] = useState<NetworkSnapshot[]>([]);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const fetchOverview = useCallback(async () => {
@@ -150,14 +232,40 @@ const AnalyticsPage = () => {
     }
   }, []);
 
+  const fetchPriceHistory = useCallback(async () => {
+    setPriceLoading(true);
+    try {
+      const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+      const res = await fetch(`/api/analytics/price-history/GYDS?days=${days}`);
+      if (res.ok) setPriceHistory(await res.json());
+    } catch {} finally { setPriceLoading(false); }
+  }, [period]);
+
+  const fetchNetHistory = useCallback(async () => {
+    try {
+      const hours = period === '7d' ? 168 : period === '30d' ? 168 : 168;
+      const res = await fetch(`/api/analytics/network-history?hours=${hours}`);
+      if (res.ok) setNetHistory(await res.json());
+    } catch {}
+  }, [period]);
+
   useEffect(() => { fetchOverview(); }, [fetchOverview]);
+  useEffect(() => { fetchPriceHistory(); }, [fetchPriceHistory]);
+  useEffect(() => { fetchNetHistory(); }, [fetchNetHistory]);
   useEffect(() => {
     const id = setInterval(fetchOverview, 30_000);
     return () => clearInterval(id);
   }, [fetchOverview]);
 
+  const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
   const basePrice = overview ? +overview.price : 0.0000001;
-  const ohlcv = genOHLCV(period === '7d' ? 7 : period === '30d' ? 30 : 90, basePrice);
+  const rawOhlcv = priceHistory.length >= 3
+    ? priceHistory.map(c => ({
+        open: c.open, close: c.close, high: c.high, low: c.low, vol: c.volume,
+        label: new Date(c.timestamp).toLocaleDateString('en', { month: 'short', day: 'numeric' }),
+      }))
+    : genOHLCV(days, basePrice);
+  const ohlcv = rawOhlcv.slice(-days);
   const lastCandle = ohlcv[ohlcv.length - 1];
   const prevCandle = ohlcv[ohlcv.length - 2];
   const priceChange = prevCandle ? ((lastCandle.close - prevCandle.close) / prevCandle.close) * 100 : 0;
@@ -263,10 +371,11 @@ const AnalyticsPage = () => {
         </div>
 
         <Tabs defaultValue="price">
-          <TabsList>
+          <TabsList className="flex-wrap h-auto gap-1">
             <TabsTrigger value="price">Price</TabsTrigger>
             <TabsTrigger value="network">Network</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="mining">Mining Calc</TabsTrigger>
           </TabsList>
 
           {/* Price tab */}
@@ -309,6 +418,40 @@ const AnalyticsPage = () => {
 
           {/* Network tab */}
           <TabsContent value="network" className="mt-4 space-y-4">
+            {/* Network history from DB */}
+            {netHistory.length > 0 && (
+              <GlassCard className="p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-semibold text-sm">Network Health — Live Snapshots</h2>
+                  <Badge variant="outline" className="text-emerald-400 border-emerald-500/30 bg-emerald-500/10 text-xs">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5" />
+                    {netHistory.length} snapshots
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  {[
+                    { label: 'Latest TPS', value: netHistory[netHistory.length - 1]?.tps?.toLocaleString() ?? '0' },
+                    { label: 'Active Validators', value: netHistory[netHistory.length - 1]?.active_validators?.toString() ?? '0' },
+                    { label: 'Online Nodes', value: netHistory[netHistory.length - 1]?.active_nodes?.toString() ?? '0' },
+                    { label: 'Total Txs', value: fmtBig(netHistory[netHistory.length - 1]?.total_transactions ?? 0) },
+                  ].map(s => (
+                    <div key={s.label} className="p-3 bg-muted/20 rounded-xl text-center">
+                      <p className="text-xs text-muted-foreground">{s.label}</p>
+                      <p className="font-bold text-primary">{s.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <BarChartViz
+                  data={netHistory.slice(-24).map(s => ({
+                    label: new Date(s.captured_at).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }),
+                    value: Number(s.tps),
+                  }))}
+                  color="bg-emerald-500"
+                  fmt={v => `${v} TPS`}
+                />
+                <p className="text-xs text-muted-foreground mt-2 text-center">TPS over last {netHistory.length} snapshots · auto-updated hourly</p>
+              </GlassCard>
+            )}
             <GlassCard className="p-5">
               <h2 className="font-semibold mb-4 text-sm">Total Stake Trend ({period})</h2>
               <BarChartViz data={stakeData} color="bg-primary" fmt={v => fmtBig(v) + ' GYDS'} />
@@ -349,6 +492,11 @@ const AnalyticsPage = () => {
                 ))}
               </div>
             </GlassCard>
+          </TabsContent>
+
+          {/* Mining Calc tab */}
+          <TabsContent value="mining" className="mt-4 space-y-4">
+            <MiningCalc overview={overview} />
           </TabsContent>
 
           {/* Activity tab */}

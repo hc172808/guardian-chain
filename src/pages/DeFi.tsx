@@ -10,6 +10,7 @@ import { PositionDetails } from '@/components/defi/PositionDetails';
 import { CrossChainBridge } from '@/components/defi/CrossChainBridge';
 import { OrderBook } from '@/components/defi/OrderBook';
 import { YieldVaults } from '@/components/defi/YieldVaults';
+import { ImpermanentLossCalc } from '@/components/defi/ImpermanentLossCalc';
 import { DeFiBottomNav } from '@/components/defi/DeFiBottomNav';
 import { WalletConnectBar } from '@/components/defi/WalletConnectBar';
 
@@ -20,7 +21,7 @@ const DeFiPage = () => {
 
   useEffect(() => {
     const tab = (location.state as any)?.tab;
-    const validTabs = ['swap','pools','stake','orderbook','vaults','bridge','launchpad','portfolio'];
+    const validTabs = ['swap','pools','stake','orderbook','vaults','bridge','launchpad','portfolio','ilcalc'];
     if (tab && validTabs.includes(tab)) {
       setActiveTab(tab);
     }
@@ -41,6 +42,7 @@ const DeFiPage = () => {
       case 'bridge':    return <CrossChainBridge />;
       case 'orderbook': return <OrderBook />;
       case 'vaults':    return <YieldVaults />;
+      case 'ilcalc':    return <ImpermanentLossCalc />;
       case 'position':  return <PositionDetails position={selectedPosition} />;
       default:          return <SwapInterface />;
     }

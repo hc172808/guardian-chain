@@ -1,6 +1,11 @@
 import type { Express, Request, Response } from "express";
+import rateLimit from "express-rate-limit";
 import { storage } from "./storage";
 import { testNodeManager } from "./testNodes";
+
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
+const faucetLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Too many faucet requests." } });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { error: "Rate limit exceeded." } });
 
 function requireAuth(req: Request, res: Response, next: any) {
   if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
@@ -457,7 +462,7 @@ export function registerRoutes(app: Express) {
     res.json(claims.map(c => ({ token_type: c.tokenType, created_at: c.createdAt })));
   });
 
-  app.post("/api/faucet/claim", requireAuth, async (req, res) => {
+  app.post("/api/faucet/claim", requireAuth, faucetLimiter, async (req, res) => {
     const user = req.user as any;
     const AMOUNTS: Record<string, number> = { gyd: 100, gyds: 0.5 };
     const COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -716,6 +721,277 @@ export function registerRoutes(app: Express) {
     if (!userId) { res.status(400).json({ ok: false, message: "userId required" }); return; }
     const ok = await storage.unlockAchievement(userId, req.params.id);
     res.json({ ok, message: ok ? "Achievement unlocked" : "Already earned" });
+  });
+
+  // ── Referral ───────────────────────────────────────────────────────────────
+  app.get("/api/referral", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const data = await storage.getReferralStats(user.id);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/referral/use", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ ok: false, message: "Code required" });
+    const result = await storage.useReferralCode(code, user.id);
+    res.json(result);
+  });
+
+  // ── Governance Treasury + Voting Power ────────────────────────────────────
+  app.get("/api/governance/treasury", async (_req, res) => {
+    try { res.json(await storage.getGovernanceTreasury()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/governance/treasury/spending", async (_req, res) => {
+    try { res.json(await storage.getTreasurySpending()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/governance/treasury/:coin", requireAdmin, async (req, res) => {
+    const { balance, usd_value } = req.body;
+    await storage.updateTreasuryBalance(req.params.coin, balance, usd_value);
+    res.json({ ok: true });
+  });
+
+  app.get("/api/governance/voting-power", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try { res.json(await storage.getUserVotingPower(user.id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Developer API Keys ────────────────────────────────────────────────────
+  app.get("/api/developer/keys", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try { res.json(await storage.getUserApiKeys(user.id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/developer/keys", requireAuth, apiLimiter, async (req, res) => {
+    const user = req.user as any;
+    const { name, scopes } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: "Name required" });
+    const existing = await storage.getUserApiKeys(user.id);
+    if (existing.length >= 10) return res.status(400).json({ error: "Max 10 API keys per account" });
+    const key = await storage.createApiKey(user.id, name.trim(), scopes ?? ['read:chain']);
+    res.json(key);
+  });
+
+  app.delete("/api/developer/keys/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    await storage.revokeApiKey(user.id, req.params.id);
+    res.json({ ok: true });
+  });
+
+  // ── Admin: users list + all achievements ──────────────────────────────────
+  app.get("/api/admin/users-basic", requireAdmin, async (_req, res) => {
+    try { res.json(await storage.getAllUsersBasic()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/admin/achievements-all", requireAdmin, async (_req, res) => {
+    try { res.json(await storage.getAllAchievements()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── NFT ────────────────────────────────────────────────────────────────────
+  app.get("/api/nft/collections", async (_req, res) => {
+    try { res.json(await storage.getNftCollections()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/nft/tokens", async (req, res) => {
+    try {
+      const { search = '', collectionId = '' } = req.query as Record<string, string>;
+      res.json(await storage.getNftTokens(search, collectionId));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/nft/mint", requireAuth, async (req, res) => {
+    try {
+      const uid = (req.user as any).id;
+      const { name, collectionId, rarity, imageEmoji } = req.body;
+      if (!name) return res.status(400).json({ error: "name required" });
+      const token = await storage.mintNftToken(uid, { name, collectionId, rarity, imageEmoji });
+      res.json(token);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Analytics: price history ───────────────────────────────────────────────
+  app.get("/api/analytics/price-history/:coin", async (req, res) => {
+    try {
+      const days = Math.min(Number(req.query.days) || 30, 90);
+      res.json(await storage.getPriceHistory(req.params.coin.toUpperCase(), days));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Webhooks ────────────────────────────────────────────────────────────────
+  app.get("/api/webhooks", requireAuth, async (req, res) => {
+    try { res.json(await storage.getUserWebhooks((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/webhooks", requireAuth, async (req, res) => {
+    try {
+      const { url, events } = req.body;
+      if (!url) return res.status(400).json({ error: "url required" });
+      const wh = await storage.createWebhook((req.user as any).id, url, events ?? ['tx.confirmed', 'block.new']);
+      res.json(wh);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/webhooks/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteWebhook((req.user as any).id, req.params.id);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/webhooks/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.toggleWebhook((req.user as any).id, req.params.id, !!req.body.active);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Multi-Sig ─────────────────────────────────────────────────────────────
+  app.get("/api/multisig/wallets", requireAuth, async (req, res) => {
+    try { res.json(await storage.getUserMultisigWallets((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/multisig/wallets", requireAuth, async (req, res) => {
+    try {
+      const { name, threshold, signers } = req.body;
+      if (!name || !threshold || !signers?.length) return res.status(400).json({ error: "name, threshold, signers required" });
+      const w = await storage.createMultisigWallet((req.user as any).id, name, parseInt(threshold), signers);
+      res.json(w);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/multisig/wallets/:id/transactions", requireAuth, async (req, res) => {
+    try { res.json(await storage.getMultisigTransactions(req.params.id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/multisig/transactions", requireAuth, async (req, res) => {
+    try {
+      const { walletId, toAddress, amount, symbol = 'GYDS', description = '' } = req.body;
+      if (!walletId || !toAddress || !amount) return res.status(400).json({ error: "walletId, toAddress, amount required" });
+      const tx = await storage.proposeMultisigTx((req.user as any).id, walletId, toAddress, parseFloat(amount), symbol, description);
+      res.json(tx);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/multisig/transactions/:id/sign", requireAuth, async (req, res) => {
+    try {
+      const { action } = req.body;
+      if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: "action must be approve or reject" });
+      const tx = await storage.signMultisigTx((req.user as any).id, req.params.id, action as 'approve' | 'reject');
+      res.json(tx);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Real-World Assets ─────────────────────────────────────────────────────
+  app.get("/api/rwa/assets", async (_req, res) => {
+    try { res.json(await storage.getRwaAssets()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/rwa/invest", requireAuth, async (req, res) => {
+    try {
+      const { assetId, amount } = req.body;
+      if (!assetId || !amount) return res.status(400).json({ error: "assetId and amount required" });
+      const result = await storage.investRwa((req.user as any).id, assetId, parseFloat(amount));
+      res.json(result);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.get("/api/rwa/holdings", requireAuth, async (req, res) => {
+    try { res.json(await storage.getUserRwaHoldings((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Network Snapshots ──────────────────────────────────────────────────────
+  app.get("/api/analytics/network-history", async (req, res) => {
+    try {
+      const hours = parseInt(String(req.query.hours ?? '24'));
+      res.json(await storage.getNetworkHistory(Math.min(hours, 168)));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Identity ───────────────────────────────────────────────────────────────
+  app.get("/api/identity/did", requireAuth, async (req, res) => {
+    try {
+      const u = req.user as any;
+      res.json(await storage.getOrCreateDID(u.id, u.email));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/identity/kyc", requireAuth, async (req, res) => {
+    try { res.json(await storage.getUserKYC((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/identity/reputation", requireAuth, async (req, res) => {
+    try { res.json(await storage.getUserReputation((req.user as any).id)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Public REST API v1 ─────────────────────────────────────────────────────
+  app.get("/v1/network/stats", async (_req, res) => {
+    try {
+      const stats = await storage.getNetworkStats();
+      res.json({ tps: 1250, chain_id: 13370, ...stats });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/v1/tokens", async (_req, res) => {
+    try {
+      const tokens = await storage.getAllTokens?.() ?? [];
+      res.json(tokens);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/v1/validators", async (_req, res) => {
+    try {
+      const validators = await storage.getValidators?.() ?? [];
+      res.json(validators);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/v1/oracle/prices", async (_req, res) => {
+    const ph = await storage.getPriceHistory("GYDS", 1).catch(() => []);
+    const latest = ph[ph.length - 1];
+    res.json({
+      GYDS: latest?.close ?? 0.0000001,
+      GYD: 1.0,
+      BTC: 65000,
+      ETH: 3400,
+      updated_at: new Date().toISOString(),
+    });
+  });
+
+  // ── Trade History ──────────────────────────────────────────────────────────
+  app.get("/api/trades", async (req, res) => {
+    try {
+      const pair  = (req.query.pair as string) || 'GYDS/USDT';
+      const limit = Math.min(parseInt(req.query.limit as string) || 40, 100);
+      const trades = await (storage as any).getTradeHistory(pair, limit);
+      res.json(trades);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/v1/address/:address/balance", async (req, res) => {
+    try {
+      const { address } = req.params;
+      const wallet = await storage.getWalletByAddress?.(address);
+      if (!wallet) return res.status(404).json({ error: "address not found" });
+      res.json({ address, balance: wallet.balance, coin: "GYDS" });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Health Check ───────────────────────────────────────────────────────────

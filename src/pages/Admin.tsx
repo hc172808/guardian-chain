@@ -51,7 +51,8 @@ import { MaintenanceManager } from '@/components/admin/MaintenanceManager';
 import { BridgeNetworkManager } from '@/components/admin/BridgeNetworkManager';
 import { ExplorerConfig } from '@/components/admin/ExplorerConfig';
 import { TestNodeManager } from '@/components/admin/TestNodeManager';
-import { FlaskConical } from 'lucide-react';
+import { GrantAchievementPanel } from '@/components/admin/GrantAchievementPanel';
+import { FlaskConical, Trophy } from 'lucide-react';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -340,6 +341,10 @@ const AdminContent = () => {
             <FlaskConical className="h-4 w-4" />
             <span className="hidden md:inline">Test Nodes</span>
           </TabsTrigger>
+          <TabsTrigger value="grant-achievement" className="gap-2">
+            <Trophy className="h-4 w-4" />
+            <span className="hidden md:inline">Grant Badge</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="maintenance">
@@ -509,6 +514,9 @@ const AdminContent = () => {
 
         <TabsContent value="test-nodes">
           <TestNodeManager />
+        </TabsContent>
+        <TabsContent value="grant-achievement">
+          <GrantAchievementPanel />
         </TabsContent>
       </Tabs>
     </motion.div>
