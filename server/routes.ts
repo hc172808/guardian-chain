@@ -704,6 +704,20 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // ── Achievements ───────────────────────────────────────────────────────────
+  app.get("/api/achievements", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const data = await storage.getUserAchievements(user.id);
+    res.json(data);
+  });
+
+  app.post("/api/achievements/:id/unlock", requireAdmin, async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) { res.status(400).json({ ok: false, message: "userId required" }); return; }
+    const ok = await storage.unlockAchievement(userId, req.params.id);
+    res.json({ ok, message: ok ? "Achievement unlocked" : "Already earned" });
+  });
+
   // ── Health Check ───────────────────────────────────────────────────────────
   app.get("/api/health", async (_req, res) => {
     const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];

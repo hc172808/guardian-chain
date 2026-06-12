@@ -741,6 +741,73 @@ export const storage = {
     return res.rows;
   },
 
+  // ── Achievements ──────────────────────────────────────────────────────────
+  async seedAchievements() {
+    const badges = [
+      // Transactions
+      { id: 'first_transaction',   title: 'First Transaction',    description: 'Sent your first transaction on GYDSchain',               xpReward: 50,   icon: '💸', category: 'transactions' },
+      { id: 'ten_transactions',    title: 'Active Sender',        description: 'Completed 10 transactions on GYDSchain',                 xpReward: 100,  icon: '📤', category: 'transactions' },
+      { id: 'speed_demon',         title: 'Speed Demon',          description: 'Submitted 10 transactions in a single session',          xpReward: 150,  icon: '⚡', category: 'transactions' },
+      // Infrastructure
+      { id: 'first_node',          title: 'Node Operator',        description: 'Installed your first blockchain node',                   xpReward: 200,  icon: '🖥️', category: 'infrastructure' },
+      { id: 'multi_node',          title: 'Multi-Node Runner',    description: 'Running 3 or more active nodes simultaneously',         xpReward: 400,  icon: '🏗️', category: 'infrastructure' },
+      { id: 'boost_tester',        title: 'Boost Tester',         description: 'Used the Boost Node for high-throughput MEV testing',   xpReward: 150,  icon: '🚀', category: 'infrastructure' },
+      { id: 'validator',           title: 'Validator',            description: 'Became an active validator on GYDSchain',               xpReward: 500,  icon: '✅', category: 'infrastructure' },
+      // Tokens & DeFi
+      { id: 'first_token',         title: 'Token Creator',        description: 'Launched your first token on GYDSchain',                xpReward: 300,  icon: '🪙', category: 'defi' },
+      { id: 'token_burner',        title: 'Token Burner',         description: 'Burned tokens on GYDSchain forever',                   xpReward: 100,  icon: '🔥', category: 'defi' },
+      { id: 'liquidity_provider',  title: 'Liquidity Provider',   description: 'Added liquidity to a GydsSwap pool',                   xpReward: 200,  icon: '💧', category: 'defi' },
+      { id: 'defi_trader',         title: 'DeFi Trader',          description: 'Executed your first swap on GydsSwap',                  xpReward: 100,  icon: '📊', category: 'defi' },
+      // Governance
+      { id: 'governance_voter',    title: 'Governance Voter',     description: 'Voted on your first governance proposal',               xpReward: 25,   icon: '🗳️', category: 'governance' },
+      { id: 'proposal_creator',    title: 'Proposal Creator',     description: 'Created a governance proposal for the community',       xpReward: 200,  icon: '📜', category: 'governance' },
+      { id: 'power_voter',         title: 'Power Voter',          description: 'Voted on 10 or more governance proposals',              xpReward: 250,  icon: '🏛️', category: 'governance' },
+      // Special
+      { id: 'early_adopter',       title: 'Early Adopter',        description: 'One of the first 100 users on GYDSchain',               xpReward: 500,  icon: '🌟', category: 'special' },
+      { id: 'whale',               title: 'Whale',                description: 'Held over 100,000 GYDS at one time',                   xpReward: 1000, icon: '🐋', category: 'special' },
+      { id: 'legend',              title: 'Legend',               description: 'Reached Level 8 (Legend) — the highest XP tier',       xpReward: 2000, icon: '👑', category: 'special' },
+    ];
+    for (const b of badges) {
+      await pgPool.query(
+        `INSERT INTO achievements (id, title, description, xp_reward, icon, category)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING`,
+        [b.id, b.title, b.description, b.xpReward, b.icon, b.category]
+      );
+    }
+  },
+
+  async getUserAchievements(userId: string) {
+    const res = await pgPool.query(`
+      SELECT a.id, a.title, a.description, a.xp_reward AS "xpReward",
+             a.icon, a.category,
+             ua.unlocked_at AS "unlockedAt"
+      FROM achievements a
+      LEFT JOIN user_achievements ua
+        ON ua.achievement_id = a.id AND ua.user_id = $1
+      ORDER BY a.category, a.id
+    `, [userId]);
+    return res.rows.map(r => ({ ...r, earned: r.unlockedAt !== null }));
+  },
+
+  async unlockAchievement(userId: string, achievementId: string) {
+    const existing = await pgPool.query(
+      `SELECT 1 FROM user_achievements WHERE user_id=$1 AND achievement_id=$2 LIMIT 1`,
+      [userId, achievementId]
+    );
+    if (existing.rows.length > 0) return false;
+    await pgPool.query(
+      `INSERT INTO user_achievements (user_id, achievement_id) VALUES ($1,$2)`,
+      [userId, achievementId]
+    );
+    const ach = await pgPool.query(
+      `SELECT xp_reward FROM achievements WHERE id=$1`, [achievementId]
+    );
+    if (ach.rows[0]) {
+      await this.awardXp(userId, `achievement:${achievementId}`, ach.rows[0].xp_reward, `Achievement unlocked: ${achievementId}`);
+    }
+    return true;
+  },
+
   // ── Network Stats ─────────────────────────────────────────────────────────
   async getNetworkStats() {
     const cutoff = new Date(Date.now() - 90 * 1000);

@@ -20,9 +20,10 @@ import { useToast } from '@/hooks/use-toast';
 import {
   User, Mail, Globe, MapPin, Clock, Bell,
   Shield, Lock, Save, RefreshCw, CheckCircle2,
-  Phone, FileText, Palette, Eye, EyeOff
+  Phone, FileText, Palette, Eye, EyeOff, Trophy
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { AchievementBadges } from '@/components/profile/AchievementBadges';
 
 interface ProfileData {
   display_name: string;
@@ -108,7 +109,7 @@ const ProfilePage = () => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
-  const [activeTab, setActiveTab] = useState<'info' | 'notifications' | 'security'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'notifications' | 'security' | 'achievements'>('info');
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -206,7 +207,7 @@ const ProfilePage = () => {
   const setNotif = (key: keyof ProfileData['notification_prefs'], val: boolean) =>
     setProfile(p => ({ ...p, notification_prefs: { ...p.notification_prefs, [key]: val } }));
 
-  const displayRole = roles.includes('founder') ? 'founder' : roles.includes('admin') ? 'admin' : 'user';
+  const displayRole = (roles ?? []).includes('founder') ? 'founder' : (roles ?? []).includes('admin') ? 'admin' : 'user';
 
   if (authLoading || loading) {
     return (
@@ -219,9 +220,10 @@ const ProfilePage = () => {
   }
 
   const tabs = [
-    { key: 'info',          label: 'Profile Info',  icon: User },
-    { key: 'notifications', label: 'Notifications', icon: Bell },
+    { key: 'info',          label: 'Profile Info',  icon: User   },
+    { key: 'notifications', label: 'Notifications', icon: Bell   },
     { key: 'security',      label: 'Security',      icon: Shield },
+    { key: 'achievements',  label: 'Achievements',  icon: Trophy },
   ] as const;
 
   return (
@@ -686,8 +688,15 @@ const ProfilePage = () => {
           </motion.div>
         )}
 
-        {/* Save button — always visible */}
-        {activeTab !== 'security' && (
+        {/* ── TAB: Achievements ── */}
+        {activeTab === 'achievements' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <AchievementBadges />
+          </motion.div>
+        )}
+
+        {/* Save button — only on info/notifications */}
+        {activeTab !== 'security' && activeTab !== 'achievements' && (
           <div className="flex justify-end pb-8">
             <Button
               onClick={save}

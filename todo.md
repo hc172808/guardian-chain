@@ -266,7 +266,7 @@
 - [x] Leaderboard wired to DB — XP rankings, validators (by stake), traders (by tx count), builders (by tokens launched)
 - [x] XP levels: 8 tiers (Newcomer → Legend) with progress bar on leaderboard
 - [x] Auto-award XP on key actions (first tx +50, first node +200, first token +300, each governance vote +25) — `awardXpOnce` prevents double-award for milestone events
-- [ ] Achievement badges UI (profile page)
+- [x] Achievement badges UI (profile page) — 17 badges across 5 categories; locked/unlocked states from DB; progress bar, XP total, category filter pills; seeded on server startup
 - [ ] Monthly reset leaderboard
 - [ ] Seasonal campaigns (bonus XP events)
 
