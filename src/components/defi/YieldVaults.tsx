@@ -83,6 +83,7 @@ export const YieldVaults = () => {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [depositAmount, setDepositAmount] = useState<Record<string, string>>({});
+  const [compoundFreq, setCompoundFreq] = useState<Record<string, string>>({});
   const [depositing, setDepositing] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState<string | null>(null);
   const [positions, setPositions] = useState<VaultPosition[]>([]);
@@ -302,6 +303,22 @@ export const YieldVaults = () => {
                         </div>
 
                         <div className="space-y-2">
+                          {vault.autoCompound && (
+                            <div>
+                              <label className="text-xs text-muted-foreground">Compound Frequency</label>
+                              <div className="flex gap-1 mt-1">
+                                {(['daily', 'weekly', 'monthly'] as const).map(f => (
+                                  <button key={f} onClick={() => setCompoundFreq(prev => ({ ...prev, [vault.id]: f }))}
+                                    className={cn('flex-1 py-1 rounded text-xs border transition-all capitalize',
+                                      (compoundFreq[vault.id] ?? 'daily') === f
+                                        ? 'border-primary bg-primary/10 text-primary'
+                                        : 'border-border/30 text-muted-foreground hover:text-foreground')}>
+                                    {f}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           <div className="flex gap-2">
                             <Input
                               type="number"
@@ -317,15 +334,46 @@ export const YieldVaults = () => {
                               }
                             </Button>
                           </div>
-                          {depositAmount[vault.id] && parseFloat(depositAmount[vault.id]) > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              Est. annual yield:{' '}
-                              <span className="text-emerald-400 font-bold">
-                                {(parseFloat(depositAmount[vault.id]) * vault.apy / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })} {vault.token}
-                              </span>
-                            </p>
-                          )}
+                          {depositAmount[vault.id] && parseFloat(depositAmount[vault.id]) > 0 && (() => {
+                            const amt = parseFloat(depositAmount[vault.id]);
+                            const freq = compoundFreq[vault.id] ?? 'daily';
+                            const n = freq === 'daily' ? 365 : freq === 'weekly' ? 52 : 12;
+                            const r = vault.apy / 100 / n;
+                            const compounded = amt * Math.pow(1 + r, n) - amt;
+                            const simple = amt * vault.apy / 100;
+                            return (
+                              <div className="space-y-1">
+                                <div className="grid grid-cols-3 gap-1 text-xs">
+                                  <div className="p-1.5 bg-muted/20 rounded text-center">
+                                    <p className="text-muted-foreground text-[10px]">Daily</p>
+                                    <p className="font-bold text-emerald-400">{(amt * vault.apy / 100 / 365).toFixed(2)}</p>
+                                  </div>
+                                  <div className="p-1.5 bg-muted/20 rounded text-center">
+                                    <p className="text-muted-foreground text-[10px]">Monthly</p>
+                                    <p className="font-bold text-emerald-400">{(amt * vault.apy / 100 / 12).toFixed(2)}</p>
+                                  </div>
+                                  <div className="p-1.5 bg-muted/20 rounded text-center">
+                                    <p className="text-muted-foreground text-[10px]">Yearly</p>
+                                    <p className="font-bold text-emerald-400">{simple.toFixed(2)}</p>
+                                  </div>
+                                </div>
+                                {vault.autoCompound && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {freq.charAt(0).toUpperCase()+freq.slice(1)} compounding: <span className="text-emerald-400 font-bold">+{(compounded - simple).toFixed(2)} extra</span> vs simple interest
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
+
+                        {/* LP fee compounding note for LP vault */}
+                        {vault.id === 'lp-compound' && (
+                          <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs">
+                            <p className="text-blue-400 font-medium mb-1">⚙️ LP Fee Compounding</p>
+                            <p className="text-muted-foreground">Swap fees earned (0.3% per trade) are harvested and re-invested into the pool position on every compound cycle, growing your LP share automatically.</p>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   )}

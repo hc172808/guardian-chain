@@ -7,3 +7,4 @@
 - [Test nodes](test-nodes.md) — Bind to 0.0.0.0; UI uses window.location.hostname (not localhost); shows firewall cmds when host != localhost; copy buttons on all URLs.
 - [Tokens table creator](tokens-creator.md) — tokens table uses creator_id (no FK to users), not user_id. Use LEFT JOIN + coalesce for leaderboard queries.
 - [XP leaderboard](xp-leaderboard.md) — user_xp, xp_events, achievements, user_achievements tables pushed via raw SQL (db:push has TTY issue). Storage methods use pgPool directly.
+- [Replit migration](replit-migration.md) — db:push needs TTY; use `drizzle-kit generate` then pipe SQL to psql instead. Supabase client.ts is already a shim routing to Express API — no real Supabase keys needed.

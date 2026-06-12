@@ -10,7 +10,7 @@ import { ArrowDown, ArrowUp, RefreshCw, TrendingUp, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type OrderSide = 'buy' | 'sell';
-type OrderType = 'limit' | 'stop-limit' | 'market';
+type OrderType = 'limit' | 'market' | 'stop-limit' | 'twap' | 'iceberg';
 
 interface BookLevel {
   price: number;
@@ -59,6 +59,9 @@ export const OrderBook = () => {
   const [price, setPrice] = useState('0.0000001');
   const [amount, setAmount] = useState('');
   const [stopPrice, setStopPrice] = useState('');
+  const [twapIntervals, setTwapIntervals] = useState('10');
+  const [twapDurationMins, setTwapDurationMins] = useState('60');
+  const [icebergDisplaySize, setIcebergDisplaySize] = useState('');
   const [placing, setPlacing] = useState(false);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -109,6 +112,8 @@ export const OrderBook = () => {
       const body: any = { side, orderType: type, amount };
       if (type !== 'market') body.price = price;
       if (type === 'stop-limit') body.stopPrice = stopPrice;
+      if (type === 'twap') { body.twapIntervals = Number(twapIntervals); body.twapDurationMins = Number(twapDurationMins); }
+      if (type === 'iceberg') body.icebergDisplaySize = icebergDisplaySize;
       const res = await fetch('/api/orders', {
         method: 'POST',
         credentials: 'include',
@@ -248,21 +253,68 @@ export const OrderBook = () => {
             ))}
           </div>
 
-          <div className="flex gap-1">
+          <div className="grid grid-cols-3 gap-1 mb-1">
             {(['limit', 'market', 'stop-limit'] as const).map(t => (
               <button key={t} onClick={() => setType(t)}
-                className={cn('flex-1 py-1 rounded-lg text-xs font-medium border transition-all capitalize', type === t
+                className={cn('py-1 rounded-lg text-xs font-medium border transition-all capitalize', type === t
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-border/30 text-muted-foreground hover:text-foreground')}>
                 {t}
               </button>
             ))}
+            {(['twap', 'iceberg'] as const).map(t => (
+              <button key={t} onClick={() => setType(t)}
+                className={cn('py-1 rounded-lg text-xs font-medium border transition-all uppercase', type === t
+                  ? 'border-amber-500 bg-amber-500/10 text-amber-400'
+                  : 'border-border/30 text-muted-foreground hover:text-foreground')}>
+                {t}
+              </button>
+            ))}
+            <div />
           </div>
 
           {type === 'stop-limit' && (
             <div>
               <label className="text-xs text-muted-foreground">Stop Price (USDT)</label>
               <Input value={stopPrice} onChange={e => setStopPrice(e.target.value)} placeholder="0.00000000" className="font-mono text-sm mt-1" />
+            </div>
+          )}
+
+          {type === 'twap' && (
+            <div className="space-y-2 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+              <p className="text-xs text-amber-400 font-medium">⏱ TWAP — Time-Weighted Average Price</p>
+              <p className="text-xs text-muted-foreground">Splits your order into equal slices and executes over a period, reducing market impact.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-muted-foreground">Slices</label>
+                  <Input value={twapIntervals} onChange={e => setTwapIntervals(e.target.value)} type="number" min="2" max="100" className="text-sm mt-1" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Duration (min)</label>
+                  <Input value={twapDurationMins} onChange={e => setTwapDurationMins(e.target.value)} type="number" min="5" max="1440" className="text-sm mt-1" />
+                </div>
+              </div>
+              {amount && twapIntervals && twapDurationMins && (
+                <p className="text-xs text-muted-foreground">
+                  Each slice: ~{(parseFloat(amount) / parseInt(twapIntervals) || 0).toLocaleString()} GYDS every {Math.round(parseInt(twapDurationMins) / parseInt(twapIntervals))} min
+                </p>
+              )}
+            </div>
+          )}
+
+          {type === 'iceberg' && (
+            <div className="space-y-2 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+              <p className="text-xs text-blue-400 font-medium">🧊 Iceberg Order</p>
+              <p className="text-xs text-muted-foreground">Only the display size is shown in the order book. Hidden quantity refills automatically when each slice fills.</p>
+              <div>
+                <label className="text-xs text-muted-foreground">Visible Size (GYDS)</label>
+                <Input value={icebergDisplaySize} onChange={e => setIcebergDisplaySize(e.target.value)} placeholder="e.g. 100000" className="font-mono text-sm mt-1" />
+              </div>
+              {amount && icebergDisplaySize && parseFloat(icebergDisplaySize) > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Hidden: {(parseFloat(amount) - parseFloat(icebergDisplaySize)).toLocaleString()} GYDS in {Math.ceil(parseFloat(amount) / parseFloat(icebergDisplaySize))} slices
+                </p>
+              )}
             </div>
           )}
           {type !== 'market' && (

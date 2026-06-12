@@ -131,6 +131,10 @@ const WalletContent = () => {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(isBiometricEnabled());
 
+  // Bridge history
+  const [bridgeHistory, setBridgeHistory] = useState<any[]>([]);
+  const [bridgeLoading, setBridgeLoading] = useState(false);
+
   // On-chain RPC balance
   const walletAddresses = wallets.map(w => w.address);
   const { gydsBalance: rpcGydsBalance, loading: rpcLoading, error: rpcError, lastFetched: rpcLastFetched, refresh: refreshRpc } = useRpcBalance(walletAddresses);
@@ -142,7 +146,17 @@ const WalletContent = () => {
   useEffect(() => {
     fetchWallets();
     loadBalances();
+    fetchBridgeHistory();
   }, [user]);
+
+  const fetchBridgeHistory = async () => {
+    if (!user) return;
+    setBridgeLoading(true);
+    try {
+      const res = await fetch('/api/bridge/history', { credentials: 'include' });
+      if (res.ok) setBridgeHistory(await res.json());
+    } finally { setBridgeLoading(false); }
+  };
 
   // Pre-fill send dialog when navigated from Mobile QR scanner
   useEffect(() => {
@@ -1043,6 +1057,67 @@ const WalletContent = () => {
             <p className="text-xs text-muted-foreground pl-1">Enable PIN lock first to use biometric unlock.</p>
           )}
         </div>
+      </GlassCard>
+
+      {/* Bridge Transfer History */}
+      <GlassCard className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Activity className="h-6 w-6 text-primary" />
+            <h2 className="text-xl font-bold">Bridge History</h2>
+          </div>
+          <Button variant="outline" size="sm" onClick={fetchBridgeHistory} disabled={bridgeLoading}>
+            <RefreshCw className={`h-4 w-4 ${bridgeLoading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+        {bridgeLoading ? (
+          <div className="flex items-center gap-2 justify-center py-6 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" /> Loading bridge history…
+          </div>
+        ) : bridgeHistory.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <ArrowRightLeft className="h-8 w-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No bridge transfers yet.</p>
+            <p className="text-xs mt-1">Transfers made via the <a className="text-primary underline cursor-pointer" href="/defi">DeFi Bridge</a> will appear here.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {bridgeHistory.map((tx: any) => (
+              <div key={tx.id} className="p-4 rounded-lg bg-card/50 border border-border/30 flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10 mt-0.5">
+                    <ArrowRightLeft className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm">{tx.from_chain} → {tx.to_chain}</span>
+                      {tx.status === 'completed' && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
+                      {tx.status === 'pending' && <Clock className="h-4 w-4 text-amber-400" />}
+                      {tx.status === 'failed' && <XCircle className="h-4 w-4 text-red-400" />}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {Number(tx.amount).toFixed(4)} {tx.from_token}
+                      {tx.received && ` → ${Number(tx.received).toFixed(4)} ${tx.to_token}`}
+                      {tx.fee > 0 && ` (fee: ${Number(tx.fee).toFixed(4)})`}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{new Date(tx.created_at).toLocaleString()}</p>
+                    {tx.tx_hash && (
+                      <p className="text-xs font-mono text-muted-foreground mt-0.5 flex items-center gap-1">
+                        {tx.tx_hash.slice(0, 10)}…{tx.tx_hash.slice(-8)}
+                        <ExternalLink className="h-3 w-3" />
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <span className={`text-xs font-medium capitalize px-2 py-0.5 rounded-full flex-shrink-0 ${
+                  tx.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
+                  tx.status === 'pending' ? 'bg-amber-500/20 text-amber-400' :
+                  'bg-red-500/20 text-red-400'
+                }`}>{tx.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </GlassCard>
 
       <Web3ConnectModal
