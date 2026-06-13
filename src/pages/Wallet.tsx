@@ -83,6 +83,7 @@ import {
   disableBiometric,
 } from '@/lib/biometric';
 import { Fingerprint } from 'lucide-react';
+import { LedgerConnect } from '@/components/wallet/LedgerConnect';
 
 const WalletContent = () => {
   const navigate = useNavigate();
@@ -617,6 +618,7 @@ const WalletContent = () => {
         </div>
         <div className="flex gap-2 flex-wrap">
           {isFounder && <FounderWalletConfig />}
+          <LedgerConnect compact onConnect={(addr) => toast({ title: 'Ledger connected', description: addr })} />
           <Button variant="outline" className="gap-2" onClick={() => setLinkWalletOpen(true)}>
             <WalletIcon className="h-4 w-4" /> Link Web3 Wallet
           </Button>

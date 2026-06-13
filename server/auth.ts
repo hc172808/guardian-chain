@@ -9,6 +9,7 @@ import rateLimit from "express-rate-limit";
 import { totp } from "./totp";
 import { pool } from "./db";
 import { storage } from "./storage";
+import { sendPasswordResetEmail, sendEmailVerification } from "./email";
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
 
@@ -96,7 +97,7 @@ export async function setupAuth(app: Express): Promise<void> {
           `INSERT INTO email_verification_tokens (user_id, token) VALUES ($1, $2)`,
           [user.id, token]
         ).catch(() => {});
-        // In production, send email to `email` with link: /verify-email?token=<token>
+        sendEmailVerification(email, token).catch(() => {});
         console.log(`[email-verify] Token for ${email}: ${token}`);
       }
 
@@ -139,8 +140,9 @@ export async function setupAuth(app: Express): Promise<void> {
          ON CONFLICT DO NOTHING`,
         [user.id, token]
       ).catch(() => {});
+      sendEmailVerification(user.email, token).catch(() => {});
       console.log(`[email-verify] Resend token for ${user.email}: ${token}`);
-      res.json({ ok: true, message: "Verification email sent (check server logs in dev)" });
+      res.json({ ok: true, message: "Verification email sent" });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -233,8 +235,12 @@ export async function setupAuth(app: Express): Promise<void> {
       const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       await storage.createPasswordResetToken(user.id, token, expiresAt);
-      // In production: send email. For now, return token directly (founder/dev use).
-      res.json({ ok: true, token, message: "Reset token generated. Use it within 1 hour.", expiresAt });
+      if (user.email) {
+        await sendPasswordResetEmail(user.email, token).catch(() => {});
+      }
+      // Return token in dev (when no SMTP configured) for founder use
+      const devToken = !process.env.SMTP_HOST ? token : undefined;
+      res.json({ ok: true, message: "If that account exists, a reset email has been sent.", ...(devToken ? { token: devToken } : {}), expiresAt });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

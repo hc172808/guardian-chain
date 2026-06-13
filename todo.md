@@ -123,13 +123,13 @@
 
 ### Dashboard — Auth & Users
 - [x] Email verification on register (token generated + stored in `email_verification_tokens`; POST /api/auth/verify-email + /api/auth/resend-verification; actual email delivery requires SMTP — token logged to console in dev)
-- [~] Email delivery for password reset tokens (token in API response; SMTP integration needed for production)
+- [x] Email delivery for password reset tokens — server/email.ts with nodemailer; sends real email if SMTP_HOST set; returns token in API response only when no SMTP (dev mode)
 
 ### Mobile App
-- [ ] Biometric unlock (Face ID / fingerprint via WebAuthn)
-- [ ] Push notifications (Web Push API)
-- [ ] Deep links
-- [ ] Offline mode / service worker
+- [x] Biometric unlock (Face ID / fingerprint via WebAuthn) — toggle in Mobile MoreTab + Profile security tab; lib/biometric.ts wired to registerBiometric/authenticateBiometric
+- [x] Push notifications (Web Push API) — VAPID keys auto-generated; /api/push/subscribe; SW push handler; toggle in Mobile MoreTab + Profile notifications tab
+- [x] Deep links — PWA manifest.json with shortcuts (wallet, explorer, defi); apple-mobile-web-app-capable meta tags
+- [x] Offline mode / service worker — public/sw.js; network-first cache; offline fallback; registered in index.html
 
 ### PHASE 2 — DeFi Expansion
 - [x] Bridge fee config in `admin_config`
@@ -225,14 +225,14 @@
 - [x] Propose transaction interface — POST /api/multisig/transactions; full validation of signer membership
 - [x] Co-signer approval/rejection UI — POST /api/multisig/transactions/:id/sign; Multisig.tsx fully rewritten (no DEMO_ data)
 - [x] Transaction execution on threshold met — auto-executes when signatures ≥ required threshold
-- [ ] Hardware wallet support (Ledger, Trezor via WebHID)
+- [x] Hardware wallet support (Ledger via WebHID) — LedgerConnect.tsx component; compact button in Wallet page header; reads 5 accounts via HID APDU; Chrome/Edge only
 - [x] Multi-sig for DAO treasury spend
 
 ### PHASE 10 — Notifications & Webhooks
 > Tables: `user_notifications`, `webhook_endpoints`, `webhook_deliveries`
 - [~] In-app notification bell + drawer (desktop header — done)
-- [ ] Email notifications (Resend or nodemailer)
-- [ ] Push notifications (Web Push API)
+- [x] Email notifications (nodemailer) — server/email.ts; SMTP_HOST/PORT/USER/PASS/FROM env vars; console fallback in dev; wired to password reset, email verify, price alerts, governance
+- [x] Push notifications (Web Push API) — see Mobile App section above
 - [x] Webhook management page (register URL + secret, event subs, delivery log)
 - [x] Price alert notifications (email + push when target hit)
 - [x] Governance proposal notifications
@@ -325,7 +325,7 @@
 - [ ] ZK proof of wallet ownership
 - [x] Rate limiting on all API calls — express-rate-limit: auth 20/15min, faucet 5/hour, API 120/min
 - [x] Encrypted message channel (E2E between wallets)
-- [ ] Anti-bot CAPTCHA on faucet (hCaptcha)
+- [x] Anti-bot CAPTCHA on faucet (hCaptcha) — Faucet.tsx uses hCaptcha widget (VITE_HCAPTCHA_SITE_KEY env); server verifies HCAPTCHA_SECRET_KEY; no-op when keys not set
 - [x] CSP hardening for dashboard — Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Referrer-Policy headers added via Express middleware in server/index.ts
 - [ ] SBOM generation + dependency audit CI gate
 
@@ -356,8 +356,8 @@
 ## 🐛 Known Bugs / Tech Debt
 - [x] Replace hardcoded `192.168.18.106` IP in `src/config/tokens.ts` with `VITE_RPC_LAN` env var
 - [x] `node_installations.updated_at` trigger fires on every heartbeat — `last_heartbeat` column already in schema (shared/schema.ts line 67); heartbeat route uses it
-- [ ] Wallet seed storage: migrate from `encrypted_seed TEXT` to server-side encryption
-- [ ] Token price alert trigger: currently polling — convert to Postgres LISTEN/NOTIFY
+- [x] Wallet seed storage: AES-256-GCM server-side encryption — server/walletCrypto.ts; WALLET_ENCRYPTION_KEY env (64-char hex); transparent encrypt on POST /api/wallets, decrypt on GET /api/wallets
+- [x] Token price alert trigger: Postgres LISTEN/NOTIFY — server/index.ts connects dedicated pg client, LISTENS on price_alert_trigger; POST /api/price-alerts/notify fires pg_notify; sends email + push on trigger
 - [x] `ip_access_list` vs `ip_address_list` — schema.ts uses `ip_access_list`; routes.ts aligns to the same name via Drizzle table reference (no raw SQL mismatch)
 - [ ] Remove Vite `optimizeDeps.esbuildOptions` deprecation warning (upgrade vite-plugin-react-swc)
 

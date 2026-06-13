@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
@@ -8,8 +8,52 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useToast } from '@/hooks/use-toast';
 import { motion } from 'framer-motion';
-import { Droplets, Wallet, Loader2, Clock, AlertTriangle } from 'lucide-react';
+import { Droplets, Wallet, Loader2, Clock, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { MyOperationsFeed } from '@/components/wallet/MyOperationsFeed';
+
+const HCAPTCHA_SITE_KEY = import.meta.env.VITE_HCAPTCHA_SITE_KEY ?? '';
+
+function HCaptcha({ onVerify, onExpire }: { onVerify: (token: string) => void; onExpire: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const widgetRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!HCAPTCHA_SITE_KEY || !ref.current) return;
+    const scriptId = 'hcaptcha-script';
+    if (!document.getElementById(scriptId)) {
+      const s = document.createElement('script');
+      s.id = scriptId;
+      s.src = 'https://js.hcaptcha.com/1/api.js?render=explicit';
+      s.async = true;
+      s.defer = true;
+      document.head.appendChild(s);
+    }
+    const render = () => {
+      if ((window as any).hcaptcha && ref.current && !widgetRef.current) {
+        widgetRef.current = (window as any).hcaptcha.render(ref.current, {
+          sitekey: HCAPTCHA_SITE_KEY,
+          callback: onVerify,
+          'expired-callback': onExpire,
+          theme: 'dark',
+        });
+      }
+    };
+    if ((window as any).hcaptcha) render();
+    else {
+      const script = document.getElementById(scriptId) as HTMLScriptElement;
+      if (script) script.onload = render;
+    }
+    return () => {
+      if (widgetRef.current !== null && (window as any).hcaptcha) {
+        try { (window as any).hcaptcha.remove(widgetRef.current); } catch {}
+        widgetRef.current = null;
+      }
+    };
+  }, []);
+
+  if (!HCAPTCHA_SITE_KEY) return null;
+  return <div ref={ref} className="flex justify-center" />;
+}
 
 const FAUCET_AMOUNTS = {
   gyd: 100,
@@ -24,6 +68,8 @@ const FaucetPage = () => {
   const [isClaiming, setIsClaiming] = useState<'gyd' | 'gyds' | null>(null);
   const [lastClaim, setLastClaim] = useState<Record<string, number>>({});
   const [manualAddress, setManualAddress] = useState('');
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const captchaEnabled = !!HCAPTCHA_SITE_KEY;
 
   const targetAddress = isConnected && address ? address : manualAddress;
 
@@ -71,17 +117,23 @@ const FaucetPage = () => {
       return;
     }
 
+    if (captchaEnabled && !captchaToken) {
+      toast({ title: 'CAPTCHA Required', description: 'Please complete the CAPTCHA first.', variant: 'destructive' });
+      return;
+    }
+
     setIsClaiming(type);
     try {
       const res = await fetch('/api/faucet/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token_type: type, wallet_address: targetAddress }),
+        body: JSON.stringify({ token_type: type, wallet_address: targetAddress, hcaptcha_token: captchaToken }),
       });
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || 'Claim failed');
 
       setLastClaim(prev => ({ ...prev, [type]: Date.now() }));
+      setCaptchaToken(null);
       toast({
         title: `🎉 Claimed ${data.amount} ${type.toUpperCase()}!`,
         description: `Test tokens sent to ${targetAddress.slice(0, 8)}...`,
@@ -176,6 +228,25 @@ const FaucetPage = () => {
             </Button>
           </GlassCard>
         </div>
+
+        {/* hCaptcha */}
+        {captchaEnabled && (
+          <GlassCard className="p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium mb-2">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              Anti-Bot Verification
+            </div>
+            <HCaptcha
+              onVerify={(token) => setCaptchaToken(token)}
+              onExpire={() => setCaptchaToken(null)}
+            />
+            {captchaToken && (
+              <p className="text-xs text-emerald-400 flex items-center gap-1 justify-center">
+                <ShieldCheck className="h-3 w-3" /> Verified
+              </p>
+            )}
+          </GlassCard>
+        )}
 
         {/* Info */}
         <GlassCard className="p-4 border-amber-500/30 bg-amber-500/5">

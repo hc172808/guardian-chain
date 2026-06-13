@@ -2,6 +2,10 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import { storage } from "./storage";
 import { testNodeManager } from "./testNodes";
+import { encryptSeed, decryptSeed } from "./walletCrypto";
+import { getVapidPublicKey, sendPushToUser } from "./webpush";
+import { Pool } from "pg";
+const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
 const faucetLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Too many faucet requests." } });
@@ -82,14 +86,22 @@ export function registerRoutes(app: Express) {
   app.get("/api/wallets", requireAuth, async (req, res) => {
     const user = req.user as any;
     const data = await storage.getUserWallets(user.id);
-    res.json(data);
+    // Decrypt seeds on the way out (transparent to client)
+    const decrypted = data.map((w: any) => ({
+      ...w,
+      encrypted_seed: w.encryptedSeed ? decryptSeed(w.encryptedSeed) : '',
+      encryptedSeed: w.encryptedSeed ? decryptSeed(w.encryptedSeed) : '',
+    }));
+    res.json(decrypted);
   });
 
   app.post("/api/wallets", requireAuth, async (req, res) => {
     const user = req.user as any;
     const { address, encrypted_seed = "", pin_hash = "" } = req.body;
     if (!address) return res.status(400).json({ error: "address required" });
-    const row = await storage.insertWallet({ userId: user.id, address, encryptedSeed: encrypted_seed, pinHash: pin_hash });
+    // Encrypt seed at rest using AES-256-GCM if WALLET_ENCRYPTION_KEY is set
+    const seedToStore = encryptSeed(encrypted_seed);
+    const row = await storage.insertWallet({ userId: user.id, address, encryptedSeed: seedToStore, pinHash: pin_hash });
     res.json(row);
   });
 
@@ -475,9 +487,25 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const AMOUNTS: Record<string, number> = { gyd: 100, gyds: 0.5 };
     const COOLDOWN_MS = 24 * 60 * 60 * 1000;
-    const { token_type, wallet_address } = req.body;
+    const { token_type, wallet_address, hcaptcha_token } = req.body;
     const tokenType = String(token_type ?? "").toLowerCase();
     const walletAddress = String(wallet_address ?? "").trim();
+
+    // Verify hCaptcha if secret is configured
+    if (process.env.HCAPTCHA_SECRET_KEY) {
+      if (!hcaptcha_token) return res.status(400).json({ ok: false, error: "CAPTCHA required" });
+      try {
+        const verifyRes = await fetch("https://hcaptcha.com/siteverify", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `response=${encodeURIComponent(hcaptcha_token)}&secret=${encodeURIComponent(process.env.HCAPTCHA_SECRET_KEY)}`,
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyData.success) return res.status(400).json({ ok: false, error: "CAPTCHA verification failed" });
+      } catch {
+        return res.status(500).json({ ok: false, error: "CAPTCHA service unavailable" });
+      }
+    }
 
     if (!AMOUNTS[tokenType]) return res.status(400).json({ ok: false, error: "Invalid token_type (gyd|gyds)" });
     if (!walletAddress) return res.status(400).json({ ok: false, error: "wallet_address required" });
@@ -1489,5 +1517,69 @@ export function registerRoutes(app: Express) {
         testnet: { url: "https://testnet-rpc.netlifegy.com", ...testnetCheck },
       },
     });
+  });
+
+  // ── Push Notifications ─────────────────────────────────────────────────────
+  app.get("/api/push/vapid-key", async (_req, res) => {
+    const key = await getVapidPublicKey();
+    res.json({ publicKey: key });
+  });
+
+  app.post("/api/push/subscribe", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { subscription } = req.body;
+    if (!subscription?.endpoint) return res.status(400).json({ error: "subscription required" });
+    try {
+      await pgPool.query(
+        `INSERT INTO push_subscriptions (user_id, subscription)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, (subscription->>'endpoint')) DO UPDATE SET subscription = $2`,
+        [user.id, JSON.stringify(subscription)]
+      );
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/push/subscribe", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { endpoint } = req.body;
+    if (endpoint) {
+      await pgPool.query(
+        `DELETE FROM push_subscriptions WHERE user_id=$1 AND subscription->>'endpoint'=$2`,
+        [user.id, endpoint]
+      ).catch(() => {});
+    } else {
+      await pgPool.query(`DELETE FROM push_subscriptions WHERE user_id=$1`, [user.id]).catch(() => {});
+    }
+    res.json({ ok: true });
+  });
+
+  app.post("/api/push/test", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    await sendPushToUser(user.id, {
+      title: "🔔 ChainCore Test Push",
+      body: "Push notifications are working!",
+      url: "/",
+    });
+    res.json({ ok: true });
+  });
+
+  // ── Price Alert NOTIFY trigger (internal) ──────────────────────────────────
+  app.post("/api/price-alerts/notify", requireAdmin, async (req, res) => {
+    const { userId, email, symbol, price, target, direction } = req.body;
+    if (!symbol || !price || !target || !direction) return res.status(400).json({ error: "symbol, price, target, direction required" });
+    try {
+      await pgPool.query(
+        `SELECT pg_notify('price_alert_trigger', $1)`,
+        [JSON.stringify({ userId, email, symbol, price, target, direction })]
+      );
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Wallet Encryption Key status ───────────────────────────────────────────
+  app.get("/api/wallet-encryption/status", requireAdmin, (_req, res) => {
+    const keySet = !!process.env.WALLET_ENCRYPTION_KEY && process.env.WALLET_ENCRYPTION_KEY.length === 64;
+    res.json({ enabled: keySet, algorithm: "AES-256-GCM" });
   });
 }

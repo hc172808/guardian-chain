@@ -15,6 +15,15 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="ChainCore — GYDSchain Network Dashboard" />
     <meta name="twitter:description" content="Real-time monitoring for the GYDSchain private blockchain network." />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#00e5b4" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ChainCore" />
+    <link rel="apple-touch-icon" href="/gyds-coin.jpg" />
+
     <style>
       body { margin: 0; background: #0d1117; color: #e6edf3; font-family: sans-serif; }
     </style>
@@ -23,5 +32,12 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

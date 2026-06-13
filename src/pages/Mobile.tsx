@@ -11,8 +11,15 @@ import {
   ArrowUp, ArrowDown, MonitorSmartphone, Globe, ArrowLeft,
   Wifi, Battery, Signal, Eye, EyeOff, QrCode, Star,
   ChevronDown, Check, CircleDollarSign, Flame, Users,
-  BarChart3, Layers, BookOpen, Lock
+  BarChart3, Layers, BookOpen, Lock, Fingerprint, Smartphone
 } from 'lucide-react';
+import {
+  isBiometricAvailable,
+  isBiometricEnabled,
+  registerBiometric,
+  authenticateBiometric,
+  disableBiometric,
+} from '@/lib/biometric';
 import { cn } from '@/lib/utils';
 
 type Tab = 'home' | 'explorer' | 'defi' | 'wallet' | 'more';
@@ -582,6 +589,55 @@ const MoreTab = () => {
   const go = useMobileNavigate();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
+  const [biometricAvail, setBiometricAvail] = useState(false);
+  const [biometricOn, setBiometricOn] = useState(isBiometricEnabled());
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [pushOn, setPushOn] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+
+  useEffect(() => {
+    isBiometricAvailable().then(setBiometricAvail);
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      navigator.serviceWorker.ready.then(reg =>
+        reg.pushManager.getSubscription().then(sub => setPushOn(!!sub))
+      ).catch(() => {});
+    }
+  }, []);
+
+  const toggleBiometric = async () => {
+    if (!user || biometricLoading) return;
+    setBiometricLoading(true);
+    if (biometricOn) {
+      disableBiometric();
+      setBiometricOn(false);
+    } else {
+      const ok = await registerBiometric(user.id);
+      if (ok) setBiometricOn(true);
+    }
+    setBiometricLoading(false);
+  };
+
+  const togglePush = async () => {
+    if (pushLoading || !('serviceWorker' in navigator)) return;
+    setPushLoading(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (pushOn) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) { await sub.unsubscribe(); await fetch('/api/push/subscribe', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) }); }
+        setPushOn(false);
+      } else {
+        const keyRes = await fetch('/api/push/vapid-key');
+        const { publicKey } = await keyRes.json();
+        if (publicKey) {
+          const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: publicKey });
+          await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subscription: sub }) });
+          setPushOn(true);
+        }
+      }
+    } catch {}
+    setPushLoading(false);
+  };
 
   const sections = [
     {
@@ -658,6 +714,59 @@ const MoreTab = () => {
           </div>
         </div>
       ))}
+
+      {/* Security & Notifications */}
+      {user && (
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Security & Notifications</p>
+          <div className="rounded-2xl bg-card border border-border/60 overflow-hidden divide-y divide-border/40">
+            {biometricAvail && (
+              <div className="flex items-center gap-3 p-3.5">
+                <div className="p-2 rounded-xl bg-primary/10">
+                  <Fingerprint className="h-4 w-4 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Biometric Unlock</p>
+                  <p className="text-[10px] text-muted-foreground">Face ID / fingerprint</p>
+                </div>
+                <button
+                  onClick={toggleBiometric}
+                  disabled={biometricLoading}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${biometricOn ? 'bg-primary' : 'bg-muted'}`}
+                >
+                  <span className={`block h-4 w-4 rounded-full bg-background shadow transition-transform ${biometricOn ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+            )}
+            {'PushManager' in window && (
+              <div className="flex items-center gap-3 p-3.5">
+                <div className="p-2 rounded-xl bg-blue-400/10">
+                  <Smartphone className="h-4 w-4 text-blue-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Push Notifications</p>
+                  <p className="text-[10px] text-muted-foreground">Browser alerts</p>
+                </div>
+                <button
+                  onClick={togglePush}
+                  disabled={pushLoading}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${pushOn ? 'bg-primary' : 'bg-muted'}`}
+                >
+                  <span className={`block h-4 w-4 rounded-full bg-background shadow transition-transform ${pushOn ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+            )}
+            <button onClick={() => go('/security')}
+              className="w-full flex items-center gap-3 p-3.5 hover:bg-muted/40 active:scale-[0.98] transition-all text-left">
+              <div className="p-2 rounded-xl bg-red-400/10">
+                <Lock className="h-4 w-4 text-red-400" />
+              </div>
+              <span className="flex-1 text-sm font-medium">Security Settings</span>
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Switch + Sign out */}
       <div className="space-y-2 pt-1">

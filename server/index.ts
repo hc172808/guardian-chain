@@ -5,6 +5,8 @@ import { setupAuth } from "./auth";
 import { registerRoutes } from "./routes";
 import { seedFounder } from "./seed";
 import { storage } from "./storage";
+import { initVapid, ensurePushSubscriptionsTable } from "./webpush";
+import { Pool } from "pg";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -91,6 +93,44 @@ async function runDbPruner() {
 }
 runDbPruner().catch(() => {});
 setInterval(runDbPruner, 24 * 60 * 60 * 1000);
+
+// Init Web Push VAPID keys + push_subscriptions table
+initVapid().catch(e => console.warn("webpush init:", e.message));
+ensurePushSubscriptionsTable().catch(e => console.warn("push_subscriptions table:", e.message));
+
+// Price Alert LISTEN/NOTIFY via Postgres
+async function startPriceAlertListener() {
+  const pgPool = (storage as any).pgPool as Pool | undefined;
+  if (!pgPool) return;
+  const client = await pgPool.connect();
+  await client.query('LISTEN price_alert_trigger').catch(() => {});
+  client.on('notification', async (msg: any) => {
+    try {
+      const payload = JSON.parse(msg.payload ?? '{}');
+      const { userId, symbol, price, target, direction, email } = payload;
+      const { sendPriceAlertEmail } = await import('./email');
+      const { sendPushToUser } = await import('./webpush');
+      if (email) {
+        sendPriceAlertEmail(email, symbol, price, target, direction).catch(() => {});
+      }
+      if (userId) {
+        sendPushToUser(userId, {
+          title: `📈 ${symbol} Price Alert`,
+          body: `${symbol} is now ${direction} $${target} (current: $${price})`,
+          url: '/tokens',
+        }).catch(() => {});
+      }
+    } catch {}
+  });
+  client.on('error', () => { client.release(); });
+  console.log('[price-alerts] Listening for Postgres NOTIFY on price_alert_trigger');
+}
+startPriceAlertListener().catch(e => console.warn("price alert listener:", e.message));
+
+// Ensure hCaptcha secret is configured if HCAPTCHA_SECRET_KEY is set
+if (process.env.HCAPTCHA_SECRET_KEY) {
+  console.log('[faucet] hCaptcha verification enabled');
+}
 
 // Serve static frontend in production only
 if (process.env.NODE_ENV === "production") {

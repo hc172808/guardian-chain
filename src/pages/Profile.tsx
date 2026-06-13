@@ -20,8 +20,15 @@ import { useToast } from '@/hooks/use-toast';
 import {
   User, Mail, Globe, MapPin, Clock, Bell,
   Shield, Lock, Save, RefreshCw, CheckCircle2,
-  Phone, FileText, Palette, Eye, EyeOff, Trophy
+  Phone, FileText, Palette, Eye, EyeOff, Trophy,
+  Fingerprint, Smartphone, Send as SendIcon
 } from 'lucide-react';
+import {
+  isBiometricAvailable,
+  isBiometricEnabled,
+  registerBiometric,
+  disableBiometric,
+} from '@/lib/biometric';
 import { useNavigate } from 'react-router-dom';
 import { AchievementBadges } from '@/components/profile/AchievementBadges';
 
@@ -110,11 +117,83 @@ const ProfilePage = () => {
   const [saved, setSaved] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'notifications' | 'security' | 'achievements'>('info');
+  const [biometricAvail, setBiometricAvail] = useState(false);
+  const [biometricOn, setBiometricOn] = useState(isBiometricEnabled());
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
 
   // Redirect to auth if not logged in
   useEffect(() => {
     if (!authLoading && !user) navigate('/auth');
   }, [user, authLoading, navigate]);
+
+  // Biometric availability check + push subscription check
+  useEffect(() => {
+    isBiometricAvailable().then(setBiometricAvail);
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.pushManager.getSubscription().then(sub => setPushSubscribed(!!sub));
+      }).catch(() => {});
+    }
+  }, []);
+
+  const handleBiometricToggle = async () => {
+    if (!user) return;
+    setBiometricLoading(true);
+    try {
+      if (biometricOn) {
+        disableBiometric();
+        setBiometricOn(false);
+        toast({ title: 'Biometric disabled', description: 'Face ID / fingerprint unlock removed.' });
+      } else {
+        const ok = await registerBiometric(user.id);
+        if (ok) {
+          setBiometricOn(true);
+          toast({ title: 'Biometric enabled', description: 'Use Face ID or fingerprint to unlock your wallet.' });
+        } else {
+          toast({ title: 'Setup failed', description: 'Could not register biometric. Try again.', variant: 'destructive' });
+        }
+      }
+    } finally {
+      setBiometricLoading(false);
+    }
+  };
+
+  const handlePushSubscribe = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      toast({ title: 'Not supported', description: 'Push notifications require a modern browser.', variant: 'destructive' });
+      return;
+    }
+    setPushLoading(true);
+    try {
+      const keyRes = await fetch('/api/push/vapid-key');
+      const { publicKey } = await keyRes.json();
+      if (!publicKey) throw new Error('VAPID key not available');
+      const reg = await navigator.serviceWorker.ready;
+      if (pushSubscribed) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await sub.unsubscribe();
+          await fetch('/api/push/subscribe', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+        }
+        setPushSubscribed(false);
+        toast({ title: 'Push disabled', description: 'You will no longer receive push notifications.' });
+      } else {
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: publicKey,
+        });
+        await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subscription: sub }) });
+        setPushSubscribed(true);
+        toast({ title: 'Push enabled', description: 'You will now receive browser push notifications.' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Push setup failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setPushLoading(false);
+    }
+  };
 
   // Load profile from API
   useEffect(() => {
@@ -561,7 +640,6 @@ const ProfilePage = () => {
                 {(
                   [
                     { key: 'email',         label: 'Email notifications',  desc: 'Receive updates via email' },
-                    { key: 'push',          label: 'Push notifications',   desc: 'Browser / device push (coming soon)' },
                     { key: 'sms',           label: 'SMS notifications',    desc: 'Text message alerts (coming soon)' },
                   ] as const
                 ).map(n => (
@@ -576,6 +654,25 @@ const ProfilePage = () => {
                     />
                   </div>
                 ))}
+                {/* Push notification subscribe */}
+                <div className="flex items-center justify-between py-2 border-b border-border/30">
+                  <div>
+                    <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                      <Smartphone className="w-3.5 h-3.5 text-primary" />
+                      Push notifications
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {pushSubscribed ? 'Browser push enabled — click to disable' : 'Enable browser / device push alerts'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handlePushSubscribe}
+                    disabled={pushLoading}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${pushSubscribed ? 'bg-primary' : 'bg-input'}`}
+                  >
+                    <span className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${pushSubscribed ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </button>
+                </div>
               </div>
 
               {/* Event types */}
@@ -631,11 +728,33 @@ const ProfilePage = () => {
 
                 <div className="flex items-center justify-between p-3 bg-muted/20 rounded-lg border border-border/30">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Two-Factor Authentication</p>
-                    <p className="text-xs text-muted-foreground">Coming soon — TOTP authenticator support</p>
+                    <p className="text-sm font-medium text-foreground">Two-Factor Authentication (TOTP)</p>
+                    <p className="text-xs text-muted-foreground">Authenticate with Google Authenticator or similar</p>
                   </div>
-                  <Badge variant="secondary" className="text-xs">Soon</Badge>
+                  <Button variant="outline" size="sm" onClick={() => window.location.href = '/security'}>
+                    Manage
+                  </Button>
                 </div>
+
+                {/* Biometric unlock */}
+                {biometricAvail && (
+                  <div className="flex items-center justify-between p-3 bg-muted/20 rounded-lg border border-border/30">
+                    <div>
+                      <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                        <Fingerprint className="w-3.5 h-3.5 text-primary" />
+                        Biometric Unlock
+                      </p>
+                      <p className="text-xs text-muted-foreground">Use Face ID or fingerprint to unlock wallet</p>
+                    </div>
+                    <button
+                      onClick={handleBiometricToggle}
+                      disabled={biometricLoading}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${biometricOn ? 'bg-primary' : 'bg-input'}`}
+                    >
+                      <span className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${biometricOn ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between p-3 bg-muted/20 rounded-lg border border-border/30">
                   <div>

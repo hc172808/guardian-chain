@@ -52,8 +52,10 @@
     "@types/connect-pg-simple": "^7.0.3",
     "@types/express": "^5.0.6",
     "@types/express-session": "^1.19.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.20.0",
     "@types/qrcode": "^1.5.6",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^4.7.0",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
@@ -73,6 +75,7 @@
     "jsqr": "^1.4.0",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
+    "nodemailer": "^8.0.11",
     "openid-client": "^6.8.4",
     "otplib": "^13.4.1",
     "passport": "^0.7.0",
@@ -91,6 +94,7 @@
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.22.4",
     "vaul": "^0.9.9",
+    "web-push": "^3.6.7",
     "zod": "^3.25.76"
   },
   "devDependencies": {

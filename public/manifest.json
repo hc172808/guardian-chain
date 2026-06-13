@@ -1,0 +1,22 @@
+{
+  "name": "ChainCore — GYDSchain",
+  "short_name": "ChainCore",
+  "description": "GYDSchain Network Dashboard — monitor nodes, validators, DeFi and wallet.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#00e5b4",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/gyds-coin.jpg", "sizes": "192x192", "type": "image/jpeg", "purpose": "any maskable" },
+    { "src": "/gyds-coin.jpg", "sizes": "512x512", "type": "image/jpeg", "purpose": "any maskable" }
+  ],
+  "categories": ["finance", "utilities"],
+  "shortcuts": [
+    { "name": "Wallet",   "url": "/wallet",   "description": "Open your wallet" },
+    { "name": "Explorer", "url": "/explorer", "description": "Block explorer" },
+    { "name": "DeFi",     "url": "/defi",     "description": "GydsSwap DEX" }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
