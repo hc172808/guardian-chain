@@ -27,6 +27,7 @@ import NotFound from "./pages/NotFound";
 import CliReferencePage from "./pages/CliReference";
 import ResetPassword from "./pages/ResetPassword";
 import WatchlistPage from "./pages/Watchlist";
+import PriceAlertsPage from "./pages/PriceAlerts";
 import NodeTerminalPage from "./pages/NodeTerminal";
 import FaucetPage from "./pages/Faucet";
 import ProfilePage from "./pages/Profile";
@@ -108,6 +109,7 @@ const AppContent = () => {
       <Route path="/transactions" element={<TransactionsPage />} />
       <Route path="/network" element={<NetworkPage />} />
       <Route path="/watchlist" element={<WatchlistPage />} />
+      <Route path="/price-alerts" element={<PriceAlertsPage />} />
       <Route path="/node-terminal" element={<NodeTerminalPage />} />
       <Route path="/faucet" element={<FaucetPage />} />
       {/* Ecosystem */}

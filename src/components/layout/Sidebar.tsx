@@ -6,7 +6,7 @@ import {
   User, Wallet, Settings, BookOpen, ArrowRightLeft, Network,
   Coins, Star, Terminal, Droplets, UserCircle, Vote, Image,
   TrendingUp, MessageSquare, Code2, Trophy, ShieldCheck,
-  Fingerprint, Building2, Lock, ChevronDown, HeartHandshake
+  Fingerprint, Building2, Lock, ChevronDown, HeartHandshake, BellRing
 } from 'lucide-react';
 import gydsCoinLogo from '/gyds-coin.jpg';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -25,7 +25,8 @@ const coreNav: NavItem[] = [
   { to: '/defi',       icon: ArrowRightLeft, label: 'DeFi' },
   { to: '/wallet',     icon: Wallet,         label: 'Wallet' },
   { to: '/transactions',icon: ArrowRightLeft,label: 'Transactions' },
-  { to: '/watchlist',  icon: Star,           label: 'Watchlist' },
+  { to: '/watchlist',    icon: Star,     label: 'Watchlist' },
+  { to: '/price-alerts', icon: BellRing, label: 'Price Alerts' },
   { to: '/network',    icon: Network,        label: 'Network Config' },
   { to: '/node-terminal',icon: Terminal,     label: 'Node Terminal' },
   { to: '/faucet',     icon: Droplets,       label: 'Testnet Faucet' },

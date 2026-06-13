@@ -1564,6 +1564,47 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // ── Price Alerts CRUD ──────────────────────────────────────────────────────
+  app.get("/api/price-alerts", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const alerts = await storage.getUserAlerts(user.id);
+      res.json(alerts);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/price-alerts", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { tokenId, targetPrice, direction } = req.body;
+    if (!tokenId || targetPrice == null || !direction) return res.status(400).json({ error: "tokenId, targetPrice, direction required" });
+    if (!["above", "below"].includes(direction)) return res.status(400).json({ error: "direction must be above or below" });
+    const tp = parseFloat(targetPrice);
+    if (isNaN(tp) || tp <= 0) return res.status(400).json({ error: "targetPrice must be a positive number" });
+    try {
+      const alert = await storage.insertAlert({ userId: user.id, tokenId, targetPrice: tp.toString(), direction });
+      res.json(alert);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/price-alerts/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      await storage.deleteAlert(req.params.id, user.id);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/price-alerts/:id/reset", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      await pgPool.query(
+        `UPDATE token_price_alerts SET is_triggered = false, triggered_at = NULL WHERE id = $1 AND user_id = $2`,
+        [req.params.id, user.id]
+      );
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Price Alert NOTIFY trigger (internal) ──────────────────────────────────
   app.post("/api/price-alerts/notify", requireAdmin, async (req, res) => {
     const { userId, email, symbol, price, target, direction } = req.body;
