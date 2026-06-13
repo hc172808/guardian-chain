@@ -30,7 +30,8 @@ import {
   ShieldCheck,
   ShieldAlert,
   ArrowRightLeft,
-  Layers
+  Layers,
+  Banknote
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -120,6 +121,35 @@ const WalletContent = () => {
   const [rotateLoading, setRotateLoading] = useState(false);
 
   // PIN lock state
+  const [cashOutOpen, setCashOutOpen] = useState(false);
+  const [cashOutAsset, setCashOutAsset] = useState('GYD');
+  const [cashOutAmount, setCashOutAmount] = useState('');
+  const [cashOutDest, setCashOutDest] = useState('');
+  const [cashOutNote, setCashOutNote] = useState('');
+  const [cashOutLoading, setCashOutLoading] = useState(false);
+
+  const handleCashOut = async () => {
+    if (!cashOutAmount || !cashOutDest) return;
+    setCashOutLoading(true);
+    try {
+      const res = await fetch('/api/wallet/cashout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ asset: cashOutAsset, amount: cashOutAmount, destination: cashOutDest, note: cashOutNote }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Cash out failed');
+      toast({ title: 'Cash out request submitted', description: `Reference: ${data.reference}` });
+      setCashOutOpen(false);
+      setCashOutAmount(''); setCashOutDest(''); setCashOutNote('');
+    } catch (e: any) {
+      toast({ title: 'Cash out failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setCashOutLoading(false);
+    }
+  };
+
   const [pinLockEnabled, setPinLockEnabled] = useState(isPinLockEnabled());
   const [pinLockDialogOpen, setPinLockDialogOpen] = useState(false);
   const [pinLockInput, setPinLockInput] = useState('');
@@ -671,6 +701,56 @@ const WalletContent = () => {
                 <Button onClick={handleSendTransaction} className="w-full gap-2" disabled={sendLoading}>
                   {sendLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   {sendLoading ? 'Sending...' : `Send ${sendAsset}`}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setCashOutOpen(true)}>
+            <Banknote className="h-4 w-4" /> Cash Out
+          </Button>
+          <Dialog open={cashOutOpen} onOpenChange={setCashOutOpen}>
+            <DialogContent>
+              <DialogHeader><DialogTitle className="flex items-center gap-2"><Banknote className="h-5 w-5 text-emerald-400" /> Cash Out</DialogTitle></DialogHeader>
+              <div className="space-y-4">
+                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-300">
+                  Submit a cash-out request to convert your on-chain tokens to fiat or external wallet.
+                </div>
+                <div>
+                  <Label>Asset</Label>
+                  <Select value={cashOutAsset} onValueChange={setCashOutAsset}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="GYD">GYD — Stablecoin (1 USD each)</SelectItem>
+                      <SelectItem value="GYDS">GYDS — Gas & Staking Token</SelectItem>
+                      {balances.filter(b => b.symbol !== 'GYDS' && b.symbol !== 'GYD').map(t => (
+                        <SelectItem key={t.symbol} value={t.symbol}>{t.symbol} — {t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Amount ({cashOutAsset})</Label>
+                  <Input type="number" value={cashOutAmount} onChange={e => setCashOutAmount(e.target.value)} placeholder="0.00" min="0" step="any" />
+                </div>
+                <div>
+                  <Label>Destination (wallet address or bank reference)</Label>
+                  <Input value={cashOutDest} onChange={e => setCashOutDest(e.target.value)} placeholder="0x... or bank account ref" />
+                </div>
+                <div>
+                  <Label>Note (optional)</Label>
+                  <Input value={cashOutNote} onChange={e => setCashOutNote(e.target.value)} placeholder="Purpose or reference" />
+                </div>
+                {cashOutAmount && parseFloat(cashOutAmount) > 0 && (
+                  <div className="p-3 rounded-lg bg-secondary/30 text-sm space-y-1">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span>{cashOutAmount} {cashOutAsset}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Processing fee (0.5%)</span><span>{(parseFloat(cashOutAmount) * 0.005).toFixed(6)} {cashOutAsset}</span></div>
+                    <div className="flex justify-between font-semibold border-t border-border/50 pt-1 mt-1"><span>Net payout</span><span>{(parseFloat(cashOutAmount) * 0.995).toFixed(6)} {cashOutAsset}</span></div>
+                    <p className="text-xs text-muted-foreground pt-1">Processing time: 1–3 business days</p>
+                  </div>
+                )}
+                <Button onClick={handleCashOut} className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700" disabled={cashOutLoading || !cashOutAmount || !cashOutDest}>
+                  {cashOutLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
+                  {cashOutLoading ? 'Submitting...' : 'Submit Cash Out Request'}
                 </Button>
               </div>
             </DialogContent>

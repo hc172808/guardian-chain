@@ -1,171 +1,160 @@
 #!/usr/bin/env bash
-# GydsChain Dashboard Deployment Script v3.0.0
-# Deploys the ChainCore frontend dashboard + API backend to an Ubuntu/Debian server
-# Target web root: /var/www/gydschain
-# Domain: netlifegy.com | Chain ID: 13370
-#
-# Usage:
-#   DOMAIN=netlifegy.com GYDS_SSL_EMAIL=admin@netlifegy.com bash deploy-dashboard.sh
-#
-# Prerequisites:
-#   - Ubuntu 22.04 LTS
-#   - Run as root or with sudo
-#   - DNS for DOMAIN must point to this server
-#
-# Optional env overrides:
-#   REPO_URL      — git repo to clone   (default: https://github.com/hc172808/guardian-chain.git)
-#   APP_DIR       — install directory   (default: /var/www/gydschain)
-#   DATABASE_URL  — Postgres DSN        (default: local postgres)
-#   PORT_API      — API server port     (default: 5001)
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  ChainCore Dashboard — Full Deploy Script v4.0.0                       ║
+# ║  Supports: main domain, subdomain, Cloudflare Proxy, CF Tunnel         ║
+# ║                                                                         ║
+# ║  Usage examples:                                                        ║
+# ║    Subdomain + Cloudflare Proxy:                                        ║
+# ║      SUBDOMAIN=app DOMAIN=netlifegy.com bash deploy-dashboard.sh       ║
+# ║                                                                         ║
+# ║    Cloudflare Tunnel:                                                   ║
+# ║      SUBDOMAIN=app DOMAIN=netlifegy.com \                              ║
+# ║      CF_TUNNEL_TOKEN=<token> bash deploy-dashboard.sh                  ║
+# ║                                                                         ║
+# ║    Main domain + certbot SSL (no Cloudflare):                          ║
+# ║      DOMAIN=netlifegy.com USE_CERTBOT=1 bash deploy-dashboard.sh       ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-log()  { echo -e "${GREEN}[+]${NC} $*"; }
-warn() { echo -e "${YELLOW}[!]${NC} $*"; }
-err()  { echo -e "${RED}[✗]${NC} $*" >&2; }
-banner() { echo -e "${CYAN}$*${NC}"; }
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+log()    { echo -e "${GREEN}[✓]${NC} $*"; }
+warn()   { echo -e "${YELLOW}[!]${NC} $*"; }
+err()    { echo -e "${RED}[✗]${NC} $*" >&2; }
+info()   { echo -e "${CYAN}[→]${NC} $*"; }
+step()   { echo ""; echo -e "${BOLD}${GREEN}━━━ $* ━━━${NC}"; }
 
 # ─── Configuration ────────────────────────────────────────────────────────────
+SUBDOMAIN="${SUBDOMAIN:-}"                          # e.g. "app" → app.netlifegy.com (empty = use DOMAIN directly)
 DOMAIN="${DOMAIN:-netlifegy.com}"
+FQDN="${SUBDOMAIN:+${SUBDOMAIN}.}${DOMAIN}"        # app.netlifegy.com or netlifegy.com
+USE_CERTBOT="${USE_CERTBOT:-0}"                     # set to 1 for direct SSL (non-Cloudflare)
 SSL_EMAIL="${GYDS_SSL_EMAIL:-${EMAIL:-}}"
-APP_DIR="${APP_DIR:-/var/www/gydschain}"          # ← server web root
+CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-}"
+APP_DIR="${APP_DIR:-/var/www/gydschain}"
 REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
-NODE_USER="${SUDO_USER:-$USER}"
+BRANCH="${BRANCH:-main}"
+NODE_USER="${SUDO_USER:-ubuntu}"
+[[ "$NODE_USER" == "root" ]] && NODE_USER="ubuntu"
 PORT_API="${PORT_API:-5001}"
-PORT_FRONTEND="${PORT_FRONTEND:-5000}"
-DATABASE_URL="${DATABASE_URL:-postgresql://gydschain:gydschain@localhost/gydschain}"
 SESSION_SECRET="${SESSION_SECRET:-$(openssl rand -hex 32)}"
 NODE_ENV="${NODE_ENV:-production}"
 
-banner "
-╔══════════════════════════════════════════════════════════════╗
-║     ChainCore Dashboard Deployment v3.0.0                    ║
-║     netlifegy.com | Chain ID: 13370 | /var/www/gydschain     ║
-╚══════════════════════════════════════════════════════════════╝"
+echo -e "${BOLD}${CYAN}"
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║   ChainCore Dashboard Deployment v4.0.0                         ║"
+printf "║   Domain: %-52s ║\n" "$FQDN"
+printf "║   Dir:    %-52s ║\n" "$APP_DIR"
+echo "╚══════════════════════════════════════════════════════════════════╝"
+echo -e "${NC}"
 
-# ─── Pre-flight Checks ────────────────────────────────────────────────────────
-[[ $EUID -eq 0 ]] || { err "Run as root (sudo bash deploy-dashboard.sh)"; exit 1; }
+# ─── Pre-flight ───────────────────────────────────────────────────────────────
+[[ $EUID -eq 0 ]] || { err "Run as root: sudo bash deploy-dashboard.sh"; exit 1; }
 
-if [[ -z "$SSL_EMAIL" ]]; then
-    warn "GYDS_SSL_EMAIL not set."
-    read -rp "Enter email for SSL certificate: " SSL_EMAIL
-    [[ -n "$SSL_EMAIL" ]] || { err "Email required"; exit 1; }
+if [[ "$USE_CERTBOT" == "1" && -z "$SSL_EMAIL" ]]; then
+    warn "USE_CERTBOT=1 requires SSL_EMAIL"
+    read -rp "Email for SSL cert: " SSL_EMAIL
+    [[ -n "$SSL_EMAIL" ]] || { err "Email required for certbot"; exit 1; }
 fi
 
-echo -e "${CYAN}Deployment Configuration:${NC}"
-echo -e "  Domain:      $DOMAIN"
-echo -e "  App Dir:     $APP_DIR"
-echo -e "  Repo:        $REPO_URL"
-echo -e "  SSL Email:   $SSL_EMAIL"
-echo -e "  API Port:    $PORT_API"
-echo -e "  DB:          ${DATABASE_URL:0:30}..."
+info "Deployment configuration:"
+echo "  Domain (FQDN):  $FQDN"
+echo "  Subdomain:      ${SUBDOMAIN:-<root domain>}"
+echo "  App dir:        $APP_DIR"
+echo "  Repo:           $REPO_URL"
+echo "  Branch:         $BRANCH"
+echo "  API port:       $PORT_API"
+echo "  CF Tunnel:      ${CF_TUNNEL_TOKEN:+yes}${CF_TUNNEL_TOKEN:-no}"
+echo "  Certbot SSL:    ${USE_CERTBOT}"
 echo ""
-read -rp "Continue? (y/n) " -n 1; echo
-[[ $REPLY =~ ^[Yy]$ ]] || exit 0
+read -rp "Continue? (y/N) " -n 1 reply; echo
+[[ "$reply" =~ ^[Yy]$ ]] || exit 0
 
 # ─── Step 1: System packages ──────────────────────────────────────────────────
-log "[1/8] Installing system packages..."
+step "1/8 — System packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq \
-    git curl build-essential \
-    nginx certbot python3-certbot-nginx \
-    postgresql postgresql-contrib \
-    ufw fail2ban
+PKGS="git curl wget build-essential nginx postgresql postgresql-contrib ufw fail2ban jq"
+[[ "$USE_CERTBOT" == "1" ]] && PKGS="$PKGS certbot python3-certbot-nginx"
+apt-get install -y -qq $PKGS
 
-# Node.js LTS
-if ! command -v node &>/dev/null; then
-    log "  Installing Node.js LTS..."
-    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
+    info "Installing Node.js 22 LTS..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null
     apt-get install -y -qq nodejs
 fi
-log "  Node.js: $(node --version) | npm: $(npm --version)"
-
-# pnpm (optional but faster)
-npm install -g pm2 --silent
+npm install -g pm2 --silent 2>/dev/null || true
+log "Node $(node --version) | PM2 $(pm2 --version 2>/dev/null | tail -1)"
 
 # ─── Step 2: PostgreSQL ───────────────────────────────────────────────────────
-log "[2/8] Setting up PostgreSQL..."
-systemctl enable postgresql --now || true
+step "2/8 — PostgreSQL"
+systemctl enable postgresql --now 2>/dev/null || true
+sleep 2
 PG_DBNAME="${PG_DBNAME:-gydschain}"
 PG_USER="${PG_USER:-gydschain}"
 PG_PASS="${PG_PASS:-$(openssl rand -hex 16)}"
+su - postgres -c "psql -qc \"SELECT 1 FROM pg_roles WHERE rolname='${PG_USER}'\" | grep -q 1 || psql -qc \"CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASS}';\"" 2>/dev/null || true
+su - postgres -c "psql -qc \"SELECT 1 FROM pg_database WHERE datname='${PG_DBNAME}'\" | grep -q 1 || psql -qc \"CREATE DATABASE ${PG_DBNAME} OWNER ${PG_USER};\"" 2>/dev/null || true
+DATABASE_URL="${DATABASE_URL:-postgresql://${PG_USER}:${PG_PASS}@localhost/${PG_DBNAME}}"
+log "Database: ${PG_DBNAME} (user: ${PG_USER})"
 
-su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='${PG_USER}'\" | grep -q 1 || psql -c \"CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASS}';\"" 2>/dev/null || true
-su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='${PG_DBNAME}'\" | grep -q 1 || psql -c \"CREATE DATABASE ${PG_DBNAME} OWNER ${PG_USER};\"" 2>/dev/null || true
-DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@localhost/${PG_DBNAME}"
-log "  Database: ${PG_DBNAME} (user: ${PG_USER})"
-
-# ─── Step 3: Clone / update repo ─────────────────────────────────────────────
-log "[3/8] Deploying from $REPO_URL → $APP_DIR..."
-
-# Configure git to use GITHUB_TOKEN if set (enables auto push/pull)
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    REPO_WITH_TOKEN="${REPO_URL/https:\/\//https:\/\/${GITHUB_TOKEN}@}"
-    log "  GitHub token detected — auth'd push/pull enabled"
-else
-    REPO_WITH_TOKEN="$REPO_URL"
-    warn "  GITHUB_TOKEN not set — pushes will require manual auth"
-fi
+# ─── Step 3: Clone / pull repo ────────────────────────────────────────────────
+step "3/8 — Repository"
+mkdir -p "$(dirname "$APP_DIR")"
+REPO_AUTH="${REPO_URL}"
+[[ -n "${GITHUB_TOKEN:-}" ]] && REPO_AUTH="${REPO_URL/https:\/\//https:\/\/${GITHUB_TOKEN}@}"
 
 if [[ -d "$APP_DIR/.git" ]]; then
-    log "  Pulling latest from GitHub..."
+    info "Updating from $BRANCH..."
     git -C "$APP_DIR" config pull.rebase false
     git -C "$APP_DIR" fetch origin
-    git -C "$APP_DIR" pull --ff-only origin "$(git -C "$APP_DIR" branch --show-current)" || \
-        git -C "$APP_DIR" pull --ff-only origin main || \
-        git -C "$APP_DIR" pull --ff-only origin master
-    log "  Pull complete: $(git -C "$APP_DIR" log -1 --format='%h %s' 2>/dev/null)"
+    git -C "$APP_DIR" checkout "$BRANCH" 2>/dev/null || true
+    git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
+    log "Updated: $(git -C "$APP_DIR" log -1 --format='%h %s')"
 else
-    log "  Cloning repository..."
-    git clone "$REPO_WITH_TOKEN" "$APP_DIR"
-    # Store remote URL with token for future pulls
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        git -C "$APP_DIR" remote set-url origin "$REPO_WITH_TOKEN"
-    fi
+    info "Cloning repository..."
+    git clone --branch "$BRANCH" "$REPO_AUTH" "$APP_DIR"
+    [[ -n "${GITHUB_TOKEN:-}" ]] && git -C "$APP_DIR" remote set-url origin "$REPO_AUTH"
+    log "Cloned to $APP_DIR"
 fi
-chown -R "$NODE_USER:$NODE_USER" "$APP_DIR"
+id -u "$NODE_USER" &>/dev/null && chown -R "$NODE_USER:$NODE_USER" "$APP_DIR" || true
 
-# Install git auto-pull cron (pulls every 5 minutes if GITHUB_TOKEN is set)
+# Optional auto-pull cron (every 5 min if GITHUB_TOKEN set)
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    CRON_CMD="*/5 * * * * root cd $APP_DIR && git pull --ff-only origin \$(git branch --show-current) >> /var/log/gydschain/git-pull.log 2>&1"
-    echo "$CRON_CMD" > /etc/cron.d/gydschain-git-pull
+    echo "*/5 * * * * root cd ${APP_DIR} && git pull --ff-only origin \$(git branch --show-current) >> /var/log/gydschain/git-pull.log 2>&1" > /etc/cron.d/gydschain-git-pull
     chmod 644 /etc/cron.d/gydschain-git-pull
-    log "  Auto-pull cron installed: every 5 minutes"
+    log "Auto-pull cron: every 5 minutes"
 fi
 
-# ─── Step 4: Build frontend + backend ────────────────────────────────────────
-log "[4/8] Installing dependencies and building..."
-cd "$APP_DIR"
-npm ci
+# ─── Step 4: Install + build ──────────────────────────────────────────────────
+step "4/8 — Install & build"
+mkdir -p /var/log/gydschain
+id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" /var/log/gydschain || true
 
-# Write .env for the build + runtime
 cat > "$APP_DIR/.env" <<ENVEOF
 NODE_ENV=${NODE_ENV}
 PORT=${PORT_API}
 DATABASE_URL=${DATABASE_URL}
 SESSION_SECRET=${SESSION_SECRET}
-REPLIT_DOMAINS=${DOMAIN},www.${DOMAIN}
+REPLIT_DOMAINS=${FQDN},${DOMAIN}
+SUBDOMAIN=${SUBDOMAIN}
 ENVEOF
-chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env"
 chmod 600 "$APP_DIR/.env"
+id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" || true
 
-# Push DB schema
-log "  Pushing database schema..."
-cd "$APP_DIR" && npm run db:push || warn "db:push failed — schema may need manual migration"
-
-# Build the Vite frontend
+cd "$APP_DIR"
+npm ci --prefer-offline 2>/dev/null || npm install --legacy-peer-deps
 npm run build
-log "  Build complete: $APP_DIR/dist"
+log "Build complete → $APP_DIR/dist"
 
-# ─── Step 5: PM2 service ─────────────────────────────────────────────────────
-log "[5/8] Configuring PM2 (API server)..."
-cat > "$APP_DIR/ecosystem.config.cjs" <<PM2EOF
+info "Applying DB schema..."
+npx drizzle-kit generate 2>/dev/null || true
+for f in "$APP_DIR"/drizzle/*.sql; do
+    [[ -f "$f" ]] && psql "$DATABASE_URL" -f "$f" 2>/dev/null && log "  Schema: $(basename "$f")" || true
+done
+
+# ─── Step 5: PM2 ──────────────────────────────────────────────────────────────
+step "5/8 — PM2 service"
+cat > "$APP_DIR/ecosystem.config.cjs" <<PM2CFG
 module.exports = {
   apps: [{
     name: 'gydschain-api',
@@ -178,33 +167,58 @@ module.exports = {
       PORT: '${PORT_API}',
       DATABASE_URL: '${DATABASE_URL}',
       SESSION_SECRET: '${SESSION_SECRET}',
-      REPLIT_DOMAINS: '${DOMAIN},www.${DOMAIN}'
+      REPLIT_DOMAINS: '${FQDN},${DOMAIN}',
     },
     watch: false,
     max_memory_restart: '512M',
+    restart_delay: 3000,
     error_file: '/var/log/gydschain/api-error.log',
-    out_file: '/var/log/gydschain/api-out.log',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss Z'
+    out_file:   '/var/log/gydschain/api-out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    merge_logs: true,
   }]
 };
-PM2EOF
+PM2CFG
 
-mkdir -p /var/log/gydschain
-chown "$NODE_USER:$NODE_USER" /var/log/gydschain
+if id -u "$NODE_USER" &>/dev/null; then
+    su - "$NODE_USER" -c "pm2 delete gydschain-api 2>/dev/null; pm2 start '$APP_DIR/ecosystem.config.cjs'; pm2 save --force" || true
+    env PATH="$PATH:/usr/bin:/usr/local/bin" pm2 startup systemd -u "$NODE_USER" --hp "/home/$NODE_USER" 2>/dev/null | tail -1 | bash 2>/dev/null || true
+else
+    pm2 delete gydschain-api 2>/dev/null || true
+    pm2 start "$APP_DIR/ecosystem.config.cjs"
+    pm2 save --force
+fi
+log "PM2: gydschain-api → port $PORT_API"
 
-su - "$NODE_USER" -c "pm2 delete gydschain-api 2>/dev/null || true; pm2 start '$APP_DIR/ecosystem.config.cjs'; pm2 save"
-env PATH="$PATH:/usr/bin" pm2 startup systemd -u "$NODE_USER" --hp "/home/$NODE_USER" | bash || true
-
-# ─── Step 6: Nginx ───────────────────────────────────────────────────────────
-log "[6/8] Configuring Nginx..."
+# ─── Step 6: Nginx ────────────────────────────────────────────────────────────
+step "6/8 — Nginx"
 NGINX_CONF="/etc/nginx/sites-available/gydschain"
 
-tee "$NGINX_CONF" > /dev/null << EOF
+# Cloudflare real-IP snippet
+cat > /etc/nginx/snippets/cloudflare-real-ip.conf <<'CFIP'
+set_real_ip_from 103.21.244.0/22; set_real_ip_from 103.22.200.0/22;
+set_real_ip_from 103.31.4.0/22;   set_real_ip_from 104.16.0.0/13;
+set_real_ip_from 104.24.0.0/14;   set_real_ip_from 108.162.192.0/18;
+set_real_ip_from 131.0.72.0/22;   set_real_ip_from 141.101.64.0/18;
+set_real_ip_from 162.158.0.0/15;  set_real_ip_from 172.64.0.0/13;
+set_real_ip_from 173.245.48.0/20; set_real_ip_from 188.114.96.0/20;
+set_real_ip_from 190.93.240.0/20; set_real_ip_from 197.234.240.0/22;
+set_real_ip_from 198.41.128.0/17;
+set_real_ip_from 2400:cb00::/32;  set_real_ip_from 2606:4700::/32;
+real_ip_header CF-Connecting-IP;
+CFIP
+
+# Determine if Cloudflare or direct SSL
+NGINX_SERVER_NAMES="${FQDN}"
+[[ -z "$SUBDOMAIN" ]] && NGINX_SERVER_NAMES="${DOMAIN} www.${DOMAIN}"
+
+tee "$NGINX_CONF" > /dev/null <<NGINXEOF
 server {
     listen 80;
-    server_name ${DOMAIN} www.${DOMAIN};
+    server_name ${NGINX_SERVER_NAMES};
 
-    # ── Proxy API requests to Express ──
+    include /etc/nginx/snippets/cloudflare-real-ip.conf;
+
     location /api/ {
         proxy_pass         http://127.0.0.1:${PORT_API};
         proxy_http_version 1.1;
@@ -213,106 +227,156 @@ server {
         proxy_set_header   Host \$host;
         proxy_set_header   X-Real-IP \$remote_addr;
         proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header   X-Forwarded-Proto \$http_x_forwarded_proto;
         proxy_read_timeout 60s;
     }
 
-    # ── Proxy auth callback to Express ──
-    location /api/auth/ {
+    location /ws {
         proxy_pass         http://127.0.0.1:${PORT_API};
         proxy_http_version 1.1;
+        proxy_set_header   Upgrade \$http_upgrade;
+        proxy_set_header   Connection "Upgrade";
         proxy_set_header   Host \$host;
-        proxy_set_header   X-Real-IP \$remote_addr;
-        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 3600s;
     }
 
-    # ── Serve built React SPA ──
     root ${APP_DIR}/dist;
     index index.html;
 
     location / {
         try_files \$uri \$uri/ /index.html;
         add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
     }
 
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|webp|avif)\$ {
-        expires 30d;
+    location ~* \.(js|css|woff2?|ttf|eot|svg|ico|webp|avif|png|jpg|jpeg|gif)\$ {
+        expires 365d;
         add_header Cache-Control "public, immutable";
         access_log off;
     }
 
-    location /health {
+    location = /health {
         access_log off;
         add_header Content-Type "application/json";
         return 200 '{"status":"ok","service":"gyds-dashboard","chain":13370}';
     }
 
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-
     location ~ /\. { deny all; }
-    location ~ \.(env|key|pem|sh|sql)\$ { deny all; return 404; }
-
+    location ~* \.(env|key|pem|sh|sql)\$ { deny all; return 404; }
     error_page 404 /index.html;
+
+    access_log /var/log/gydschain/nginx-access.log;
+    error_log  /var/log/gydschain/nginx-error.log warn;
 }
-EOF
+NGINXEOF
 
-rm -f /etc/nginx/sites-enabled/default
-ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/
-nginx -t && systemctl restart nginx
-log "  Nginx configured for $DOMAIN → serves $APP_DIR/dist, proxies /api → :${PORT_API}"
+rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/gydschain
+nginx -t && systemctl reload nginx || systemctl restart nginx
+log "Nginx: $FQDN → $APP_DIR/dist"
 
-# ─── Step 7: Firewall ─────────────────────────────────────────────────────────
-log "[7/8] Configuring firewall..."
-ufw allow OpenSSH
-ufw allow 'Nginx Full'
+# ─── Step 7: UFW Firewall ──────────────────────────────────────────────────────
+step "7/8 — Firewall"
+ufw default deny incoming 2>/dev/null || true
+ufw default allow outgoing 2>/dev/null || true
+ufw allow ssh
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 30303/tcp
+ufw allow 30303/udp
+ufw deny "${PORT_API}/tcp"
 ufw --force enable
-log "  UFW: SSH + HTTP + HTTPS open"
+log "UFW: SSH + HTTP(80) + HTTPS(443) + P2P(30303) | API port blocked"
 
-# ─── Step 8: SSL Certificate ─────────────────────────────────────────────────
-log "[8/8] Obtaining SSL certificate..."
-certbot --nginx \
-    -d "$DOMAIN" \
-    -d "www.$DOMAIN" \
-    --non-interactive \
-    --agree-tos \
-    --email "$SSL_EMAIL" \
-    --redirect \
-    --hsts \
-    --staple-ocsp || warn "SSL failed — run again once DNS is propagated"
+# ─── Step 8: SSL (certbot — only if USE_CERTBOT=1) ────────────────────────────
+step "8/8 — SSL"
+if [[ "$USE_CERTBOT" == "1" ]]; then
+    info "Obtaining SSL cert for $FQDN..."
+    CERTBOT_DOMAINS="-d $FQDN"
+    [[ -z "$SUBDOMAIN" ]] && CERTBOT_DOMAINS="-d $DOMAIN -d www.$DOMAIN"
+    certbot --nginx $CERTBOT_DOMAINS \
+        --non-interactive --agree-tos --email "$SSL_EMAIL" \
+        --redirect --hsts --staple-ocsp || warn "SSL failed — run again once DNS propagates"
+elif [[ -n "$CF_TUNNEL_TOKEN" ]]; then
+    info "Installing Cloudflare Tunnel..."
+    if ! command -v cloudflared &>/dev/null; then
+        curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | tee /usr/share/keyrings/cloudflare-main.gpg > /dev/null
+        echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' > /etc/apt/sources.list.d/cloudflared.list
+        apt-get update -qq && apt-get install -y -qq cloudflared
+    fi
+    cloudflared service install "$CF_TUNNEL_TOKEN"
+    systemctl enable cloudflared --now 2>/dev/null || true
+    log "Cloudflare Tunnel active"
+else
+    warn "Skipping SSL — Cloudflare Proxy mode assumed"
+    warn "In Cloudflare dashboard: DNS A record for ${FQDN} → your IP (Proxied)"
+fi
+
+# Install redeploy helper
+cat > /usr/local/bin/gyds-redeploy <<RDEPLOY
+#!/usr/bin/env bash
+set -euo pipefail
+APP_DIR="${APP_DIR}"
+source "\$APP_DIR/.env" 2>/dev/null || true
+echo "[redeploy] Pulling latest..."
+git -C "\$APP_DIR" fetch origin
+git -C "\$APP_DIR" pull --ff-only origin "\$(git -C \"\$APP_DIR\" branch --show-current)"
+echo "[redeploy] Installing deps..."
+cd "\$APP_DIR" && npm ci --prefer-offline 2>/dev/null || npm install --legacy-peer-deps
+echo "[redeploy] Building..."
+npm run build
+echo "[redeploy] Reloading PM2..."
+pm2 reload gydschain-api --update-env
+echo "[redeploy] Reloading Nginx..."
+nginx -s reload 2>/dev/null || systemctl reload nginx
+echo "[redeploy] Done \$(date)"
+RDEPLOY
+chmod +x /usr/local/bin/gyds-redeploy
+
+# Logrotate
+cat > /etc/logrotate.d/gydschain <<LOGROTATE
+/var/log/gydschain/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 640 ${NODE_USER} adm
+    postrotate
+        pm2 flush 2>/dev/null || true
+    endscript
+}
+LOGROTATE
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
-LOCAL_IP="$(hostname -I | awk '{print $1}')"
+PUBLIC_IP="$(curl -sf4 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')"
 
 echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ✅  ChainCore deployed to /var/www/gydschain                ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║  ✅  ChainCore deployed!                                         ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${CYAN}Dashboard:${NC}   https://$DOMAIN"
-echo -e "${CYAN}API:${NC}         https://$DOMAIN/api/"
-echo -e "${CYAN}Health:${NC}      https://$DOMAIN/health"
-echo -e "${CYAN}App Dir:${NC}     $APP_DIR"
-echo -e "${CYAN}DB:${NC}          $DATABASE_URL"
-echo -e "${CYAN}Logs:${NC}        /var/log/gydschain/"
+echo -e "${CYAN}URL:${NC}        http://${FQDN}  (HTTPS via Cloudflare)"
+echo -e "${CYAN}API:${NC}        http://${FQDN}/api/"
+echo -e "${CYAN}Health:${NC}     http://${FQDN}/health"
+echo -e "${CYAN}Server IP:${NC}  ${PUBLIC_IP}"
 echo ""
-echo -e "${CYAN}Manage API:${NC}"
+if [[ -z "$SUBDOMAIN" ]]; then
+    echo -e "${CYAN}Cloudflare DNS:${NC}"
+    echo -e "  A  ${DOMAIN}      → ${PUBLIC_IP}  (Proxied)"
+    echo -e "  A  www.${DOMAIN}  → ${PUBLIC_IP}  (Proxied)"
+else
+    echo -e "${CYAN}Cloudflare DNS:${NC}"
+    echo -e "  A  ${SUBDOMAIN}.${DOMAIN}  → ${PUBLIC_IP}  (Proxied / orange cloud)"
+fi
+echo ""
+echo -e "${CYAN}Manage:${NC}"
 echo -e "  pm2 status"
-echo -e "  pm2 logs gydschain-api"
-echo -e "  pm2 restart gydschain-api"
+echo -e "  pm2 logs gydschain-api --lines 50"
+echo -e "  gyds-redeploy          ← pull + build + reload"
 echo ""
-echo -e "${CYAN}Update in future:${NC}"
-echo -e "  cd $APP_DIR && git pull && npm run build && pm2 restart gydschain-api && nginx -s reload"
-echo ""
-echo -e "${CYAN}Git auto-pull:${NC}"
-echo -e "  GITHUB_TOKEN=your_token bash deploy-dashboard.sh  ← enables 5-min auto-pull cron"
-echo -e "  tail -f /var/log/gydschain/git-pull.log           ← watch auto-pull logs"
-echo ""
-echo -e "${YELLOW}⚠  Save these credentials:${NC}"
-echo -e "  DB Password: $PG_PASS"
-echo -e "  Session Secret: $SESSION_SECRET"
-echo -e "  (written to $APP_DIR/.env)"
+echo -e "${YELLOW}⚠  Save these credentials (also in ${APP_DIR}/.env):${NC}"
+echo -e "  DATABASE_URL:   $DATABASE_URL"
+echo -e "  SESSION_SECRET: $SESSION_SECRET"

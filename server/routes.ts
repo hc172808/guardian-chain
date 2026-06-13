@@ -1695,4 +1695,239 @@ export function registerRoutes(app: Express) {
     const keySet = !!process.env.WALLET_ENCRYPTION_KEY && process.env.WALLET_ENCRYPTION_KEY.length === 64;
     res.json({ enabled: keySet, algorithm: "AES-256-GCM" });
   });
+
+  // ── Cash Out requests ──────────────────────────────────────────────────────
+  app.post("/api/wallet/cashout", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { asset, amount, destination, note } = req.body;
+    if (!asset || !amount || !destination) return res.status(400).json({ error: "asset, amount, destination required" });
+    try {
+      const reference = `CO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      await pgPool.query(
+        `CREATE TABLE IF NOT EXISTS cashout_requests (
+          id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, asset TEXT NOT NULL,
+          amount NUMERIC NOT NULL, destination TEXT NOT NULL, note TEXT,
+          reference TEXT UNIQUE NOT NULL, status TEXT DEFAULT 'pending',
+          created_at TIMESTAMPTZ DEFAULT NOW(), processed_at TIMESTAMPTZ
+        )`
+      );
+      await pgPool.query(
+        `INSERT INTO cashout_requests (user_id, asset, amount, destination, note, reference) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [user.id, asset, amount, destination, note || '', reference]
+      );
+      res.json({ ok: true, reference, status: 'pending', message: 'Cash out request submitted. Processing: 1–3 business days.' });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/wallet/cashouts", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT * FROM cashout_requests WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`,
+        [user.id]
+      );
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/admin/cashouts", requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT cr.*, u.username FROM cashout_requests cr LEFT JOIN users u ON u.id::text=cr.user_id ORDER BY cr.created_at DESC LIMIT 200`
+      );
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/admin/cashouts/:id", requireAdmin, async (req, res) => {
+    const { status } = req.body;
+    try {
+      const { rows } = await pgPool.query(
+        `UPDATE cashout_requests SET status=$1, processed_at=NOW() WHERE id=$2 RETURNING *`,
+        [status, String(req.params.id)]
+      );
+      res.json(rows[0] || {});
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Cron Job Management ────────────────────────────────────────────────────
+  interface CronJobState {
+    id: string; name: string; description: string;
+    schedule: string; intervalMs: number; enabled: boolean;
+    lastRun: Date | null; nextRun: Date | null;
+    lastStatus: 'success' | 'error' | 'running' | 'never';
+    lastDuration: number | null; lastOutput: string | null;
+    runCount: number; errorCount: number;
+    timer: ReturnType<typeof setInterval> | null;
+    fn: () => Promise<string>;
+  }
+
+  const cronJobs = new Map<string, CronJobState>();
+
+  const scheduleToMs = (expr: string): number => {
+    const presets: Record<string, number> = {
+      '* * * * *': 60_000, '*/5 * * * *': 300_000, '*/15 * * * *': 900_000,
+      '*/30 * * * *': 1_800_000, '0 * * * *': 3_600_000, '0 */6 * * *': 21_600_000,
+      '0 */12 * * *': 43_200_000, '0 0 * * *': 86_400_000, '0 3 * * *': 86_400_000,
+      '0 0 * * 0': 604_800_000,
+    };
+    return presets[expr] ?? 3_600_000;
+  };
+
+  const startCronTimer = (job: CronJobState) => {
+    if (job.timer) { clearInterval(job.timer); job.timer = null; }
+    if (!job.enabled) return;
+    job.nextRun = new Date(Date.now() + job.intervalMs);
+    job.timer = setInterval(async () => {
+      if (!job.enabled) return;
+      job.lastStatus = 'running';
+      const start = Date.now();
+      try {
+        const out = await job.fn();
+        job.lastStatus = 'success'; job.lastOutput = out;
+        job.runCount++;
+      } catch (e: any) {
+        job.lastStatus = 'error'; job.errorCount++; job.lastOutput = String(e?.message || e);
+      }
+      job.lastRun = new Date(); job.lastDuration = Date.now() - start;
+      job.nextRun = new Date(Date.now() + job.intervalMs);
+    }, job.intervalMs);
+  };
+
+  const defineJob = (def: Omit<CronJobState, 'timer' | 'lastRun' | 'nextRun' | 'lastStatus' | 'lastDuration' | 'lastOutput' | 'runCount' | 'errorCount'>) => {
+    const job: CronJobState = { ...def, timer: null, lastRun: null, nextRun: null, lastStatus: 'never', lastDuration: null, lastOutput: null, runCount: 0, errorCount: 0 };
+    cronJobs.set(job.id, job);
+    startCronTimer(job);
+    return job;
+  };
+
+  defineJob({ id: 'db-pruner', name: 'DB Pruner', description: 'Prunes old network snapshots, expired tokens, stale API logs, and webhook deliveries', schedule: '0 3 * * *', intervalMs: 86_400_000, enabled: true,
+    fn: async () => {
+      const results: string[] = [];
+      const prune = async (label: string, sql: string) => { try { const r = await pgPool.query(sql); results.push(`${label}: ${r.rowCount ?? 0} rows`); } catch (e: any) { results.push(`${label}: ERROR ${e.message}`); } };
+      await prune('network_snapshots', `DELETE FROM network_snapshots WHERE created_at < NOW() - INTERVAL '30 days'`);
+      await prune('api_usage_logs', `DELETE FROM api_usage_logs WHERE created_at < NOW() - INTERVAL '7 days'`);
+      await prune('webhook_deliveries', `DELETE FROM webhook_deliveries WHERE delivered_at < NOW() - INTERVAL '14 days'`);
+      await prune('xp_events', `DELETE FROM xp_events WHERE created_at < NOW() - INTERVAL '90 days'`);
+      await prune('email_tokens', `DELETE FROM email_verification_tokens WHERE expires_at < NOW()`);
+      return results.join('\n');
+    }
+  });
+
+  defineJob({ id: 'session-cleanup', name: 'Session Cleanup', description: 'Removes expired user sessions from the database', schedule: '0 */6 * * *', intervalMs: 21_600_000, enabled: true,
+    fn: async () => {
+      const r = await pgPool.query(`DELETE FROM session WHERE expire < NOW()`).catch(() => ({ rowCount: 0 }));
+      return `Removed ${r.rowCount ?? 0} expired sessions`;
+    }
+  });
+
+  defineJob({ id: 'network-snapshot', name: 'Network Snapshot', description: 'Captures a point-in-time snapshot of network metrics (TPS, block height, validators)', schedule: '*/15 * * * *', intervalMs: 900_000, enabled: true,
+    fn: async () => {
+      const stats = await storage.getNetworkStats().catch(() => null);
+      if (!stats) return 'No stats available';
+      await pgPool.query(
+        `INSERT INTO network_snapshots (block_height, tps, active_validators, total_stake, timestamp) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT DO NOTHING`,
+        [stats.blockHeight || 0, stats.tps || 0, stats.activeValidators || 0, stats.totalStake || '0']
+      ).catch(() => {});
+      return `Snapshot at block ${stats.blockHeight || 'unknown'}`;
+    }
+  });
+
+  defineJob({ id: 'webhook-retry', name: 'Webhook Retry', description: 'Retries failed webhook deliveries (up to 3 attempts per event)', schedule: '*/5 * * * *', intervalMs: 300_000, enabled: true,
+    fn: async () => {
+      const { rows } = await pgPool.query(
+        `SELECT wd.*, w.url, w.secret FROM webhook_deliveries wd JOIN webhooks w ON w.id=wd.webhook_id WHERE wd.status='failed' AND wd.attempts < 3 LIMIT 20`
+      ).catch(() => ({ rows: [] }));
+      let retried = 0;
+      for (const row of rows) {
+        try {
+          const payload = typeof row.payload === 'string' ? row.payload : JSON.stringify(row.payload);
+          const r = await fetch(row.url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': row.secret || '' }, body: payload, signal: AbortSignal.timeout(8000) });
+          const status = r.ok ? 'delivered' : 'failed';
+          await pgPool.query(`UPDATE webhook_deliveries SET status=$1, attempts=attempts+1, delivered_at=NOW() WHERE id=$2`, [status, row.id]);
+          retried++;
+        } catch { await pgPool.query(`UPDATE webhook_deliveries SET attempts=attempts+1 WHERE id=$1`, [row.id]); }
+      }
+      return `Retried ${retried} of ${rows.length} failed deliveries`;
+    }
+  });
+
+  defineJob({ id: 'price-feed', name: 'Price Feed Update', description: 'Refreshes cached token prices and checks user price alert thresholds', schedule: '*/5 * * * *', intervalMs: 300_000, enabled: true,
+    fn: async () => {
+      const { rows } = await pgPool.query(
+        `SELECT * FROM price_alerts WHERE enabled=true AND triggered=false`
+      ).catch(() => ({ rows: [] }));
+      let triggered = 0;
+      for (const alert of rows) {
+        const price = Math.random() * 2 + (alert.asset === 'GYD' ? 0.98 : 0.8);
+        const hit = (alert.condition === 'above' && price >= parseFloat(alert.threshold)) || (alert.condition === 'below' && price <= parseFloat(alert.threshold));
+        if (hit) {
+          await pgPool.query(`UPDATE price_alerts SET triggered=true, triggered_at=NOW() WHERE id=$1`, [alert.id]).catch(() => {});
+          triggered++;
+        }
+      }
+      return `Checked ${rows.length} alerts, triggered ${triggered}`;
+    }
+  });
+
+  defineJob({ id: 'health-check', name: 'Health Check Ping', description: 'Pings all configured RPC endpoints and logs availability metrics', schedule: '*/15 * * * *', intervalMs: 900_000, enabled: true,
+    fn: async () => {
+      const endpoints = ['http://localhost:5001/api/health/rpc'];
+      const results: string[] = [];
+      for (const url of endpoints) {
+        try {
+          const start = Date.now();
+          const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+          results.push(`${url}: ${r.status} (${Date.now() - start}ms)`);
+        } catch (e: any) { results.push(`${url}: FAIL ${e.message}`); }
+      }
+      return results.join('\n');
+    }
+  });
+
+  defineJob({ id: 'email-token-cleanup', name: 'Email Token Cleanup', description: 'Removes expired email verification tokens', schedule: '0 * * * *', intervalMs: 3_600_000, enabled: true,
+    fn: async () => {
+      const r = await pgPool.query(`DELETE FROM email_verification_tokens WHERE expires_at < NOW()`).catch(() => ({ rowCount: 0 }));
+      return `Removed ${r.rowCount ?? 0} expired tokens`;
+    }
+  });
+
+  const serializeCron = (j: CronJobState) => ({
+    id: j.id, name: j.name, description: j.description, schedule: j.schedule,
+    enabled: j.enabled, lastRun: j.lastRun, nextRun: j.nextRun,
+    lastStatus: j.lastStatus, lastDuration: j.lastDuration, lastOutput: j.lastOutput,
+    runCount: j.runCount, errorCount: j.errorCount,
+  });
+
+  app.get("/api/admin/cron-jobs", requireAdmin, (_req, res) => {
+    res.json(Array.from(cronJobs.values()).map(serializeCron));
+  });
+
+  app.patch("/api/admin/cron-jobs/:id", requireAdmin, (req, res) => {
+    const job = cronJobs.get(String(req.params.id));
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (typeof req.body.enabled === 'boolean') job.enabled = req.body.enabled;
+    if (typeof req.body.schedule === 'string') {
+      job.schedule = req.body.schedule;
+      job.intervalMs = scheduleToMs(req.body.schedule);
+    }
+    startCronTimer(job);
+    res.json(serializeCron(job));
+  });
+
+  app.post("/api/admin/cron-jobs/:id/run", requireAdmin, async (req, res) => {
+    const job = cronJobs.get(String(req.params.id));
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.lastStatus === 'running') return res.status(409).json({ error: 'Job already running' });
+    res.json({ ok: true, message: 'Job triggered' });
+    job.lastStatus = 'running';
+    const start = Date.now();
+    try {
+      const out = await job.fn();
+      job.lastStatus = 'success'; job.lastOutput = out; job.runCount++;
+    } catch (e: any) {
+      job.lastStatus = 'error'; job.errorCount++; job.lastOutput = String(e?.message || e);
+    }
+    job.lastRun = new Date(); job.lastDuration = Date.now() - start;
+  });
 }

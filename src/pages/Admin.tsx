@@ -52,7 +52,8 @@ import { BridgeNetworkManager } from '@/components/admin/BridgeNetworkManager';
 import { ExplorerConfig } from '@/components/admin/ExplorerConfig';
 import { TestNodeManager } from '@/components/admin/TestNodeManager';
 import { GrantAchievementPanel } from '@/components/admin/GrantAchievementPanel';
-import { FlaskConical, Trophy, Rocket as RocketIcon, ArrowRightLeft, RotateCcw, ExternalLink, ToggleLeft, ToggleRight, Zap } from 'lucide-react';
+import { FlaskConical, Trophy, Rocket as RocketIcon, ArrowRightLeft, RotateCcw, ExternalLink, ToggleLeft, ToggleRight, Zap, Timer } from 'lucide-react';
+import { CronJobManager } from '@/components/admin/CronJobManager';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -823,6 +824,10 @@ const AdminContent = () => {
             <Activity className="h-4 w-4" />
             <span className="hidden md:inline">Monitoring</span>
           </TabsTrigger>
+          <TabsTrigger value="cron" className="gap-2" data-testid="tab-cron">
+            <Timer className="h-4 w-4" />
+            <span className="hidden md:inline">Cron Jobs</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="maintenance">
@@ -1013,6 +1018,9 @@ const AdminContent = () => {
         </TabsContent>
         <TabsContent value="monitoring">
           <ValidatorExplorerMonitor toast={toast} />
+        </TabsContent>
+        <TabsContent value="cron">
+          <CronJobManager toast={toast} />
         </TabsContent>
       </Tabs>
     </motion.div>
