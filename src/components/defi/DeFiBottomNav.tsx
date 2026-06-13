@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Droplets, Briefcase, ArrowLeftRight, Layers, Rocket, Link2, BookOpen, TrendingUp, Calculator, Zap, Target, Sprout } from 'lucide-react';
+import { Droplets, Briefcase, ArrowLeftRight, Layers, Rocket, Link2, BookOpen, TrendingUp, Calculator, Zap, Target, Sprout, DollarSign } from 'lucide-react';
 
 interface DeFiBottomNavProps {
   activeTab: string;
@@ -7,18 +7,19 @@ interface DeFiBottomNavProps {
 }
 
 const navItems = [
-  { id: 'swap',      icon: ArrowLeftRight, label: 'Swap' },
-  { id: 'pools',     icon: Droplets,       label: 'Pools' },
-  { id: 'stake',     icon: Layers,         label: 'Stake' },
-  { id: 'farm',      icon: Sprout,         label: 'Farm' },
-  { id: 'orderbook', icon: BookOpen,       label: 'Orders' },
-  { id: 'vaults',    icon: TrendingUp,     label: 'Vaults' },
-  { id: 'bridge',    icon: Link2,          label: 'Bridge' },
-  { id: 'perps',     icon: Zap,            label: 'Perps' },
-  { id: 'predict',   icon: Target,         label: 'Predict' },
-  { id: 'launchpad', icon: Rocket,         label: 'Launch' },
-  { id: 'portfolio', icon: Briefcase,      label: 'Portfolio' },
-  { id: 'ilcalc',    icon: Calculator,     label: 'IL Calc' },
+  { id: 'swap',        icon: ArrowLeftRight, label: 'Swap' },
+  { id: 'pools',       icon: Droplets,       label: 'Pools' },
+  { id: 'stake',       icon: Layers,         label: 'Stake' },
+  { id: 'farm',        icon: Sprout,         label: 'Farm' },
+  { id: 'orderbook',   icon: BookOpen,       label: 'Orders' },
+  { id: 'vaults',      icon: TrendingUp,     label: 'Vaults' },
+  { id: 'bridge',      icon: Link2,          label: 'Bridge' },
+  { id: 'stablecoin',  icon: DollarSign,     label: 'Stable' },
+  { id: 'perps',       icon: Zap,            label: 'Perps' },
+  { id: 'predict',     icon: Target,         label: 'Predict' },
+  { id: 'launchpad',   icon: Rocket,         label: 'Launch' },
+  { id: 'portfolio',   icon: Briefcase,      label: 'Portfolio' },
+  { id: 'ilcalc',      icon: Calculator,     label: 'IL Calc' },
 ];
 
 export const DeFiBottomNav = ({ activeTab, onTabChange }: DeFiBottomNavProps) => {

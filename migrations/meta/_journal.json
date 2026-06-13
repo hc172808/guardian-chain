@@ -8,6 +8,13 @@
       "when": 1781295282395,
       "tag": "0000_serious_energizer",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781328292924,
+      "tag": "0001_needy_micromax",
+      "breakpoints": true
     }
   ]
 }

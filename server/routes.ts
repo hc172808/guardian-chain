@@ -300,6 +300,177 @@ export function registerRoutes(app: Express) {
     res.json(row);
   });
 
+  // ── User Stablecoins ───────────────────────────────────────────────────────
+  app.get("/api/stablecoins", async (_req, res) => {
+    try {
+      const { rows } = await pgPool.query(`SELECT * FROM user_stablecoins ORDER BY created_at DESC`);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/stablecoins/my", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const { rows } = await pgPool.query(`SELECT * FROM user_stablecoins WHERE creator_id=$1 ORDER BY created_at DESC`, [user.id]);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/stablecoins/:id", async (req, res) => {
+    try {
+      const { rows } = await pgPool.query(`SELECT * FROM user_stablecoins WHERE id=$1`, [req.params.id]);
+      if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+      res.json(rows[0]);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/stablecoins", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const isAdminOrFounder = user._isAdmin || user._isFounder;
+    try {
+      const {
+        name, symbol, description, logoUrl, pegType, pegValue, basketWeights,
+        collateralType, collateralRatio, liquidationThreshold, reserveAssets,
+        stabilityFee, mintingFee, burnFee, websiteUrl, twitterUrl,
+      } = req.body;
+
+      if (!name || !symbol || !pegType || !collateralType)
+        return res.status(400).json({ error: 'Missing required fields' });
+
+      // Reserved symbols
+      const RESERVED = ['GYDS','GYD','ETH','BTC','USDC','USDT','DAI','BNB','SOL','MATIC'];
+      if (RESERVED.includes(symbol.toUpperCase()))
+        return res.status(400).json({ error: `Symbol "${symbol}" is reserved` });
+
+      // Unique symbol check
+      const { rows: existing } = await pgPool.query(
+        `SELECT id FROM user_stablecoins WHERE UPPER(symbol)=UPPER($1) UNION SELECT id FROM tokens WHERE UPPER(symbol)=UPPER($1)`,
+        [symbol]
+      );
+      if (existing.length) return res.status(409).json({ error: `Symbol "${symbol}" already exists` });
+
+      // Max per user
+      const { rows: [maxCfg] } = await pgPool.query(`SELECT config_value FROM admin_config WHERE config_key='stablecoin_max_per_user'`).catch(() => ({ rows: [] as any[] }));
+      const maxPerUser = Number(maxCfg?.config_value) || 3;
+      if (!isAdminOrFounder) {
+        const { rows: myCount } = await pgPool.query(`SELECT COUNT(*) FROM user_stablecoins WHERE creator_id=$1`, [user.id]);
+        if (Number(myCount[0].count) >= maxPerUser)
+          return res.status(429).json({ error: `Maximum ${maxPerUser} stablecoins per user` });
+      }
+
+      // Collateral rule enforcement
+      const MODELS: Record<string, { minRatio: number; minLiq: number }> = {
+        over_collateralized: { minRatio: 150, minLiq: 110 },
+        algorithmic:         { minRatio: 100, minLiq: 100 },
+        hybrid:              { minRatio: 120, minLiq: 110 },
+        fiat_backed:         { minRatio: 100, minLiq: 100 },
+      };
+      const model = MODELS[collateralType];
+      if (!model) return res.status(400).json({ error: 'Invalid collateral type' });
+      if (Number(collateralRatio) < model.minRatio)
+        return res.status(400).json({ error: `Collateral ratio must be ≥ ${model.minRatio}% for ${collateralType}` });
+      if (Number(liquidationThreshold) < model.minLiq)
+        return res.status(400).json({ error: `Liquidation threshold must be ≥ ${model.minLiq}%` });
+      if (Number(liquidationThreshold) >= Number(collateralRatio))
+        return res.status(400).json({ error: 'Liquidation threshold must be less than collateral ratio' });
+
+      // Fee validation
+      if (Number(stabilityFee) < 0 || Number(stabilityFee) > 25)
+        return res.status(400).json({ error: 'Stability fee must be 0%–25%' });
+      if (Number(mintingFee) < 0 || Number(mintingFee) > 5)
+        return res.status(400).json({ error: 'Minting fee must be 0%–5%' });
+      if (Number(burnFee) < 0 || Number(burnFee) > 2)
+        return res.status(400).json({ error: 'Burn fee must be 0%–2%' });
+
+      // Creation fee (skip for admin/founder)
+      const { rows: [feeCfg] } = await pgPool.query(`SELECT config_value FROM admin_config WHERE config_key='stablecoin_creation_fee'`).catch(() => ({ rows: [] as any[] }));
+      const creationFee = Number(feeCfg?.config_value) || 10000;
+
+      const { rows: [newSc] } = await pgPool.query(`
+        INSERT INTO user_stablecoins
+          (creator_id, name, symbol, description, logo_url, peg_type, peg_value, basket_weights,
+           collateral_type, collateral_ratio, liquidation_threshold, reserve_assets,
+           stability_fee, minting_fee, burn_fee, website_url, twitter_url, creation_fee_paid,
+           status, is_approved)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+        RETURNING *`,
+        [
+          user.id, name.trim(), symbol.toUpperCase(), description || null, logoUrl || null,
+          pegType, String(pegValue || '1.00'), JSON.stringify(basketWeights || []),
+          collateralType, String(collateralRatio), String(liquidationThreshold),
+          JSON.stringify(Array.isArray(reserveAssets) ? reserveAssets : ['GYD','GYDS']),
+          String(stabilityFee), String(mintingFee), String(burnFee),
+          websiteUrl || null, twitterUrl || null,
+          isAdminOrFounder ? '0' : String(creationFee),
+          isAdminOrFounder ? 'active' : 'pending_review',
+          isAdminOrFounder,
+        ]
+      );
+      res.status(201).json(newSc);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/stablecoins/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const isAdminOrFounder = user._isAdmin || user._isFounder;
+    try {
+      const { rows: [sc] } = await pgPool.query(`SELECT * FROM user_stablecoins WHERE id=$1`, [req.params.id]);
+      if (!sc) return res.status(404).json({ error: 'Not found' });
+      if (sc.creator_id !== user.id && !isAdminOrFounder)
+        return res.status(403).json({ error: 'Forbidden' });
+      const allowed = ['name','description','logo_url','website_url','twitter_url','stability_fee','minting_fee','burn_fee'];
+      const sets: string[] = [];
+      const vals: any[] = [];
+      allowed.forEach(col => {
+        const key = col.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+        if (req.body[key] !== undefined) { vals.push(req.body[key]); sets.push(`${col}=$${vals.length}`); }
+      });
+      if (isAdminOrFounder && req.body.status) { vals.push(req.body.status); sets.push(`status=$${vals.length}`); }
+      if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+      vals.push(req.params.id);
+      const { rows: [updated] } = await pgPool.query(`UPDATE user_stablecoins SET updated_at=NOW(),${sets.join(',')} WHERE id=$${vals.length} RETURNING *`, vals);
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/admin/stablecoins/:id/approve", requireAdmin, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const addr = `0x${require('crypto').randomBytes(20).toString('hex')}`;
+      const { rows: [sc] } = await pgPool.query(
+        `UPDATE user_stablecoins SET status='active', is_approved=true, approved_by=$1, approved_at=NOW(), address=$2, updated_at=NOW() WHERE id=$3 RETURNING *`,
+        [user.id, addr, req.params.id]
+      );
+      if (!sc) return res.status(404).json({ error: 'Not found' });
+      res.json(sc);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/admin/stablecoins/:id/pause", requireAdmin, async (req, res) => {
+    const { reason } = req.body;
+    try {
+      const { rows: [sc] } = await pgPool.query(
+        `UPDATE user_stablecoins SET status='paused', paused_reason=$1, updated_at=NOW() WHERE id=$2 RETURNING *`,
+        [reason || null, req.params.id]
+      );
+      if (!sc) return res.status(404).json({ error: 'Not found' });
+      res.json(sc);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/stablecoins/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const isAdminOrFounder = user._isAdmin || user._isFounder;
+    try {
+      const { rows: [sc] } = await pgPool.query(`SELECT * FROM user_stablecoins WHERE id=$1`, [req.params.id]);
+      if (!sc) return res.status(404).json({ error: 'Not found' });
+      if (sc.creator_id !== user.id && !isAdminOrFounder) return res.status(403).json({ error: 'Forbidden' });
+      if (sc.status === 'active' && !isAdminOrFounder) return res.status(400).json({ error: 'Cannot delete an active stablecoin' });
+      await pgPool.query(`DELETE FROM user_stablecoins WHERE id=$1`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Liquidity Pools ────────────────────────────────────────────────────────
   app.get("/api/pools", async (_req, res) => {
     const data = await storage.getActivePools();

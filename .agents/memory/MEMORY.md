@@ -1,6 +1,8 @@
 - [Bridge networks](bridge-networks.md) — EXTERNAL_CHAINS in CrossChainBridge.tsx now has 25 networks; non-EVM chains skip wallet verification and use a trust-based flow.
 - [New pages wired](new-pages.md) — 9 new pages added (governance, nft, analytics, community, developer, leaderboard, multisig, identity, rwa); Sidebar has collapsible Core/Ecosystem/Resources sections.
-- [DeFi tabs](defi-tabs.md) — DeFi page has 12 tabs: swap, pools, stake, farm, orderbook, vaults, bridge, perps, predict, launchpad, portfolio, ilcalc. DeFiBottomNav updated to match.
+- [DeFi tabs](defi-tabs.md) — DeFi page has 13 tabs: swap, pools, stake, farm, orderbook, vaults, bridge, stablecoin, perps, predict, launchpad, portfolio, ilcalc. DeFiBottomNav updated to match.
+- [User stablecoins](user-stablecoins.md) — user_stablecoins table in DB; full CRUD at /api/stablecoins; creation rules enforced server-side; StablecoinFactory.tsx 5-step wizard in DeFi → Stable tab.
+- [WireGuard peer manager](wireguard-peers.md) — WireGuardPeerManager.tsx in Admin nodes tab; reads approved nodes, assigns 10.8.0.x tunnel IPs, generates wg0.conf + per-peer client configs, downloads/copies them.
 - [Notification bell](notification-bell.md) — NotificationBell lives in Layout.tsx header (desktop only); reads from demo data; wired to user_notifications table pattern.
 - [TOTP implementation](totp-impl.md) — otplib v12 dropped the `authenticator` export; use server/totp.ts (built-in crypto, zero-dep RFC 6238 TOTP) instead.
 - [Admin camelCase](admin-camelcase.md) — Drizzle returns camelCase; NodeInstallation interface and nodes tab now use nodeType, isApproved, isSynced, wireguardPublicKey, createdAt.

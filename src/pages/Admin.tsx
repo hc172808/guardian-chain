@@ -40,6 +40,7 @@ import { HealthCheck } from '@/components/admin/HealthCheck';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 import { TokenManager } from '@/components/admin/TokenManager';
 import { NodeInstaller } from '@/components/admin/NodeInstaller';
+import { WireGuardPeerManager } from '@/components/admin/WireGuardPeerManager';
 import { AdminConsole } from '@/components/admin/AdminConsole';
 import { ComponentVisibility } from '@/components/admin/ComponentVisibility';
 import { MainnetPromotion } from '@/components/admin/MainnetPromotion';
@@ -918,7 +919,16 @@ const AdminContent = () => {
           <TokenManager />
         </TabsContent>
 
-        <TabsContent value="nodes" className="space-y-4">
+        <TabsContent value="nodes" className="space-y-6">
+          {/* WireGuard Peer Manager */}
+          <WireGuardPeerManager />
+
+          <div className="border-t border-border/30 pt-4">
+            <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+              <Server className="h-4 w-4" /> Node Registrations ({nodes.length})
+            </h3>
+          </div>
+
           {loading ? (
             <GlassCard className="p-6 text-center">Loading...</GlassCard>
           ) : nodes.length === 0 ? (

@@ -462,6 +462,47 @@ export const userAchievements = pgTable("user_achievements", {
   unlockedAt: timestamp("unlocked_at").defaultNow(),
 });
 
+export const userStablecoins = pgTable("user_stablecoins", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  creatorId: text("creator_id").notNull(),
+  name: text("name").notNull(),
+  symbol: text("symbol").notNull().unique(),
+  decimals: integer("decimals").notNull().default(18),
+  description: text("description"),
+  logoUrl: text("logo_url"),
+  // Peg
+  pegType: text("peg_type").notNull().default("usd"),       // usd|eur|gbp|btc|eth|gold|custom|basket
+  pegValue: numeric("peg_value").notNull().default("1.00"),  // target price in USD
+  basketWeights: jsonb("basket_weights").default(sql`'[]'::jsonb`),
+  // Collateral model
+  collateralType: text("collateral_type").notNull().default("over_collateralized"), // over_collateralized|algorithmic|hybrid|fiat_backed
+  collateralRatio: numeric("collateral_ratio").notNull().default("150"),   // e.g. 150 = 150%
+  liquidationThreshold: numeric("liquidation_threshold").notNull().default("120"), // e.g. 120 = 120%
+  reserveAssets: jsonb("reserve_assets").notNull().default(sql`'["GYD","GYDS"]'::jsonb`),
+  // Fees
+  stabilityFee: numeric("stability_fee").notNull().default("2.50"),   // annual %
+  mintingFee: numeric("minting_fee").notNull().default("0.50"),        // per-mint %
+  burnFee: numeric("burn_fee").notNull().default("0.10"),              // per-burn %
+  // Supply stats
+  totalSupply: numeric("total_supply").notNull().default("0"),
+  circulatingSupply: numeric("circulating_supply").notNull().default("0"),
+  totalCollateralUsd: numeric("total_collateral_usd").notNull().default("0"),
+  // Links
+  websiteUrl: text("website_url"),
+  twitterUrl: text("twitter_url"),
+  address: text("address"),
+  // Status
+  status: text("status").notNull().default("pending_review"), // draft|pending_review|active|paused|deprecated
+  isApproved: boolean("is_approved").notNull().default(false),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  pausedReason: text("paused_reason"),
+  // Creation fee paid
+  creationFeePaid: numeric("creation_fee_paid").notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
