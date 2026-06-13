@@ -21,7 +21,7 @@ const CHAIN_STATS = [
   { label: 'RPC URL', value: 'https://rpc.netlifegy.com' },
   { label: 'Explorer', value: 'https://explorer.netlifegy.com' },
   { label: 'Consensus', value: 'Proof of Stake (PoS)' },
-  { label: 'Block Time', value: '~4 seconds' },
+  { label: 'Block Time', value: '~120 seconds (2 min)' },
   { label: 'Max TPS', value: '3,000+' },
   { label: 'Total Supply', value: '1,000,000,000 GYDS' },
   { label: 'Native Currency', value: 'GYDS (18 decimals)' },
@@ -38,7 +38,7 @@ const LOGOS = [
   { name: 'Token Badge', format: 'SVG + PNG', size: '256×256', tag: 'Exchanges' },
 ];
 
-const BOILERPLATE = `GYDSchain is a high-performance Layer-1 blockchain designed for the next generation of decentralized finance. Built on a Proof-of-Stake consensus mechanism with ~4-second block finality and 3,000+ TPS capacity, GYDSchain provides a full DeFi ecosystem including an AMM DEX (GYDSwap), LP farming, cross-chain bridge (25+ networks), NFT marketplace, token launchpad, and on-chain governance — all accessible through a unified dashboard at netlifegy.com.
+const BOILERPLATE = `GYDSchain is a high-performance Layer-1 blockchain designed for the next generation of decentralized finance. Built on a Proof-of-Stake consensus mechanism with ~120-second block time (designed for double-spend prevention) and 3,000+ TPS capacity, GYDSchain provides a full DeFi ecosystem including an AMM DEX (GYDSwap), LP farming, cross-chain bridge (25+ networks), NFT marketplace, token launchpad, and on-chain governance — all accessible through a unified dashboard at netlifegy.com.
 
 Chain ID: 13370 | RPC: rpc.netlifegy.com | Explorer: explorer.netlifegy.com`;
 

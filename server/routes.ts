@@ -1192,7 +1192,7 @@ export function registerRoutes(app: Express) {
   app.get("/v1/network/stats", async (_req, res) => {
     try {
       const stats = await storage.getNetworkStats();
-      res.json({ tps: 1250, chain_id: 13370, ...stats });
+      res.json({ tps: 1250, chain_id: 13370, block_time: 120, block_time_ms: 120000, ...stats });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

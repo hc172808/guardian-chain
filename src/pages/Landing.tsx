@@ -8,7 +8,7 @@ import { Blocks, Zap, Shield, Globe, TrendingUp, Users, Coins, Lock, ChevronRigh
 
 const STATS = [
   { label: 'Chain ID', value: '13370', icon: <Network className="w-5 h-5" /> },
-  { label: 'Block Time', value: '~4s', icon: <Zap className="w-5 h-5" /> },
+  { label: 'Block Time', value: '~120s', icon: <Zap className="w-5 h-5" /> },
   { label: 'Consensus', value: 'PoS', icon: <Shield className="w-5 h-5" /> },
   { label: 'TPS', value: '3,000+', icon: <TrendingUp className="w-5 h-5" /> },
 ];
@@ -53,7 +53,7 @@ const TEAM = [
 ];
 
 const FEATURES = [
-  { icon: <Zap className="w-6 h-6 text-primary" />, title: 'Lightning Fast', desc: '~4 second block finality with PoS consensus. 3,000+ TPS at mainnet capacity.' },
+  { icon: <Zap className="w-6 h-6 text-primary" />, title: 'Secure Finality', desc: '~120 second block time with double-spend prevention. 3,000+ TPS at mainnet capacity.' },
   { icon: <Shield className="w-6 h-6 text-violet-400" />, title: 'Secure by Design', desc: 'BFT-tolerant PoS with slashing conditions, multi-sig governance, and on-chain insurance.' },
   { icon: <Globe className="w-6 h-6 text-blue-400" />, title: 'Cross-Chain', desc: 'Native bridge to 25+ networks including Ethereum, BSC, Polygon, Avalanche, and more.' },
   { icon: <Coins className="w-6 h-6 text-amber-400" />, title: 'Full DeFi Suite', desc: 'AMM DEX, LP farming, vaults, perpetuals, prediction markets, and token launchpad.' },
@@ -126,7 +126,7 @@ const Landing = () => {
               </span>
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-              GYDSchain is a high-performance Layer-1 blockchain built for DeFi. PoS consensus, ~4s finality, 3,000+ TPS, and a full suite of DeFi tools — out of the box.
+              GYDSchain is a high-performance Layer-1 blockchain built for DeFi. PoS consensus, ~120s block time (double-spend prevention), 3,000+ TPS, and a full suite of DeFi tools — out of the box.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link to="/auth">

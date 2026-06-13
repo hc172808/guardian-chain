@@ -264,8 +264,10 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
 
 // ── Password Reset form ───────────────────────────────────────────────────────
 const ResetForm = ({ onBack }: { onBack: () => void }) => {
+  const [mode, setMode] = useState<'username' | 'wallet'>('username');
   const [step, setStep] = useState<'request' | 'confirm' | 'done'>('request');
   const [username, setUsername] = useState('');
+  const [walletAddress, setWalletAddress] = useState('');
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -280,9 +282,38 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
     setError(''); setLoading(true);
     try {
       const data = await api('/api/auth/reset-password/request', { username: username.trim().toLowerCase() });
-      if (data.token) {
-        setResetToken(data.token);
-      }
+      if (data.token) setResetToken(data.token);
+      setStep('confirm');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleWalletReset = async () => {
+    setError(''); setLoading(true);
+    try {
+      const provider = (window as any).ethereum;
+      if (!provider) throw new Error('No wallet detected. Install MetaMask or Trust Wallet.');
+
+      // 1. Get wallet address
+      const [acct] = await provider.request({ method: 'eth_requestAccounts' });
+      const addr = String(acct).toLowerCase();
+      setWalletAddress(addr);
+
+      // 2. Fetch nonce
+      const nonceRes = await fetch(`/api/auth/nonce?address=${addr}`);
+      const { nonce, message } = await nonceRes.json();
+      if (!nonce) throw new Error('Failed to get challenge from server');
+
+      // 3. Sign message
+      const signature = await provider.request({
+        method: 'personal_sign',
+        params: [message, addr],
+      });
+
+      // 4. Verify with server and get reset token
+      const data = await api('/api/auth/reset-password/wallet', { address: addr, signature });
+      setResetToken(data.token);
+      if (data.username) setUsername(data.username);
       setStep('confirm');
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
@@ -323,32 +354,74 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
         <div>
           <p className="text-sm font-medium">Password Reset</p>
           <p className="text-xs text-muted-foreground">
-            {step === 'request' ? 'Enter your username to generate a reset token.' : 'Enter your reset token and new password.'}
+            {step === 'request' ? 'Reset via username or verify with your wallet.' : 'Set your new password below.'}
           </p>
         </div>
       </div>
 
       {step === 'request' && (
-        <form onSubmit={handleRequest} className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-muted-foreground">Username</label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <input type="text" value={username} onChange={e => setUsername(e.target.value)}
-                placeholder="your_username"
-                className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm" />
-            </div>
+        <>
+          {/* Mode toggle */}
+          <div className="flex rounded-lg border border-border overflow-hidden text-sm font-medium">
+            <button type="button"
+              onClick={() => { setMode('username'); setError(''); }}
+              className={cn('flex-1 py-2 flex items-center justify-center gap-1.5 transition-colors',
+                mode === 'username' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/50')}>
+              <User className="h-3.5 w-3.5" /> Username
+            </button>
+            <button type="button"
+              onClick={() => { setMode('wallet'); setError(''); }}
+              className={cn('flex-1 py-2 flex items-center justify-center gap-1.5 transition-colors',
+                mode === 'wallet' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/50')}>
+              <Wallet className="h-3.5 w-3.5" /> My Wallet
+            </button>
           </div>
-          {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
-          <button type="submit" disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {loading ? 'Generating…' : 'Generate Reset Token'}
-          </button>
-          <button type="button" onClick={onBack} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
-            ← Back to Sign In
-          </button>
-        </form>
+
+          {mode === 'username' && (
+            <form onSubmit={handleRequest} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground">Username</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input type="text" value={username} onChange={e => setUsername(e.target.value)}
+                    placeholder="your_username"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm" />
+                </div>
+              </div>
+              {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+              <button type="submit" disabled={loading}
+                className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {loading ? 'Generating…' : 'Generate Reset Token'}
+              </button>
+              <button type="button" onClick={onBack} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+                ← Back to Sign In
+              </button>
+            </form>
+          )}
+
+          {mode === 'wallet' && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm text-blue-300">
+                Connect the wallet that is linked to your account. You'll sign a message to verify ownership — no transaction, no gas fee.
+              </div>
+              {walletAddress && (
+                <div className="p-2 rounded bg-secondary/30 text-xs font-mono text-muted-foreground break-all">
+                  {walletAddress}
+                </div>
+              )}
+              {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+              <button type="button" onClick={handleWalletReset} disabled={loading}
+                className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+                {loading ? 'Signing…' : 'Sign with Wallet to Reset'}
+              </button>
+              <button type="button" onClick={onBack} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+                ← Back to Sign In
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {step === 'confirm' && (

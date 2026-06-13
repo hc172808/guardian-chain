@@ -265,6 +265,42 @@ export async function setupAuth(app: Express): Promise<void> {
     }
   });
 
+  // ── Password reset: via wallet signature ──────────────────────────────────
+  // Flow: 1) GET /api/auth/nonce?address=0x...  2) user signs nonce  3) POST here → get reset token
+  app.post("/api/auth/reset-password/wallet", async (req, res) => {
+    try {
+      const { address, signature } = req.body ?? {};
+      if (!address || !signature) return res.status(400).json({ error: "address and signature required" });
+      const addr = String(address).toLowerCase();
+
+      // Verify signature against stored nonce (same nonce system used for Web3 login)
+      const nonceRow = await storage.getUserNonce(addr);
+      if (!nonceRow) return res.status(400).json({ error: "No active challenge — request a new nonce first" });
+
+      const message = `Sign in to ChainCore\nNonce: ${nonceRow}`;
+      const recovered = ethers.verifyMessage(message, signature).toLowerCase();
+      if (recovered !== addr) return res.status(401).json({ error: "Signature verification failed" });
+
+      // Clear nonce (one-time use)
+      await storage.clearUserNonce(addr);
+
+      // Find account linked to this wallet
+      const user = await storage.getUserByWallet(addr);
+      if (!user) return res.status(404).json({ error: "No account is linked to this wallet address. Connect the wallet to an account first, or use username reset." });
+      if (!user.passwordHash) return res.status(400).json({ error: "This account was created with wallet-only auth — no password to reset. You can already sign in using your wallet." });
+
+      // Generate reset token (same flow as username reset)
+      const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      await storage.createPasswordResetToken(user.id, token, expiresAt);
+
+      res.json({ ok: true, token, username: user.username, expiresAt, message: "Wallet verified — use the token to set your new password." });
+    } catch (err: any) {
+      console.error("Wallet password reset error:", err.message);
+      res.status(500).json({ error: "Wallet verification failed" });
+    }
+  });
+
   // ── TOTP: setup (generate secret + QR URI) ────────────────────────────────
   app.post("/api/auth/totp/setup", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
