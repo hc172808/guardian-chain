@@ -7,6 +7,7 @@ import { seedFounder } from "./seed";
 import { storage } from "./storage";
 import { initVapid, ensurePushSubscriptionsTable } from "./webpush";
 import { Pool } from "pg";
+import { aiFirewallMiddleware, refreshSecuritySettings } from "./security";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +38,12 @@ app.use((_req, res, next) => {
   );
   next();
 });
+
+// AI Firewall middleware — runs before routes
+app.use(aiFirewallMiddleware);
+await refreshSecuritySettings();
+// Refresh security settings every 5 min
+setInterval(() => refreshSecuritySettings().catch(() => {}), 5 * 60_000);
 
 await setupAuth(app);
 registerRoutes(app);

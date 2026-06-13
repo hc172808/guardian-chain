@@ -5,6 +5,7 @@ import { testNodeManager } from "./testNodes";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser } from "./webpush";
 import { Pool } from "pg";
+import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings } from "./security";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
@@ -138,7 +139,15 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/nodes", requireAuth, async (req, res) => {
     const user = req.user as any;
-    const row = await storage.insertNode({ ...req.body, userId: user.id });
+    // Admin/Founder nodes are auto-approved; user nodes need approval
+    const isPrivileged = user._isAdmin || user._isFounder;
+    const row = await storage.insertNode({
+      ...req.body,
+      userId: user.id,
+      isApproved: isPrivileged ? true : (req.body.isApproved ?? false),
+      approvedBy: isPrivileged ? user.id : null,
+      approvedAt: isPrivileged ? new Date().toISOString() : null,
+    });
     res.json(row);
     storage.awardXpOnce(user.id, 'first_node', 200, 'First node installed on GYDSchain! +200 XP').catch(() => {});
   });
@@ -400,6 +409,43 @@ export function registerRoutes(app: Express) {
   app.get("/api/firewall/ddos", requireAdmin, async (_req, res) => res.json(await storage.getDdosProtection()));
   app.post("/api/firewall/ddos", requireAdmin, async (req, res) => res.json(await storage.insertDdosProtection(req.body)));
   app.patch("/api/firewall/ddos/:id", requireAdmin, async (req, res) => res.json(await storage.updateDdosProtection(req.params.id, req.body)));
+
+  // ── AI Firewall / Security enforcement routes ──────────────────────────────
+  // Status
+  app.get("/api/security/status", requireAdmin, (_req, res) => {
+    res.json(getFirewallStatus());
+  });
+
+  // Blocked IPs list
+  app.get("/api/security/blocked-ips", requireAdmin, (_req, res) => {
+    res.json({ ips: getBlockedIpList() });
+  });
+
+  // Block a single IP
+  app.post("/api/security/blocked-ips", requireAdmin, (req, res) => {
+    const { ip } = req.body ?? {};
+    if (!ip) return res.status(400).json({ error: "ip required" });
+    blockIp(String(ip).trim());
+    res.json({ ok: true, blocked: getBlockedIpList() });
+  });
+
+  // Unblock a specific IP
+  app.delete("/api/security/blocked-ips/:ip", requireAdmin, (req, res) => {
+    unblockIp(decodeURIComponent(req.params.ip));
+    res.json({ ok: true });
+  });
+
+  // Clear ALL blocked IPs
+  app.delete("/api/security/blocked-ips", requireAdmin, (_req, res) => {
+    clearAllBlockedIps();
+    res.json({ ok: true, message: "All blocked IPs cleared" });
+  });
+
+  // Force reload firewall settings from DB
+  app.post("/api/security/reload", requireAdmin, async (_req, res) => {
+    await refreshSecuritySettings();
+    res.json({ ok: true, status: getFirewallStatus() });
+  });
 
   // ── Audit Logs ─────────────────────────────────────────────────────────────
   app.get("/api/audit-logs", requireAuth, async (req, res) => {

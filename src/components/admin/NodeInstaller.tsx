@@ -6,7 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Server, Globe, Smartphone, Network, Copy, Check, Terminal, Container, Download, Zap } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Server, Globe, Smartphone, Network, Copy, Check, Terminal, Container, Download, Zap, CheckCircle2, Loader2, PlusCircle } from 'lucide-react';
 
 type NodeType = 'bootnode' | 'fullnode' | 'litenode' | 'rpcnode' | 'boostnode' | 'termux';
 
@@ -104,7 +105,14 @@ export function NodeInstaller() {
   const [blockTime, setBlockTime]         = useState('120');
   const [wgEndpoint, setWgEndpoint]       = useState('vpn.netlifegy.com:51820');
   const [copied, setCopied]               = useState<string | null>(null);
+  // Registration form state
+  const [nodeIp, setNodeIp]               = useState('');
+  const [nodeHostname, setNodeHostname]   = useState('');
+  const [nodeWgKey, setNodeWgKey]         = useState('');
+  const [registering, setRegistering]     = useState(false);
+  const [registered, setRegistered]       = useState<string[]>([]);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const anySelected = Object.values(selected).some(Boolean);
   const selectedNodes = NODE_OPTIONS.filter(n => selected[n.id]);
@@ -188,6 +196,41 @@ PersistentKeepalive = 25`;
     a.click();
     URL.revokeObjectURL(url);
     toast({ title: 'Downloaded', description: `${filename} saved` });
+  };
+
+  const registerNodes = async () => {
+    if (!selectedNodes.length) return;
+    setRegistering(true);
+    const names: string[] = [];
+    try {
+      for (const n of selectedNodes) {
+        if (n.id === 'termux') continue;
+        const res = await fetch('/api/nodes', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nodeType: n.id,
+            ipAddress: nodeIp.trim() || null,
+            hostname: nodeHostname.trim() || null,
+            wireguardPublicKey: nodeWgKey.trim() || null,
+            enableMining,
+            blockTime: parseInt(blockTime) || 120,
+            wgEndpoint,
+          }),
+        });
+        if (res.ok) names.push(n.label);
+      }
+      setRegistered(names);
+      toast({
+        title: `${names.length} node${names.length > 1 ? 's' : ''} registered`,
+        description: `${names.join(', ')} — now visible in the Approve Nodes tab.`,
+      });
+    } catch (e: any) {
+      toast({ title: 'Registration failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setRegistering(false);
+    }
   };
 
   const CopyBtn = ({ text, label }: { text: string; label: string }) => (
@@ -426,6 +469,88 @@ PersistentKeepalive = 25`;
             </div>
           )}
         </>
+      )}
+
+      {/* ── Register Node in DB ── */}
+      {anySelected && (
+        <GlassCard className="p-6 space-y-4 border-primary/30">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/20">
+              <PlusCircle className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h4 className="font-semibold">Register Node Installation</h4>
+              <p className="text-xs text-muted-foreground">
+                Save this node to the dashboard so it appears in <strong>Approve Node Installations</strong>.
+                Admin/Founder nodes are auto-approved.
+              </p>
+            </div>
+          </div>
+
+          {registered.length > 0 ? (
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+              <CheckCircle2 className="h-5 w-5 text-green-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-green-400">Registered successfully!</p>
+                <p className="text-xs text-muted-foreground">{registered.join(', ')} — visible in Admin → Nodes tab.</p>
+                <button
+                  className="text-xs text-primary hover:underline mt-1"
+                  onClick={() => setRegistered([])}
+                >
+                  Register another
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid md:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Server IP Address</Label>
+                  <Input
+                    value={nodeIp}
+                    onChange={e => setNodeIp(e.target.value)}
+                    placeholder="e.g. 203.0.113.10"
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Hostname (optional)</Label>
+                  <Input
+                    value={nodeHostname}
+                    onChange={e => setNodeHostname(e.target.value)}
+                    placeholder="e.g. node1.netlifegy.com"
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">WireGuard Public Key (optional — fill in after key generation)</Label>
+                <Input
+                  value={nodeWgKey}
+                  onChange={e => setNodeWgKey(e.target.value)}
+                  placeholder="base64-encoded WireGuard public key"
+                  className="h-9 text-sm font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <div className="text-xs text-muted-foreground">
+                  Will register: {selectedNodes.filter(n => n.id !== 'termux').map(n => n.label).join(', ')}
+                </div>
+                <Button
+                  onClick={registerNodes}
+                  disabled={registering}
+                  className="gap-2"
+                >
+                  {registering
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Registering…</>
+                    : <><PlusCircle className="h-4 w-4" /> Register Node{selectedNodes.length > 1 ? 's' : ''}</>
+                  }
+                </Button>
+              </div>
+            </div>
+          )}
+        </GlassCard>
       )}
     </div>
   );

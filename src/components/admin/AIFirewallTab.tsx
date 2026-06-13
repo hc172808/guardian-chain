@@ -146,9 +146,13 @@ export const AIFirewallTab = () => {
   const [stats, setStats]           = useState({ blocked: 0, alerted: 0, logged: 0, requests: 0 });
   const [newPattern, setNewPattern] = useState({ pattern: '', description: '', severity: 'medium' as const, action: 'block' as const });
   const [addingPattern, setAddingPattern] = useState(false);
-  const [activeSection, setActiveSection] = useState<'overview' | 'patterns' | 'geo' | 'settings'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'patterns' | 'geo' | 'blocked' | 'settings'>('overview');
+  const [blockedIps, setBlockedIps]  = useState<string[]>([]);
+  const [newBlockIp, setNewBlockIp]  = useState('');
+  const [blockingIp, setBlockingIp]  = useState(false);
+  const [fwStatus, setFwStatus]      = useState<any>(null);
 
-  // ── Load settings from Supabase admin_config ──
+  // ── Load settings from admin_config + blocked IPs from security module ──
   const loadSettings = useCallback(async () => {
     setLoading(true);
     try {
@@ -158,7 +162,10 @@ export const AIFirewallTab = () => {
         .eq('config_key', 'ai_firewall_settings')
         .maybeSingle();
       if (data?.config_value) {
-        setSettings(prev => ({ ...prev, ...(data.config_value as any) }));
+        const s = data.config_value as any;
+        setSettings(prev => ({ ...prev, ...s }));
+        // Fix lockdown desync: derive from persisted threat_response
+        setLockdown(s.threat_response === 'lockdown');
       }
 
       const { data: pData } = await supabase
@@ -169,6 +176,14 @@ export const AIFirewallTab = () => {
       if (pData?.config_value && Array.isArray(pData.config_value)) {
         setPatterns(pData.config_value as ThreatPattern[]);
       }
+
+      // Load live blocked IPs and firewall status
+      const [ipsRes, statusRes] = await Promise.all([
+        fetch('/api/security/blocked-ips', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/security/status',     { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      if (ipsRes?.ips) setBlockedIps(ipsRes.ips);
+      if (statusRes) setFwStatus(statusRes);
     } catch {}
     setLoading(false);
   }, []);
@@ -299,6 +314,44 @@ export const AIFirewallTab = () => {
     toast({ title: 'Threat log cleared' });
   };
 
+  // ── Blocked IP management (calls real security module) ──
+  const blockIpManually = async () => {
+    const ip = newBlockIp.trim();
+    if (!ip) return;
+    setBlockingIp(true);
+    try {
+      const res = await fetch('/api/security/blocked-ips', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setBlockedIps(data.blocked ?? [...blockedIps, ip]);
+      setNewBlockIp('');
+      toast({ title: `🚫 ${ip} blocked` });
+      if (user) logAuditEvent(user.id, user.email || null, { action: 'Blocked IP manually', category: 'firewall', target_type: 'ip_access_list', details: { ip } });
+    } catch (e: any) { toast({ title: 'Block failed', description: e.message, variant: 'destructive' }); }
+    finally { setBlockingIp(false); }
+  };
+
+  const unblockIp = async (ip: string) => {
+    try {
+      await fetch(`/api/security/blocked-ips/${encodeURIComponent(ip)}`, { method: 'DELETE', credentials: 'include' });
+      setBlockedIps(prev => prev.filter(x => x !== ip));
+      toast({ title: `✅ ${ip} unblocked` });
+    } catch { toast({ title: 'Unblock failed', variant: 'destructive' }); }
+  };
+
+  const clearAllBans = async () => {
+    try {
+      await fetch('/api/security/blocked-ips', { method: 'DELETE', credentials: 'include' });
+      setBlockedIps([]);
+      toast({ title: '🗑️ All blocked IPs cleared' });
+      if (user) logAuditEvent(user.id, user.email || null, { action: 'Cleared all blocked IPs', category: 'firewall', target_type: 'ip_access_list' });
+    } catch { toast({ title: 'Clear failed', variant: 'destructive' }); }
+  };
+
   if (loading) return (
     <div className="flex items-center justify-center py-12">
       <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -371,7 +424,7 @@ export const AIFirewallTab = () => {
 
       {/* ── Sub-nav ── */}
       <div className="flex gap-1 p-1 bg-secondary/20 rounded-lg">
-        {(['overview', 'patterns', 'geo', 'settings'] as const).map(s => (
+        {(['overview', 'patterns', 'geo', 'blocked', 'settings'] as const).map(s => (
           <button
             key={s}
             onClick={() => setActiveSection(s)}
@@ -379,7 +432,7 @@ export const AIFirewallTab = () => {
               activeSection === s ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {s === 'overview' ? '📊 Feed' : s === 'patterns' ? '🎯 Patterns' : s === 'geo' ? '🌍 Geo' : '⚙️ Settings'}
+            {s === 'overview' ? '📊 Feed' : s === 'patterns' ? '🎯 Patterns' : s === 'geo' ? '🌍 Geo' : s === 'blocked' ? `🚫 Blocked${blockedIps.length ? ` (${blockedIps.length})` : ''}` : '⚙️ Settings'}
           </button>
         ))}
       </div>
@@ -612,6 +665,100 @@ export const AIFirewallTab = () => {
         </div>
       )}
 
+      {/* ── Blocked IPs ── */}
+      {activeSection === 'blocked' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium flex items-center gap-2">
+              <Ban className="h-4 w-4 text-red-400" />
+              Blocked IPs ({blockedIps.length})
+            </h4>
+            {fwStatus && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+                {fwStatus.blockedCount ?? blockedIps.length} active blocks
+              </div>
+            )}
+          </div>
+
+          {/* Real-time status row */}
+          {fwStatus && (
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: 'Blocked', value: fwStatus.blocked ?? 0, color: 'text-red-400' },
+                { label: 'Rate-limited', value: fwStatus.rateBlocked ?? 0, color: 'text-yellow-400' },
+                { label: 'Payload-blocked', value: fwStatus.payloadBlocked ?? 0, color: 'text-orange-400' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="p-2.5 rounded-lg bg-secondary/30 border border-border/20 text-center">
+                  <p className={`text-lg font-bold ${color}`}>{value}</p>
+                  <p className="text-[10px] text-muted-foreground">{label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Manual block form */}
+          {canControl && (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newBlockIp}
+                onChange={e => setNewBlockIp(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && blockIpManually()}
+                placeholder="Enter IP address to block (e.g. 1.2.3.4)"
+                className="flex-1 h-9 px-3 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm font-mono"
+              />
+              <Button size="sm" onClick={blockIpManually} disabled={blockingIp || !newBlockIp.trim()} className="gap-1.5 shrink-0">
+                {blockingIp ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                Block IP
+              </Button>
+            </div>
+          )}
+
+          {/* Blocked IPs list */}
+          {blockedIps.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Lock className="h-8 w-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No IPs currently blocked</p>
+              <p className="text-xs mt-1">IPs are auto-blocked when attack patterns are detected at high sensitivity</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5 max-h-72 overflow-y-auto">
+              {blockedIps.map(ip => (
+                <div key={ip} className="flex items-center justify-between p-2.5 rounded-lg bg-red-500/5 border border-red-500/20">
+                  <div className="flex items-center gap-2">
+                    <Ban className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                    <span className="text-sm font-mono">{ip}</span>
+                  </div>
+                  {canControl && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 text-xs text-muted-foreground hover:text-green-400"
+                      onClick={() => unblockIp(ip)}
+                    >
+                      Unblock
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Clear all + reload */}
+          {canControl && blockedIps.length > 0 && (
+            <div className="flex gap-2 pt-1 border-t border-border/30">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs flex-1" onClick={clearAllBans}>
+                <Trash2 className="h-3 w-3 text-destructive" /> Clear All Bans
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={loadSettings}>
+                <RefreshCw className="h-3 w-3" /> Reload
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Settings ── */}
       {activeSection === 'settings' && (
         <div className="space-y-5">
@@ -717,11 +864,7 @@ export const AIFirewallTab = () => {
                   className="text-xs gap-1.5"
                   onClick={async () => {
                     if (!user) return;
-                    await supabase.from('ip_access_list').delete().eq('list_type', 'blacklist');
-                    toast({ title: '🗑️ All banned IPs cleared' });
-                    logAuditEvent(user.id, user.email || null, {
-                      action: 'Cleared all blacklisted IPs', category: 'firewall', target_type: 'ip_access_list',
-                    });
+                    await clearAllBans();
                   }}
                 >
                   <Trash2 className="h-3 w-3 text-destructive" /> Clear Bans
