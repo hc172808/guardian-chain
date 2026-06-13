@@ -1288,11 +1288,83 @@ export function registerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // ── Webhook Deliveries ──────────────────────────────────────────────────────
+  // ── Webhook Deliveries + Retry ─────────────────────────────────────────────
   app.get("/api/webhooks/:id/deliveries", requireAuth, async (req, res) => {
     try {
       res.json(await (storage as any).getWebhookDeliveries((req.user as any).id.toString(), req.params.id));
     } catch (e: any) { res.status(404).json({ error: e.message }); }
+  });
+
+  // Redeliver a specific delivery (fire the webhook again with the original event)
+  app.post("/api/webhooks/:id/deliveries/:deliveryId/retry", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      // Get webhook (ownership check)
+      const whRows = await pgPool.query(
+        `SELECT * FROM webhook_endpoints WHERE id=$1 AND user_id=$2`, [req.params.id, user.id]
+      );
+      if (!whRows.rows.length) return res.status(404).json({ error: "webhook not found" });
+      const wh = whRows.rows[0];
+
+      // Get original delivery
+      const delRows = await pgPool.query(
+        `SELECT * FROM webhook_deliveries WHERE id=$1 AND webhook_id=$2`, [req.params.deliveryId, req.params.id]
+      );
+      if (!delRows.rows.length) return res.status(404).json({ error: "delivery not found" });
+      const delivery = delRows.rows[0];
+
+      const payload = JSON.stringify({ event: delivery.event, retried: true, originalDelivery: delivery.id });
+      const start = Date.now();
+      let responseStatus = 0;
+      let success = false;
+      try {
+        const resp = await fetch(wh.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-ChainCore-Secret": wh.secret ?? "" },
+          body: payload,
+          signal: AbortSignal.timeout(10000),
+        });
+        responseStatus = resp.status;
+        success = resp.ok;
+      } catch {}
+      const duration = Date.now() - start;
+
+      await pgPool.query(
+        `INSERT INTO webhook_deliveries (webhook_id, event, response_status, success, duration_ms) VALUES ($1,$2,$3,$4,$5)`,
+        [wh.id, delivery.event, responseStatus, success, duration]
+      );
+      res.json({ ok: true, success, responseStatus, durationMs: duration });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Test-fire a webhook with a synthetic ping event
+  app.post("/api/webhooks/:id/test", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const whRows = await pgPool.query(
+        `SELECT * FROM webhook_endpoints WHERE id=$1 AND user_id=$2`, [req.params.id, user.id]
+      );
+      if (!whRows.rows.length) return res.status(404).json({ error: "webhook not found" });
+      const wh = whRows.rows[0];
+      const payload = JSON.stringify({ event: "ping", timestamp: new Date().toISOString(), chain: "GYDSchain" });
+      const start = Date.now();
+      let responseStatus = 0; let success = false;
+      try {
+        const resp = await fetch(wh.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-ChainCore-Secret": wh.secret ?? "" },
+          body: payload,
+          signal: AbortSignal.timeout(10000),
+        });
+        responseStatus = resp.status; success = resp.ok;
+      } catch {}
+      const duration = Date.now() - start;
+      await pgPool.query(
+        `INSERT INTO webhook_deliveries (webhook_id, event, response_status, success, duration_ms) VALUES ($1,$2,$3,$4,$5)`,
+        [wh.id, "ping", responseStatus, success, duration]
+      );
+      res.json({ ok: true, success, responseStatus, durationMs: duration });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Oracle Admin ────────────────────────────────────────────────────────────
@@ -1419,7 +1491,7 @@ export function registerRoutes(app: Express) {
               const t = setTimeout(() => ctrl.abort(), 4000);
               const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
               clearTimeout(t);
-              const d = await r.json();
+              const d: any = await r.json();
               return { url, reachable: !!d.result, blockNumber: d.result };
             } catch (e: any) { return { url, reachable: false, error: e.message }; }
           }));
@@ -1449,7 +1521,7 @@ export function registerRoutes(app: Express) {
         const t = setTimeout(() => ctrl.abort(), 5000);
         const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
         clearTimeout(t);
-        const d = await r.json();
+        const d: any = await r.json();
         return { url, reachable: !!d.result, blockNumber: d.result };
       } catch (e: any) { return { url, reachable: false, error: e.message }; }
     };
@@ -1481,7 +1553,7 @@ export function registerRoutes(app: Express) {
         const t = setTimeout(() => ctrl.abort(), 5000);
         const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
         clearTimeout(t);
-        const d = await r.json();
+        const d: any = await r.json();
         return { url, reachable: !!d.result, latency: Date.now() - start, blockNumber: d.result };
       } catch (e: any) { return { url, reachable: false, latency: Date.now() - start, error: e.message }; }
     };
@@ -1490,7 +1562,7 @@ export function registerRoutes(app: Express) {
     let dbCheck = { reachable: false, latency: 0, error: "No pool" };
     try {
       await pgPool.query("SELECT 1");
-      dbCheck = { reachable: true, latency: Date.now() - dbStart };
+      dbCheck = { reachable: true, latency: Date.now() - dbStart, error: '' };
     } catch (e: any) { dbCheck = { reachable: false, latency: Date.now() - dbStart, error: e.message }; }
 
     const [rpcChecks, wsCheck, explorerCheck, vpnCheck, testnetCheck] = await Promise.all([
