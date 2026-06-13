@@ -12,6 +12,11 @@ import { storage } from "./storage";
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
 
+function requireAuth(req: any, res: any, next: any) {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+  next();
+}
+
 export function getSession(): RequestHandler {
   const PgSession = connectPg(session);
   return session({

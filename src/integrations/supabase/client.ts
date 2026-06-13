@@ -388,6 +388,19 @@ const channelShim = (_name: string) => ({
   subscribe: () => ({ unsubscribe: () => {} }),
 });
 
+// ── Functions shim — routes Edge Function calls to Express API routes ────────
+const functionsShim = {
+  invoke: async (name: string, _opts?: any) => {
+    const routeMap: Record<string, string> = {
+      'health-check': '/api/health/full',
+      'network-stats': '/api/network-stats',
+      'faucet-claim': '/api/faucet/claim',
+    };
+    const route = routeMap[name] ?? `/api/functions/${name}`;
+    return apiFetch(route);
+  },
+};
+
 // ── Main export ──────────────────────────────────────────────────────────────
 export const supabase = {
   from: (table: string) => new QueryBuilder(table),
@@ -395,4 +408,5 @@ export const supabase = {
   storage: storageShim,
   channel: channelShim,
   removeChannel: (_ch: any) => {},
+  functions: functionsShim,
 } as any;

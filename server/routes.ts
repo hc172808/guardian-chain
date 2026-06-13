@@ -1429,4 +1429,65 @@ export function registerRoutes(app: Express) {
     const allRpcOk = rpcChecks.some((r: any) => r.reachable);
     res.json({ status: allRpcOk ? "healthy" : "degraded", timestamp: new Date().toISOString(), chain_id: 13370, components: { rpc: rpcChecks } });
   });
+
+  // ── Full infrastructure health check (replaces Supabase Edge Function) ──────
+  app.get("/api/health/full", async (_req, res) => {
+    const pgPool = (storage as any).pgPool;
+    const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
+
+    const checkEndpoint = async (url: string, timeout = 5000) => {
+      const start = Date.now();
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), timeout);
+        const r = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(t);
+        return { reachable: r.ok || r.status < 500, latency: Date.now() - start };
+      } catch (e: any) { return { reachable: false, latency: Date.now() - start, error: e.message }; }
+    };
+
+    const checkRpc = async (url: string) => {
+      const start = Date.now();
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 5000);
+        const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
+        clearTimeout(t);
+        const d = await r.json();
+        return { url, reachable: !!d.result, latency: Date.now() - start, blockNumber: d.result };
+      } catch (e: any) { return { url, reachable: false, latency: Date.now() - start, error: e.message }; }
+    };
+
+    const dbStart = Date.now();
+    let dbCheck = { reachable: false, latency: 0, error: "No pool" };
+    try {
+      await pgPool.query("SELECT 1");
+      dbCheck = { reachable: true, latency: Date.now() - dbStart };
+    } catch (e: any) { dbCheck = { reachable: false, latency: Date.now() - dbStart, error: e.message }; }
+
+    const [rpcChecks, wsCheck, explorerCheck, vpnCheck, testnetCheck] = await Promise.all([
+      Promise.all(rpcEndpoints.map(checkRpc)),
+      checkEndpoint("https://ws.netlifegy.com"),
+      checkEndpoint("https://explorer.netlifegy.com"),
+      checkEndpoint("https://vpn.netlifegy.com", 3000),
+      checkRpc("https://testnet-rpc.netlifegy.com"),
+    ]);
+
+    const allRpcOk = rpcChecks.some((r: any) => r.reachable);
+    const overallHealthy = dbCheck.reachable && allRpcOk;
+
+    res.status(overallHealthy ? 200 : 503).json({
+      status: overallHealthy ? "healthy" : "degraded",
+      timestamp: new Date().toISOString(),
+      chain_id: 13370,
+      components: {
+        database: dbCheck,
+        rpc: rpcChecks,
+        websocket: { url: "wss://ws.netlifegy.com", ...wsCheck },
+        explorer: { url: "https://explorer.netlifegy.com", ...explorerCheck },
+        vpn: { url: "vpn.netlifegy.com", ...vpnCheck },
+        testnet: { url: "https://testnet-rpc.netlifegy.com", ...testnetCheck },
+      },
+    });
+  });
 }
