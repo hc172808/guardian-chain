@@ -1,6 +1,6 @@
 # GYDSchain — Master Project TODO & Roadmap
 
-> Last updated: 2026-06-12 | Always update this file when work is done or started.
+> Last updated: 2026-06-16 | Always update this file when work is done or started.
 > Legend: `[x]` Done · `[ ]` Not started · `[~]` In progress · `[!]` Blocked
 
 **Blockchain:** GYDSchain | **Coin:** GYDS | **Stablecoin:** GYD | **Chain ID:** 13370
@@ -13,7 +13,12 @@
 | Project | Repo | Status |
 |---|---|---|
 | GYDSchain Dashboard | https://github.com/hc172808/guardian-chain.git | ✅ Active |
-| All Nodes (full/lite/boost/rpc/validator/genesis) | https://github.com/hc172808/fullnode.git | 🔧 In progress |
+| RPC Node (public) | https://github.com/hc172808/rpcnode.git | 🔴 Bugs — wrong module path |
+| Lite Node | https://github.com/hc172808/litenode.git | 🟡 Functional but arch issues |
+| Boost Node | https://github.com/hc172808/boostnode.git | 🔴 Bugs — wrong module path |
+| Validator Node | https://github.com/hc172808/validatornode.git | 🔴 Incomplete skeleton — cannot compile |
+| Full Node | https://github.com/hc172808/fullnode.git | ❌ Repo does not exist — must create |
+| Genesis Node | https://github.com/hc172808/genesisnode.git | ❌ Repo does not exist — must create |
 
 ---
 
@@ -286,6 +291,203 @@
 
 ---
 
+## 🔍 GitHub Node Repo Audit (completed 2026-06-16)
+
+> Deep audit of all 6 node repos at github.com/hc172808/. Files inspected: main.go, go.mod, config/config.go, core/genesis.go, consensus/pos.go, rpc/server.go, p2p/peer.go, consensus/rewards.go, core/mint.go, p2p/gossip.go.
+> ✅ = correct · 🔴 = bug/missing · ⚠️ = architectural concern
+
+---
+
+### rpcnode — github.com/hc172808/rpcnode *(public RPC endpoint)*
+
+**Exists:** ✅ Repo is live and has full file structure.
+
+**Critical Bugs (will not compile correctly):**
+- [ ] `go.mod` module name is `github.com/gydschain/litenode` — **must be** `github.com/gydschain/rpcnode`
+- [ ] `main.go` imports all packages from `github.com/gydschain/litenode/...` (config, consensus, core, p2p, rpc) — must import from `github.com/gydschain/rpcnode/...`
+- [ ] `main.go` binary `Use:` is `"gyds-litenode"` — must be `"gyds-rpcnode"`
+- [ ] `main.go` `Short:` description says "GYDS Chain Light Node" — must say "GYDS Chain RPC Node"
+- [ ] `main.go` calls `rpc.NewServer(chain, cfg.RPCPort)` (2 args) but the **rpcnode's own** `rpc/server.go` `NewServer` requires `(chain, port, wsPort, host, corsOrigins)` (5 args) — signature mismatch will fail to compile once module path is fixed
+- [ ] `consensus/pos.go` imports `github.com/gydschain/litenode/core` — must use own module path
+- [ ] All genesis validator addresses are placeholders: `0x000...001`, `0x000...002`, `0x000...003` — need real validator wallet addresses
+
+**Missing Features (per the rpcnode TODO.md):**
+- [ ] `eth_getLogs` — filtering against stored receipts not implemented (returns empty array)
+- [ ] `eth_getFilterChanges` — polling filters not implemented
+- [ ] `debug_traceTransaction` — tx trace endpoint missing
+- [ ] Request rate limiting per API key (for premium access tiers)
+- [ ] Load balancer config (HAProxy / Cloudflare) for high-availability
+- [ ] DDoS protection (Cloudflare proxy)
+- [ ] Backup node with automatic failover
+
+**Correct / Good:**
+- ✅ `rpc/server.go` imports `github.com/gydschain/rpcnode/core` (correct relative path in the file itself)
+- ✅ Has `/metrics` Prometheus endpoint
+- ✅ Has `/docs` and embedded static dashboard
+- ✅ Has `gyds_validatorSet` and `gyds_nodeInfo` custom RPC methods
+- ✅ Has batch JSON-RPC support
+- ✅ Has `embed.go` for static files
+- ✅ Has full CORS middleware with configurable origins
+
+---
+
+### litenode — github.com/hc172808/litenode *(private lightweight sync node)*
+
+**Exists:** ✅ Repo is live and compiles cleanly.
+
+**Correct / Good:**
+- ✅ `go.mod` module: `github.com/gydschain/litenode` — correct
+- ✅ All internal imports use `github.com/gydschain/litenode/...` — correct
+- ✅ Binary name `gyds-litenode` — correct
+- ✅ Chain ID 13370 in config and genesis
+- ✅ P2P networking on port 30303
+- ✅ Gossip protocol, checkpoint sync, peer discovery all implemented
+
+**Architectural Issues (functional but wrong design):**
+- [ ] Litenode runs a **full PoS consensus engine** (produces new blocks via `PoSEngine`) — a lite node should only sync block **headers** from the network, not produce blocks; block production belongs only in validatornode
+- [ ] `config/config.go` sets `SyncMode: "light"` and `NodeMode: "lite"` but nothing enforces header-only sync — the node produces blocks the same as a full node
+- [ ] Genesis validators are still placeholders (`0x000...001`, `0x000...002`, `0x000...003`)
+
+**Missing Features:**
+- [ ] Header-only sync — verify incoming block headers from peers instead of producing blocks locally
+- [ ] Block header signature verification (validate against known validator set)
+- [ ] SPV (Simple Payment Verification) proof generation for wallet queries
+
+---
+
+### boostnode — github.com/hc172808/boostnode *(private high-throughput relay node)*
+
+**Exists:** ✅ Repo is live but imports wrong packages at build time.
+
+**Critical Bugs (wrong module path throughout):**
+- [ ] `go.mod` module name is `github.com/gydschain/litenode` — **must be** `github.com/gydschain/boostnode`
+- [ ] `main.go` imports `github.com/gydschain/litenode/config|consensus|core|p2p|rpc` — must import from `github.com/gydschain/boostnode/...`
+- [ ] `rpc/server.go` imports `github.com/gydschain/litenode/core` and `github.com/gydschain/litenode/p2p` — cross-repo dependency, must use own module
+- [ ] `config/config.go` has `NodeMode: "lite"` — must be `"boost"`
+- [ ] `bin/` directory contains both `gyds-boostnode` AND `gyds-litenode` pre-built binaries — litenode binary should not be committed to boostnode repo
+- [ ] Genesis validators are still placeholders (`0x000...001`, `0x000...002`, `0x000...003`)
+
+**Architectural Issues:**
+- [ ] Block time is 5 seconds (same as litenode) — boostnode should use **1 second** block time for high-throughput relay
+- [ ] No `/metrics` Prometheus endpoint (rpcnode has one; boostnode should too)
+- [ ] No `/boost/bundle` MEV bundle endpoint in the Go RPC server (only the in-process test node has it)
+
+**Missing Features:**
+- [ ] High-speed block relay optimization (priority rebroadcast to all peers within <100ms)
+- [ ] Bootstrap peer list serving (respond with known peer addresses to new joiners)
+- [ ] Bandwidth throttling per peer (prevent one peer from saturating outbound)
+- [ ] `/boost/bundle` MEV endpoint added to actual Go RPC server
+
+**Correct / Good:**
+- ✅ Has P2P `SetP2P()` wiring so `/api/peers` returns live peer data
+- ✅ Has `health`, `peers`, `blocks`, `transactions` CLI subcommands in main.go
+- ✅ Has gossip block propagation and peer discovery
+
+---
+
+### validatornode — github.com/hc172808/validatornode *(private PoS block producer)*
+
+**Exists:** ✅ Repo exists but is an **incomplete skeleton** — cannot compile.
+
+**Critical Bugs (cannot build at all):**
+- [ ] No `go.mod` — module cannot be resolved; `go build` fails immediately
+- [ ] No `main.go` — no entry point; nothing to build
+- [ ] No `Dockerfile` — `setup-validatornode-server.sh` runs `docker build` which will fail
+- [ ] No `docker-compose.yml` — Docker deploy has no compose file
+- [ ] No `config/config.go` — config package is missing entirely
+- [ ] No `rpc/server.go` — no RPC/API server for the validator
+- [ ] No `core/block.go`, `core/chain.go`, `core/genesis.go`, `core/transaction.go` — the entire core package is missing
+- [ ] No `p2p/peer.go`, `p2p/server.go` — P2P networking is missing
+- [ ] No `consensus/pos.go` — PoS engine is missing (only rewards.go exists)
+- [ ] `consensus/rewards.go` imports `github.com/gydschain/validatornode/core` which doesn't exist in repo — will fail to compile
+- [ ] `core/mint.go` methods reference `c.accountsMu` and `c.accounts` fields of `Chain` struct — but `Chain` struct doesn't exist in this repo
+- [ ] `setup-validatornode-server.sh` runs `go build -o bin/gyds-validatornode .` which will fail since there's no main.go
+- [ ] Genesis validators are still placeholders (`0x000...001`, `0x000...002`, `0x000...003`)
+
+**What exists (3 partial files):**
+- ✅ `consensus/rewards.go` — well-written: block reward minting, halving, fee burn, uptime tracker
+- ✅ `core/mint.go` — well-written: `MintBalance` and `BurnBalance` methods
+- ✅ `p2p/gossip.go` — well-written: gossip network, block/tx broadcast, peer discovery loop, checkpoint sync request
+
+**What must be built from scratch:**
+- [ ] `go.mod` with module `github.com/gydschain/validatornode`, Go 1.22
+- [ ] `main.go` — cobra CLI with `start`, `keygen`, `version`, `health` subcommands
+- [ ] `config/config.go` — validator-specific config (localhost-only RPC, keystore path, validator address, 5s block time)
+- [ ] `core/block.go`, `core/chain.go`, `core/genesis.go`, `core/transaction.go` — full core package (can port from litenode)
+- [ ] `rpc/server.go` — localhost-only JSON-RPC server (127.0.0.1 only, no public access)
+- [ ] `consensus/pos.go` — PoS engine (validator slot selection, block proposal)
+- [ ] `p2p/peer.go`, `p2p/server.go` — P2P peer management (can port from boostnode)
+- [ ] `mempool/mempool.go` — transaction pool for incoming txs
+- [ ] `Dockerfile` — multi-stage Go build
+- [ ] `docker-compose.yml` — with WireGuard VPN dependency
+
+**Missing Features (once buildable):**
+- [ ] ECDSA key pair generation (`keygen` subcommand)
+- [ ] Keystore file support (JSON encrypted key, password protected)
+- [ ] Validator registration proof (sign challenge with validator key)
+- [ ] Hardware wallet / HSM support for validator key (Ledger, YubiHSM)
+- [ ] Multi-validator support — run multiple keys from one node
+- [ ] Graceful key rotation without downtime
+
+---
+
+### fullnode — github.com/hc172808/fullnode
+
+**Exists:** ❌ **Repo does not exist at all.** Must be created.
+
+**Must build from scratch:**
+- [ ] Create GitHub repo `github.com/hc172808/fullnode` (private)
+- [ ] `go.mod` — module `github.com/gydschain/fullnode`, Go 1.22
+- [ ] `main.go` — cobra CLI: `start`, `version`, `health`, `peers`, `export`
+- [ ] `config/config.go` — full node config (full sync, receipt storage, 5s block time, port 8565/30305)
+- [ ] `core/` — block, chain, genesis, transaction (port from litenode, add receipt storage + event log indexing)
+- [ ] `consensus/pos.go` — PoS engine (same as litenode but full state)
+- [ ] `rpc/server.go` — full JSON-RPC: includes `eth_getLogs`, `debug_traceTransaction`, `txpool_status`, `eth_getTransactionReceipt` with real receipts
+- [ ] `p2p/` — peer.go, server.go, gossip.go (port from boostnode)
+- [ ] `mempool/mempool.go` — full tx mempool (accept, validate, propagate)
+- [ ] `Dockerfile` + `docker-compose.yml`
+- [ ] Setup scripts: `setup-fullnode.sh`
+
+**Full Node specific features:**
+- [ ] Full transaction receipt storage (every tx has a real receipt with logs)
+- [ ] Event log indexing (enables `eth_getLogs` with real filtering)
+- [ ] State pruning — remove old state to reclaim disk space
+- [ ] Archive mode flag — keep full historical state for explorers
+
+---
+
+### genesisnode — github.com/hc172808/genesisnode
+
+**Exists:** ❌ **Repo does not exist at all.** Must be created.
+
+**Must build from scratch:**
+- [ ] Create GitHub repo `github.com/hc172808/genesisnode` (private)
+- [ ] `go.mod` — module `github.com/gydschain/genesisnode`, Go 1.22
+- [ ] `main.go` — cobra CLI: `init`, `start`, `export-genesis`, `version`
+- [ ] `genesis/` — genesis.json seed with real validator addresses, initial allocations, chain params
+- [ ] `config/config.go` — genesis node config (full state, no pruning, archive mode, port 8575/30306)
+- [ ] `core/` — port from fullnode with genesis seeding logic
+- [ ] `rpc/server.go` — full JSON-RPC + genesis export endpoint (`GET /genesis.json`)
+- [ ] `p2p/` — genesis node acts as bootstrap node for all other nodes
+- [ ] `Dockerfile` + `docker-compose.yml`
+- [ ] Setup script: `setup-genesisnode.sh`
+
+**Genesis Node specific features:**
+- [ ] `export-genesis` subcommand — exports genesis block as genesis.json for other nodes to bootstrap from
+- [ ] Acts as the **bootstrap peer** for all other nodes (provides initial peer list)
+- [ ] Seeded with real founder validator address (replace 0x000...001 placeholder)
+- [ ] Archives all state from block 0 — never prunes
+
+---
+
+### Shared Issues (all repos)
+
+- [ ] **Real genesis validator addresses** — all 4 existing repos have placeholder validators: `0x0000000000000000000000000000000000000001`, `...002`, `...003` — replace with real GYDS wallet addresses before mainnet
+- [ ] **Go version alignment** — rpcnode uses `go 1.22`, litenode/boostnode use `go 1.21`; standardize all to `go 1.22`
+- [ ] **Committed binaries** — litenode has `bin/gyds-litenode`, boostnode has `bin/gyds-boostnode` + `bin/gyds-litenode` checked into git; add `bin/` to each repo's `.gitignore`
+
+---
+
 ## ⏳ Planned
 
 ### Blockchain Core
@@ -298,9 +500,13 @@
 - [ ] Snapshot Export/Import, Fast Sync, Archive Nodes
 - [ ] Network Partition Recovery
 
-### Node Ecosystem (from github.com/hc172808/fullnode.git)
-- [ ] Full Node, Lite Node, RPC Node, Boost Node
-- [ ] Genesis Node, Validator Node, Local Node, Bootnode
+### Node Ecosystem (fix order: rpcnode → boostnode → validatornode → fullnode → genesisnode)
+- [ ] Fix rpcnode: correct go.mod module name, all imports, binary name, NewServer call signature
+- [ ] Fix boostnode: correct go.mod module name, all imports, NodeMode config, block time to 1s
+- [ ] Build validatornode: go.mod, main.go, full core/, rpc/, consensus/pos.go, p2p/, Dockerfile
+- [ ] Create fullnode repo: build from scratch (full receipts, log indexing, mempool, archive mode)
+- [ ] Create genesisnode repo: build from scratch (genesis export, bootstrap node, archive)
+- [ ] Replace all placeholder genesis validator addresses with real wallet addresses across all repos
 
 ### Explorer (full)
 - [ ] Blocks, Transactions, Addresses
