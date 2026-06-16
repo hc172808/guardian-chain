@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Full Node Installer — FOUNDER ONLY
-#  Repo:     https://github.com/hc172808/validatornode.git
+#  Repo:     https://github.com/hc172808/fullnode.git
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
 #  Chain ID: 13370  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      sudo bash install-fullnode.sh
@@ -26,7 +26,7 @@ LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
 DOMAIN="${DOMAIN:-}"
 
-REPO_URL="https://github.com/hc172808/validatornode.git"
+REPO_URL="https://github.com/hc172808/fullnode.git"
 BRANCH="main"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain FULL NODE Installer v${GYDS_VERSION} — FOUNDER          ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/validatornode                        ║"
+echo "║   Repo: github.com/hc172808/fullnode                            ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 

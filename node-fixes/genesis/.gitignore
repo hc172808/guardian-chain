@@ -1,0 +1,10 @@
+bin/
+data/
+*.log
+
+# Shared packages copied from fullnode by setup.sh
+# Uncomment these if you do NOT want to commit the copied packages:
+# core/
+# consensus/
+# p2p/
+# rpc/

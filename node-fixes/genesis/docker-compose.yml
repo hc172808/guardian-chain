@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  gyds-genesis:
+    build: .
+    image: gydschain/genesis:latest
+    container_name: gyds-genesis
+    restart: unless-stopped
+    ports:
+      - "8544:8544"     # RPC JSON-RPC
+      - "8545:8545"     # WebSocket RPC
+      - "30300:30300"   # P2P TCP
+      - "30300:30300/udp"
+    volumes:
+      - genesis-data:/var/lib/gyds-genesis
+    environment:
+      - GYDS_CHAIN_ID=13370
+      - GYDS_NODE_MODE=genesis
+      - GYDS_RPC_PORT=8544
+      - GYDS_RPC_HOST=0.0.0.0
+      - GYDS_P2P_PORT=30300
+      - GYDS_DATA_DIR=/var/lib/gyds-genesis
+      - GYDS_LOG_LEVEL=info
+      - GYDS_LOG_FORMAT=json
+      - GYDS_ARCHIVE_MODE=true
+      - GYDS_BLOCK_TIME=5
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8544/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  genesis-data:
+    driver: local
