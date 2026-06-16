@@ -230,7 +230,7 @@
 
 ### PHASE 10 — Notifications & Webhooks
 > Tables: `user_notifications`, `webhook_endpoints`, `webhook_deliveries`
-- [~] In-app notification bell + drawer (desktop header — done)
+- [x] In-app notification bell + drawer (desktop header — done)
 - [x] Email notifications (nodemailer) — server/email.ts; SMTP_HOST/PORT/USER/PASS/FROM env vars; console fallback in dev; wired to password reset, email verify, price alerts, governance
 - [x] Push notifications (Web Push API) — see Mobile App section above
 - [x] Webhook management page (register URL + secret, event subs, delivery log)
@@ -359,7 +359,7 @@
 - [x] Wallet seed storage: AES-256-GCM server-side encryption — server/walletCrypto.ts; WALLET_ENCRYPTION_KEY env (64-char hex); transparent encrypt on POST /api/wallets, decrypt on GET /api/wallets
 - [x] Token price alert trigger: Postgres LISTEN/NOTIFY — server/index.ts connects dedicated pg client, LISTENS on price_alert_trigger; POST /api/price-alerts/notify fires pg_notify; sends email + push on trigger
 - [x] `ip_access_list` vs `ip_address_list` — schema.ts uses `ip_access_list`; routes.ts aligns to the same name via Drizzle table reference (no raw SQL mismatch)
-- [ ] Remove Vite `optimizeDeps.esbuildOptions` deprecation warning (upgrade vite-plugin-react-swc)
+- [x] Remove Vite `optimizeDeps.esbuildOptions` deprecation warning (upgrade vite-plugin-react-swc)
 
 ---
 

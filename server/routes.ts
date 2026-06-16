@@ -146,7 +146,7 @@ export function registerRoutes(app: Express) {
       userId: user.id,
       isApproved: isPrivileged ? true : (req.body.isApproved ?? false),
       approvedBy: isPrivileged ? user.id : null,
-      approvedAt: isPrivileged ? new Date().toISOString() : null,
+      approvedAt: isPrivileged ? new Date() : null,
     });
     res.json(row);
     storage.awardXpOnce(user.id, 'first_node', 200, 'First node installed on GYDSchain! +200 XP').catch(() => {});
