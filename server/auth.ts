@@ -155,6 +155,9 @@ export async function setupAuth(app: Express): Promise<void> {
       if (!user) return res.status(401).json({ error: info?.message ?? "Invalid credentials" });
       req.login(user, (loginErr) => {
         if (loginErr) return res.status(500).json({ error: "Session error" });
+        (req.session as any).ua = req.headers['user-agent']?.slice(0, 200) ?? 'Unknown';
+        (req.session as any).ip = req.ip ?? req.socket?.remoteAddress ?? 'Unknown';
+        (req.session as any).loginAt = new Date().toISOString();
         res.json({ ok: true });
       });
     })(req, res, next);
@@ -199,6 +202,9 @@ export async function setupAuth(app: Express): Promise<void> {
       await new Promise<void>((resolve, reject) =>
         req.login(user, (err) => (err ? reject(err) : resolve()))
       );
+      (req.session as any).ua = req.headers['user-agent']?.slice(0, 200) ?? 'Unknown';
+      (req.session as any).ip = req.ip ?? req.socket?.remoteAddress ?? 'Unknown';
+      (req.session as any).loginAt = new Date().toISOString();
       res.json({ ok: true });
     } catch (err: any) {
       console.error("Web3 auth error:", err.message);
@@ -472,6 +478,48 @@ export async function setupAuth(app: Express): Promise<void> {
       }
       await storage.disableTotp(user.id);
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Active sessions: list ──────────────────────────────────────────────────
+  app.get("/api/auth/sessions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const userId = (req.user as any).id;
+    try {
+      const result = await pgPool.query(
+        `SELECT sid, sess, expire FROM session WHERE sess->'passport'->>'user' = $1 AND expire > NOW() ORDER BY expire DESC`,
+        [userId]
+      );
+      const sessions = result.rows.map((r: any) => ({
+        sid: r.sid,
+        expires: r.expire,
+        current: r.sid === req.sessionID,
+        ua: r.sess?.ua ?? null,
+        ip: r.sess?.ip ?? null,
+        loginAt: r.sess?.loginAt ?? null,
+      }));
+      res.json(sessions);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Active sessions: revoke one ────────────────────────────────────────────
+  app.delete("/api/auth/sessions/:sid", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const userId = (req.user as any).id;
+    const { sid } = req.params;
+    if (sid === req.sessionID) return res.status(400).json({ error: "Cannot revoke your current session — use Sign Out instead" });
+    try {
+      const check = await pgPool.query(
+        `SELECT sid FROM session WHERE sid=$1 AND sess->'passport'->>'user'=$2`,
+        [sid, userId]
+      );
+      if (check.rows.length === 0) return res.status(404).json({ error: "Session not found" });
+      await pgPool.query(`DELETE FROM session WHERE sid=$1`, [sid]);
+      res.json({ ok: true, message: "Session revoked" });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

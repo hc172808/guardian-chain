@@ -968,24 +968,97 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Test Nodes (admin/founder only) ────────────────────────────────────────
-  app.get("/api/admin/test-nodes/status", requireAdmin, (_req, res) => {
-    res.json(testNodeManager.status());
-  });
-
-  const VALID_NODE_TYPES = ["rpc", "lite", "fullnode", "boostnode"] as const;
+  const VALID_NODE_TYPES = ["rpc", "lite", "fullnode", "boostnode", "validator"] as const;
   type ValidNodeType = typeof VALID_NODE_TYPES[number];
 
-  app.post("/api/admin/test-nodes/:type/start", requireAdmin, (req, res) => {
+  // Maps test node type → node_installations nodeType label
+  const TEST_NODE_TYPE_MAP: Record<string, string> = {
+    rpc: "rpcnode", lite: "litenode", fullnode: "fullnode", boostnode: "boostnode", validator: "validator",
+  };
+
+  // Tracks db row IDs for running test nodes so we can update/offline them on stop
+  const testNodeDbIds = new Map<string, string>();
+
+  // Helper: upsert an auto-approved node_installations row for a running test node
+  async function upsertTestNodeInstallation(userId: string, type: string, statObj: { peers?: number; blockHeight?: number }) {
+    const nodeType = TEST_NODE_TYPE_MAP[type] ?? type;
+    const existing = testNodeDbIds.get(type);
+    if (existing) {
+      await storage.updateNode(existing, {
+        isOnline: true, isApproved: true, lastHeartbeat: new Date(),
+        peerCount: statObj.peers ?? 0, lastBlockHeight: statObj.blockHeight ?? 0,
+        syncProgress: 100, isSynced: true,
+      });
+    } else {
+      // Check if a local test node row for this user+type already exists (e.g. after server restart)
+      const rows = await pgPool.query(
+        `SELECT id FROM node_installations WHERE user_id=$1 AND node_type=$2 AND approved_by=$1 LIMIT 1`,
+        [userId, nodeType]
+      );
+      if (rows.rows.length > 0) {
+        const id = rows.rows[0].id;
+        testNodeDbIds.set(type, id);
+        await storage.updateNode(id, {
+          isOnline: true, isApproved: true, lastHeartbeat: new Date(),
+          peerCount: statObj.peers ?? 0, lastBlockHeight: statObj.blockHeight ?? 0,
+          syncProgress: 100, isSynced: true,
+        });
+      } else {
+        const node = await storage.insertNode({
+          userId, nodeType, isApproved: true, approvedBy: userId,
+          approvedAt: new Date(), isOnline: true, lastHeartbeat: new Date(),
+          syncProgress: 100, isSynced: true, peerCount: statObj.peers ?? 0,
+          lastBlockHeight: statObj.blockHeight ?? 0,
+        });
+        testNodeDbIds.set(type, node.id);
+      }
+    }
+  }
+
+  app.get("/api/admin/test-nodes/status", requireAdmin, async (req, res) => {
+    const statuses = testNodeManager.status();
+    // Heartbeat update for all running nodes (non-blocking)
+    const userId = (req.user as any)?.id;
+    if (userId) {
+      for (const [type, id] of testNodeDbIds.entries()) {
+        const s = (statuses as any)[type];
+        if (s?.running) {
+          storage.updateNode(id, {
+            lastHeartbeat: new Date(), isOnline: true,
+            peerCount: s.peers ?? 0, lastBlockHeight: s.blockHeight ?? 0,
+          }).catch(() => {});
+        }
+      }
+    }
+    res.json(statuses);
+  });
+
+  app.post("/api/admin/test-nodes/:type/start", requireAdmin, async (req, res) => {
     const type = req.params.type as ValidNodeType;
     if (!VALID_NODE_TYPES.includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     const result = testNodeManager.start(type);
+    if (result.ok) {
+      const userId = (req.user as any)?.id;
+      if (userId) {
+        const s = (testNodeManager.status() as any)[type] ?? {};
+        upsertTestNodeInstallation(userId, type, s).catch((e) =>
+          console.error(`[test-node] Auto-approve ${type} failed:`, e.message)
+        );
+      }
+    }
     res.json(result);
   });
 
-  app.post("/api/admin/test-nodes/:type/stop", requireAdmin, (req, res) => {
+  app.post("/api/admin/test-nodes/:type/stop", requireAdmin, async (req, res) => {
     const type = req.params.type as ValidNodeType;
     if (!VALID_NODE_TYPES.includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     const result = testNodeManager.stop(type);
+    if (result.ok) {
+      const id = testNodeDbIds.get(type);
+      if (id) {
+        storage.updateNode(id, { isOnline: false, lastHeartbeat: new Date() }).catch(() => {});
+      }
+    }
     res.json(result);
   });
 

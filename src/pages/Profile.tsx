@@ -107,6 +107,113 @@ const empty: ProfileData = {
   metadata: {},
 };
 
+// ── Active Sessions Panel ───────────────────────────────────────────────────
+interface SessionInfo {
+  sid: string;
+  expires: string;
+  current: boolean;
+  ua: string | null;
+  ip: string | null;
+  loginAt: string | null;
+}
+
+function parseUA(ua: string | null): string {
+  if (!ua) return 'Unknown browser';
+  if (ua.includes('Mobile') || ua.includes('Android') || ua.includes('iPhone')) {
+    if (ua.includes('Chrome')) return '📱 Chrome Mobile';
+    if (ua.includes('Safari')) return '📱 Safari Mobile';
+    return '📱 Mobile Browser';
+  }
+  if (ua.includes('Chrome')) return '🖥️ Chrome';
+  if (ua.includes('Firefox')) return '🦊 Firefox';
+  if (ua.includes('Safari')) return '🧭 Safari';
+  if (ua.includes('Edge')) return '🌐 Edge';
+  if (ua.includes('curl') || ua.includes('python')) return '⚙️ API Client';
+  return '🖥️ Browser';
+}
+
+const ActiveSessionsPanel = () => {
+  const { toast } = useToast();
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  const fetchSessions = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch('/api/auth/sessions', { credentials: 'include' });
+      if (r.ok) setSessions(await r.json());
+    } catch {} finally { setLoading(false); }
+  };
+
+  useEffect(() => { fetchSessions(); }, []);
+
+  const revoke = async (sid: string) => {
+    setRevoking(sid);
+    try {
+      const r = await fetch(`/api/auth/sessions/${sid}`, { method: 'DELETE', credentials: 'include' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? 'Failed');
+      toast({ title: 'Session revoked', description: 'That device has been logged out.' });
+      setSessions(s => s.filter(x => x.sid !== sid));
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } finally { setRevoking(null); }
+  };
+
+  return (
+    <div className="p-3 bg-muted/20 rounded-lg border border-border/30 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-foreground flex items-center gap-2">
+            <Smartphone className="w-3.5 h-3.5 text-primary" /> Active Sessions
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {loading ? 'Loading…' : `${sessions.length} active session${sessions.length !== 1 ? 's' : ''}`}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={fetchSessions} disabled={loading}>
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
+      </div>
+
+      {!loading && sessions.length === 0 && (
+        <p className="text-xs text-muted-foreground text-center py-2">No active sessions found.</p>
+      )}
+
+      {sessions.map(s => (
+        <div key={s.sid} className={`flex items-start justify-between gap-3 p-2.5 rounded-lg border ${s.current ? 'border-primary/30 bg-primary/5' : 'border-border/30 bg-background/30'}`}>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+              {parseUA(s.ua)}
+              {s.current && <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full font-semibold">This device</span>}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {s.ip && <span className="font-mono">{s.ip} · </span>}
+              {s.loginAt ? `Logged in ${new Date(s.loginAt).toLocaleDateString()}` : `Expires ${new Date(s.expires).toLocaleDateString()}`}
+            </p>
+          </div>
+          {!s.current && (
+            <Button variant="destructive" size="sm" className="h-7 px-2.5 text-xs shrink-0"
+              onClick={() => revoke(s.sid)} disabled={revoking === s.sid}>
+              {revoking === s.sid ? <RefreshCw className="h-3 w-3 animate-spin" /> : 'Revoke'}
+            </Button>
+          )}
+        </div>
+      ))}
+
+      {sessions.length > 1 && (
+        <Button variant="outline" size="sm" className="w-full text-destructive hover:text-destructive gap-1.5"
+          onClick={async () => {
+            for (const s of sessions.filter(x => !x.current)) await revoke(s.sid);
+          }}>
+          Log Out All Other Sessions
+        </Button>
+      )}
+    </div>
+  );
+};
+
 // ── 2FA Backup Codes Panel ──────────────────────────────────────────────────
 const BackupCodesPanel = () => {
   const { toast } = useToast();
@@ -865,13 +972,7 @@ const ProfilePage = () => {
                   </div>
                 )}
 
-                <div className="flex items-center justify-between p-3 bg-muted/20 rounded-lg border border-border/30">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Active Sessions</p>
-                    <p className="text-xs text-muted-foreground">Manage devices where you're logged in</p>
-                  </div>
-                  <Badge variant="secondary" className="text-xs">Soon</Badge>
-                </div>
+                <ActiveSessionsPanel />
 
                 <div className="flex items-center justify-between p-3 bg-muted/20 rounded-lg border border-border/30">
                   <div>
