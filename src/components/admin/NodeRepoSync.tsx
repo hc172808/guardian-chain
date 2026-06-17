@@ -1,12 +1,14 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import {
   RefreshCw, CheckCircle2, XCircle, AlertCircle,
   ExternalLink, GitBranch, Package, Terminal, Loader2,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Webhook, Copy, Bell, BellOff,
+  Activity, GitCommit, User,
 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface RepoConfig {
   label: string;
@@ -86,20 +88,28 @@ interface RepoResult {
   check?: RepoCheck;
   error?: string;
   expanded: boolean;
+  lastChecked?: string;
+}
+
+interface WebhookEvent {
+  id: string;
+  event: string;
+  repo: string;
+  pusher?: string;
+  branch?: string;
+  commitCount?: number;
+  headCommit?: string;
+  timestamp: string;
+  verified: boolean;
 }
 
 function decodeBase64(b64: string): string {
-  try {
-    return atob(b64.replace(/\n/g, ''));
-  } catch {
-    return '';
-  }
+  try { return atob(b64.replace(/\n/g, '')); } catch { return ''; }
 }
 
 async function checkRepo(cfg: RepoConfig): Promise<RepoCheck> {
   const headers: Record<string, string> = { Accept: 'application/vnd.github+json' };
 
-  // 1. Repo metadata
   const metaRes = await fetch(`https://api.github.com/repos/${cfg.repo}`, { headers });
   if (!metaRes.ok) {
     const empty = metaRes.status === 404;
@@ -126,7 +136,6 @@ async function checkRepo(cfg: RepoConfig): Promise<RepoCheck> {
     lastPush: meta.pushed_at, starCount: meta.stargazers_count,
   };
 
-  // 2. go.mod
   const goModRes = await fetch(`https://api.github.com/repos/${cfg.repo}/contents/go.mod?ref=${branch}`, { headers });
   if (goModRes.ok) {
     check.goModExists = true;
@@ -138,20 +147,16 @@ async function checkRepo(cfg: RepoConfig): Promise<RepoCheck> {
       : check.moduleFound.includes('litenode') ? 'fail' : 'warn';
   }
 
-  // 3. main.go
   const mainGoRes = await fetch(`https://api.github.com/repos/${cfg.repo}/contents/main.go?ref=${branch}`, { headers });
   if (mainGoRes.ok) {
     check.mainGoExists = true;
     const mainGoData = await mainGoRes.json();
     const content = decodeBase64(mainGoData.content || '');
-
-    // Check binary name (Use: "gyds-XXX")
     const useMatch = content.match(/Use:\s+"([^"]+)"/);
     check.binaryFound = useMatch?.[1] ?? '(not found)';
     check.binaryCorrect = check.binaryFound === cfg.expectedBinary ? 'pass'
       : check.binaryFound.includes('litenode') ? 'fail' : 'warn';
 
-    // Check block time if expected
     if (cfg.expectedBlockTime) {
       const btMatch = content.match(/(\d+)\s*\*\s*time\.Second/);
       check.blockTimeFound = btMatch?.[1] ?? '(not found)';
@@ -201,10 +206,55 @@ function timeSince(iso?: string) {
 }
 
 export function NodeRepoSync() {
+  const { toast } = useToast();
   const [results, setResults] = useState<RepoResult[]>(
     REPOS.map(cfg => ({ config: cfg, status: 'idle', expanded: false }))
   );
   const [checking, setChecking] = useState(false);
+  const [webhookEvents, setWebhookEvents] = useState<WebhookEvent[]>([]);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [secretConfigured, setSecretConfigured] = useState(false);
+  const [showWebhookPanel, setShowWebhookPanel] = useState(false);
+  const [pendingRecheck, setPendingRecheck] = useState<string[]>([]);
+  const lastEventIdRef = useRef<string | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchWebhookStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/github-webhook/events');
+      if (!res.ok) return;
+      const data = await res.json();
+      setWebhookEvents(data.events ?? []);
+      setWebhookUrl(data.webhookUrl ?? '');
+      setSecretConfigured(data.secretConfigured ?? false);
+
+      const pending: string[] = data.pendingRecheck ?? [];
+      setPendingRecheck(pending);
+
+      // Auto-trigger recheck for repos that received a push
+      if (pending.length > 0) {
+        const newLatest = data.events?.[0]?.id;
+        if (newLatest && newLatest !== lastEventIdRef.current) {
+          lastEventIdRef.current = newLatest;
+          for (const repoFull of pending) {
+            const idx = REPOS.findIndex(r => r.repo === repoFull);
+            if (idx !== -1) {
+              toast({ title: `🔔 Push detected — re-checking ${REPOS[idx].label}` });
+              checkOneByIdx(idx);
+            }
+          }
+          // Acknowledge
+          fetch('/api/admin/github-webhook/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchWebhookStatus();
+    pollTimerRef.current = setInterval(fetchWebhookStatus, 30_000);
+    return () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
+  }, [fetchWebhookStatus]);
 
   const toggle = (idx: number) =>
     setResults(prev => prev.map((r, i) => i === idx ? { ...r, expanded: !r.expanded } : r));
@@ -212,13 +262,12 @@ export function NodeRepoSync() {
   const checkAll = useCallback(async () => {
     setChecking(true);
     setResults(prev => prev.map(r => ({ ...r, status: 'loading' as const, check: undefined, error: undefined })));
-
     await Promise.all(
       REPOS.map(async (cfg, idx) => {
         try {
           const check = await checkRepo(cfg);
           setResults(prev => prev.map((r, i) =>
-            i === idx ? { ...r, status: 'done', check } : r
+            i === idx ? { ...r, status: 'done', check, lastChecked: new Date().toISOString() } : r
           ));
         } catch (e: any) {
           setResults(prev => prev.map((r, i) =>
@@ -227,18 +276,17 @@ export function NodeRepoSync() {
         }
       })
     );
-
     setChecking(false);
   }, []);
 
-  const checkOne = useCallback(async (idx: number) => {
+  const checkOneByIdx = useCallback(async (idx: number) => {
     setResults(prev => prev.map((r, i) =>
       i === idx ? { ...r, status: 'loading', check: undefined, error: undefined } : r
     ));
     try {
       const check = await checkRepo(REPOS[idx]);
       setResults(prev => prev.map((r, i) =>
-        i === idx ? { ...r, status: 'done', check, expanded: true } : r
+        i === idx ? { ...r, status: 'done', check, expanded: true, lastChecked: new Date().toISOString() } : r
       ));
     } catch (e: any) {
       setResults(prev => prev.map((r, i) =>
@@ -252,6 +300,11 @@ export function NodeRepoSync() {
   ).length;
   const doneCount = results.filter(r => r.status === 'done').length;
 
+  const copyWebhookUrl = () => {
+    navigator.clipboard.writeText(webhookUrl);
+    toast({ title: 'Webhook URL copied!' });
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -263,77 +316,145 @@ export function NodeRepoSync() {
           <div>
             <h3 className="font-semibold">Node Repository Sync</h3>
             <p className="text-xs text-muted-foreground">
-              Verify module names, binary names, and block times across all node repos
+              Auto-checks repos on push · polls every 30s for webhook events
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {doneCount > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {passCount}/{doneCount} passing
-            </span>
+          {pendingRecheck.length > 0 && (
+            <Badge className="bg-amber-500/20 text-amber-400 border-amber-400/30 border text-xs animate-pulse">
+              {pendingRecheck.length} pending recheck
+            </Badge>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={checkAll}
-            disabled={checking}
-          >
-            {checking
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <RefreshCw className="h-4 w-4" />}
-            {checking ? 'Checking…' : 'Check All Repos'}
+          {doneCount > 0 && (
+            <span className="text-xs text-muted-foreground">{passCount}/{doneCount} passing</span>
+          )}
+          <Button variant="outline" size="sm" className="gap-2 h-8 text-xs"
+            onClick={() => setShowWebhookPanel(s => !s)}>
+            <Webhook className="h-3.5 w-3.5" />
+            Webhooks
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2 h-8" onClick={checkAll} disabled={checking}>
+            {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {checking ? 'Checking…' : 'Check All'}
           </Button>
         </div>
       </div>
 
+      {/* Webhook setup + event log panel */}
+      {showWebhookPanel && (
+        <GlassCard className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Webhook className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium">GitHub Webhook Integration</span>
+              <Badge className={secretConfigured
+                ? 'bg-green-500/20 text-green-400 border-green-400/30 border text-xs'
+                : 'bg-amber-500/20 text-amber-400 border-amber-400/30 border text-xs'}>
+                {secretConfigured ? '✓ Secret configured' : '⚠ No secret'}
+              </Badge>
+            </div>
+          </div>
+
+          {/* Setup instructions */}
+          <div className="space-y-2 text-xs">
+            <p className="text-muted-foreground font-medium">Setup (do once per node repo):</p>
+            <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+              <li>Go to your GitHub repo → <strong className="text-foreground">Settings → Webhooks → Add webhook</strong></li>
+              <li>Paste the payload URL below</li>
+              <li>Set <strong className="text-foreground">Content type</strong> to <code className="bg-black/30 px-1 rounded">application/json</code></li>
+              <li>Set <strong className="text-foreground">Secret</strong> to the value of <code className="bg-black/30 px-1 rounded">GITHUB_WEBHOOK_SECRET</code> env var</li>
+              <li>Select <strong className="text-foreground">Just the push event</strong> → Save</li>
+            </ol>
+          </div>
+
+          {/* Webhook URL */}
+          <div className="flex items-center gap-2 bg-black/30 rounded-lg px-3 py-2">
+            <code className="text-xs text-primary flex-1 break-all">{webhookUrl || 'Loading…'}</code>
+            <button onClick={copyWebhookUrl} className="text-muted-foreground hover:text-primary shrink-0">
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {!secretConfigured && (
+            <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
+              Add <code className="bg-black/20 px-1 rounded">GITHUB_WEBHOOK_SECRET</code> to your environment variables to enable HMAC signature verification.
+            </div>
+          )}
+
+          {/* Recent webhook events */}
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+              <Activity className="h-3 w-3" /> Recent events ({webhookEvents.length})
+            </p>
+            {webhookEvents.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No webhook events received yet. Push to a node repo to test.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {webhookEvents.slice(0, 20).map(ev => (
+                  <div key={ev.id} className="flex items-center gap-2 text-xs bg-secondary/30 rounded-md px-2.5 py-1.5">
+                    <GitCommit className="h-3 w-3 text-primary shrink-0" />
+                    <span className="font-mono text-muted-foreground shrink-0">{ev.repo.split('/')[1]}</span>
+                    {ev.branch && <span className="text-foreground/70">@{ev.branch}</span>}
+                    {ev.headCommit && <code className="text-primary/70">{ev.headCommit}</code>}
+                    {ev.pusher && (
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <User className="h-3 w-3" />{ev.pusher}
+                      </span>
+                    )}
+                    {ev.commitCount != null && ev.commitCount > 0 && (
+                      <span className="text-muted-foreground">+{ev.commitCount} commit{ev.commitCount !== 1 ? 's' : ''}</span>
+                    )}
+                    {ev.verified
+                      ? <span className="ml-auto text-green-400">✓ verified</span>
+                      : <span className="ml-auto text-amber-400">unverified</span>}
+                    <span className="text-muted-foreground/60 shrink-0">{timeSince(ev.timestamp)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </GlassCard>
+      )}
+
       {/* Repo cards */}
       <div className="space-y-3">
         {results.map((r, idx) => (
-          <div
-            key={r.config.repo}
-            className="rounded-lg border border-border/40 bg-secondary/20 overflow-hidden"
+          <div key={r.config.repo}
+            className={`rounded-lg border overflow-hidden transition-colors ${
+              pendingRecheck.includes(r.config.repo)
+                ? 'border-amber-400/40 bg-amber-500/5'
+                : 'border-border/40 bg-secondary/20'
+            }`}
           >
             {/* Row header */}
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">
-                <button
-                  onClick={() => toggle(idx)}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {r.expanded
-                    ? <ChevronDown className="h-4 w-4" />
-                    : <ChevronRight className="h-4 w-4" />}
+                <button onClick={() => toggle(idx)} className="text-muted-foreground hover:text-foreground transition-colors">
+                  {r.expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                 </button>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm">{r.config.label}</span>
                     <OverallBadge check={r.check} />
-                    {r.check?.lastPush && (
-                      <span className="text-xs text-muted-foreground">{timeSince(r.check.lastPush)}</span>
+                    {pendingRecheck.includes(r.config.repo) && (
+                      <Badge className="bg-amber-500/20 text-amber-400 border-amber-400/30 border text-xs animate-pulse">
+                        push detected
+                      </Badge>
                     )}
+                    {r.check?.lastPush && <span className="text-xs text-muted-foreground">{timeSince(r.check.lastPush)}</span>}
+                    {r.lastChecked && <span className="text-xs text-muted-foreground/50">checked {timeSince(r.lastChecked)}</span>}
                   </div>
-                  <a
-                    href={`https://github.com/${r.config.repo}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-primary hover:underline flex items-center gap-1"
-                  >
-                    github.com/{r.config.repo}
-                    <ExternalLink className="h-3 w-3" />
+                  <a href={`https://github.com/${r.config.repo}`} target="_blank" rel="noreferrer"
+                    className="text-xs text-primary hover:underline flex items-center gap-1">
+                    github.com/{r.config.repo}<ExternalLink className="h-3 w-3" />
                   </a>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 {r.status === 'loading' && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => checkOne(idx)}
-                  disabled={r.status === 'loading' || checking}
-                >
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs"
+                  onClick={() => checkOneByIdx(idx)} disabled={r.status === 'loading' || checking}>
                   Check
                 </Button>
               </div>
@@ -347,24 +468,20 @@ export function NodeRepoSync() {
                     <Loader2 className="h-4 w-4 animate-spin" /> Querying GitHub API…
                   </div>
                 )}
-
                 {r.status === 'error' && (
                   <div className="text-sm text-red-400 flex items-center gap-2">
                     <XCircle className="h-4 w-4" /> {r.error}
                   </div>
                 )}
-
                 {r.status === 'idle' && (
                   <p className="text-xs text-muted-foreground">Click "Check" to inspect this repo.</p>
                 )}
 
                 {r.status === 'done' && r.check && (
                   <div className="space-y-3">
-                    {/* Repo existence */}
                     {!r.check.exists && (
                       <div className="p-3 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-400">
-                        <XCircle className="h-3 w-3 inline mr-1" />
-                        Repository does not exist on GitHub.
+                        <XCircle className="h-3 w-3 inline mr-1" /> Repository does not exist on GitHub.
                       </div>
                     )}
                     {r.check.empty && (
@@ -379,9 +496,7 @@ export function NodeRepoSync() {
 
                     {r.check.exists && !r.check.empty && (
                       <>
-                        {/* Checks grid */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {/* Module */}
                           <div className="p-3 rounded bg-background/40 border border-border/30 space-y-1">
                             <div className="flex items-center gap-2">
                               <Package className="h-3 w-3 text-muted-foreground" />
@@ -396,7 +511,6 @@ export function NodeRepoSync() {
                             </div>
                           </div>
 
-                          {/* Binary */}
                           <div className="p-3 rounded bg-background/40 border border-border/30 space-y-1">
                             <div className="flex items-center gap-2">
                               <Terminal className="h-3 w-3 text-muted-foreground" />
@@ -411,7 +525,6 @@ export function NodeRepoSync() {
                             </div>
                           </div>
 
-                          {/* Block time */}
                           {r.config.expectedBlockTime && r.check.blockTimeCorrect !== undefined && (
                             <div className="p-3 rounded bg-background/40 border border-border/30 space-y-1">
                               <div className="flex items-center gap-2">
@@ -428,7 +541,6 @@ export function NodeRepoSync() {
                             </div>
                           )}
 
-                          {/* Files */}
                           <div className="p-3 rounded bg-background/40 border border-border/30 space-y-1">
                             <div className="text-xs font-medium text-muted-foreground mb-1">Files present</div>
                             <div className="flex flex-wrap gap-2">
@@ -438,30 +550,25 @@ export function NodeRepoSync() {
                           </div>
                         </div>
 
-                        {/* Fix instructions */}
                         {(r.check.moduleCorrect !== 'pass' || r.check.binaryCorrect !== 'pass') && (
                           <div className="p-3 rounded bg-yellow-500/5 border border-yellow-500/20 space-y-1">
                             <p className="text-xs font-medium text-yellow-400">Fix instructions</p>
                             <p className="text-xs text-muted-foreground">
-                              Copy the corrected files from <code className="bg-black/30 px-1 rounded">node-fixes/{r.config.repo.split('/')[1]}/</code> to this repo and push:
+                              Copy corrected files from <code className="bg-black/30 px-1 rounded">node-fixes/{r.config.repo.split('/')[1]}/</code> and push:
                             </p>
                             <div className="font-mono text-xs bg-black/40 px-2 py-1.5 rounded text-green-300/80 space-y-0.5">
                               <div>git clone https://github.com/{r.config.repo}.git</div>
                               <div>cp -r node-fixes/{r.config.repo.split('/')[1]}/. {r.config.repo.split('/')[1]}/</div>
-                              <div>cd {r.config.repo.split('/')[1]} && go mod tidy && git add -A && git commit -m "fix: correct module name and binary"</div>
-                              <div>git push</div>
+                              <div>cd {r.config.repo.split('/')[1]} && go mod tidy && git add -A && git commit -m "fix: correct module name and binary" && git push</div>
                             </div>
                           </div>
                         )}
 
-                        {/* Ports info */}
                         {(r.config.rpcPort || r.config.p2pPort) && (
                           <div className="flex gap-4 text-xs text-muted-foreground">
                             {r.config.rpcPort && <span>RPC: <code className="text-foreground">:{r.config.rpcPort}</code></span>}
                             {r.config.p2pPort && <span>P2P: <code className="text-foreground">:{r.config.p2pPort}</code></span>}
-                            {r.config.installScript && (
-                              <span>Install: <code className="text-foreground">{r.config.installScript}</code></span>
-                            )}
+                            {r.config.installScript && <span>Install: <code className="text-foreground">{r.config.installScript}</code></span>}
                           </div>
                         )}
                       </>
@@ -480,7 +587,7 @@ export function NodeRepoSync() {
         <span className="flex items-center gap-1"><XCircle className="h-3 w-3 text-red-400" /> Wrong (must fix)</span>
         <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3 text-yellow-400" /> Warning</span>
         <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3 text-orange-400" /> Empty repo</span>
-        <span className="ml-auto">Uses GitHub public API — no auth needed (60 req/hr limit)</span>
+        <span className="ml-auto flex items-center gap-1"><Bell className="h-3 w-3" /> Auto-rechecks on GitHub push · 60 req/hr GitHub API limit</span>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
+import crypto from "crypto";
 import { storage } from "./storage";
 import { testNodeManager } from "./testNodes";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
@@ -7,6 +8,21 @@ import { getVapidPublicKey, sendPushToUser } from "./webpush";
 import { Pool } from "pg";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings } from "./security";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
+interface GithubWebhookEvent {
+  id: string;
+  event: string;
+  repo: string;
+  pusher?: string;
+  branch?: string;
+  commitCount?: number;
+  headCommit?: string;
+  timestamp: string;
+  verified: boolean;
+}
+const githubWebhookEvents: GithubWebhookEvent[] = [];
+const githubPendingRecheck = new Set<string>(); // repos that need a NodeRepoSync recheck
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
 const faucetLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Too many faucet requests." } });
@@ -2146,5 +2162,98 @@ export function registerRoutes(app: Express) {
       job.lastStatus = 'error'; job.errorCount++; job.lastOutput = String(e?.message || e);
     }
     job.lastRun = new Date(); job.lastDuration = Date.now() - start;
+  });
+
+  // ── GitHub Webhook Receiver ─────────────────────────────────────────────────
+  // This endpoint is called by GitHub when any of the node repos receive a push.
+  // Set up: GitHub repo → Settings → Webhooks → Payload URL: https://<your-domain>/api/webhooks/github
+  // Content type: application/json | Secret: value of GITHUB_WEBHOOK_SECRET env var
+  app.post("/api/webhooks/github",
+    (req, _res, next) => {
+      // Buffer the raw body for HMAC verification
+      let data = Buffer.alloc(0);
+      req.on('data', (chunk: Buffer) => { data = Buffer.concat([data, chunk]); });
+      req.on('end', () => { (req as any).rawBody = data; next(); });
+    },
+    async (req: Request, res: Response) => {
+      try {
+        const rawBody: Buffer = (req as any).rawBody ?? Buffer.from(JSON.stringify(req.body));
+        const sig = req.headers['x-hub-signature-256'] as string | undefined;
+        const secret = process.env.GITHUB_WEBHOOK_SECRET;
+        let verified = false;
+
+        if (secret && sig) {
+          const hmac = crypto.createHmac('sha256', secret);
+          hmac.update(rawBody);
+          const expected = `sha256=${hmac.digest('hex')}`;
+          try {
+            verified = crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+          } catch { verified = false; }
+          if (!verified) {
+            return res.status(401).json({ error: 'Invalid webhook signature' });
+          }
+        } else {
+          // No secret configured — accept but mark as unverified (dev mode)
+          verified = false;
+        }
+
+        const eventType = req.headers['x-github-event'] as string ?? 'unknown';
+        const deliveryId = req.headers['x-github-delivery'] as string ?? crypto.randomUUID();
+        let payload: any = {};
+        try { payload = JSON.parse(rawBody.toString()); } catch { payload = req.body ?? {}; }
+
+        const repoFullName: string = payload.repository?.full_name ?? 'unknown/unknown';
+        const pusherName: string = payload.pusher?.name ?? payload.sender?.login ?? undefined;
+        const branch: string = payload.ref ? payload.ref.replace('refs/heads/', '') : undefined;
+        const commits: any[] = payload.commits ?? [];
+        const headSha: string = payload.head_commit?.id?.slice(0, 7) ?? undefined;
+
+        const event: GithubWebhookEvent = {
+          id: deliveryId,
+          event: eventType,
+          repo: repoFullName,
+          pusher: pusherName,
+          branch,
+          commitCount: commits.length || undefined,
+          headCommit: headSha,
+          timestamp: new Date().toISOString(),
+          verified,
+        };
+
+        // Store (keep last 100)
+        githubWebhookEvents.push(event);
+        if (githubWebhookEvents.length > 100) githubWebhookEvents.shift();
+
+        // Flag repos that node repos need a recheck
+        const NODE_REPOS = ['hc172808/fullnode', 'hc172808/genesis', 'hc172808/rpcnode', 'hc172808/boostnode', 'hc172808/validatornode'];
+        if (NODE_REPOS.includes(repoFullName) && eventType === 'push') {
+          githubPendingRecheck.add(repoFullName);
+          console.log(`[GitHub Webhook] Push to ${repoFullName} by ${pusherName} — NodeRepoSync recheck flagged`);
+        }
+
+        res.json({ ok: true, received: event.id });
+      } catch (err: any) {
+        console.error('[GitHub Webhook] Error:', err);
+        res.status(500).json({ error: 'Webhook processing failed' });
+      }
+    }
+  );
+
+  // Get recent GitHub webhook events (admin only)
+  app.get("/api/admin/github-webhook/events", requireAdmin, (_req, res) => {
+    res.json({
+      events: githubWebhookEvents.slice().reverse(), // newest first
+      pendingRecheck: Array.from(githubPendingRecheck),
+      webhookUrl: `${process.env.APP_URL ?? 'https://app.netlifegy.com'}/api/webhooks/github`,
+      secretConfigured: !!process.env.GITHUB_WEBHOOK_SECRET,
+    });
+  });
+
+  // Acknowledge recheck (called by NodeRepoSync after it finishes checking)
+  app.post("/api/admin/github-webhook/ack", requireAdmin, (req, res) => {
+    const { repo } = req.body;
+    if (repo) githubPendingRecheck.delete(repo);
+    else githubPendingRecheck.clear();
+    res.json({ ok: true });
   });
 }

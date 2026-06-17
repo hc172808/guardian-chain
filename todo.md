@@ -55,7 +55,7 @@
 - [x] Email verification on register (token in email_verification_tokens; real SMTP if SMTP_HOST set)
 - [x] 2FA / TOTP (setup, verify, disable — RFC 6238, built-in crypto in server/totp.ts)
 
-### Mobile Experience
+### Mobile Experience & PWA
 - [x] Mobile device auto-redirect to /mobile
 - [x] Bottom tab navigation (Home, Explorer, DeFi, Wallet, More)
 - [x] Back button when navigating from mobile hub
@@ -64,8 +64,24 @@
 - [x] QR code scanner — wired into Wallet send dialog and Mobile "QR Pay" quick action
 - [x] Biometric unlock (Face ID / fingerprint via WebAuthn) — toggle in Mobile MoreTab + Profile security tab
 - [x] Push notifications (Web Push API) — VAPID auto-generated; SW push handler; toggle in MoreTab
-- [x] Deep links — PWA manifest.json with shortcuts (wallet, explorer, defi)
-- [x] Offline mode / service worker — public/sw.js; network-first cache; offline fallback
+- [x] Deep links — PWA manifest.json with shortcuts (wallet, explorer, defi, governance)
+- [x] Offline mode / service worker v2 — stale-while-revalidate; background sync for pending txs; SW message handler
+- [x] **PWA install prompt** (InstallPrompt.tsx) — auto-shows after 3–5s; Android one-click install; iOS step-by-step guide; added to Layout.tsx
+- [x] **Enhanced PWA manifest** — id, 7 icon sizes, 4 shortcuts, share_target (address), protocol_handlers (web+gyds), edge_side_panel, Play Store related_applications
+- [ ] **Native Android APK** (Capacitor) — `npx cap init`, `npx cap add android`, `npx cap build android` → upload to Play Store as "ChainCore — GYDSchain"
+- [ ] **Native iOS IPA** (Capacitor) — `npx cap add ios` → open Xcode → archive → submit to App Store
+- [ ] App Store listing — screenshots, description, categories (Finance, Utilities)
+- [ ] Push notifications in native app — Capacitor Push Notifications plugin + FCM/APNs
+- [ ] In-app browser for external links instead of leaving app
+
+### GitHub Webhook Integration (NodeRepoSync)
+- [x] **Webhook receiver** — `POST /api/webhooks/github` — HMAC-SHA256 signature verification (X-Hub-Signature-256), raw body buffering, stores last 100 events in memory
+- [x] **Admin events API** — `GET /api/admin/github-webhook/events` — returns events list + pending repos + webhook URL + secret status
+- [x] **Ack endpoint** — `POST /api/admin/github-webhook/ack` — clears pending-recheck flags after NodeRepoSync finishes
+- [x] **NodeRepoSync auto-recheck** — polls /api/admin/github-webhook/events every 30s; auto-triggers `checkOne()` for any repo that received a push; shows "push detected" badge; toast notification
+- [x] **Webhook setup panel** in NodeRepoSync — copy payload URL, setup instructions, recent event log (pusher, branch, commit SHA, verified badge)
+- [ ] Set `GITHUB_WEBHOOK_SECRET` env var (generate with `openssl rand -hex 32`) — enables HMAC verification
+- [ ] Add webhook to each GitHub repo: Settings → Webhooks → Payload URL: `https://app.netlifegy.com/api/webhooks/github` → Content-type: `application/json` → Secret: value of env var → Just push events
 
 ### Platform Migration
 - [x] Migrated from Supabase → Replit Auth + Replit PostgreSQL
@@ -77,7 +93,7 @@
 ### Admin Panel (30+ tabs)
 - [x] Node visibility controls (admin/founder toggles)
 - [x] Git Sync panel (real git pull with live output)
-- [x] NodeRepoSync component — checks all 4 node repos via GitHub API for correct module/binary/blocktime
+- [x] NodeRepoSync component — checks all 4 node repos via GitHub API for correct module/binary/blocktime; auto-rechecks on GitHub push via webhook integration
 - [x] Audit logs
 - [x] Node type approval (camelCase fixed: nodeType, isApproved, isSynced, wireguardPublicKey)
 - [x] Admin → Users tab: full UserManager — search, role selector, ban/unban, stats

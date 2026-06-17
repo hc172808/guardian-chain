@@ -5,6 +5,7 @@ import { Sidebar, MobileMenuButton } from './Sidebar';
 import { MobileBottomNav } from './MobileBottomNav';
 import { UpgradeBanner } from './UpgradeBanner';
 import { NotificationBell } from './NotificationBell';
+import { InstallPrompt } from './InstallPrompt';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useMaintenance } from '@/hooks/useMaintenance';
 
@@ -70,6 +71,9 @@ export const Layout = ({ children }: LayoutProps) => {
 
       {/* Mobile bottom navigation */}
       {isMobile && <MobileBottomNav />}
+
+      {/* PWA install prompt */}
+      <InstallPrompt />
 
       {/* Scanning line effect */}
       <div className="fixed inset-0 pointer-events-none scanning-line opacity-30" />
