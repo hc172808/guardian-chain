@@ -1,11 +1,12 @@
 /**
- * Test node manager — spawns/kills four in-process simulated blockchain nodes
+ * Test node manager — spawns/kills five in-process simulated blockchain nodes
  * for development/testing within the Replit environment or any deployed server.
  *
- * RPC Node      (8545) : Ethereum-compatible JSON-RPC endpoint
- * Lite Node     (8555) : Lightweight header-sync node
- * Full Node     (8565) : Full-state node with mempool, traces, storage queries
- * Boost Node    (8575) : High-throughput MEV/priority-tx node, 1-second blocks
+ * RPC Node       (8545) : Ethereum-compatible JSON-RPC endpoint
+ * Lite Node      (8555) : Lightweight header-sync node
+ * Full Node      (8565) : Full-state node with mempool, traces, storage queries
+ * Boost Node     (8575) : High-throughput MEV/priority-tx node, 1-second blocks
+ * Validator Node (8585) : PoS validator node with staking, slashing, rewards
  *
  * All servers bind to 0.0.0.0 so they are reachable on any network interface.
  */
@@ -14,7 +15,7 @@ import { createServer, IncomingMessage, ServerResponse, Server } from "http";
 
 const MAX_LOGS = 200;
 
-export type NodeType = "rpc" | "lite" | "fullnode" | "boostnode";
+export type NodeType = "rpc" | "lite" | "fullnode" | "boostnode" | "validator";
 
 interface NodeState {
   running: boolean;
@@ -33,6 +34,7 @@ const state: Record<NodeType, NodeState> = {
   lite:     { running: false, startedAt: null, port: 8555, server: null, logs: [], blockHeight: 1_000, peers: 2,  txPool: 0,  blockTimer: null },
   fullnode: { running: false, startedAt: null, port: 8565, server: null, logs: [], blockHeight: 1_000, peers: 10, txPool: 12, blockTimer: null },
   boostnode:{ running: false, startedAt: null, port: 8575, server: null, logs: [], blockHeight: 1_000, peers: 18, txPool: 40, blockTimer: null },
+  validator:{ running: false, startedAt: null, port: 8585, server: null, logs: [], blockHeight: 1_000, peers: 5,  txPool: 3,  blockTimer: null },
 };
 
 function addLog(type: NodeType, msg: string) {
@@ -225,6 +227,87 @@ function boostnodeHandler(req: IncomingMessage, res: ServerResponse) {
   });
 }
 
+// ── Validator node ───────────────────────────────────────────────────────────
+// Simulated PoS validator: JSON-RPC + validator-specific methods + /validators status
+const MOCK_VALIDATORS = [
+  { address: "0x0000000000000000000000000000000000000001", staked: 10000, commission: 0.05, active: true, blocksProposed: 0 },
+  { address: "0x0000000000000000000000000000000000000002", staked: 5000,  commission: 0.08, active: true, blocksProposed: 0 },
+  { address: "0x0000000000000000000000000000000000000003", staked: 2000,  commission: 0.10, active: true, blocksProposed: 0 },
+];
+
+function validatorHandler(req: IncomingMessage, res: ServerResponse) {
+  if (req.method === "OPTIONS") { res.writeHead(204, cors()); res.end(); return; }
+
+  const s = state.validator;
+  const url = req.url ?? "/";
+
+  if (url === "/validators" && req.method === "GET") {
+    MOCK_VALIDATORS[0].blocksProposed = s.blockHeight;
+    res.writeHead(200, { "Content-Type": "application/json", ...cors() });
+    res.end(JSON.stringify(MOCK_VALIDATORS));
+    return;
+  }
+
+  if (req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json", ...cors() });
+    res.end(JSON.stringify({
+      node: "GYDSchain/validator-node/v1.0.0",
+      chainId: 13370, syncing: false,
+      currentBlock: s.blockHeight,
+      peers: s.peers, txPool: s.txPool,
+      mode: "validator",
+      blockTime: "120s",
+      validators: MOCK_VALIDATORS.length,
+      activeSet: MOCK_VALIDATORS.filter(v => v.active).length,
+      epoch: Math.floor(s.blockHeight / 100),
+      epochLength: 100,
+      stakeRequired: "1000 GYDS",
+      uptime: s.startedAt ? Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000) : 0,
+    }));
+    return;
+  }
+
+  if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
+  let body = "";
+  req.on("data", (c: Buffer) => { body += c.toString(); });
+  req.on("end", () => {
+    try {
+      const rpc = JSON.parse(body);
+      let result: unknown;
+
+      // Validator-specific methods
+      if (rpc.method === "validator_info") {
+        result = {
+          validators: MOCK_VALIDATORS.length, activeSet: MOCK_VALIDATORS.filter(v => v.active).length,
+          blockTime: "120s", stakeReq: "1000 GYDS", slashing: true,
+          epoch: Math.floor(s.blockHeight / 100), epochLength: 100,
+          rewardPerBlock: "2 GYDS",
+        };
+      } else if (rpc.method === "validator_set") {
+        result = MOCK_VALIDATORS.map(v => ({
+          ...v, slashed: false, slashCount: 0,
+          uptime: 0.999,
+          joinedAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+        }));
+      } else if (rpc.method === "validator_getRewards") {
+        result = { totalRewards: s.blockHeight * 2, rewardPerBlock: 2, pendingRewards: (s.blockHeight % 100) * 2, commissionEarned: s.blockHeight * 0.1 };
+      } else if (rpc.method === "validator_register") {
+        const params = rpc.params ?? [];
+        MOCK_VALIDATORS.push({ address: params[0] ?? "0x" + randHex(40), staked: params[1] ?? 1000, commission: 0.05, active: true, blocksProposed: 0 });
+        result = { registered: true };
+      } else {
+        result = jsonRpcDispatch(rpc, s, "validator-node");
+      }
+
+      addLog("validator", `${rpc.method} → block #${s.blockHeight} | validators: ${MOCK_VALIDATORS.length}`);
+      res.writeHead(200, { "Content-Type": "application/json", ...cors() });
+      res.end(JSON.stringify(Array.isArray(rpc)
+        ? rpc.map((r: any) => ({ jsonrpc: "2.0", id: r.id, result: null }))
+        : { jsonrpc: "2.0", id: rpc.id, result }));
+    } catch { res.writeHead(400); res.end(JSON.stringify({ error: "Invalid JSON-RPC" })); }
+  });
+}
+
 function cors() {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -238,6 +321,7 @@ const HANDLERS: Record<NodeType, (req: IncomingMessage, res: ServerResponse) => 
   lite:      liteHandler,
   fullnode:  fullnodeHandler,
   boostnode: boostnodeHandler,
+  validator: validatorHandler,
 };
 
 const NODE_LABELS: Record<NodeType, string> = {
@@ -245,6 +329,7 @@ const NODE_LABELS: Record<NodeType, string> = {
   lite:      "Lite",
   fullnode:  "Full Node",
   boostnode: "Boost Node",
+  validator: "Validator Node",
 };
 
 const BLOCK_INTERVALS: Record<NodeType, number> = {
@@ -252,6 +337,7 @@ const BLOCK_INTERVALS: Record<NodeType, number> = {
   lite:      3000,
   fullnode:  2000,
   boostnode: 1000,
+  validator: 5000,  // simulated at 5s for test (real: 120s)
 };
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -277,6 +363,7 @@ export const testNodeManager = {
       addLog(type, `Listening at http://0.0.0.0:${s.port}`);
       if (type === "boostnode") addLog(type, "MEV bundle endpoint: POST /boost/bundle");
       if (type === "fullnode")  addLog(type, "Full-state RPC + txpool_status + debug_traceTransaction enabled");
+      if (type === "validator") addLog(type, "PoS consensus engine started | validator_info, validator_set, validator_getRewards, validator_register");
 
       const interval = BLOCK_INTERVALS[type];
       s.blockTimer = setInterval(() => {
@@ -293,6 +380,14 @@ export const testNodeManager = {
           const txCount = Math.floor(Math.random() * 15) + 1;
           s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 8) - txCount);
           addLog(type, `Block #${s.blockHeight} | ${txCount} txs included | pool: ${s.txPool} | ${s.peers} peers`);
+        } else if (type === "validator") {
+          const txCount = Math.floor(Math.random() * 8) + 1;
+          const proposer = MOCK_VALIDATORS[s.blockHeight % MOCK_VALIDATORS.length].address;
+          const epoch = Math.floor(s.blockHeight / 100);
+          const reward = txCount * 2 + " GYDS";
+          s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 5) - txCount);
+          MOCK_VALIDATORS[s.blockHeight % MOCK_VALIDATORS.length].blocksProposed++;
+          addLog(type, `Block #${s.blockHeight} proposed by ${proposer.slice(0, 10)}… | ${txCount} txs | epoch ${epoch} | reward ${reward}`);
         } else {
           const txCount = Math.floor(Math.random() * 40) + 10;
           const mev = Math.random() > 0.6 ? ` | MEV bundle #${Math.floor(Math.random() * 9999)}` : "";
@@ -326,6 +421,7 @@ export const testNodeManager = {
       lite:      pick("lite"),
       fullnode:  pick("fullnode"),
       boostnode: pick("boostnode"),
+      validator: pick("validator"),
     };
   },
 
@@ -334,7 +430,7 @@ export const testNodeManager = {
   },
 
   stopAll() {
-    (["rpc", "lite", "fullnode", "boostnode"] as NodeType[]).forEach(t => {
+    (["rpc", "lite", "fullnode", "boostnode", "validator"] as NodeType[]).forEach(t => {
       if (state[t].running) this.stop(t);
     });
   },

@@ -7,6 +7,7 @@ import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser } from "./webpush";
 import { Pool } from "pg";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings } from "./security";
+import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
@@ -85,6 +86,27 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const profile = await storage.updateUserProfile(user.id, req.body);
     res.json(profile);
+  });
+
+  // ── Telegram alert test ────────────────────────────────────────────────────
+  app.post("/api/profile/telegram-test", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { chat_id, bot_token } = req.body;
+    const profile = await storage.getUserProfile(user.id);
+    const chatId = chat_id ?? (profile as any)?.telegram_chat_id ?? "";
+    if (!chatId) return res.status(400).json({ ok: false, error: "No Telegram chat ID provided. Set it in your profile or pass chat_id." });
+    const result = await testTelegramConnection(chatId, bot_token);
+    res.json(result);
+  });
+
+  // ── Telegram send direct message (admin/founder) ───────────────────────────
+  app.post("/api/admin/telegram-send", async (req, res) => {
+    const user = req.user as any;
+    if (!user || !["admin", "founder"].includes(user.role)) return res.status(403).json({ error: "Forbidden" });
+    const { chat_id, message } = req.body;
+    if (!chat_id || !message) return res.status(400).json({ error: "chat_id and message required" });
+    const result = await sendTelegramMessage(chat_id, message);
+    res.json(result);
   });
 
   // PUT is an alias for PATCH (Profile.tsx uses PUT)
@@ -757,6 +779,18 @@ export function registerRoutes(app: Express) {
     await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "faucet_claim", category: "token", targetType: "token", targetId: tokenType, details: { amount, wallet_address: walletAddress, tx_hash: txHash }, ipAddress: req.ip ?? null });
 
     res.json({ ok: true, tx_hash: txHash, amount, token_type: tokenType });
+
+    // Server-side notification: faucet drip
+    const notifMsg = `${amount} ${tokenType.toUpperCase()} sent to ${walletAddress.slice(0, 10)}…`;
+    (storage as any).createNotification(user.id.toString(), 'tx', '💧 Faucet Drip Sent', notifMsg, '/wallet').catch(() => {});
+
+    // Telegram alert if user has configured chat ID
+    storage.getUserProfile(user.id).then((profile: any) => {
+      const chatId = profile?.telegram_chat_id;
+      if (chatId) {
+        sendTelegramAlert(chatId, "faucet", { amount, token: tokenType, wallet: walletAddress, txHash }).catch(() => {});
+      }
+    }).catch(() => {});
   });
 
   // ── Network Stats ──────────────────────────────────────────────────────────
@@ -872,6 +906,7 @@ export function registerRoutes(app: Express) {
     await storage.incrementProposalVotes(id, choice as 'for' | 'against' | 'abstain');
     res.json({ ok: true });
     storage.awardXp(user.id, 'governance_vote', 25, `Voted ${choice} on proposal #${id} +25 XP`).catch(() => {});
+    (storage as any).createNotification(user.id.toString(), 'governance', '✅ Vote Recorded', `Your ${choice} vote on proposal #${id} was recorded. +25 XP`, '/governance').catch(() => {});
   });
 
   // ── Community ──────────────────────────────────────────────────────────────

@@ -6,10 +6,12 @@ import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import { ethers } from "ethers";
 import rateLimit from "express-rate-limit";
+import crypto from "crypto";
 import { totp } from "./totp";
 import { pool } from "./db";
 import { storage } from "./storage";
 import { sendPasswordResetEmail, sendEmailVerification } from "./email";
+const pgPool = pool;
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
 
@@ -329,6 +331,84 @@ export async function setupAuth(app: Express): Promise<void> {
       if (!valid) return res.status(401).json({ error: "Invalid code" });
       await storage.enableTotp(user.id);
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── TOTP: generate backup codes ───────────────────────────────────────────
+  app.post("/api/auth/totp/backup-codes/generate", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const user = req.user as any;
+    try {
+      const totpData = await storage.getUserTotp(user.id);
+      if (!totpData?.totpEnabled) return res.status(400).json({ error: "2FA must be enabled first" });
+
+      // Generate 8 backup codes: XXXX-XXXX format
+      const codes: string[] = [];
+      for (let i = 0; i < 8; i++) {
+        const part1 = crypto.randomBytes(2).toString("hex").toUpperCase();
+        const part2 = crypto.randomBytes(2).toString("hex").toUpperCase();
+        codes.push(`${part1}-${part2}`);
+      }
+
+      // Hash codes for storage (SHA-256)
+      const hashed = codes.map(c => crypto.createHash("sha256").update(c).digest("hex"));
+      await pgPool.query(
+        `UPDATE users SET totp_backup_codes=$1, updated_at=NOW() WHERE id=$2`,
+        [JSON.stringify(hashed), user.id]
+      );
+
+      res.json({ ok: true, codes });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── TOTP: use backup code (consumes it) ───────────────────────────────────
+  app.post("/api/auth/totp/backup-codes/use", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const user = req.user as any;
+    const { code } = req.body ?? {};
+    if (!code) return res.status(400).json({ error: "code required" });
+    try {
+      const row = await pgPool.query(
+        `SELECT totp_backup_codes FROM users WHERE id=$1`,
+        [user.id]
+      );
+      const storedRaw = row.rows[0]?.totp_backup_codes;
+      if (!storedRaw) return res.status(400).json({ error: "No backup codes configured" });
+      const stored: string[] = typeof storedRaw === "string" ? JSON.parse(storedRaw) : storedRaw;
+
+      const hashed = crypto.createHash("sha256").update(String(code).toUpperCase().trim()).digest("hex");
+      const idx = stored.indexOf(hashed);
+      if (idx === -1) return res.status(401).json({ error: "Invalid backup code" });
+
+      // Consume the code (remove from list)
+      stored.splice(idx, 1);
+      await pgPool.query(
+        `UPDATE users SET totp_backup_codes=$1, updated_at=NOW() WHERE id=$2`,
+        [JSON.stringify(stored), user.id]
+      );
+
+      res.json({ ok: true, codesRemaining: stored.length });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── TOTP: list backup codes count (not the codes themselves) ──────────────
+  app.get("/api/auth/totp/backup-codes", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const user = req.user as any;
+    try {
+      const row = await pgPool.query(
+        `SELECT totp_backup_codes FROM users WHERE id=$1`,
+        [user.id]
+      );
+      const storedRaw = row.rows[0]?.totp_backup_codes;
+      const stored: string[] = storedRaw ? (typeof storedRaw === "string" ? JSON.parse(storedRaw) : storedRaw) : [];
+      res.json({ ok: true, count: stored.length, hasBackupCodes: stored.length > 0 });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

@@ -6,11 +6,11 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
   Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe,
-  Database, Rocket
+  Database, Rocket, Shield
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type NodeType = 'rpc' | 'lite' | 'fullnode' | 'boostnode';
+type NodeType = 'rpc' | 'lite' | 'fullnode' | 'boostnode' | 'validator';
 
 interface NodeStatus {
   running: boolean;
@@ -26,6 +26,7 @@ interface Status {
   lite: NodeStatus;
   fullnode: NodeStatus;
   boostnode: NodeStatus;
+  validator: NodeStatus;
 }
 
 const NODE_META: Record<NodeType, { label: string; description: string; color: string; icon: any; badge?: string }> = {
@@ -54,6 +55,13 @@ const NODE_META: Record<NodeType, { label: string; description: string; color: s
     color: 'text-amber-400',
     icon: Rocket,
     badge: 'MEV · 1s blocks',
+  },
+  validator: {
+    label: 'Validator Node',
+    description: 'PoS consensus node. Proposes blocks every 120s, runs validator_info / validator_set / validator_getRewards / validator_register. Requires 1000 GYDS stake.',
+    color: 'text-emerald-400',
+    icon: Shield,
+    badge: 'PoS · 120s',
   },
 };
 
@@ -358,8 +366,9 @@ export function TestNodeManager() {
     lite:      { running: false, startedAt: null, port: 8555, blockHeight: 1000, peers: 2,  txPool: 0  },
     fullnode:  { running: false, startedAt: null, port: 8565, blockHeight: 1000, peers: 10, txPool: 12 },
     boostnode: { running: false, startedAt: null, port: 8575, blockHeight: 1000, peers: 18, txPool: 40 },
+    validator: { running: false, startedAt: null, port: 8585, blockHeight: 1000, peers: 5,  txPool: 3  },
   });
-  const [loading, setLoading] = useState<Record<NodeType, boolean>>({ rpc: false, lite: false, fullnode: false, boostnode: false });
+  const [loading, setLoading] = useState<Record<NodeType, boolean>>({ rpc: false, lite: false, fullnode: false, boostnode: false, validator: false });
 
   const fetchStatus = useCallback(async () => {
     const res = await fetch('/api/admin/test-nodes/status', { credentials: 'include' });
@@ -386,9 +395,9 @@ export function TestNodeManager() {
     }
   };
 
-  const allRunning = (['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]).every(t => status[t].running);
-  const anyRunning = (['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]).some(t => status[t].running);
-  const runningCount = (['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]).filter(t => status[t].running).length;
+  const allRunning = (['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]).every(t => status[t].running);
+  const anyRunning = (['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]).some(t => status[t].running);
+  const runningCount = (['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]).filter(t => status[t].running).length;
 
   return (
     <div className="space-y-4">
@@ -399,7 +408,7 @@ export function TestNodeManager() {
             <Server className="w-5 h-5 text-primary" /> Replit Test Nodes
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Four in-process blockchain nodes — RPC, Lite, Full Node, Boost Node. Bind to{' '}
+            Five in-process blockchain nodes — RPC, Lite, Full Node, Boost Node, Validator. Bind to{' '}
             <span className="font-mono text-xs">0.0.0.0</span> so they work on any server.
             <span className="text-amber-400 font-medium ml-1">Admin / Founder only.</span>
           </p>
@@ -410,13 +419,13 @@ export function TestNodeManager() {
           </Button>
           {allRunning ? (
             <Button variant="destructive" size="sm" onClick={async () => {
-              for (const t of ['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]) await action(t, 'stop');
+              for (const t of ['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]) await action(t, 'stop');
             }} className="gap-1.5">
               <Square className="w-3.5 h-3.5" /> Stop All
             </Button>
           ) : (
             <Button size="sm" onClick={async () => {
-              for (const t of ['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[])
+              for (const t of ['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[])
                 if (!status[t].running) await action(t, 'start');
             }} className="gap-1.5">
               <Play className="w-3.5 h-3.5" /> Start All
@@ -432,14 +441,14 @@ export function TestNodeManager() {
           : <WifiOff className="w-4 h-4 text-muted-foreground shrink-0" />}
         <span className="text-muted-foreground">
           {anyRunning
-            ? `${runningCount}/4 nodes running — ports ${((['rpc','lite','fullnode','boostnode'] as NodeType[]).filter(t=>status[t].running).map(t=>status[t].port)).join(', ')}`
+            ? `${runningCount}/5 nodes running — ports ${((['rpc','lite','fullnode','boostnode','validator'] as NodeType[]).filter(t=>status[t].running).map(t=>status[t].port)).join(', ')}`
             : 'No test nodes running — click Start All or start individual nodes below'}
         </span>
         {anyRunning && <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />}
       </div>
 
       {/* Node cards */}
-      {(['rpc', 'lite', 'fullnode', 'boostnode'] as NodeType[]).map(type => (
+      {(['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]).map(type => (
         <NodeCard
           key={type}
           type={type}

@@ -1,0 +1,34 @@
+version: "3.9"
+
+services:
+  validatornode:
+    build: .
+    image: gydschain/validatornode:latest
+    container_name: gyds-validatornode
+    restart: unless-stopped
+    ports:
+      - "8543:8543"     # RPC
+      - "30302:30302"   # P2P
+    volumes:
+      - validator_data:/data
+    environment:
+      GYDS_CHAIN_ID: "13370"
+      GYDS_NODE_MODE: "validator"
+      GYDS_RPC_PORT: "8543"
+      GYDS_P2P_PORT: "30302"
+      GYDS_BLOCK_TIME: "120"
+      GYDS_VALIDATOR_ADDRESS: "${GYDS_VALIDATOR_ADDRESS}"
+      GYDS_VALIDATOR_KEY: "${GYDS_VALIDATOR_KEY}"
+      GYDS_BOOTSTRAP_NODES: "${GYDS_BOOTSTRAP_NODES:-}"
+      GYDS_LOG_FORMAT: "json"
+      GYDS_LOG_LEVEL: "info"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8543/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  validator_data:
+    driver: local

@@ -17,7 +17,7 @@
 | Lite Node | https://github.com/hc172808/litenode.git | 🟡 Compiles — architectural issues (should be header-only, not block-producing) |
 | Boost Node | https://github.com/hc172808/boostnode.git | 🟡 Fix files ready in `node-fixes/boostnode/` — needs push to GitHub |
 | Full Node | https://github.com/hc172808/fullnode.git | 🟡 Fix files ready in `node-fixes/fullnode/` — needs push to GitHub |
-| Validator Node | https://github.com/hc172808/validatornode.git | 🔴 Empty repo — no go.mod, no main.go, cannot compile — needs full implementation |
+| Validator Node | https://github.com/hc172808/validatornode.git | 🟡 Full implementation ready in `node-fixes/validatornode/` — needs push to GitHub |
 | Genesis Node | https://github.com/hc172808/genesis.git | 🟡 Full implementation ready in `node-fixes/genesis/` — repo is empty, needs push |
 
 > **Action required:** Push `node-fixes/<repo>/` contents to each GitHub repo. See `node-fixes/README.md`.
@@ -244,16 +244,16 @@
 
 ## ❌ Not Started / Still Needed
 
-### validatornode — CRITICAL (repo is empty, cannot compile)
-- [ ] go.mod — module `github.com/gydschain/validatornode`
-- [ ] main.go — entry point with cobra CLI (start, version, validator subcommands)
-- [ ] config/config.go — ValidatorConfig (NodeMode="validator", BlockTime=120s, StakeRequired=1000 GYDS, P2P port 30302, RPC port 8543)
-- [ ] core/ package — block.go, chain.go, genesis.go, transaction.go (copy from fullnode + adjust)
-- [ ] consensus/ — pos.go with validator set management, slashing, reward distribution
-- [ ] p2p/ — peer.go, server.go, gossip.go
-- [ ] rpc/ — server.go with validator-specific endpoints (validator_info, validator_set, eth_* standard)
-- [ ] Dockerfile, docker-compose.yml, setup.sh, README.md
-- [ ] Wire to Admin → Test Nodes (5th test node at port 8585)
+### validatornode — COMPLETE ✅
+- [x] go.mod — module `github.com/gydschain/validatornode`
+- [x] main.go — entry point with cobra CLI (start, version, validator, register, status subcommands)
+- [x] config/config.go — ValidatorConfig (NodeMode="validator", BlockTime=120s, StakeRequired=1000 GYDS, P2P port 30302, RPC port 8543)
+- [x] core/ package — block.go, chain.go, genesis.go, transaction.go
+- [x] consensus/pos.go — ValidatorSet (add, slash, round-robin Next), PoSEngine with OnNewBlock, AddTx, TxPoolSize
+- [x] p2p/server.go — TCP listener, peer handshake, peer registry
+- [x] rpc/server.go — full JSON-RPC + validator_info/validator_set/validator_getRewards/validator_register
+- [x] Dockerfile, docker-compose.yml, setup.sh, README.md
+- [x] Wire to Admin → Test Nodes (5th test node at port 8585, 5-second simulated blocks, validator_* methods)
 
 ### litenode — Architecture Fix
 - [ ] Change sync mode to header-only (verify block headers from peers, not produce new blocks)
@@ -274,9 +274,9 @@
 - [ ] Update INIT_CODE_HASH after pair deploy
 
 ### Infrastructure
-- [ ] install-rpc-proxy.sh — reverse-proxy for rpc.netlifegy.com / rpc2 / rpc3
-- [ ] WireGuard mesh bring-up automation (auto-provision all founder nodes into mesh)
-- [ ] GitHub webhook integration for NodeRepoSync (auto-trigger repo checks on push)
+- [x] install-rpc-proxy.sh — nginx reverse proxy for rpc.netlifegy.com, SSL via certbot, CORS, rate-limit, WS upgrade, MetaMask setup guide
+- [x] WireGuard mesh bring-up automation — `setup-wireguard-mesh.sh` (--init bootstrap, --join peer, auto keypair, systemd, UFW)
+- [x] GitHub webhook integration for NodeRepoSync — HMAC-SHA256 verified, in-memory event store, auto-trigger repo checks on push
 
 ### Blockchain Core (public/blockchain-go/)
 - [ ] Real Merkle/Patricia state-trie root in header.StateRoot (currently zero hash)
@@ -286,12 +286,12 @@
 - [ ] Replace placeholder genesis validator addresses (0x000...001 etc.) with real addresses
 
 ### Notification Bell
-- [ ] Wire NotificationBell to live user_notifications table (currently demo data)
-- [ ] Server-side event push when tx confirms, governance passes, price alert triggers
+- [x] Wire NotificationBell to live user_notifications table (fetch /api/notifications, 30s poll, mark read, dismiss)
+- [x] Server-side event push — notification created on faucet drip, governance vote, new proposal (broadcast to all users)
 
 ### Profile / Account
-- [ ] Wire Telegram alerts (@GYDSChainBot) to actual Telegram Bot API
-- [ ] 2FA backup codes (generate + download + use for recovery)
+- [x] Telegram Bot API — `server/telegram.ts` helper (sendTelegramMessage, sendTelegramAlert, testTelegramConnection); POST /api/profile/telegram-test wired; faucet drip + governance vote auto-send if user has telegram_chat_id set
+- [x] 2FA backup codes — POST /api/auth/totp/backup-codes/generate (8 codes, SHA-256 hashed), GET /api/auth/totp/backup-codes (count), POST /api/auth/totp/backup-codes/use (consume one); totp_backup_codes column added to users table
 
 ---
 
@@ -303,5 +303,5 @@
 | boostnode | ❌ gydschain/litenode → should be gydschain/boostnode | ❌ gyds-litenode | ❌ 5s → should be 1s | ❌ lite → should be boost | ✅ node-fixes/boostnode/ |
 | fullnode | ✅ gydschain/fullnode | ❌ gyds-litenode → should be gyds-fullnode | ✅ 120s | fullnode ✅ | ✅ node-fixes/fullnode/ |
 | genesis | (empty repo) | (empty repo) | — | — | ✅ node-fixes/genesis/ |
-| validatornode | ❌ none (no go.mod) | ❌ none | — | — | ❌ needs full build |
+| validatornode | ✅ gydschain/validatornode | ✅ gyds-validatornode | ✅ 120s | ✅ validator | ✅ node-fixes/validatornode/ |
 | litenode | ✅ gydschain/litenode | ✅ gyds-litenode | ✅ 5s | ✅ lite | 🟡 arch issue only |
