@@ -21,7 +21,8 @@ import {
   User, Mail, Globe, MapPin, Clock, Bell,
   Shield, Lock, Save, RefreshCw, CheckCircle2,
   Phone, FileText, Palette, Eye, EyeOff, Trophy,
-  Fingerprint, Smartphone, Send as SendIcon
+  Fingerprint, Smartphone, Send as SendIcon,
+  Key, Download, Copy, AlertTriangle
 } from 'lucide-react';
 import {
   isBiometricAvailable,
@@ -104,6 +105,111 @@ const empty: ProfileData = {
     announcements: true,
   },
   metadata: {},
+};
+
+// ── 2FA Backup Codes Panel ──────────────────────────────────────────────────
+const BackupCodesPanel = () => {
+  const { toast } = useToast();
+  const [count, setCount] = useState<number | null>(null);
+  const [codes, setCodes] = useState<string[]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/auth/totp/backup-codes', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (typeof d.count === 'number') setCount(d.count); })
+      .catch(() => {});
+  }, []);
+
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      const res = await fetch('/api/auth/totp/backup-codes/generate', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed');
+      setCodes(data.codes ?? []);
+      setCount(data.codes?.length ?? 8);
+      setRevealed(true);
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } finally { setGenerating(false); }
+  };
+
+  const copyAll = () => {
+    navigator.clipboard.writeText(codes.join('\n')).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const downloadTxt = () => {
+    const blob = new Blob([
+      'ChainCore — 2FA Backup Codes\n' +
+      'Generated: ' + new Date().toISOString() + '\n\n' +
+      'Each code can only be used ONCE.\n' +
+      'Store these somewhere safe and private.\n\n' +
+      codes.join('\n')
+    ], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'chaincore-backup-codes.txt';
+    a.click(); URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="p-3 bg-muted/20 rounded-lg border border-border/30 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-foreground flex items-center gap-2">
+            <Key className="w-3.5 h-3.5 text-primary" /> 2FA Backup Codes
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {count === null ? 'Loading…' : count === 0 ? 'No codes — generate a set now' : `${count} code${count !== 1 ? 's' : ''} remaining`}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={generate} disabled={generating}>
+          {generating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Key className="h-3.5 w-3.5" />}
+          <span className="ml-1.5">{count && count > 0 ? 'Regenerate' : 'Generate'}</span>
+        </Button>
+      </div>
+
+      {/* Warning before regenerating */}
+      {count !== null && count > 0 && !revealed && (
+        <div className="flex items-start gap-2 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>Regenerating will <strong>invalidate</strong> your current {count} remaining code{count !== 1 ? 's' : ''}.</span>
+        </div>
+      )}
+
+      {/* Codes panel — shown only right after generation */}
+      {revealed && codes.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-start gap-2 p-2 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-300">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <span>Save these now — they will <strong>not</strong> be shown again. Each code is single-use.</span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {codes.map((c, i) => (
+              <code key={i} className="px-2 py-1.5 rounded bg-background border border-border/50 text-xs font-mono text-center tracking-widest text-foreground">{c}</code>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={copyAll}>
+              {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? 'Copied!' : 'Copy All'}
+            </Button>
+            <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={downloadTxt}>
+              <Download className="h-3.5 w-3.5" /> Download .txt
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground text-center">Once you leave this page, these codes cannot be retrieved.</p>
+        </div>
+      )}
+    </div>
+  );
 };
 
 const ProfilePage = () => {
@@ -735,6 +841,9 @@ const ProfilePage = () => {
                     Manage
                   </Button>
                 </div>
+
+                {/* 2FA Backup Codes */}
+                <BackupCodesPanel />
 
                 {/* Biometric unlock */}
                 {biometricAvail && (

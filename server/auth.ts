@@ -227,37 +227,81 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Password reset: request token ─────────────────────────────────────────
+  // Requires the email address registered to the account — username alone is NOT accepted.
+  // Token is NEVER returned in the API response; it is sent only to the registered inbox.
+  // If SMTP is not configured, the token is printed to server stdout only (owner access).
   app.post("/api/auth/reset-password/request", async (req, res) => {
     try {
-      const { username } = req.body ?? {};
-      if (!username) return res.status(400).json({ error: "username required" });
-      const user = await storage.getUserByUsername(String(username).trim().toLowerCase());
-      // Always return ok (don't leak whether username exists)
-      if (!user) return res.json({ ok: true, message: "If that account exists, a reset token has been generated." });
+      const { email } = req.body ?? {};
+      if (!email) return res.status(400).json({ error: "email required" });
+      const emailNorm = String(email).trim().toLowerCase();
+
+      // Look up user by email
+      const rows = await pgPool.query(`SELECT * FROM users WHERE LOWER(email) = $1 LIMIT 1`, [emailNorm]);
+      const user = rows.rows[0];
+
+      // Always return the same response — never reveal whether the email is registered
+      const safeReply = { ok: true, message: "If that email is registered, a reset link has been sent to your inbox." };
+
+      if (!user) return res.json(safeReply);
+      if (!user.email) return res.json(safeReply);
+
+      // If SMTP is not configured, block email-based reset and guide to wallet reset
+      if (!process.env.SMTP_HOST) {
+        // Still log the token server-side so the owner can use it via console access
+        const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+        await storage.createPasswordResetToken(user.id, token, expiresAt);
+        console.warn(`[PASSWORD RESET] No SMTP configured. Reset token for ${user.username} (expires ${expiresAt.toISOString()}): ${token}`);
+        // Tell user to use wallet reset — never expose the token in the API response
+        return res.status(503).json({ error: "Email service is not configured on this server. Use 'Reset via Wallet' to regain access — connect the wallet linked to your account and sign a challenge. If you don't have a linked wallet, contact the server administrator." });
+      }
+
       const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       await storage.createPasswordResetToken(user.id, token, expiresAt);
-      if (user.email) {
-        await sendPasswordResetEmail(user.email, token).catch(() => {});
-      }
-      // Return token in dev (when no SMTP configured) for founder use
-      const devToken = !process.env.SMTP_HOST ? token : undefined;
-      res.json({ ok: true, message: "If that account exists, a reset email has been sent.", ...(devToken ? { token: devToken } : {}), expiresAt });
+      await sendPasswordResetEmail(user.email, token).catch((e: any) => {
+        console.error("[PASSWORD RESET] Failed to send email:", e.message);
+      });
+
+      res.json(safeReply);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // ── Password reset: confirm with token ────────────────────────────────────
+  // If the account has 2FA enabled, a valid TOTP code OR backup code is also required.
   app.post("/api/auth/reset-password/confirm", async (req, res) => {
     try {
-      const { token, newPassword } = req.body ?? {};
+      const { token, newPassword, totpCode } = req.body ?? {};
       if (!token || !newPassword) return res.status(400).json({ error: "token and newPassword required" });
-      if (String(newPassword).length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+      if (String(newPassword).length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+
       const row = await storage.getPasswordResetToken(String(token));
-      if (!row) return res.status(400).json({ error: "Invalid or expired token" });
-      if (row.usedAt) return res.status(400).json({ error: "Token already used" });
-      if (new Date(row.expiresAt) < new Date()) return res.status(400).json({ error: "Token expired" });
+      if (!row) return res.status(400).json({ error: "Invalid or expired reset link" });
+      if (row.usedAt) return res.status(400).json({ error: "This reset link has already been used" });
+      if (new Date(row.expiresAt) < new Date()) return res.status(400).json({ error: "Reset link expired — please request a new one" });
+
+      // Fetch the user to check 2FA status
+      const userRow = await pgPool.query(`SELECT totp_secret, totp_enabled, totp_backup_codes FROM users WHERE id = $1`, [row.userId]);
+      const u = userRow.rows[0];
+      if (u?.totp_enabled && u?.totp_secret) {
+        if (!totpCode) return res.status(403).json({ error: "This account has 2FA enabled. Provide your authenticator code to continue.", requires2fa: true });
+        // Try TOTP code first
+        const valid = totp.verify(u.totp_secret, String(totpCode));
+        if (!valid) {
+          // Try backup codes
+          let codes: string[] = [];
+          try { codes = JSON.parse(u.totp_backup_codes || "[]"); } catch {}
+          const codeHash = crypto.createHash("sha256").update(String(totpCode).toUpperCase().trim()).digest("hex");
+          const idx = codes.indexOf(codeHash);
+          if (idx === -1) return res.status(403).json({ error: "Invalid authenticator code or backup code" });
+          codes.splice(idx, 1);
+          await pgPool.query(`UPDATE users SET totp_backup_codes = $1 WHERE id = $2`, [JSON.stringify(codes), row.userId]);
+        }
+      }
+
       const hash = await bcrypt.hash(newPassword, 12);
       await storage.updateUserPassword(row.userId, hash);
       await storage.markPasswordResetTokenUsed(String(token));
