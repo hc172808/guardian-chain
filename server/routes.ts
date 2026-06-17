@@ -967,56 +967,60 @@ export function registerRoutes(app: Express) {
     });
   });
 
-  // ── Test Nodes (admin/founder only) ────────────────────────────────────────
-  const VALID_NODE_TYPES = ["rpc", "lite", "fullnode", "boostnode", "validator"] as const;
-  type ValidNodeType = typeof VALID_NODE_TYPES[number];
+  // ── Test Nodes — multi-network (admin/founder only) ────────────────────────
+  const VALID_NODE_TYPES  = ["rpc", "lite", "fullnode", "boostnode", "validator"] as const;
+  const VALID_NETWORKS    = ["mainnet", "testnet", "devnet"] as const;
+  type ValidNodeType      = typeof VALID_NODE_TYPES[number];
+  type ValidNetwork       = typeof VALID_NETWORKS[number];
 
-  // Maps test node type → node_installations nodeType label
   const TEST_NODE_TYPE_MAP: Record<string, string> = {
     rpc: "rpcnode", lite: "litenode", fullnode: "fullnode", boostnode: "boostnode", validator: "validator",
   };
 
-  // Tracks db row IDs for running test nodes so we can update/offline them on stop
+  // Track DB row IDs keyed by "network:type"
   const testNodeDbIds = new Map<string, string>();
 
-  // Helper: upsert an auto-approved node_installations row for a running test node
-  async function upsertTestNodeInstallation(userId: string, type: string, statObj: { peers?: number; blockHeight?: number; port?: number }) {
+  async function upsertTestNodeInstallation(
+    userId: string, network: string, type: string,
+    statObj: { peers?: number; blockHeight?: number; port?: number }
+  ) {
     const nodeType = TEST_NODE_TYPE_MAP[type] ?? type;
-    const localKey = `LOCAL:${statObj.port ?? 0}`;
+    const localKey = `LOCAL:${statObj.port ?? 0}:${network}`;
     const base = {
       isOnline: true, isApproved: true, lastHeartbeat: new Date(),
       peerCount: statObj.peers ?? 0, lastBlockHeight: statObj.blockHeight ?? 0,
       syncProgress: 100, isSynced: true, wireguardPublicKey: localKey,
     };
-    const existing = testNodeDbIds.get(type);
+    const key = `${network}:${type}`;
+    const existing = testNodeDbIds.get(key);
     if (existing) {
       await storage.updateNode(existing, base);
     } else {
-      // Check if a local test node row for this user+type already exists (after server restart)
       const rows = await pgPool.query(
-        `SELECT id FROM node_installations WHERE user_id=$1 AND node_type=$2 AND approved_by=$1 LIMIT 1`,
-        [userId, nodeType]
+        `SELECT id FROM node_installations WHERE user_id=$1 AND node_type=$2 AND wireguard_public_key LIKE $3 LIMIT 1`,
+        [userId, nodeType, `LOCAL:%:${network}`]
       );
       if (rows.rows.length > 0) {
         const id = rows.rows[0].id;
-        testNodeDbIds.set(type, id);
+        testNodeDbIds.set(key, id);
         await storage.updateNode(id, base);
       } else {
         const node = await storage.insertNode({
           userId, nodeType, approvedBy: userId, approvedAt: new Date(), ...base,
         });
-        testNodeDbIds.set(type, node.id);
+        testNodeDbIds.set(key, node.id);
       }
     }
   }
 
+  // GET status — returns all 3 networks × 5 types
   app.get("/api/admin/test-nodes/status", requireAdmin, async (req, res) => {
-    const statuses = testNodeManager.status();
-    // Heartbeat update for all running nodes (non-blocking)
+    const statuses = testNodeManager.status() as any;
     const userId = (req.user as any)?.id;
     if (userId) {
-      for (const [type, id] of testNodeDbIds.entries()) {
-        const s = (statuses as any)[type];
+      for (const [key, id] of testNodeDbIds.entries()) {
+        const [network, type] = key.split(":");
+        const s = statuses[network]?.[type];
         if (s?.running) {
           storage.updateNode(id, {
             lastHeartbeat: new Date(), isOnline: true,
@@ -1028,83 +1032,101 @@ export function registerRoutes(app: Express) {
     res.json(statuses);
   });
 
-  app.post("/api/admin/test-nodes/:type/start", requireAdmin, async (req, res) => {
-    const type = req.params.type as ValidNodeType;
-    if (!VALID_NODE_TYPES.includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
-    const result = testNodeManager.start(type);
+  // POST start — /api/admin/test-nodes/:network/:type/start
+  app.post("/api/admin/test-nodes/:network/:type/start", requireAdmin, async (req, res) => {
+    const network = req.params.network as ValidNetwork;
+    const type    = req.params.type    as ValidNodeType;
+    if (!VALID_NETWORKS.includes(network))   { res.status(400).json({ ok: false, message: "Invalid network" }); return; }
+    if (!VALID_NODE_TYPES.includes(type))    { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
+    const result = testNodeManager.start(network, type);
     if (result.ok) {
       const userId = (req.user as any)?.id;
       if (userId) {
-        const s = (testNodeManager.status() as any)[type] ?? {};
-        upsertTestNodeInstallation(userId, type, { peers: s.peers, blockHeight: s.blockHeight, port: s.port }).catch((e) =>
-          console.error(`[test-node] Auto-approve ${type} failed:`, e.message)
-        );
+        const s = (testNodeManager.status() as any)[network]?.[type] ?? {};
+        upsertTestNodeInstallation(userId, network, type, { peers: s.peers, blockHeight: s.blockHeight, port: s.port })
+          .catch((e) => console.error(`[test-node] upsert ${network}/${type} failed:`, e.message));
       }
     }
     res.json(result);
   });
 
-  app.post("/api/admin/test-nodes/:type/stop", requireAdmin, async (req, res) => {
-    const type = req.params.type as ValidNodeType;
-    if (!VALID_NODE_TYPES.includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
-    const result = testNodeManager.stop(type);
+  // POST stop — /api/admin/test-nodes/:network/:type/stop
+  app.post("/api/admin/test-nodes/:network/:type/stop", requireAdmin, async (req, res) => {
+    const network = req.params.network as ValidNetwork;
+    const type    = req.params.type    as ValidNodeType;
+    if (!VALID_NETWORKS.includes(network))   { res.status(400).json({ ok: false, message: "Invalid network" }); return; }
+    if (!VALID_NODE_TYPES.includes(type))    { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
+    const result = testNodeManager.stop(network, type);
     if (result.ok) {
-      const id = testNodeDbIds.get(type);
-      if (id) {
-        storage.updateNode(id, { isOnline: false, lastHeartbeat: new Date() }).catch(() => {});
-      }
+      const id = testNodeDbIds.get(`${network}:${type}`);
+      if (id) storage.updateNode(id, { isOnline: false, lastHeartbeat: new Date() }).catch(() => {});
     }
     res.json(result);
   });
 
-  app.get("/api/admin/test-nodes/:type/logs", requireAdmin, (req, res) => {
-    const type = req.params.type as ValidNodeType;
-    if (!VALID_NODE_TYPES.includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
-    res.json(testNodeManager.getLogs(type));
+  // GET logs — /api/admin/test-nodes/:network/:type/logs
+  app.get("/api/admin/test-nodes/:network/:type/logs", requireAdmin, (req, res) => {
+    const network = req.params.network as ValidNetwork;
+    const type    = req.params.type    as ValidNodeType;
+    if (!VALID_NETWORKS.includes(network))   { res.status(400).json({ ok: false, message: "Invalid network" }); return; }
+    if (!VALID_NODE_TYPES.includes(type))    { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
+    res.json(testNodeManager.getLogs(network, type));
   });
 
-  // ── RPC Status: which local test nodes are running ─────────────────────────
+  // ── RPC Status: per-network running nodes ──────────────────────────────────
   app.get("/api/nodes/rpc-status", (_req, res) => {
-    const statuses = testNodeManager.status() as any;
-    const all = ['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as const;
-    const running = all.filter(t => statuses[t]?.running).map(t => ({
-      type: t, nodeType: TEST_NODE_TYPE_MAP[t] ?? t, port: statuses[t].port,
-      blockHeight: statuses[t].blockHeight, peers: statuses[t].peers,
-    }));
-    // Priority: rpc > fullnode > boostnode > litenode > validator
-    const prioritized = ['rpc', 'fullnode', 'boostnode', 'lite', 'validator'];
-    const best = running.sort((a, b) => prioritized.indexOf(a.type) - prioritized.indexOf(b.type))[0] ?? null;
-    res.json({
-      hasLocal: running.length > 0,
-      running,
-      proxyUrl: running.length > 0 ? '/api/rpc' : null,
-      bestType: best?.nodeType ?? null,
-      externalUrl: 'https://rpc.netlifegy.com',
-    });
+    const all = testNodeManager.status() as any;
+    const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"];
+    const externalUrls: Record<string, string> = {
+      mainnet: "https://rpc.netlifegy.com",
+      testnet: "https://testnet-rpc.netlifegy.com",
+      devnet:  "https://devnet-rpc.netlifegy.com",
+    };
+    const result: any = { externalUrls };
+    for (const network of VALID_NETWORKS) {
+      const netStatus = all[network] ?? {};
+      const running = VALID_NODE_TYPES
+        .filter(t => netStatus[t]?.running)
+        .map(t => ({ type: t, port: netStatus[t].port, blockHeight: netStatus[t].blockHeight, peers: netStatus[t].peers }))
+        .sort((a, b) => prioritized.indexOf(a.type) - prioritized.indexOf(b.type));
+      result[network] = {
+        hasLocal: running.length > 0, running,
+        proxyUrl: running.length > 0 ? `/api/rpc?network=${network}` : null,
+        bestType: running[0]?.type ?? null,
+        externalUrl: externalUrls[network],
+      };
+    }
+    res.json(result);
   });
 
-  // ── RPC Proxy: forward JSON-RPC calls to best running local test node ──────
+  // ── RPC Proxy: forward JSON-RPC to best running node for a network ─────────
   app.post("/api/rpc", async (req, res) => {
-    const statuses = testNodeManager.status() as any;
-    const prioritized = ['rpc', 'fullnode', 'boostnode', 'lite', 'validator'] as const;
+    const network = ((req.query.network as string) || req.body?._network || "mainnet") as ValidNetwork;
+    const all = testNodeManager.status() as any;
+    const netStatus = all[VALID_NETWORKS.includes(network) ? network : "mainnet"] ?? {};
+    const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"] as const;
     let targetPort: number | null = null;
     for (const t of prioritized) {
-      if (statuses[t]?.running) { targetPort = statuses[t].port; break; }
+      if (netStatus[t]?.running) { targetPort = netStatus[t].port; break; }
     }
     if (!targetPort) {
-      return res.status(503).json({ jsonrpc: '2.0', error: { code: -32603, message: 'No local test nodes running. Start a node in Admin → Test Nodes.' }, id: req.body?.id ?? null });
+      return res.status(503).json({
+        jsonrpc: "2.0",
+        error: { code: -32603, message: `No ${network} test nodes running. Start a node in Admin → Test Nodes.` },
+        id: req.body?.id ?? null,
+      });
     }
     try {
       const upstream = await fetch(`http://localhost:${targetPort}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req.body),
         signal: AbortSignal.timeout(10000),
       });
       const data = await upstream.json();
       res.json(data);
     } catch (e: any) {
-      res.status(502).json({ jsonrpc: '2.0', error: { code: -32603, message: `RPC proxy error: ${e.message}` }, id: req.body?.id ?? null });
+      res.status(502).json({ jsonrpc: "2.0", error: { code: -32603, message: `RPC proxy error: ${e.message}` }, id: req.body?.id ?? null });
     }
   });
 

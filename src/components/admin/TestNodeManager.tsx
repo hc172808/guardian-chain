@@ -6,62 +6,61 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
   Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe,
-  Database, Rocket, Shield, MonitorDot, Link2
+  Database, Rocket, Shield, MonitorDot, Link2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+type Network  = 'mainnet' | 'testnet' | 'devnet';
 type NodeType = 'rpc' | 'lite' | 'fullnode' | 'boostnode' | 'validator';
 
 interface NodeStatus {
-  running: boolean;
-  startedAt: string | null;
-  port: number;
+  running:     boolean;
+  startedAt:   string | null;
+  port:        number;
   blockHeight: number;
-  peers: number;
-  txPool: number;
+  peers:       number;
+  txPool:      number;
 }
 
-interface Status {
-  rpc: NodeStatus;
-  lite: NodeStatus;
-  fullnode: NodeStatus;
-  boostnode: NodeStatus;
-  validator: NodeStatus;
-}
+type FullStatus = Record<Network, Record<NodeType, NodeStatus>>;
+
+const NODE_TYPES: NodeType[] = ['rpc', 'lite', 'fullnode', 'boostnode', 'validator'];
+const NETWORKS:  Network[]   = ['mainnet', 'testnet', 'devnet'];
+
+const NETWORK_CFG = {
+  mainnet: { label: 'Mainnet', chainId: 13370, symbol: 'GYDS',  color: 'emerald', icon: '🌐',
+    rpcUrl: 'https://rpc.netlifegy.com', explorerUrl: 'https://explorer.netlifegy.com' },
+  testnet: { label: 'Testnet', chainId: 13371, symbol: 'tGYDS', color: 'amber',   icon: '🧪',
+    rpcUrl: 'https://testnet-rpc.netlifegy.com', explorerUrl: 'https://testnet-explorer.netlifegy.com' },
+  devnet:  { label: 'Devnet',  chainId: 13372, symbol: 'dGYDS', color: 'blue',    icon: '🔧',
+    rpcUrl: 'https://devnet-rpc.netlifegy.com', explorerUrl: 'https://devnet-explorer.netlifegy.com' },
+};
 
 const NODE_META: Record<NodeType, { label: string; description: string; color: string; icon: any; badge?: string }> = {
   rpc: {
-    label: 'RPC Test Node',
+    label: 'RPC Node',
     description: 'Ethereum-compatible JSON-RPC (eth_blockNumber, eth_getBlockByNumber, eth_chainId…). Use for MetaMask / frontend testing.',
-    color: 'text-primary',
-    icon: Cpu,
+    color: 'text-primary', icon: Cpu,
   },
   lite: {
-    label: 'Lite Test Node',
+    label: 'Lite Node',
     description: 'Lightweight header-sync node. Simulates peer discovery and block header propagation without full state.',
-    color: 'text-neon-cyan',
-    icon: Zap,
+    color: 'text-cyan-400', icon: Zap,
   },
   fullnode: {
     label: 'Full Node',
     description: 'Full-state node with mempool, txpool_status, debug_traceTransaction, eth_getLogs, eth_call, eth_getCode, storage queries.',
-    color: 'text-violet-400',
-    icon: Database,
-    badge: 'Full State',
+    color: 'text-violet-400', icon: Database, badge: 'Full State',
   },
   boostnode: {
     label: 'Boost Node',
-    description: '1-second blocks, high-throughput MEV/priority-tx processing, /boost/bundle endpoint, txpool simulation, elevated peer count.',
-    color: 'text-amber-400',
-    icon: Rocket,
-    badge: 'MEV · 1s blocks',
+    description: '1-second blocks, MEV/priority-tx, /boost/bundle endpoint, txpool simulation, elevated peer count.',
+    color: 'text-amber-400', icon: Rocket, badge: 'MEV · 1s blocks',
   },
   validator: {
     label: 'Validator Node',
-    description: 'PoS consensus node. Proposes blocks every 120s, runs validator_info / validator_set / validator_getRewards / validator_register. Requires 1000 GYDS stake.',
-    color: 'text-emerald-400',
-    icon: Shield,
-    badge: 'PoS · 120s',
+    description: 'PoS consensus node. Proposes blocks every 120s, runs validator_info, validator_set, validator_getRewards, validator_register.',
+    color: 'text-emerald-400', icon: Shield, badge: 'PoS · 120s',
   },
 };
 
@@ -100,34 +99,29 @@ function formatUptime(startedAt: string | null): string {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
-function NodeCard({ type, status, onStart, onStop, loading }: {
-  type: NodeType;
-  status: NodeStatus;
-  onStart: () => void;
-  onStop: () => void;
-  loading: boolean;
+function NodeCard({
+  network, type, status, onStart, onStop, loading,
+}: {
+  network: Network; type: NodeType; status: NodeStatus;
+  onStart: () => void; onStop: () => void; loading: boolean;
 }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [logsOpen, setLogsOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const meta = NODE_META[type];
+  const netCfg = NETWORK_CFG[network];
   const Icon = meta.icon;
   const host = getNodeHost();
-
-  const endpointUrl = type === 'lite'
-    ? `http://${host}:${status.port}/status`
-    : type === 'boostnode'
-    ? `http://${host}:${status.port}`
-    : `http://${host}:${status.port}`;
+  const endpointUrl = `http://${host}:${status.port}`;
 
   const fetchLogs = useCallback(async () => {
-    const res = await fetch(`/api/admin/test-nodes/${type}/logs`, { credentials: 'include' });
+    const res = await fetch(`/api/admin/test-nodes/${network}/${type}/logs`, { credentials: 'include' });
     if (res.ok) {
       const data: string[] = await res.json();
       setLogs(data);
       setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, 50);
     }
-  }, [type]);
+  }, [network, type]);
 
   useEffect(() => {
     if (!logsOpen) return;
@@ -142,222 +136,217 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
     return () => clearInterval(id);
   }, [status.startedAt]);
 
+  const networkColor = netCfg.color;
+  const activeBorder = status.running
+    ? networkColor === 'emerald' ? 'border-emerald-500/40'
+    : networkColor === 'amber'   ? 'border-amber-500/40'
+    : 'border-blue-500/40'
+    : 'border-border/30';
+
   return (
-    <GlassCard className={cn('p-5 space-y-4 border', status.running ? 'border-primary/30' : 'border-border/30')}>
-      {/* Header */}
+    <GlassCard className={cn('p-4 space-y-3 border', activeBorder)}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className={cn('p-2.5 rounded-xl border', status.running ? 'bg-primary/10 border-primary/30' : 'bg-muted/30 border-border/30')}>
             <Icon className={cn('w-5 h-5', status.running ? meta.color : 'text-muted-foreground')} />
           </div>
           <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-semibold">{meta.label}</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-sm">{meta.label}</span>
               {meta.badge && (
-                <Badge variant="outline" className="text-xs text-violet-400 border-violet-500/40 bg-violet-500/10">
-                  {meta.badge}
-                </Badge>
+                <Badge variant="outline" className="text-xs text-violet-400 border-violet-500/40 bg-violet-500/10 py-0">{meta.badge}</Badge>
               )}
-              <Badge variant="outline" className={cn('text-xs', status.running
+              <Badge variant="outline" className={cn('text-xs py-0', status.running
                 ? 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10'
                 : 'text-muted-foreground border-border/40')}>
-                {status.running ? (
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Running
-                  </span>
-                ) : 'Stopped'}
+                {status.running
+                  ? <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Running</span>
+                  : 'Stopped'}
               </Badge>
               {status.running && (
-                <Badge variant="outline" className="text-xs text-blue-400 border-blue-500/40 bg-blue-500/10">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mr-1" />
-                  System Active
+                <Badge variant="outline" className="text-xs text-blue-400 border-blue-500/40 bg-blue-500/10 py-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mr-1" /> System Active
                 </Badge>
               )}
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">{meta.description}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{meta.description}</p>
           </div>
         </div>
-        <div className="flex gap-2 shrink-0">
-          {status.running ? (
-            <Button variant="destructive" size="sm" onClick={onStop} disabled={loading} className="gap-1.5">
-              <Square className="w-3.5 h-3.5" /> Stop
-            </Button>
-          ) : (
-            <Button variant="default" size="sm" onClick={onStart} disabled={loading} className="gap-1.5">
-              <Play className="w-3.5 h-3.5" /> Start
-            </Button>
-          )}
+        <div className="flex gap-1.5 shrink-0">
+          {status.running
+            ? <Button variant="destructive" size="sm" onClick={onStop} disabled={loading} className="gap-1 h-7 px-2 text-xs"><Square className="w-3 h-3" /> Stop</Button>
+            : <Button variant="default"     size="sm" onClick={onStart} disabled={loading} className="gap-1 h-7 px-2 text-xs"><Play className="w-3 h-3" /> Start</Button>
+          }
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-        <div className="p-2 rounded-lg bg-muted/20 border border-border/20 text-center">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-center">
+        <div className="p-1.5 rounded-lg bg-muted/20 border border-border/20">
           <p className="text-xs text-muted-foreground">Port</p>
-          <p className="font-mono font-bold text-sm">{status.port}</p>
+          <p className="font-mono font-bold text-xs">{status.port}</p>
         </div>
-        <div className="p-2 rounded-lg bg-muted/20 border border-border/20 text-center">
+        <div className="p-1.5 rounded-lg bg-muted/20 border border-border/20">
           <p className="text-xs text-muted-foreground">Block</p>
-          <p className="font-bold text-sm">{status.running ? `#${status.blockHeight.toLocaleString()}` : '—'}</p>
+          <p className="font-bold text-xs">{status.running ? `#${status.blockHeight.toLocaleString()}` : '—'}</p>
         </div>
-        <div className="p-2 rounded-lg bg-muted/20 border border-border/20 text-center">
+        <div className="p-1.5 rounded-lg bg-muted/20 border border-border/20">
           <p className="text-xs text-muted-foreground">Peers</p>
-          <p className="font-bold text-sm">{status.running ? status.peers : '—'}</p>
+          <p className="font-bold text-xs">{status.running ? status.peers : '—'}</p>
         </div>
-        {(type === 'fullnode' || type === 'boostnode') && (
-          <div className="p-2 rounded-lg bg-muted/20 border border-border/20 text-center">
-            <p className="text-xs text-muted-foreground">Tx Pool</p>
-            <p className="font-bold text-sm">{status.running ? status.txPool : '—'}</p>
-          </div>
-        )}
-        <div className={cn('p-2 rounded-lg bg-muted/20 border border-border/20 text-center', (type === 'rpc' || type === 'lite') && 'col-span-1')}>
-          <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><Clock className="w-3 h-3" /> Uptime</p>
-          <p className="font-bold text-sm">{status.running ? uptime : '—'}</p>
+        <div className="p-1.5 rounded-lg bg-muted/20 border border-border/20">
+          <p className="text-xs text-muted-foreground">TxPool</p>
+          <p className="font-bold text-xs">{status.running ? status.txPool : '—'}</p>
+        </div>
+        <div className="p-1.5 rounded-lg bg-muted/20 border border-border/20">
+          <p className="text-xs text-muted-foreground">Uptime</p>
+          <p className="font-bold text-xs">{status.running ? uptime : '—'}</p>
         </div>
       </div>
 
-      {/* Endpoint info when running */}
       {status.running && (
-        <div className="p-3 rounded-lg bg-muted/10 border border-border/20 font-mono text-xs space-y-1.5">
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Globe className="w-3 h-3" /> Endpoint
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-primary break-all">{endpointUrl}</span>
-            <CopyBtn text={endpointUrl} />
-          </div>
-          {type === 'rpc' && <p className="text-muted-foreground/60">JSON-RPC · Chain ID 13370 · GYDS Testnet</p>}
-          {type === 'lite' && <p className="text-muted-foreground/60">Header sync · peers: {status.peers} · block #{status.blockHeight.toLocaleString()}</p>}
-          {type === 'fullnode' && (
-            <div className="space-y-0.5 text-muted-foreground/60">
-              <p>Full JSON-RPC + txpool_status + debug_traceTransaction</p>
-              <p>Chain ID 13370 · 2-second blocks · {status.peers} peers</p>
-            </div>
-          )}
-          {type === 'boostnode' && (
-            <div className="space-y-0.5 text-muted-foreground/60">
-              <div className="flex items-center gap-2">
-                <span>RPC: <span className="text-primary">{endpointUrl}</span></span>
-                <CopyBtn text={endpointUrl} />
-              </div>
-              <div className="flex items-center gap-2">
-                <span>Bundle: <span className="text-amber-400">{`http://${host}:${status.port}/boost/bundle`}</span></span>
-                <CopyBtn text={`http://${host}:${status.port}/boost/bundle`} />
-              </div>
-              <p>1-second blocks · {status.peers} peers · pool: {status.txPool} txs</p>
-            </div>
-          )}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-mono text-primary truncate">{endpointUrl}</span>
+          <CopyBtn text={endpointUrl} />
+          <button
+            onClick={() => setLogsOpen(o => !o)}
+            className="flex items-center gap-1 ml-auto text-muted-foreground hover:text-foreground border border-border/30 rounded px-2 py-0.5"
+          >
+            <Terminal className="w-3 h-3" />
+            {logsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
         </div>
       )}
 
-      {/* Logs */}
-      <div>
-        <button
-          onClick={() => setLogsOpen(o => !o)}
-          className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Terminal className="w-3.5 h-3.5" />
-          {logsOpen ? 'Hide' : 'Show'} logs
-          {status.running && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-        </button>
-        {logsOpen && (
-          <div
-            ref={logRef}
-            className="mt-2 h-48 overflow-y-auto rounded-lg bg-black/60 border border-border/20 p-3 font-mono text-xs space-y-0.5"
-          >
-            {logs.length === 0
-              ? <p className="text-muted-foreground">No logs yet…</p>
-              : logs.map((line, i) => (
-                <p key={i} className={cn(
-                  'leading-relaxed',
-                  line.includes('ERROR') ? 'text-red-400'
-                  : line.includes('Block #') || line.includes('Header #') ? 'text-emerald-400'
-                  : line.includes('MEV') ? 'text-amber-400'
-                  : line.includes('bundle') ? 'text-amber-300'
-                  : line.includes('started') ? 'text-yellow-400'
-                  : line.includes('stopped') ? 'text-orange-400'
-                  : 'text-green-300/80'
-                )}>
-                  {line}
-                </p>
-              ))}
-          </div>
-        )}
-      </div>
+      {logsOpen && (
+        <div ref={logRef} className="h-36 overflow-y-auto rounded-lg bg-black/40 border border-border/20 p-2 font-mono text-xs space-y-0.5">
+          {logs.length === 0
+            ? <p className="text-muted-foreground">No logs yet…</p>
+            : logs.map((line, i) => (
+              <p key={i} className={cn('leading-relaxed',
+                line.includes('ERROR') ? 'text-red-400'
+                : line.includes('Block #') || line.includes('Header #') ? 'text-emerald-400'
+                : line.includes('MEV') ? 'text-amber-400'
+                : line.includes('started') ? 'text-yellow-400'
+                : line.includes('stopped') ? 'text-orange-400'
+                : 'text-green-300/80'
+              )}>{line}</p>
+            ))}
+        </div>
+      )}
     </GlassCard>
   );
 }
 
-function MetaMaskCard({ status }: { status: Status }) {
+function NetworkPanel({
+  network, status, loading, onAction,
+}: {
+  network: Network;
+  status: Record<NodeType, NodeStatus>;
+  loading: Record<string, boolean>;
+  onAction: (network: Network, type: NodeType, act: 'start' | 'stop') => void;
+}) {
+  const netCfg = NETWORK_CFG[network];
+  const runningTypes = NODE_TYPES.filter(t => status[t]?.running);
+  const runningCount = runningTypes.length;
+  const anyRunning   = runningCount > 0;
+  const allRunning   = runningCount === NODE_TYPES.length;
   const host = getNodeHost();
-  const isRemote = host !== 'localhost';
-  const rpcUrl = `http://${host}:${status.rpc.port}`;
-  const fullUrl = `http://${host}:${status.fullnode.port}`;
-  const boostUrl = `http://${host}:${status.boostnode.port}`;
-  const { copied: c1, copy: copy1 } = useCopy(rpcUrl);
-  const { copied: c2, copy: copy2 } = useCopy('13370');
+
+  const colorCls = {
+    emerald: { tab: 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10', badge: 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10' },
+    amber:   { tab: 'text-amber-400 border-amber-500/40 bg-amber-500/10',       badge: 'text-amber-400 border-amber-500/40 bg-amber-500/10' },
+    blue:    { tab: 'text-blue-400 border-blue-500/40 bg-blue-500/10',           badge: 'text-blue-400 border-blue-500/40 bg-blue-500/10' },
+  }[netCfg.color];
 
   return (
-    <div className="space-y-3">
-      <GlassCard className="p-4 space-y-3 border border-amber-500/20 bg-amber-500/5">
-        <p className="text-sm font-semibold text-amber-400">Connect MetaMask / any wallet</p>
-        <div className="text-xs text-muted-foreground space-y-2">
-          <p className="font-medium text-foreground/80">Which node to use:</p>
-          <ul className="space-y-1.5 list-none">
-            <li className="flex items-start gap-2">
-              <Cpu className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
-              <span><span className="text-primary font-mono">{rpcUrl}</span> — RPC Test Node, basic MetaMask testing</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <Database className="w-3.5 h-3.5 text-violet-400 mt-0.5 shrink-0" />
-              <span><span className="text-violet-400 font-mono">{fullUrl}</span> — Full Node, use for dApps that need traces / logs / storage</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <Rocket className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
-              <span><span className="text-amber-400 font-mono">{boostUrl}</span> — Boost Node, use for MEV / high-throughput tx testing</span>
-            </li>
-          </ul>
+    <div className="space-y-4">
+      {/* Network header */}
+      <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border/20 bg-muted/10">
+        <div className="flex items-center gap-3">
+          <span className="text-xl">{netCfg.icon}</span>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="font-semibold">{netCfg.label}</p>
+              <Badge variant="outline" className={cn('text-xs py-0', colorCls.badge)}>
+                Chain ID {netCfg.chainId}
+              </Badge>
+              <Badge variant="outline" className="text-xs py-0 text-muted-foreground border-border/40">
+                {netCfg.symbol}
+              </Badge>
+              {anyRunning && (
+                <Badge variant="outline" className="text-xs py-0 text-emerald-400 border-emerald-500/40 bg-emerald-500/10 gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  {runningCount}/5 running
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              RPC: <a href={netCfg.rpcUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline font-mono">{netCfg.rpcUrl}</a>
+            </p>
+          </div>
         </div>
-        <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside border-t border-border/20 pt-3">
-          <li>Start any node above</li>
-          <li>MetaMask → Settings → Networks → Add Network</li>
-          <li className="flex flex-wrap items-center gap-1">
-            RPC URL (e.g.):
-            <span className="font-mono text-primary">{rpcUrl}</span>
-            <button onClick={copy1} className="text-muted-foreground hover:text-foreground">
-              {c1 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-          </li>
-          <li className="flex flex-wrap items-center gap-1">
-            Chain ID:
-            <span className="font-mono text-primary">13370</span>
-            <button onClick={copy2} className="text-muted-foreground hover:text-foreground">
-              {c2 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-            · Currency: <span className="font-mono text-primary">GYDS</span>
-          </li>
-          <li>Explorer: <span className="font-mono text-primary">https://explorer.netlifegy.com</span></li>
-        </ol>
-      </GlassCard>
+        <div className="flex gap-1.5">
+          {allRunning
+            ? <Button variant="destructive" size="sm" className="gap-1 h-7 px-2 text-xs" onClick={() => NODE_TYPES.forEach(t => onAction(network, t, 'stop'))}>
+                <Square className="w-3 h-3" /> Stop All
+              </Button>
+            : <Button size="sm" className="gap-1 h-7 px-2 text-xs" onClick={() => NODE_TYPES.filter(t => !status[t]?.running).forEach(t => onAction(network, t, 'start'))}>
+                <Play className="w-3 h-3" /> Start All
+              </Button>
+          }
+        </div>
+      </div>
 
-      {isRemote && (
-        <GlassCard className="p-4 space-y-2 border border-blue-500/20 bg-blue-500/5">
-          <p className="text-sm font-semibold text-blue-400 flex items-center gap-2">
-            <Server className="w-4 h-4" /> Remote Server — Firewall Setup
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Running on <span className="font-mono text-primary">{host}</span>. Nodes bind to{' '}
-            <span className="font-mono">0.0.0.0</span> — allow all four ports through your firewall.
-          </p>
-          <div className="text-xs font-mono bg-black/40 rounded p-2 text-green-300 space-y-0.5">
-            <p className="text-muted-foreground"># UFW (Ubuntu)</p>
-            <p>sudo ufw allow 8545/tcp  # RPC</p>
-            <p>sudo ufw allow 8555/tcp  # Lite</p>
-            <p>sudo ufw allow 8565/tcp  # Full Node</p>
-            <p>sudo ufw allow 8575/tcp  # Boost Node</p>
-            <p className="text-muted-foreground"># iptables</p>
-            <p>for p in 8545 8555 8565 8575; do iptables -A INPUT -p tcp --dport $p -j ACCEPT; done</p>
+      {/* System integration panel */}
+      {anyRunning && (
+        <GlassCard className="p-3 space-y-2 border border-primary/30 bg-primary/5">
+          <div className="flex items-center gap-2">
+            <MonitorDot className="w-4 h-4 text-primary" />
+            <p className="text-sm font-semibold text-primary">System Integrated — {netCfg.label}</p>
+            <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/40 bg-emerald-500/10 ml-auto gap-1 py-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> {runningCount} active
+            </Badge>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-2 text-xs">
+            <div className="rounded-lg bg-muted/20 border border-border/20 p-2 space-y-0.5">
+              <p className="text-muted-foreground font-medium flex items-center gap-1"><Link2 className="w-3 h-3" /> Local RPC Proxy</p>
+              <p className="font-mono text-primary break-all">{window.location.origin}/api/rpc?network={network}</p>
+            </div>
+            <div className="rounded-lg bg-muted/20 border border-border/20 p-2 space-y-0.5">
+              <p className="text-muted-foreground font-medium flex items-center gap-1"><Globe className="w-3 h-3" /> MetaMask — Chain ID {netCfg.chainId}</p>
+              <p className="font-mono text-primary">{host}:{status[runningTypes[0]]?.port ?? '—'} · {netCfg.symbol}</p>
+            </div>
+          </div>
+        </GlassCard>
+      )}
+
+      {/* Node cards grid */}
+      <div className="grid gap-3 lg:grid-cols-1">
+        {NODE_TYPES.map(type => (
+          <NodeCard
+            key={type}
+            network={network}
+            type={type}
+            status={status[type]}
+            onStart={() => onAction(network, type, 'start')}
+            onStop={() => onAction(network, type, 'stop')}
+            loading={loading[`${network}:${type}`] ?? false}
+          />
+        ))}
+      </div>
+
+      {/* MetaMask quick-connect */}
+      {anyRunning && (
+        <GlassCard className="p-3 space-y-2 border border-amber-500/20 bg-amber-500/5">
+          <p className="text-xs font-semibold text-amber-400">Connect MetaMask / Any Wallet to {netCfg.label}</p>
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <span>RPC URL: <span className="font-mono text-primary">{host}:{status[runningTypes[0]]?.port ?? '—'}</span></span>
+              <span>Chain ID: <span className="font-mono text-primary">{netCfg.chainId}</span></span>
+              <span>Symbol: <span className="font-mono text-primary">{netCfg.symbol}</span></span>
+            </div>
+            <p>Explorer: <span className="font-mono text-primary">{netCfg.explorerUrl}</span></p>
+            <p className="text-muted-foreground/70">MetaMask → Settings → Networks → Add Network → enter the details above</p>
           </div>
         </GlassCard>
       )}
@@ -365,16 +354,18 @@ function MetaMaskCard({ status }: { status: Status }) {
   );
 }
 
+const EMPTY_NODE_STATUS: NodeStatus = { running: false, startedAt: null, port: 0, blockHeight: 1000, peers: 0, txPool: 0 };
+const EMPTY_STATUS: FullStatus = {
+  mainnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8545 }, lite: { ...EMPTY_NODE_STATUS, port: 8555 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8565 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8575 }, validator: { ...EMPTY_NODE_STATUS, port: 8585 } },
+  testnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8600 }, lite: { ...EMPTY_NODE_STATUS, port: 8601 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8602 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8603 }, validator: { ...EMPTY_NODE_STATUS, port: 8604 } },
+  devnet:  { rpc: { ...EMPTY_NODE_STATUS, port: 8650 }, lite: { ...EMPTY_NODE_STATUS, port: 8651 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8652 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8653 }, validator: { ...EMPTY_NODE_STATUS, port: 8654 } },
+};
+
 export function TestNodeManager() {
   const { toast } = useToast();
-  const [status, setStatus] = useState<Status>({
-    rpc:       { running: false, startedAt: null, port: 8545, blockHeight: 1000, peers: 4,  txPool: 0  },
-    lite:      { running: false, startedAt: null, port: 8555, blockHeight: 1000, peers: 2,  txPool: 0  },
-    fullnode:  { running: false, startedAt: null, port: 8565, blockHeight: 1000, peers: 10, txPool: 12 },
-    boostnode: { running: false, startedAt: null, port: 8575, blockHeight: 1000, peers: 18, txPool: 40 },
-    validator: { running: false, startedAt: null, port: 8585, blockHeight: 1000, peers: 5,  txPool: 3  },
-  });
-  const [loading, setLoading] = useState<Record<NodeType, boolean>>({ rpc: false, lite: false, fullnode: false, boostnode: false, validator: false });
+  const [status, setStatus]               = useState<FullStatus>(EMPTY_STATUS);
+  const [loading, setLoading]             = useState<Record<string, boolean>>({});
+  const [selectedNetwork, setSelectedNet] = useState<Network>('mainnet');
 
   const fetchStatus = useCallback(async () => {
     const res = await fetch('/api/admin/test-nodes/status', { credentials: 'include' });
@@ -387,114 +378,92 @@ export function TestNodeManager() {
     return () => clearInterval(id);
   }, [fetchStatus]);
 
-  const action = async (type: NodeType, act: 'start' | 'stop') => {
-    setLoading(l => ({ ...l, [type]: true }));
+  const onAction = async (network: Network, type: NodeType, act: 'start' | 'stop') => {
+    const key = `${network}:${type}`;
+    setLoading(l => ({ ...l, [key]: true }));
     try {
-      const res = await fetch(`/api/admin/test-nodes/${type}/${act}`, { method: 'POST', credentials: 'include' });
+      const res = await fetch(`/api/admin/test-nodes/${network}/${type}/${act}`, { method: 'POST', credentials: 'include' });
       const data = await res.json();
       toast({ title: data.message, variant: data.ok ? 'default' : 'destructive' });
       if (data.ok) await fetchStatus();
     } catch {
       toast({ title: 'Request failed', variant: 'destructive' });
     } finally {
-      setLoading(l => ({ ...l, [type]: false }));
+      setLoading(l => ({ ...l, [key]: false }));
     }
   };
 
-  const allRunning = (['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]).every(t => status[t].running);
-  const anyRunning = (['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]).some(t => status[t].running);
-  const runningCount = (['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]).filter(t => status[t].running).length;
+  const totalRunning = NETWORKS.reduce((sum, n) => sum + NODE_TYPES.filter(t => status[n]?.[t]?.running).length, 0);
+  const anyRunningGlobal = totalRunning > 0;
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Server className="w-5 h-5 text-primary" /> Replit Test Nodes
+            <Server className="w-5 h-5 text-primary" /> Network Test Nodes
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Five in-process blockchain nodes — RPC, Lite, Full Node, Boost Node, Validator. Bind to{' '}
-            <span className="font-mono text-xs">0.0.0.0</span> so they work on any server.
+            5 node types × 3 networks = 15 live nodes. Each runs the correct chain ID, currency, and RPC endpoints.
             <span className="text-amber-400 font-medium ml-1">Admin / Founder only.</span>
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchStatus} className="gap-1.5">
-            <RefreshCw className="w-3.5 h-3.5" />
-          </Button>
-          {allRunning ? (
-            <Button variant="destructive" size="sm" onClick={async () => {
-              for (const t of ['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]) await action(t, 'stop');
-            }} className="gap-1.5">
-              <Square className="w-3.5 h-3.5" /> Stop All
-            </Button>
-          ) : (
-            <Button size="sm" onClick={async () => {
-              for (const t of ['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[])
-                if (!status[t].running) await action(t, 'start');
-            }} className="gap-1.5">
-              <Play className="w-3.5 h-3.5" /> Start All
-            </Button>
-          )}
-        </div>
+        <Button variant="outline" size="sm" onClick={fetchStatus} className="gap-1.5">
+          <RefreshCw className="w-3.5 h-3.5" />
+        </Button>
       </div>
 
-      {/* Network health bar */}
+      {/* Global health bar */}
       <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/10 border border-border/20 text-sm">
-        {anyRunning
+        {anyRunningGlobal
           ? <Wifi className="w-4 h-4 text-emerald-400 shrink-0" />
           : <WifiOff className="w-4 h-4 text-muted-foreground shrink-0" />}
         <span className="text-muted-foreground">
-          {anyRunning
-            ? `${runningCount}/5 nodes running — ports ${((['rpc','lite','fullnode','boostnode','validator'] as NodeType[]).filter(t=>status[t].running).map(t=>status[t].port)).join(', ')}`
-            : 'No test nodes running — click Start All or start individual nodes below'}
+          {anyRunningGlobal
+            ? `${totalRunning}/15 nodes running across all networks`
+            : 'No nodes running — select a network tab and click Start All'}
         </span>
-        {anyRunning && <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />}
+        {anyRunningGlobal && <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />}
       </div>
 
-      {/* System Integration panel — shown when any node is running */}
-      {anyRunning && (
-        <GlassCard className="p-4 space-y-3 border border-primary/30 bg-primary/5">
-          <div className="flex items-center gap-2">
-            <MonitorDot className="w-4 h-4 text-primary" />
-            <p className="text-sm font-semibold text-primary">System Integrated</p>
-            <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/40 bg-emerald-500/10 ml-auto gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              {runningCount} node{runningCount > 1 ? 's' : ''} active in system
-            </Badge>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Running nodes are registered in the node directory and count toward network stats. All app features (Explorer, DeFi, Validators) use the RPC proxy below.
-          </p>
-          <div className="grid sm:grid-cols-2 gap-2 text-xs">
-            <div className="rounded-lg bg-muted/20 border border-border/20 p-3 space-y-1">
-              <p className="text-muted-foreground font-medium flex items-center gap-1"><Link2 className="w-3 h-3" /> RPC Proxy (app-wide)</p>
-              <p className="font-mono text-primary break-all">{window.location.origin}/api/rpc</p>
-              <p className="text-muted-foreground/70">Routes JSON-RPC to best running node. Use this in dApps instead of the external RPC.</p>
-            </div>
-            <div className="rounded-lg bg-muted/20 border border-border/20 p-3 space-y-1">
-              <p className="text-muted-foreground font-medium flex items-center gap-1"><Server className="w-3 h-3" /> Node Heartbeat API</p>
-              <p className="font-mono text-primary break-all">POST /api/nodes/:id/heartbeat</p>
-              <p className="text-muted-foreground/70">Deployed nodes use this to stay online. Get your node ID from Admin → Nodes tab.</p>
-            </div>
-          </div>
-        </GlassCard>
-      )}
+      {/* Network selector tabs */}
+      <div className="flex gap-1 p-1 rounded-xl bg-muted/20 border border-border/20">
+        {NETWORKS.map(n => {
+          const cfg     = NETWORK_CFG[n];
+          const running = NODE_TYPES.filter(t => status[n]?.[t]?.running).length;
+          const isActive = selectedNetwork === n;
+          const colorMap = {
+            emerald: isActive ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'text-muted-foreground hover:text-emerald-300',
+            amber:   isActive ? 'bg-amber-500/20   text-amber-400   border border-amber-500/40'   : 'text-muted-foreground hover:text-amber-300',
+            blue:    isActive ? 'bg-blue-500/20    text-blue-400    border border-blue-500/40'     : 'text-muted-foreground hover:text-blue-300',
+          };
+          return (
+            <button
+              key={n}
+              onClick={() => setSelectedNet(n)}
+              className={cn('flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-medium transition-all', colorMap[cfg.color as keyof typeof colorMap])}
+            >
+              <span>{cfg.icon}</span>
+              <span>{cfg.label}</span>
+              <span className="font-mono text-[10px] opacity-70">{cfg.chainId}</span>
+              {running > 0 && (
+                <Badge variant="outline" className="text-[10px] py-0 px-1 border-current text-current h-4">{running}/5</Badge>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-      {/* Node cards */}
-      {(['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]).map(type => (
-        <NodeCard
-          key={type}
-          type={type}
-          status={status[type]}
-          onStart={() => action(type, 'start')}
-          onStop={() => action(type, 'stop')}
-          loading={loading[type]}
+      {/* Selected network panel */}
+      {status[selectedNetwork] && (
+        <NetworkPanel
+          network={selectedNetwork}
+          status={status[selectedNetwork]}
+          loading={loading}
+          onAction={onAction}
         />
-      ))}
-
-      <MetaMaskCard status={status} />
+      )}
     </div>
   );
 }
