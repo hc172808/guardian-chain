@@ -20,7 +20,10 @@ import {
   GitBranch,
   ScrollText,
   Activity,
-  Eye
+  Eye,
+  Wifi,
+  WifiOff,
+  MonitorDot
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -941,29 +944,73 @@ const AdminContent = () => {
               <p className="text-muted-foreground">No node installations yet</p>
             </GlassCard>
           ) : (
-            nodes.map((node) => (
-              <GlassCard key={node.id} className={`p-4 ${!node.isApproved ? 'border-yellow-500/30' : ''}`}>
+            nodes.map((node) => {
+              const isLocalNode = node.wireguardPublicKey?.startsWith('LOCAL:');
+              const localPort = isLocalNode ? node.wireguardPublicKey!.split(':')[1] : null;
+              const localRpcUrl = localPort ? `http://${window.location.hostname}:${localPort}` : null;
+              return (
+              <GlassCard key={node.id} className={`p-4 ${isLocalNode ? 'border-primary/40' : !node.isApproved ? 'border-yellow-500/30' : ''}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-lg ${node.nodeType === 'fullnode' ? 'bg-yellow-500/20' : 'bg-primary/20'}`}>
-                      <Server className={`h-5 w-5 ${node.nodeType === 'fullnode' ? 'text-yellow-500' : 'text-primary'}`} />
+                    <div className={`p-3 rounded-lg relative ${isLocalNode ? 'bg-primary/20' : node.nodeType === 'fullnode' ? 'bg-yellow-500/20' : 'bg-primary/20'}`}>
+                      {isLocalNode
+                        ? <MonitorDot className="h-5 w-5 text-primary" />
+                        : <Server className={`h-5 w-5 ${node.nodeType === 'fullnode' ? 'text-yellow-500' : 'text-primary'}`} />
+                      }
+                      {node.isOnline && (
+                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-background animate-pulse" />
+                      )}
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium capitalize">{node.nodeType.replace('node', ' Node')}</p>
+                        {isLocalNode && (
+                          <Badge variant="outline" className="text-primary border-primary/60 bg-primary/10 text-xs gap-1">
+                            <MonitorDot className="h-3 w-3" /> Local Test Node
+                          </Badge>
+                        )}
                         {node.isApproved ? (
-                          <Badge variant="outline" className="text-green-400 border-green-400">Approved</Badge>
+                          <Badge variant="outline" className="text-green-400 border-green-400 text-xs">Approved</Badge>
                         ) : (
-                          <Badge variant="outline" className="text-yellow-500 border-yellow-500">Pending</Badge>
+                          <Badge variant="outline" className="text-yellow-500 border-yellow-500 text-xs">Pending</Badge>
+                        )}
+                        {node.isOnline ? (
+                          <Badge variant="outline" className="text-emerald-400 border-emerald-400/60 bg-emerald-500/10 text-xs gap-1">
+                            <Wifi className="h-3 w-3" /> Online
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-muted-foreground border-border/40 text-xs gap-1">
+                            <WifiOff className="h-3 w-3" /> Offline
+                          </Badge>
                         )}
                         {node.isSynced && (
-                          <Badge variant="outline" className="text-primary border-primary">Synced</Badge>
+                          <Badge variant="outline" className="text-primary border-primary text-xs">Synced</Badge>
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        User: {node.profiles?.email || node.userId?.slice(0, 12) || 'Unknown'}
+                        {isLocalNode ? 'Local server process' : `User: ${node.profiles?.email || node.userId?.slice(0, 12) || 'Unknown'}`}
                       </p>
-                      {node.wireguardPublicKey && (
+                      {/* Live stats for online nodes */}
+                      {node.isOnline && (
+                        <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                          Block #{(node.lastBlockHeight ?? 0).toLocaleString()} · {node.peerCount ?? 0} peers
+                          {localPort && <> · Port {localPort}</>}
+                        </p>
+                      )}
+                      {/* RPC URL for local nodes */}
+                      {isLocalNode && localRpcUrl && node.isOnline && (
+                        <a
+                          href={localRpcUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 text-xs text-primary hover:underline font-mono mt-1"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          {localRpcUrl}
+                        </a>
+                      )}
+                      {/* WireGuard key for real remote nodes */}
+                      {!isLocalNode && node.wireguardPublicKey && (
                         <div className="flex items-center gap-2 mt-1">
                           <Key className="h-3 w-3 text-muted-foreground" />
                           <code className="text-xs bg-background/50 px-2 py-0.5 rounded">
@@ -981,7 +1028,7 @@ const AdminContent = () => {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    {!node.isApproved && (
+                    {!isLocalNode && !node.isApproved && (
                       <>
                         <Button size="sm" onClick={() => handleApproveNode(node.id, true)} className="gap-1">
                           <Check className="h-4 w-4" />
@@ -993,7 +1040,7 @@ const AdminContent = () => {
                         </Button>
                       </>
                     )}
-                    {node.isApproved && (
+                    {!isLocalNode && node.isApproved && (
                       <Button size="sm" variant="outline" onClick={() => handleApproveNode(node.id, false)}>
                         Revoke
                       </Button>
@@ -1001,7 +1048,7 @@ const AdminContent = () => {
                   </div>
                 </div>
               </GlassCard>
-            ))
+            ); })
           )}
         </TabsContent>
 

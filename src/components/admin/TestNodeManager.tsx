@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
   Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe,
-  Database, Rocket, Shield
+  Database, Rocket, Shield, MonitorDot, Link2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -168,6 +168,12 @@ function NodeCard({ type, status, onStart, onStop, loading }: {
                   </span>
                 ) : 'Stopped'}
               </Badge>
+              {status.running && (
+                <Badge variant="outline" className="text-xs text-blue-400 border-blue-500/40 bg-blue-500/10">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mr-1" />
+                  System Active
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">{meta.description}</p>
           </div>
@@ -446,6 +452,35 @@ export function TestNodeManager() {
         </span>
         {anyRunning && <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />}
       </div>
+
+      {/* System Integration panel — shown when any node is running */}
+      {anyRunning && (
+        <GlassCard className="p-4 space-y-3 border border-primary/30 bg-primary/5">
+          <div className="flex items-center gap-2">
+            <MonitorDot className="w-4 h-4 text-primary" />
+            <p className="text-sm font-semibold text-primary">System Integrated</p>
+            <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/40 bg-emerald-500/10 ml-auto gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              {runningCount} node{runningCount > 1 ? 's' : ''} active in system
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Running nodes are registered in the node directory and count toward network stats. All app features (Explorer, DeFi, Validators) use the RPC proxy below.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-2 text-xs">
+            <div className="rounded-lg bg-muted/20 border border-border/20 p-3 space-y-1">
+              <p className="text-muted-foreground font-medium flex items-center gap-1"><Link2 className="w-3 h-3" /> RPC Proxy (app-wide)</p>
+              <p className="font-mono text-primary break-all">{window.location.origin}/api/rpc</p>
+              <p className="text-muted-foreground/70">Routes JSON-RPC to best running node. Use this in dApps instead of the external RPC.</p>
+            </div>
+            <div className="rounded-lg bg-muted/20 border border-border/20 p-3 space-y-1">
+              <p className="text-muted-foreground font-medium flex items-center gap-1"><Server className="w-3 h-3" /> Node Heartbeat API</p>
+              <p className="font-mono text-primary break-all">POST /api/nodes/:id/heartbeat</p>
+              <p className="text-muted-foreground/70">Deployed nodes use this to stay online. Get your node ID from Admin → Nodes tab.</p>
+            </div>
+          </div>
+        </GlassCard>
+      )}
 
       {/* Node cards */}
       {(['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as NodeType[]).map(type => (

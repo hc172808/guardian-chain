@@ -980,17 +980,19 @@ export function registerRoutes(app: Express) {
   const testNodeDbIds = new Map<string, string>();
 
   // Helper: upsert an auto-approved node_installations row for a running test node
-  async function upsertTestNodeInstallation(userId: string, type: string, statObj: { peers?: number; blockHeight?: number }) {
+  async function upsertTestNodeInstallation(userId: string, type: string, statObj: { peers?: number; blockHeight?: number; port?: number }) {
     const nodeType = TEST_NODE_TYPE_MAP[type] ?? type;
+    const localKey = `LOCAL:${statObj.port ?? 0}`;
+    const base = {
+      isOnline: true, isApproved: true, lastHeartbeat: new Date(),
+      peerCount: statObj.peers ?? 0, lastBlockHeight: statObj.blockHeight ?? 0,
+      syncProgress: 100, isSynced: true, wireguardPublicKey: localKey,
+    };
     const existing = testNodeDbIds.get(type);
     if (existing) {
-      await storage.updateNode(existing, {
-        isOnline: true, isApproved: true, lastHeartbeat: new Date(),
-        peerCount: statObj.peers ?? 0, lastBlockHeight: statObj.blockHeight ?? 0,
-        syncProgress: 100, isSynced: true,
-      });
+      await storage.updateNode(existing, base);
     } else {
-      // Check if a local test node row for this user+type already exists (e.g. after server restart)
+      // Check if a local test node row for this user+type already exists (after server restart)
       const rows = await pgPool.query(
         `SELECT id FROM node_installations WHERE user_id=$1 AND node_type=$2 AND approved_by=$1 LIMIT 1`,
         [userId, nodeType]
@@ -998,17 +1000,10 @@ export function registerRoutes(app: Express) {
       if (rows.rows.length > 0) {
         const id = rows.rows[0].id;
         testNodeDbIds.set(type, id);
-        await storage.updateNode(id, {
-          isOnline: true, isApproved: true, lastHeartbeat: new Date(),
-          peerCount: statObj.peers ?? 0, lastBlockHeight: statObj.blockHeight ?? 0,
-          syncProgress: 100, isSynced: true,
-        });
+        await storage.updateNode(id, base);
       } else {
         const node = await storage.insertNode({
-          userId, nodeType, isApproved: true, approvedBy: userId,
-          approvedAt: new Date(), isOnline: true, lastHeartbeat: new Date(),
-          syncProgress: 100, isSynced: true, peerCount: statObj.peers ?? 0,
-          lastBlockHeight: statObj.blockHeight ?? 0,
+          userId, nodeType, approvedBy: userId, approvedAt: new Date(), ...base,
         });
         testNodeDbIds.set(type, node.id);
       }
@@ -1041,7 +1036,7 @@ export function registerRoutes(app: Express) {
       const userId = (req.user as any)?.id;
       if (userId) {
         const s = (testNodeManager.status() as any)[type] ?? {};
-        upsertTestNodeInstallation(userId, type, s).catch((e) =>
+        upsertTestNodeInstallation(userId, type, { peers: s.peers, blockHeight: s.blockHeight, port: s.port }).catch((e) =>
           console.error(`[test-node] Auto-approve ${type} failed:`, e.message)
         );
       }
@@ -1066,6 +1061,102 @@ export function registerRoutes(app: Express) {
     const type = req.params.type as ValidNodeType;
     if (!VALID_NODE_TYPES.includes(type)) { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     res.json(testNodeManager.getLogs(type));
+  });
+
+  // ── RPC Status: which local test nodes are running ─────────────────────────
+  app.get("/api/nodes/rpc-status", (_req, res) => {
+    const statuses = testNodeManager.status() as any;
+    const all = ['rpc', 'lite', 'fullnode', 'boostnode', 'validator'] as const;
+    const running = all.filter(t => statuses[t]?.running).map(t => ({
+      type: t, nodeType: TEST_NODE_TYPE_MAP[t] ?? t, port: statuses[t].port,
+      blockHeight: statuses[t].blockHeight, peers: statuses[t].peers,
+    }));
+    // Priority: rpc > fullnode > boostnode > litenode > validator
+    const prioritized = ['rpc', 'fullnode', 'boostnode', 'lite', 'validator'];
+    const best = running.sort((a, b) => prioritized.indexOf(a.type) - prioritized.indexOf(b.type))[0] ?? null;
+    res.json({
+      hasLocal: running.length > 0,
+      running,
+      proxyUrl: running.length > 0 ? '/api/rpc' : null,
+      bestType: best?.nodeType ?? null,
+      externalUrl: 'https://rpc.netlifegy.com',
+    });
+  });
+
+  // ── RPC Proxy: forward JSON-RPC calls to best running local test node ──────
+  app.post("/api/rpc", async (req, res) => {
+    const statuses = testNodeManager.status() as any;
+    const prioritized = ['rpc', 'fullnode', 'boostnode', 'lite', 'validator'] as const;
+    let targetPort: number | null = null;
+    for (const t of prioritized) {
+      if (statuses[t]?.running) { targetPort = statuses[t].port; break; }
+    }
+    if (!targetPort) {
+      return res.status(503).json({ jsonrpc: '2.0', error: { code: -32603, message: 'No local test nodes running. Start a node in Admin → Test Nodes.' }, id: req.body?.id ?? null });
+    }
+    try {
+      const upstream = await fetch(`http://localhost:${targetPort}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await upstream.json();
+      res.json(data);
+    } catch (e: any) {
+      res.status(502).json({ jsonrpc: '2.0', error: { code: -32603, message: `RPC proxy error: ${e.message}` }, id: req.body?.id ?? null });
+    }
+  });
+
+  // ── Node Heartbeat: deployed nodes call this to stay online ───────────────
+  // Auth: admin/founder session OR derived token (SHA-256 of nodeId + secret)
+  app.post("/api/nodes/:id/heartbeat", async (req, res) => {
+    const { id } = req.params;
+    const { blockHeight, peers, hashRate, syncProgress, token } = req.body ?? {};
+
+    let authorized = req.isAuthenticated() && ((req.user as any)._isAdmin || (req.user as any)._isFounder);
+    if (!authorized && token) {
+      const expected = crypto.createHash('sha256')
+        .update(id + (process.env.SESSION_SECRET ?? 'chaincore-secret'))
+        .digest('hex').slice(0, 32);
+      authorized = (token === expected);
+    }
+    if (!authorized) return res.status(401).json({ error: 'Unauthorized. Provide admin session or valid node token.' });
+
+    try {
+      const updates: Record<string, any> = { isOnline: true, lastHeartbeat: new Date() };
+      if (blockHeight !== undefined) updates.lastBlockHeight = Number(blockHeight);
+      if (peers !== undefined) updates.peerCount = Number(peers);
+      if (hashRate !== undefined) updates.hashRate = Number(hashRate);
+      if (syncProgress !== undefined) {
+        updates.syncProgress = Number(syncProgress);
+        updates.isSynced = Number(syncProgress) >= 100;
+      }
+      const node = await storage.updateNode(id, updates);
+      if (!node) return res.status(404).json({ error: 'Node not found' });
+      res.json({ ok: true, timestamp: new Date().toISOString() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Node Token: get the heartbeat auth token for a specific node ───────────
+  app.get("/api/nodes/:id/token", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const rows = await pgPool.query(`SELECT user_id FROM node_installations WHERE id=$1`, [req.params.id]);
+      if (!rows.rows.length) return res.status(404).json({ error: 'Node not found' });
+      const nodeOwnerId = rows.rows[0].user_id;
+      if (!user._isAdmin && !user._isFounder && nodeOwnerId !== user.id) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      const token = crypto.createHash('sha256')
+        .update(req.params.id + (process.env.SESSION_SECRET ?? 'chaincore-secret'))
+        .digest('hex').slice(0, 32);
+      res.json({ token, nodeId: req.params.id, heartbeatUrl: `/api/nodes/${req.params.id}/heartbeat` });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // ── Leaderboard ─────────────────────────────────────────────────────────────
