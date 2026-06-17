@@ -907,6 +907,16 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true });
     storage.awardXp(user.id, 'governance_vote', 25, `Voted ${choice} on proposal #${id} +25 XP`).catch(() => {});
     (storage as any).createNotification(user.id.toString(), 'governance', '✅ Vote Recorded', `Your ${choice} vote on proposal #${id} was recorded. +25 XP`, '/governance').catch(() => {});
+    // Telegram alert if user has a configured chat ID
+    storage.getUserProfile(user.id).then((profile: any) => {
+      const chatId = profile?.telegram_chat_id;
+      if (chatId) {
+        sendTelegramAlert(chatId, 'governance', {
+          title: `Proposal #${id}`,
+          body: `You voted <b>${choice}</b> on proposal #${id}. +25 XP awarded.`,
+        }).catch(() => {});
+      }
+    }).catch(() => {});
   });
 
   // ── Community ──────────────────────────────────────────────────────────────

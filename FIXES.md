@@ -36,8 +36,9 @@
 | S10 | ✅ | 🟢 | `ssl-setup.sh` hardcoded admin@domain for certbot — now uses env var | `public/scripts/ssl-setup.sh` |
 | S11 | ✅ | 🔴 | `install-fullnode.sh` REPO_URL pointed to `validatornode.git` — fixed to `fullnode.git` | `public/scripts/install-fullnode.sh` |
 | S12 | ✅ | 🔴 | `install-genesis.sh` REPO_URL was `fullnode.git` → fixed to `genesis.git`; BINARY `gyds-fullnode` → `gyds-genesis` | `public/scripts/install-genesis.sh` |
-| S13 | 🔲 | 🟡 | Missing `install-rpc-proxy.sh` — reverse-proxy script for rpc.netlifegy.com / rpc2 / rpc3 | `public/scripts/` |
-| S14 | 🔲 | 🟡 | WireGuard mesh bring-up automation — auto-provision all founder nodes into VPN mesh | `public/scripts/wireguard-mesh.sh` |
+| S13 | ✅ | 🟡 | Missing `install-rpc-proxy.sh` — reverse-proxy script for rpc.netlifegy.com / rpc2 / rpc3 | `public/scripts/install-rpc-proxy.sh` |
+| S14 | ✅ | 🟡 | WireGuard mesh bring-up automation — auto-provision all founder nodes into VPN mesh | `public/scripts/setup-wireguard-mesh.sh` |
+| S15 | ✅ | 🔴 | Nginx "Welcome to nginx" on fresh Ubuntu — see `quick-fix.sh` for auto-repair | `public/scripts/quick-fix.sh` |
 
 ---
 
@@ -57,8 +58,8 @@
 | F10 | ✅ | 🟡 | LP Farming badge was "Mainnet: Coming Soon" — changed to "Live on Testnet" | `src/components/defi/LPFarmingDashboard.tsx` |
 | F11 | ✅ | 🟢 | Developer SDK section had "Coming Soon" for JS/TS and Python — replaced with full code examples + Available badge | `src/pages/Developer.tsx` |
 | F12 | ✅ | 🟢 | Profile SMS alerts — replaced with Telegram alerts (@GYDSChainBot) | `src/pages/Profile.tsx` |
-| F13 | 🔲 | 🟡 | NotificationBell reads demo data — needs live `user_notifications` table wiring | `src/components/layout/NotificationBell.tsx` |
-| F14 | 🔲 | 🟡 | Telegram alert integration — @GYDSChainBot shown in UI but no Bot API call exists | `server/routes.ts` |
+| F13 | ✅ | 🟡 | NotificationBell reads demo data — needs live `user_notifications` table wiring | `src/components/layout/NotificationBell.tsx` |
+| F14 | ✅ | 🟡 | Telegram alert integration — governance vote now sends Telegram alert; faucet was already wired | `server/routes.ts` |
 
 ---
 
@@ -135,12 +136,12 @@
 | Category | Total | ✅ Done | 🔲 To Do | 🔴 Critical Remaining |
 |----------|-------|---------|----------|----------------------|
 | Docker | 8 | 8 | 0 | 0 |
-| Shell Scripts | 14 | 12 | 2 | 0 |
-| Frontend | 14 | 12 | 2 | 0 |
+| Shell Scripts | 15 | 15 | 0 | 0 |
+| Frontend | 14 | 14 | 0 | 0 |
 | Missing Files | 6 | 3 | 3 | 1 (validatornode) |
 | Node Repos | 11 | 0 | 11 | 7 |
 | Security | 9 | 7 | 2 | 0 |
 | Blockchain Core | 14 | 10 | 4 | 0 |
-| **Total** | **76** | **52** | **24** | **8** |
+| **Total** | **77** | **57** | **20** | **8** |
 
 > **Most critical:** Push `node-fixes/` to GitHub repos (N1–N9), implement `validatornode` (M4, N10).
