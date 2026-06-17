@@ -23,7 +23,8 @@ import {
   Eye,
   Wifi,
   WifiOff,
-  MonitorDot
+  MonitorDot,
+  MessageCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -34,6 +35,7 @@ import { BurnMintManager } from '@/components/admin/BurnMintManager';
 import { StablecoinManager } from '@/components/admin/StablecoinManager';
 import { SponsorManager } from '@/components/admin/SponsorManager';
 import { DatabaseSettings } from '@/components/admin/DatabaseSettings';
+import { WhatsAppSettings } from '@/components/admin/WhatsAppSettings';
 import { CoinLogoUpload } from '@/components/admin/CoinLogoUpload';
 import { PremineManager } from '@/components/admin/PremineManager';
 import { ValidatorManager } from '@/components/admin/ValidatorManager';
@@ -700,7 +702,7 @@ const AdminContent = () => {
       </div>
 
       <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-5 md:[grid-template-columns:repeat(15,minmax(0,1fr))] w-full">
+        <TabsList className="grid grid-cols-5 md:[grid-template-columns:repeat(16,minmax(0,1fr))] w-full">
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
@@ -736,6 +738,10 @@ const AdminContent = () => {
           <TabsTrigger value="database" className="gap-2">
             <Key className="h-4 w-4" />
             <span className="hidden md:inline">Database</span>
+          </TabsTrigger>
+          <TabsTrigger value="whatsapp" className="gap-2">
+            <MessageCircle className="h-4 w-4" />
+            <span className="hidden md:inline">WhatsApp</span>
           </TabsTrigger>
           <TabsTrigger value="github" className="gap-2">
             <GitBranch className="h-4 w-4" />
@@ -897,6 +903,10 @@ const AdminContent = () => {
 
         <TabsContent value="database">
           <DatabaseSettings />
+        </TabsContent>
+
+        <TabsContent value="whatsapp">
+          <WhatsAppSettings />
         </TabsContent>
 
         <TabsContent value="github" className="space-y-4">

@@ -8,6 +8,7 @@ import { getVapidPublicKey, sendPushToUser } from "./webpush";
 import { Pool } from "pg";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
+import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
@@ -96,6 +97,50 @@ export function registerRoutes(app: Express) {
     const chatId = chat_id ?? (profile as any)?.telegram_chat_id ?? "";
     if (!chatId) return res.status(400).json({ ok: false, error: "No Telegram chat ID provided. Set it in your profile or pass chat_id." });
     const result = await testTelegramConnection(chatId, bot_token);
+    res.json(result);
+  });
+
+  // ── WhatsApp — admin config ────────────────────────────────────────────────
+  app.get("/api/admin/whatsapp-config", requireAdmin, async (_req, res) => {
+    const cfg = await getWhatsAppConfig();
+    // Never expose the full access token to the client — just mask it
+    res.json({
+      enabled:       cfg.enabled,
+      phoneNumberId: cfg.phoneNumberId,
+      accessTokenSet: cfg.accessToken.length > 0,
+      accessTokenMasked: cfg.accessToken.length > 8
+        ? cfg.accessToken.slice(0, 6) + "•".repeat(12) + cfg.accessToken.slice(-4)
+        : cfg.accessToken ? "•".repeat(cfg.accessToken.length) : "",
+      businessId:    cfg.businessId,
+    });
+  });
+
+  app.post("/api/admin/whatsapp-config", requireAdmin, async (req, res) => {
+    const { enabled, phoneNumberId, accessToken, businessId } = req.body;
+    await saveWhatsAppConfig({
+      ...(enabled       !== undefined && { enabled: Boolean(enabled) }),
+      ...(phoneNumberId !== undefined && { phoneNumberId: String(phoneNumberId).trim() }),
+      ...(accessToken   !== undefined && accessToken !== "" && { accessToken: String(accessToken).trim() }),
+      ...(businessId    !== undefined && { businessId: String(businessId).trim() }),
+    });
+    res.json({ ok: true });
+  });
+
+  app.post("/api/admin/whatsapp-test", requireAdmin, async (req, res) => {
+    const { to, phoneNumberId, accessToken } = req.body;
+    if (!to) return res.status(400).json({ ok: false, error: "Recipient phone number (to) is required" });
+    const result = await testWhatsAppConnection(to, { phoneNumberId, accessToken });
+    res.json(result);
+  });
+
+  // ── WhatsApp — user test ───────────────────────────────────────────────────
+  app.post("/api/profile/whatsapp-test", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { phone } = req.body;
+    const profile = await storage.getUserProfile(user.id);
+    const to = phone ?? (profile as any)?.metadata?.whatsapp_number ?? "";
+    if (!to) return res.status(400).json({ ok: false, error: "No WhatsApp number set. Add it in your profile first." });
+    const result = await testWhatsAppConnection(to);
     res.json(result);
   });
 
@@ -784,12 +829,12 @@ export function registerRoutes(app: Express) {
     const notifMsg = `${amount} ${tokenType.toUpperCase()} sent to ${walletAddress.slice(0, 10)}…`;
     (storage as any).createNotification(user.id.toString(), 'tx', '💧 Faucet Drip Sent', notifMsg, '/wallet').catch(() => {});
 
-    // Telegram alert if user has configured chat ID
+    // Telegram + WhatsApp alerts
     storage.getUserProfile(user.id).then((profile: any) => {
       const chatId = profile?.telegram_chat_id;
-      if (chatId) {
-        sendTelegramAlert(chatId, "faucet", { amount, token: tokenType, wallet: walletAddress, txHash }).catch(() => {});
-      }
+      if (chatId) sendTelegramAlert(chatId, "faucet", { amount, token: tokenType, wallet: walletAddress, txHash }).catch(() => {});
+      const waNum = profile?.metadata?.whatsapp_number;
+      if (waNum) sendWhatsAppAlert(waNum, "faucet", { amount, token: tokenType, wallet: walletAddress, txHash }).catch(() => {});
     }).catch(() => {});
   });
 
@@ -907,15 +952,18 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true });
     storage.awardXp(user.id, 'governance_vote', 25, `Voted ${choice} on proposal #${id} +25 XP`).catch(() => {});
     (storage as any).createNotification(user.id.toString(), 'governance', '✅ Vote Recorded', `Your ${choice} vote on proposal #${id} was recorded. +25 XP`, '/governance').catch(() => {});
-    // Telegram alert if user has a configured chat ID
+    // Telegram + WhatsApp alerts on governance vote
     storage.getUserProfile(user.id).then((profile: any) => {
       const chatId = profile?.telegram_chat_id;
-      if (chatId) {
-        sendTelegramAlert(chatId, 'governance', {
-          title: `Proposal #${id}`,
-          body: `You voted <b>${choice}</b> on proposal #${id}. +25 XP awarded.`,
-        }).catch(() => {});
-      }
+      if (chatId) sendTelegramAlert(chatId, 'governance', {
+        title: `Proposal #${id}`,
+        body: `You voted <b>${choice}</b> on proposal #${id}. +25 XP awarded.`,
+      }).catch(() => {});
+      const waNum = profile?.metadata?.whatsapp_number;
+      if (waNum) sendWhatsAppAlert(waNum, 'governance', {
+        title: `Proposal #${id}`,
+        body: `You voted ${choice} on proposal #${id}. +25 XP awarded.`,
+      }).catch(() => {});
     }).catch(() => {});
   });
 

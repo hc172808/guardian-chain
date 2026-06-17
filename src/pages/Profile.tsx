@@ -44,6 +44,7 @@ interface ProfileData {
     email: boolean;
     push: boolean;
     sms: boolean;
+    whatsapp: boolean;
     price_alerts: boolean;
     tx_confirmed: boolean;
     node_status: boolean;
@@ -56,6 +57,7 @@ interface ProfileData {
     website?: string;
     twitter?: string;
     telegram?: string;
+    whatsapp_number?: string;
     occupation?: string;
     theme?: string;
   };
@@ -86,6 +88,52 @@ const THEMES = [
   { value: 'darker', label: 'Pitch Black' },
   { value: 'neon', label: 'Neon Glow' },
 ];
+
+function WhatsAppTestPanel({ number }: { number: string }) {
+  const { toast } = useToast();
+  const [testing, setTesting] = useState(false);
+
+  const sendTest = async () => {
+    if (!number) {
+      toast({ title: 'No number set', description: 'Add your WhatsApp number in the profile info tab first, then save.', variant: 'destructive' });
+      return;
+    }
+    setTesting(true);
+    try {
+      const r = await fetch('/api/profile/whatsapp-test', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: number }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        toast({ title: '✅ Test sent!', description: 'A WhatsApp message was sent to your number.' });
+      } else {
+        toast({ title: 'Failed', description: data.error ?? 'Could not send test message.', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Network error — try again.', variant: 'destructive' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between p-3 rounded-lg bg-green-500/5 border border-green-500/20">
+      <div>
+        <p className="text-xs font-medium text-green-400 flex items-center gap-1">💬 WhatsApp connected</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          {number ? `Sending to: +${number}` : 'No number set — add it in Profile Info tab'}
+        </p>
+      </div>
+      <Button size="sm" variant="outline" onClick={sendTest} disabled={testing || !number} className="gap-1.5 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10">
+        {testing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <SendIcon className="w-3 h-3" />}
+        Test
+      </Button>
+    </div>
+  );
+}
 
 const empty: ProfileData = {
   display_name: '',
@@ -429,6 +477,7 @@ const ProfilePage = () => {
               email:         prefs.email         ?? true,
               push:          prefs.push          ?? false,
               sms:           prefs.sms           ?? false,
+              whatsapp:      prefs.whatsapp      ?? false,
               price_alerts:  prefs.price_alerts  ?? true,
               tx_confirmed:  prefs.tx_confirmed  ?? true,
               node_status:   prefs.node_status   ?? true,
@@ -436,13 +485,14 @@ const ProfilePage = () => {
               announcements: prefs.announcements ?? true,
             },
             metadata: {
-              phone:      meta.phone      ?? '',
-              location:   meta.location   ?? '',
-              website:    meta.website    ?? '',
-              twitter:    meta.twitter    ?? '',
-              telegram:   meta.telegram   ?? '',
-              occupation: meta.occupation ?? '',
-              theme:      meta.theme      ?? 'dark',
+              phone:            meta.phone            ?? '',
+              location:         meta.location         ?? '',
+              website:          meta.website          ?? '',
+              twitter:          meta.twitter          ?? '',
+              telegram:         meta.telegram         ?? '',
+              whatsapp_number:  meta.whatsapp_number  ?? '',
+              occupation:       meta.occupation       ?? '',
+              theme:            meta.theme            ?? 'dark',
             },
           });
         }
@@ -776,6 +826,21 @@ const ProfilePage = () => {
                     />
                   </div>
                 </div>
+
+                {/* WhatsApp */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="whatsapp_number" className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Phone className="w-3 h-3 text-green-400" /> WhatsApp Number
+                  </Label>
+                  <Input
+                    id="whatsapp_number"
+                    placeholder="e.g. 14155552671 (international, digits only)"
+                    value={profile.metadata.whatsapp_number ?? ''}
+                    onChange={e => setMeta('whatsapp_number', e.target.value.replace(/[^\d]/g, ''))}
+                    maxLength={15}
+                  />
+                  <p className="text-[11px] text-muted-foreground">Enter your number in international format without + or spaces. Used for WhatsApp alerts if enabled by admin.</p>
+                </div>
               </div>
             </GlassCard>
 
@@ -852,13 +917,17 @@ const ProfilePage = () => {
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Channels</p>
                 {(
                   [
-                    { key: 'email',         label: 'Email notifications',  desc: 'Receive updates via email' },
-                    { key: 'sms',           label: 'Telegram alerts',      desc: 'Get alerts via Telegram bot (@GYDSChainBot)' },
+                    { key: 'email',    label: 'Email notifications', desc: 'Receive updates via email' },
+                    { key: 'sms',      label: 'Telegram alerts',     desc: 'Get alerts via Telegram bot (@GYDSChainBot)' },
+                    { key: 'whatsapp', label: 'WhatsApp alerts',     desc: 'Receive alerts on WhatsApp (requires number in profile)' },
                   ] as const
                 ).map(n => (
                   <div key={n.key} className="flex items-center justify-between py-2 border-b border-border/30 last:border-0">
                     <div>
-                      <p className="text-sm font-medium text-foreground">{n.label}</p>
+                      <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                        {n.key === 'whatsapp' && <span className="text-green-400">💬</span>}
+                        {n.label}
+                      </p>
                       <p className="text-xs text-muted-foreground">{n.desc}</p>
                     </div>
                     <Switch
@@ -867,6 +936,14 @@ const ProfilePage = () => {
                     />
                   </div>
                 ))}
+
+                {/* WhatsApp test + number display */}
+                {profile.notification_prefs.whatsapp && (
+                  <WhatsAppTestPanel
+                    number={profile.metadata.whatsapp_number ?? ''}
+                  />
+                )}
+
                 {/* Push notification subscribe */}
                 <div className="flex items-center justify-between py-2 border-b border-border/30">
                   <div>
