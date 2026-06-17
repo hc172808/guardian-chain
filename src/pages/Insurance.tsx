@@ -431,7 +431,7 @@ const InsurancePage = () => {
                   payout: '50% of staked amount',
                   premium: '3%/yr',
                   oracle: 'GYDSchain validator metrics',
-                  status: 'coming-soon',
+                  status: 'available',
                 },
                 {
                   name: 'Stablecoin Depeg Cover',

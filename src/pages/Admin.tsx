@@ -55,6 +55,7 @@ import { TestNodeManager } from '@/components/admin/TestNodeManager';
 import { GrantAchievementPanel } from '@/components/admin/GrantAchievementPanel';
 import { FlaskConical, Trophy, Rocket as RocketIcon, ArrowRightLeft, RotateCcw, ExternalLink, ToggleLeft, ToggleRight, Zap, Timer } from 'lucide-react';
 import { CronJobManager } from '@/components/admin/CronJobManager';
+import { NodeRepoSync } from '@/components/admin/NodeRepoSync';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -895,8 +896,11 @@ const AdminContent = () => {
           <DatabaseSettings />
         </TabsContent>
 
-        <TabsContent value="github">
+        <TabsContent value="github" className="space-y-4">
           <GitSyncPanel toast={toast} />
+          <GlassCard className="p-6">
+            <NodeRepoSync />
+          </GlassCard>
         </TabsContent>
 
         <TabsContent value="firewall">

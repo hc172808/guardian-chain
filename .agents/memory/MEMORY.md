@@ -22,3 +22,5 @@
 - [Biometric unlock](biometric-unlock.md) — src/lib/biometric.ts uses WebAuthn (navigator.credentials); isBiometricAvailable, registerBiometric, authenticateBiometric, disableBiometric, isBiometricEnabled; toggle in Profile security tab + Mobile MoreTab.
 - [Ledger WebHID](ledger-webhid.md) — LedgerConnect.tsx uses navigator.hid (WebHID); compact prop for header use; Chrome/Edge only; reads 5 accounts via BIP44 APDU; wired to Wallet.tsx header.
 - [Server services](server-services.md) — server/email.ts (nodemailer, SMTP_HOST env, console fallback), server/walletCrypto.ts (AES-256-GCM, WALLET_ENCRYPTION_KEY env), server/webpush.ts (web-push, VAPID auto-gen).
+- [Node repo fixes](node-repo-fixes.md) — node-fixes/ dir has corrected Go source for rpcnode/boostnode/fullnode/genesis; install-fullnode.sh and install-genesis.sh repo URLs fixed; NodeRepoSync.tsx in Admin GitHub tab checks each repo via GitHub API.
+- [SDK section](sdk-section.md) — Developer.tsx SDKs tab: JS/TS and Python marked Available with full code examples; Go is In Progress; Rust is Planned; feature matrix table included.

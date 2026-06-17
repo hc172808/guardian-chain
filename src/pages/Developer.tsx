@@ -654,31 +654,188 @@ const DeveloperPage = () => {
           </TabsContent>
 
           {/* SDKs */}
-          <TabsContent value="sdks" className="mt-4">
+          <TabsContent value="sdks" className="mt-4 space-y-4">
+            {/* JS / TS */}
+            <GlassCard className="p-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🟨</span>
+                <div>
+                  <p className="font-semibold">JavaScript / TypeScript</p>
+                  <code className="text-xs text-muted-foreground">@gydschain/sdk</code>
+                </div>
+                <Badge className="ml-auto text-xs bg-emerald-500/20 text-emerald-400 border-emerald-400/30 border">Available</Badge>
+                <a href="https://github.com/hc172808/guardian-chain" target="_blank" rel="noreferrer"
+                  className="text-muted-foreground hover:text-primary"><ExternalLink className="w-4 h-4" /></a>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 bg-muted/20 rounded-lg p-2">
+                  <code className="text-xs font-mono text-primary flex-1">npm install @gydschain/sdk</code>
+                  <button onClick={() => { navigator.clipboard.writeText('npm install @gydschain/sdk'); toast({ title: 'Copied!' }); }}
+                    className="text-muted-foreground hover:text-primary p-1"><Copy className="w-3 h-3" /></button>
+                </div>
+                <pre className="text-xs font-mono bg-muted/20 rounded-lg p-3 overflow-auto border border-border/30 text-foreground/80">{`import { GYDSClient } from '@gydschain/sdk';
+
+const client = new GYDSClient({
+  rpcUrl: 'https://rpc.netlifegy.com',
+  chainId: 13370,
+});
+
+// Get chain stats
+const stats = await client.network.getStats();
+console.log('Block height:', stats.blockHeight);
+
+// Get balance
+const balance = await client.wallet.getBalance('0xYourAddress');
+console.log('Balance:', balance.gyds, 'GYDS');
+
+// Send transaction
+const tx = await client.tx.send({
+  to: '0xRecipient',
+  amount: '1.5',
+  token: 'GYDS',
+});
+console.log('Tx hash:', tx.hash);
+
+// Subscribe to new blocks
+client.ws.onBlock((block) => {
+  console.log('New block:', block.number, block.hash);
+});`}</pre>
+              </div>
+            </GlassCard>
+
+            {/* Python */}
+            <GlassCard className="p-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🐍</span>
+                <div>
+                  <p className="font-semibold">Python</p>
+                  <code className="text-xs text-muted-foreground">gydschain-py</code>
+                </div>
+                <Badge className="ml-auto text-xs bg-emerald-500/20 text-emerald-400 border-emerald-400/30 border">Available</Badge>
+                <a href="https://github.com/hc172808/guardian-chain" target="_blank" rel="noreferrer"
+                  className="text-muted-foreground hover:text-primary"><ExternalLink className="w-4 h-4" /></a>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 bg-muted/20 rounded-lg p-2">
+                  <code className="text-xs font-mono text-primary flex-1">pip install gydschain</code>
+                  <button onClick={() => { navigator.clipboard.writeText('pip install gydschain'); toast({ title: 'Copied!' }); }}
+                    className="text-muted-foreground hover:text-primary p-1"><Copy className="w-3 h-3" /></button>
+                </div>
+                <pre className="text-xs font-mono bg-muted/20 rounded-lg p-3 overflow-auto border border-border/30 text-foreground/80">{`from gydschain import GYDSClient
+
+client = GYDSClient(
+    rpc_url="https://rpc.netlifegy.com",
+    chain_id=13370,
+)
+
+# Get chain stats
+stats = client.network.get_stats()
+print(f"Block height: {stats['blockHeight']}")
+
+# Get balance
+balance = client.wallet.get_balance("0xYourAddress")
+print(f"Balance: {balance['gyds']} GYDS")
+
+# Send transaction
+tx = client.tx.send(
+    to="0xRecipient",
+    amount="1.5",
+    token="GYDS",
+    private_key="0xYourPrivateKey",
+)
+print(f"Tx hash: {tx['hash']}")
+
+# Subscribe to events (async)
+async def on_block(block):
+    print(f"New block: {block['number']}")
+
+await client.ws.on_block(on_block)`}</pre>
+              </div>
+            </GlassCard>
+
+            {/* Go + Rust side by side */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {[
-                { lang: 'JavaScript / TypeScript', pkg: '@gydschain/sdk', install: 'npm install @gydschain/sdk', status: 'Coming Soon', icon: '🟨' },
-                { lang: 'Python', pkg: 'gydschain-py', install: 'pip install gydschain', status: 'Coming Soon', icon: '🐍' },
-                { lang: 'Go', pkg: 'github.com/gydschain/go-sdk', install: 'go get github.com/gydschain/go-sdk', status: 'In Progress', icon: '🔵' },
-                { lang: 'Rust', pkg: 'gydschain-rs', install: 'cargo add gydschain', status: 'Planned', icon: '🦀' },
-              ].map(sdk => (
-                <GlassCard key={sdk.lang} className="p-5 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{sdk.icon}</span>
-                    <div>
-                      <p className="font-semibold">{sdk.lang}</p>
-                      <code className="text-xs text-muted-foreground">{sdk.pkg}</code>
-                    </div>
-                    <Badge variant="secondary" className="ml-auto text-xs">{sdk.status}</Badge>
+              <GlassCard className="p-5 space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🔵</span>
+                  <div>
+                    <p className="font-semibold">Go</p>
+                    <code className="text-xs text-muted-foreground">github.com/gydschain/go-sdk</code>
                   </div>
-                  <div className="flex items-center gap-2 bg-muted/20 rounded-lg p-2">
-                    <code className="text-xs font-mono text-primary flex-1">{sdk.install}</code>
-                    <button onClick={() => { navigator.clipboard.writeText(sdk.install); toast({ title: 'Copied!' }); }}
-                      className="text-muted-foreground hover:text-primary p-1"><Copy className="w-3 h-3" /></button>
+                  <Badge variant="secondary" className="ml-auto text-xs">In Progress</Badge>
+                </div>
+                <div className="flex items-center gap-2 bg-muted/20 rounded-lg p-2">
+                  <code className="text-xs font-mono text-primary flex-1">go get github.com/gydschain/go-sdk</code>
+                  <button onClick={() => { navigator.clipboard.writeText('go get github.com/gydschain/go-sdk'); toast({ title: 'Copied!' }); }}
+                    className="text-muted-foreground hover:text-primary p-1"><Copy className="w-3 h-3" /></button>
+                </div>
+                <pre className="text-xs font-mono bg-muted/20 rounded-lg p-3 overflow-auto border border-border/30 text-foreground/60">{`client := gyds.NewClient(gyds.Config{
+  RPCURL:  "https://rpc.netlifegy.com",
+  ChainID: 13370,
+})
+stats, _ := client.Network.Stats(ctx)
+fmt.Println("Height:", stats.BlockHeight)`}</pre>
+              </GlassCard>
+
+              <GlassCard className="p-5 space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🦀</span>
+                  <div>
+                    <p className="font-semibold">Rust</p>
+                    <code className="text-xs text-muted-foreground">gydschain-rs</code>
                   </div>
-                </GlassCard>
-              ))}
+                  <Badge variant="outline" className="ml-auto text-xs text-muted-foreground">Planned</Badge>
+                </div>
+                <div className="flex items-center gap-2 bg-muted/20 rounded-lg p-2">
+                  <code className="text-xs font-mono text-muted-foreground flex-1">cargo add gydschain</code>
+                  <button onClick={() => { navigator.clipboard.writeText('cargo add gydschain'); toast({ title: 'Copied!' }); }}
+                    className="text-muted-foreground hover:text-primary p-1"><Copy className="w-3 h-3" /></button>
+                </div>
+                <pre className="text-xs font-mono bg-muted/20 rounded-lg p-3 overflow-auto border border-border/30 text-foreground/40">{`let client = GYDSClient::new(Config {
+    rpc_url: "https://rpc.netlifegy.com",
+    chain_id: 13370,
+})?;
+let stats = client.network().stats().await?;
+println!("Height: {}", stats.block_height);`}</pre>
+              </GlassCard>
             </div>
+
+            {/* SDK feature matrix */}
+            <GlassCard className="p-4">
+              <p className="text-sm font-medium mb-3">SDK Feature Coverage</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-muted-foreground border-b border-border/30">
+                      <th className="text-left pb-2 font-medium">Feature</th>
+                      <th className="text-center pb-2 font-medium">JS/TS</th>
+                      <th className="text-center pb-2 font-medium">Python</th>
+                      <th className="text-center pb-2 font-medium">Go</th>
+                      <th className="text-center pb-2 font-medium">Rust</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/20">
+                    {[
+                      ['Chain stats & blocks', '✅', '✅', '🔄', '📋'],
+                      ['Wallet balance & history', '✅', '✅', '🔄', '📋'],
+                      ['Send transactions', '✅', '✅', '🔄', '📋'],
+                      ['Token operations', '✅', '✅', '🔄', '📋'],
+                      ['WebSocket subscriptions', '✅', '✅', '📋', '📋'],
+                      ['Smart contract calls', '✅', '🔄', '📋', '📋'],
+                      ['Validator queries', '✅', '✅', '🔄', '📋'],
+                    ].map(([feat, ...cols]) => (
+                      <tr key={feat as string}>
+                        <td className="py-1.5 text-foreground/80 pr-4">{feat}</td>
+                        {cols.map((v, i) => (
+                          <td key={i} className="py-1.5 text-center">{v}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-xs text-muted-foreground mt-2">✅ Available · 🔄 In Progress · 📋 Planned</p>
+              </div>
+            </GlassCard>
           </TabsContent>
         </Tabs>
 

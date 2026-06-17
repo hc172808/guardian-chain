@@ -640,7 +640,7 @@ const ProfilePage = () => {
                 {(
                   [
                     { key: 'email',         label: 'Email notifications',  desc: 'Receive updates via email' },
-                    { key: 'sms',           label: 'SMS notifications',    desc: 'Text message alerts (coming soon)' },
+                    { key: 'sms',           label: 'Telegram alerts',      desc: 'Get alerts via Telegram bot (@GYDSChainBot)' },
                   ] as const
                 ).map(n => (
                   <div key={n.key} className="flex items-center justify-between py-2 border-b border-border/30 last:border-0">

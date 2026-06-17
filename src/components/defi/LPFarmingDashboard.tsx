@@ -82,7 +82,7 @@ export const LPFarmingDashboard = () => {
           <div className="flex items-center gap-2">
             <Sprout className="w-5 h-5 text-emerald-400" />
             <span className="font-semibold text-foreground">LP Farming</span>
-            <Badge variant="outline" className="text-xs ml-auto">Mainnet: Coming Soon</Badge>
+            <Badge variant="outline" className="text-xs ml-auto text-emerald-400 border-emerald-400/40">Live on Testnet</Badge>
           </div>
           <p className="text-xs text-muted-foreground">Stake LP tokens to earn GYDS rewards. Higher multiplier pools earn proportionally more.</p>
           <div className="grid grid-cols-3 gap-3">
