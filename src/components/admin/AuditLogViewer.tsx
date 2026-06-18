@@ -3,7 +3,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import {
   ScrollText, Loader2, Shield, Users, Coins, Server, Settings, RefreshCw,
 } from 'lucide-react';
@@ -47,18 +47,14 @@ export const AuditLogViewer = () => {
 
   const fetchLogs = async () => {
     setLoading(true);
-    let query = supabase
-      .from('audit_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100);
-
-    if (filter !== 'all') {
-      query = query.eq('category', filter);
+    try {
+      const params = new URLSearchParams({ limit: '100' });
+      if (filter !== 'all') params.set('category', filter);
+      const data = await api.get(`/api/audit-logs?${params}`);
+      setLogs(Array.isArray(data) ? data : []);
+    } catch {
+      setLogs([]);
     }
-
-    const { data } = await query;
-    if (data) setLogs(data as unknown as AuditEntry[]);
     setLoading(false);
   };
 
@@ -139,7 +135,7 @@ export const AuditLogViewer = () => {
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-xs text-muted-foreground">
-                      {log.user_email || log.user_id.slice(0, 8) + '...'}
+                      {log.user_email || (log.user_id?.slice(0, 8) + '...')}
                     </span>
                     <span className="text-xs text-muted-foreground">•</span>
                     <span className="text-xs text-muted-foreground">{formatTime(log.created_at)}</span>
