@@ -1,10 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Sprout, TrendingUp, Zap, Lock, Plus, Minus, RefreshCw, Info } from 'lucide-react';
+import { useWalletConnect } from '@/hooks/useWalletConnect';
+import {
+  getFarmPools,
+  getUserFarmInfo,
+  executeFarmDeposit,
+  executeFarmWithdraw,
+  executeFarmHarvest,
+  type PoolInfo,
+} from '@/lib/swapContract';
 
 interface FarmPool {
   id: string;
@@ -34,42 +43,132 @@ const TAG_STYLE: Record<string, string> = {
 
 export const LPFarmingDashboard = () => {
   const { toast } = useToast();
+  const { address } = useWalletConnect();
   const [farms, setFarms] = useState<FarmPool[]>(DEMO_FARMS);
+  const [chainPools, setChainPools] = useState<PoolInfo[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [stakeAmount, setStakeAmount] = useState('');
   const [filter, setFilter] = useState<'all' | 'staked'>('all');
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Load on-chain farm pools if deployed
+  useEffect(() => {
+    const loadChain = async () => {
+      const pools = await getFarmPools();
+      if (pools.length > 0) setChainPools(pools);
+    };
+    loadChain();
+  }, []);
+
+  // Load user farm positions if wallet is connected
+  useEffect(() => {
+    if (!address || chainPools.length === 0) return;
+    const loadUser = async () => {
+      const updated = await Promise.all(
+        farms.map(async (farm) => {
+          const pid = chainPools.findIndex(p => p.lpToken.toLowerCase().includes(farm.name.toLowerCase()));
+          if (pid >= 0) {
+            const info = await getUserFarmInfo(pid, address);
+            if (info) {
+              return {
+                ...farm,
+                stakedLP: parseFloat(info.amount) / 1e18,
+                earned: parseFloat(info.pendingRewards) / 1e18,
+              };
+            }
+          }
+          return farm;
+        })
+      );
+      setFarms(updated);
+    };
+    loadUser();
+  }, [address, chainPools]);
 
   const totalEarned = farms.reduce((s, f) => s + f.earned, 0);
   const totalStakedLP = farms.reduce((s, f) => s + f.stakedLP, 0);
 
-  const handleStake = (farm: FarmPool) => {
+  const handleStake = async (farm: FarmPool) => {
     const amt = parseFloat(stakeAmount);
     if (!amt || amt <= 0) return toast({ title: 'Enter amount', variant: 'destructive' });
+    setIsLoading(true);
+
+    // Try on-chain deposit first
+    const pid = chainPools.findIndex(p => p.lpToken.toLowerCase().includes(farm.name.toLowerCase()));
+    if (pid >= 0) {
+      const txHash = await executeFarmDeposit(pid, BigInt(Math.floor(amt * 1e18)).toString());
+      if (txHash) {
+        setFarms(prev => prev.map(f => f.id === farm.id ? { ...f, stakedLP: f.stakedLP + amt } : f));
+        setStakeAmount('');
+        toast({ title: `Staked on-chain!`, description: `Tx ${txHash.slice(0, 12)}...` });
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    // Fallback: demo update
     setFarms(prev => prev.map(f => f.id === farm.id ? { ...f, stakedLP: f.stakedLP + amt } : f));
     setStakeAmount('');
     toast({ title: `Staked ${amt} ${farm.name} LP`, description: 'You are now earning GYDS rewards.' });
+    setIsLoading(false);
   };
 
-  const handleUnstake = (farm: FarmPool) => {
+  const handleUnstake = async (farm: FarmPool) => {
     const amt = parseFloat(stakeAmount);
     if (!amt || amt <= 0) return toast({ title: 'Enter amount', variant: 'destructive' });
     if (amt > farm.stakedLP) return toast({ title: 'Insufficient staked LP', variant: 'destructive' });
+    setIsLoading(true);
+
+    const pid = chainPools.findIndex(p => p.lpToken.toLowerCase().includes(farm.name.toLowerCase()));
+    if (pid >= 0) {
+      const txHash = await executeFarmWithdraw(pid, BigInt(Math.floor(amt * 1e18)).toString());
+      if (txHash) {
+        setFarms(prev => prev.map(f => f.id === farm.id ? { ...f, stakedLP: f.stakedLP - amt } : f));
+        setStakeAmount('');
+        toast({ title: `Unstaked on-chain!`, description: `Tx ${txHash.slice(0, 12)}...` });
+        setIsLoading(false);
+        return;
+      }
+    }
+
     setFarms(prev => prev.map(f => f.id === farm.id ? { ...f, stakedLP: f.stakedLP - amt } : f));
     setStakeAmount('');
     toast({ title: `Unstaked ${amt} ${farm.name} LP` });
+    setIsLoading(false);
   };
 
-  const handleHarvest = (farm: FarmPool) => {
+  const handleHarvest = async (farm: FarmPool) => {
     if (farm.earned <= 0) return toast({ title: 'Nothing to harvest' });
+    setIsLoading(true);
+
+    const pid = chainPools.findIndex(p => p.lpToken.toLowerCase().includes(farm.name.toLowerCase()));
+    if (pid >= 0) {
+      const txHash = await executeFarmHarvest(pid);
+      if (txHash) {
+        setFarms(prev => prev.map(f => f.id === farm.id ? { ...f, earned: 0 } : f));
+        toast({ title: `Harvested on-chain!`, description: `Tx ${txHash.slice(0, 12)}...` });
+        setIsLoading(false);
+        return;
+      }
+    }
+
     setFarms(prev => prev.map(f => f.id === farm.id ? { ...f, earned: 0 } : f));
     toast({ title: `Harvested ${farm.earned.toFixed(4)} GYDS`, description: 'Sent to your wallet.' });
+    setIsLoading(false);
   };
 
-  const handleHarvestAll = () => {
+  const handleHarvestAll = async () => {
     const total = farms.reduce((s, f) => s + f.earned, 0);
     if (total <= 0) return toast({ title: 'Nothing to harvest' });
+    setIsLoading(true);
+
+    for (let pid = 0; pid < chainPools.length; pid++) {
+      await executeFarmHarvest(pid);
+    }
+
     setFarms(prev => prev.map(f => ({ ...f, earned: 0 })));
     toast({ title: `Harvested ${total.toFixed(4)} GYDS total` });
+    setIsLoading(false);
   };
 
   const visible = filter === 'staked' ? farms.filter(f => f.stakedLP > 0) : farms;
@@ -95,8 +194,9 @@ export const LPFarmingDashboard = () => {
               <div className="text-sm font-bold text-emerald-400">{totalEarned.toFixed(4)}</div>
             </div>
             <div className="text-center">
-              <Button size="sm" variant="outline" className="text-xs h-7 w-full" onClick={handleHarvestAll}>
-                <RefreshCw className="w-3 h-3 mr-1" /> Harvest All
+              <Button size="sm" variant="outline" className="text-xs h-7 w-full" onClick={handleHarvestAll}
+                disabled={isLoading}>
+                <RefreshCw className={isLoading ? "w-3 h-3 mr-1 animate-spin" : "w-3 h-3 mr-1"} /> Harvest All
               </Button>
             </div>
           </div>
@@ -161,8 +261,8 @@ export const LPFarmingDashboard = () => {
                 <div className="font-bold text-emerald-400">{farm.earned.toFixed(6)}</div>
               </div>
               <Button size="sm" variant="outline" className="text-xs h-7 border-emerald-500/40"
-                onClick={() => handleHarvest(farm)}>
-                <RefreshCw className="w-3 h-3 mr-1" /> Harvest
+                onClick={() => handleHarvest(farm)} disabled={isLoading}>
+                <RefreshCw className={isLoading ? "w-3 h-3 mr-1 animate-spin" : "w-3 h-3 mr-1"} /> Harvest
               </Button>
             </div>
           )}
@@ -182,18 +282,21 @@ export const LPFarmingDashboard = () => {
                 className="h-8 text-sm"
               />
               <div className="flex gap-2">
-                <Button size="sm" className="flex-1 h-8 text-xs gap-1" onClick={() => handleStake(farm)}>
-                  <Plus className="w-3 h-3" /> Stake
+                <Button size="sm" className="flex-1 h-8 text-xs gap-1" onClick={() => handleStake(farm)}
+                  disabled={isLoading}>
+                  <Plus className={isLoading ? "w-3 h-3 animate-spin" : "w-3 h-3"} /> Stake
                 </Button>
                 <Button size="sm" variant="outline" className="flex-1 h-8 text-xs gap-1" onClick={() => handleUnstake(farm)}
-                  disabled={farm.stakedLP <= 0}>
-                  <Minus className="w-3 h-3" /> Unstake
+                  disabled={isLoading || farm.stakedLP <= 0}>
+                  <Minus className={isLoading ? "w-3 h-3 animate-spin" : "w-3 h-3"} /> Unstake
                 </Button>
               </div>
               <div className="flex items-start gap-1.5 bg-secondary/20 rounded-lg p-2">
                 <Info className="w-3 h-3 text-muted-foreground mt-0.5 flex-shrink-0" />
                 <p className="text-[11px] text-muted-foreground">
-                  Staking is simulated in this demo. Live contract staking activates on mainnet launch. You must first add liquidity to receive LP tokens.
+                  {chainPools.length > 0
+                    ? 'Live contract staking is active. On-chain transactions will be sent to the GydsSwapFarm contract.'
+                    : 'Staking is simulated in this demo. Live contract staking activates on mainnet launch. You must first add liquidity to receive LP tokens.'}
                 </p>
               </div>
             </div>

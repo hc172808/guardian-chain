@@ -82,6 +82,29 @@ cd ../genesis && bash setup.sh
 
 ---
 
+## Litenode Architecture
+
+A lightweight header-only sync node (no full block storage, no block production).
+
+| File | Purpose |
+|---|---|
+| `go.mod` | `module github.com/gydschain/litenode` |
+| `config/config.go` | Chain ID, RPC/P2P ports, bootstrap peers |
+| `header-sync/sync.go` | Header-only sync, ECDSA block header verification, SPV proof generation |
+| `main.go` | HTTP API (latest header, SPV, header range), no block production |
+
+**Key differences from fullnode:**
+- `storeHeader()` only stores headers (not full blocks/transactions)
+- `verifyBlockHeader()` uses ECDSA `r/s/v` recovery + `pubKeyToAddress()` to verify block signer
+- `GenerateSPVProof()` creates Merkle proofs for inclusion verification
+- `ProduceAndBroadcastBlock()` removed — litenode is a passive verifier
+
+```bash
+cd node-fixes/litenode && bash setup.sh
+```
+
+---
+
 ## Dashboard Script Fixes (already applied)
 
 | Script | Was | Now |

@@ -11,6 +11,7 @@ import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { getUserAddresses, computeUserBalances } from '@/lib/balances';
+import { getFarmPools, getUserFarmInfo, executeFarmDeposit, executeFarmWithdraw, executeFarmHarvest } from '@/lib/swapContract';
 
 export const StakeInterface = () => {
   const [stakeAmount, setStakeAmount] = useState('');
@@ -67,7 +68,7 @@ export const StakeInterface = () => {
     }
     const amount = parseFloat(type === 'stake' ? stakeAmount : unstakeAmount);
     if (!amount || amount <= 0) return;
-    
+
     if (type === 'stake' && amount > userBalance) {
       toast({ title: 'Insufficient Balance', description: `You only have ${userBalance.toFixed(4)} GYD available.`, variant: 'destructive' });
       return;
@@ -76,8 +77,38 @@ export const StakeInterface = () => {
       toast({ title: 'Insufficient xGYD', description: `You only have ${(userStaked / exchangeRate).toFixed(4)} xGYD staked.`, variant: 'destructive' });
       return;
     }
-    
+
     setIsProcessing(true);
+
+    // Try on-chain Farm contract first (if deployed)
+    try {
+      const pools = await getFarmPools();
+      if (pools.length > 0) {
+        const pid = 0; // GYD pool is pid 0
+        const wei = BigInt(Math.floor(amount * 1e18)).toString();
+        let txHash: string | null = null;
+
+        if (type === 'stake') {
+          txHash = await executeFarmDeposit(pid, wei);
+        } else {
+          txHash = await executeFarmWithdraw(pid, wei);
+        }
+
+        if (txHash) {
+          toast({
+            title: type === 'stake' ? 'Staked On-Chain!' : 'Unstaked On-Chain!',
+            description: `Tx: ${txHash.slice(0, 14)}...\n${type === 'stake' ? amount : amount * exchangeRate} ${type === 'stake' ? 'GYD' : 'GYD'} ${type === 'stake' ? 'staked' : 'unstaked'}.`,
+          });
+          if (type === 'stake') setStakeAmount(''); else setUnstakeAmount('');
+          setIsProcessing(false);
+          return;
+        }
+      }
+    } catch {
+      // Farm contract not deployed or call failed — fall through to mempool simulation
+    }
+
+    // Fallback: mempool simulation (until contracts are deployed)
     try {
       const { submitTransaction } = await import('@/lib/mempool');
       await submitTransaction({

@@ -1,0 +1,373 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Supabase Self-Hosted — Portainer Stack (Docker Compose v3.8)
+# Chain: GYDS | Domain: netlifegy.com
+# Run this on a fresh Ubuntu server with Portainer installed.
+# The server must have at least 4GB RAM, 4 CPU cores, 50GB SSD.
+# ═══════════════════════════════════════════════════════════════════════════
+version: "3.8"
+
+x-common-env: &common-env
+  # JWT (generate fresh with: openssl rand -hex 32)
+  JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-32-chars}
+  ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2MDAwMDAwMDAsImV4cCI6MjAwMDAwMDAwMH0.change-me}
+  SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTYwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.change-me}
+  # Postgres
+  POSTGRES_HOST: db
+  POSTGRES_DB: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: ${POSTGRES_USER:-supabase}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-postgres-password}
+  # General
+  SITE_URL: ${SITE_URL:-https://app.netlifegy.com}
+  SUPABASE_URL: http://kong:8000
+  SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:-https://supabase.netlifegy.com}
+  # Storage
+  STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+  STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:-}
+  STORAGE_S3_BUCKET: ${STORAGE_S3_BUCKET:-gydschain-storage}
+  STORAGE_S3_REGION: ${STORAGE_S3_REGION:-us-east-1}
+  STORAGE_S3_ACCESS_KEY: ${STORAGE_S3_ACCESS_KEY:-}
+  STORAGE_S3_SECRET_KEY: ${STORAGE_S3_SECRET_KEY:-}
+  # Functions
+  FUNCTIONS_VERIFY_JWT: "true"
+  # Analytics
+  LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-}
+  LOGFLARE_URL: http://analytics:4000
+  # Auth
+  GOTRUE_JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-32-chars}
+  GOTRUE_JWT_EXP: 3600
+  GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+  GOTRUE_SITE_URL: ${SITE_URL:-https://app.netlifegy.com}
+  GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+  GOTRUE_EXTERNAL_PHONE_ENABLED: "true"
+  GOTRUE_MAILER_AUTOCONFIRM: "true"
+  GOTRUE_SMS_AUTOCONFIRM: "true"
+  GOTRUE_DISABLE_SIGNUP: "false"
+  GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/verify
+  GOTRUE_MAILER_URLPATHS_INVITE: /auth/invite
+  GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/reset-password
+  GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/email-change
+  GOTRUE_EXTERNAL_GOOGLE_ENABLED: "false"
+  GOTRUE_EXTERNAL_GITHUB_ENABLED: "false"
+  GOTRUE_EXTERNAL_DISCORD_ENABLED: "false"
+  # API
+  PGRST_DB_SCHEMAS: public,storage,graphql_public
+  PGRST_DB_ANON_ROLE: anon
+  PGRST_DB_USE_LEGACY_GUCS: "false"
+  # Realtime
+  REALTIME_DEFAULT_TENANT: realtime-dev
+  REALTIME_DEFAULT_API_JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-32-chars}
+  REALTIME_DEFAULT_API_JWT_JWKS: ""
+  # Studio (Meta)
+  STUDIO_DEFAULT_ORGANIZATION: GYDSchain
+  STUDIO_DEFAULT_PROJECT: GYDSchain
+  STUDIO_PORT: 3000
+  # Network
+  DOCKER_SOCKET_LOCATION: /var/run/docker.sock
+
+services:
+  # ── Kong API Gateway ─────────────────────────────────────────────────────────
+  kong:
+    container_name: supabase-kong
+    image: kong:2.8.1
+    restart: unless-stopped
+    depends_on:
+      - analytics
+      - auth
+      - rest
+      - realtime
+      - storage
+      - functions
+      - meta
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,rate-limiting
+    volumes:
+      - type: bind
+        source: ./kong.yml
+        target: /var/lib/kong/kong.yml
+        read_only: true
+    ports:
+      - "${KONG_HTTP_PORT:-8000}:8000"
+      - "${KONG_HTTPS_PORT:-8443}:8443"
+    networks:
+      - supabase-network
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── PostgreSQL Database ───────────────────────────────────────────────────
+  db:
+    container_name: supabase-db
+    image: supabase/postgres:15.1.1.78
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-supabase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-postgres-password}
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+      - type: bind
+        source: ./init-scripts
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - supabase-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supabase"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Auth (GoTrue) ──────────────────────────────────────────────────────────
+  auth:
+    container_name: supabase-auth
+    image: supabase/gotrue:v2.158.1
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-32-chars}
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://${POSTGRES_USER:-supabase}:${POSTGRES_PASSWORD:-change-me-postgres-password}@db:5432/postgres?sslmode=disable
+      GOTRUE_SITE_URL: ${SITE_URL:-https://app.netlifegy.com}
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMS_AUTOCONFIRM: "true"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "true"
+      GOTRUE_API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL:-https://supabase.netlifegy.com}
+      GOTRUE_URI_ALLOW_LIST: "*"
+      GOTRUE_ADMIN_ROLES: service_role
+    networks:
+      - supabase-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9999/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── REST API (PostgREST) ──────────────────────────────────────────────────
+  rest:
+    container_name: supabase-rest
+    image: postgrest/postgrest:v12.2.3
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:-change-me-postgres-password}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-32-chars}
+      PGRST_JWT_AUD: authenticated
+    networks:
+      - supabase-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Realtime (WebSocket) ──────────────────────────────────────────────────
+  realtime:
+    container_name: supabase-realtime
+    image: supabase/realtime:v2.34.45
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      PORT: 4000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-supabase}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-postgres-password}
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      DB_ENC_KEY: ${DB_ENC_KEY:-change-me-db-enc-key-32}
+      API_JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-32-chars}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-change-me-secret-key-base-64}
+      ERL_AFLAGS: "-proto_dist inet_tcp"
+      ENABLE_TAILSCALE: "false"
+      DNS_NODES: "''"
+    networks:
+      - supabase-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Storage (S3-compatible) ─────────────────────────────────────────────────
+  storage:
+    container_name: supabase-storage
+    image: supabase/storage-api:v1.17.1
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2MDAwMDAwMDAsImV4cCI6MjAwMDAwMDAwMH0.change-me}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTYwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.change-me}
+      POSTGREST_URL: http://rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-32-chars}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD:-change-me-postgres-password}@db:5432/postgres
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: us-east-1
+      GLOBAL_S3_BUCKET: gydschain-bucket
+      AWS_ACCESS_KEY_ID: ${STORAGE_S3_ACCESS_KEY:-}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_S3_SECRET_KEY:-}
+      AWS_DEFAULT_REGION: ${STORAGE_S3_REGION:-us-east-1}
+    volumes:
+      - supabase-storage-data:/var/lib/storage
+    networks:
+      - supabase-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Functions (Edge Functions) ──────────────────────────────────────────────
+  functions:
+    container_name: supabase-functions
+    image: supabase/edge-runtime:v1.67.1
+    restart: unless-stopped
+    depends_on:
+      analytics:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2MDAwMDAwMDAsImV4cCI6MjAwMDAwMDAwMH0.change-me}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTYwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.change-me}
+      JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-32-chars}
+      VERIFY_JWT: "true"
+    volumes:
+      - supabase-functions-data:/home/deno/functions
+    networks:
+      - supabase-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Studio (Meta Dashboard) ─────────────────────────────────────────────────
+  meta:
+    container_name: supabase-studio
+    image: supabase/studio:20241202-71e6c12
+    restart: unless-stopped
+    depends_on:
+      analytics:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      STUDIO_DEFAULT_ORGANIZATION: GYDSchain
+      STUDIO_DEFAULT_PROJECT: GYDSchain
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:-https://supabase.netlifegy.com}
+      SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2MDAwMDAwMDAsImV4cCI6MjAwMDAwMDAwMH0.change-me}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTYwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.change-me}
+    ports:
+      - "${STUDIO_PORT:-3000}:3000"
+    networks:
+      - supabase-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Analytics (Logflare) ────────────────────────────────────────────────────
+  analytics:
+    container_name: supabase-analytics
+    image: supabase/logflare:1.11.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      POSTGRES_BACKEND_URL: postgres://supabase_admin:${POSTGRES_PASSWORD:-change-me-postgres-password}@db:5432/postgres
+      POSTGRES_BACKEND_SCHEMA: _analytics
+      LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-}
+      LOGFLARE_SINGLE_TENANT: "true"
+      LOGFLARE_SUPABASE_MODE: "true"
+      LOGFLARE_FEATURE_FLAG_OVERRIDE: multibackend
+    ports:
+      - "${ANALYTICS_PORT:-4000}:4000"
+    networks:
+      - supabase-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Vector (Log Shipping) ──────────────────────────────────────────────────
+  vector:
+    container_name: supabase-vector
+    image: timberio/vector:0.42.0-alpine
+    restart: unless-stopped
+    depends_on:
+      analytics:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ./vector.yml
+        target: /etc/vector/vector.yml
+        read_only: true
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - supabase-network
+
+  # ── Image Proxy (ImgProxy) ──────────────────────────────────────────────────
+  imgproxy:
+    container_name: supabase-imgproxy
+    image: darthsim/imgproxy:v3.26.0
+    restart: unless-stopped
+    depends_on:
+      - storage
+    environment:
+      IMGPROXY_KEY: ${IMGPROXY_KEY:-change-me-imgproxy-key}
+      IMGPROXY_SALT: ${IMGPROXY_SALT:-change-me-imgproxy-salt}
+      IMGPROXY_ENABLE_WEBP_DETECTION: "true"
+      IMGPROXY_MAX_SRC_RESOLUTION: 100
+    ports:
+      - "${IMGPROXY_PORT:-5001}:5001"
+    networks:
+      - supabase-network
+
+volumes:
+  supabase-db-data:
+  supabase-storage-data:
+  supabase-functions-data:
+
+networks:
+  supabase-network:
+    name: supabase-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16

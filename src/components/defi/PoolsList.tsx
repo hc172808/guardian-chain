@@ -18,6 +18,8 @@ import { CreatePool } from './CreatePool';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
+import { getPairReserves, getPairInfo } from '@/lib/swapContract';
+import { CONTRACT_ADDRESSES } from '@/config/contracts';
 
 interface Pool {
   id: string;
@@ -55,6 +57,34 @@ export const PoolsList = () => {
       .eq('is_active', true)
       .order('tvl', { ascending: false });
     if (data) setPools(data);
+
+    // Try to enrich with on-chain reserves if contracts are deployed
+    try {
+      const pairs = CONTRACT_ADDRESSES.mainnet.Pairs;
+      const enriched = await Promise.all(
+        data?.map(async (pool) => {
+          const key = `${pool.token_a_symbol}-${pool.token_b_symbol}` as keyof typeof pairs;
+          const pairAddr = pairs[key];
+          if (pairAddr && pairAddr !== '0x0000000000000000000000000000000000000000') {
+            const [reserves, info] = await Promise.all([
+              getPairReserves(pairAddr),
+              getPairInfo(pairAddr),
+            ]);
+            if (reserves && info) {
+              // Approximate TVL from reserves (assuming $1 per token for now)
+              const r0 = parseFloat(reserves.reserve0);
+              const r1 = parseFloat(reserves.reserve1);
+              const tvl = (r0 + r1) / 1e18;
+              return { ...pool, tvl: tvl || pool.tvl };
+            }
+          }
+          return pool;
+        }) ?? []
+      );
+      setPools(enriched);
+    } catch {
+      // On-chain enrichment failed (contracts not deployed yet) — keep DB data
+    }
     setLoading(false);
   };
 

@@ -1,0 +1,21 @@
+# Supabase Vector Log Configuration
+# Place this next to supabase-portainer-stack.yml
+sources:
+  docker_logs:
+    type: docker_logs
+    docker_host: /var/run/docker.sock
+
+sinks:
+  logflare:
+    type: http
+    inputs:
+      - docker_logs
+    uri: http://analytics:4000/logs/docker
+    method: post
+    encoding:
+      codec: json
+    headers:
+      Content-Type: application/json
+    batch:
+      max_bytes: 1048576
+      timeout_secs: 1

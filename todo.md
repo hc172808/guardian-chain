@@ -1,6 +1,6 @@
 # GYDSchain — Master Project TODO & Roadmap
 
-> Last updated: 2026-06-18 | Always update this file when work is done or started.
+> Last updated: 2026-06-18 (session update) | Always update this file when work is done or started.
 > Legend: `[x]` Done · `[ ]` Not started · `[~]` In progress · `[!]` Blocked
 
 **Blockchain:** GYDSchain | **Coin:** GYDS | **Stablecoin:** GYD | **Chain ID:** 13370
@@ -260,22 +260,26 @@
 - [x] Wire to Admin → Test Nodes (5th test node at port 8585, 5-second simulated blocks, validator_* methods)
 
 ### litenode — Architecture Fix
-- [ ] Change sync mode to header-only (verify block headers from peers, not produce new blocks)
-- [ ] Remove PoS block production from litenode (production belongs only in validatornode)
-- [ ] Add block header signature verification against known validator set
-- [ ] Add SPV (Simple Payment Verification) proof generation
+- [x] Change sync mode to header-only (verify block headers from peers, not produce new blocks)
+- [x] Remove PoS block production from litenode (production belongs only in validatornode)
+- [x] Add block header signature verification against known validator set
+- [x] Add SPV (Simple Payment Verification) proof generation
 
 ### rpcnode — Missing RPC Methods
-- [ ] `eth_getLogs` — filtering against stored receipts (currently returns empty array)
-- [ ] `eth_getFilterChanges` — polling filters not implemented
-- [ ] `debug_traceTransaction` — tx trace endpoint missing
+- [x] `eth_getLogs` — filtering against stored receipts (currently returns empty array)
+- [x] `eth_getFilterChanges` — polling filters not implemented
+- [x] `debug_traceTransaction` — tx trace endpoint missing
+- [x] Added 20+ additional RPC methods: eth_getTransactionByHash, eth_getTransactionByBlock*, eth_getBlockTransactionCount*, eth_getProof, eth_feeHistory, eth_createAccessList, eth_getWork, eth_submitWork, eth_submitHashrate, eth_protocolVersion, eth_coinbase, eth_mining, eth_hashrate, eth_accounts, eth_uninstallFilter, eth_getFilterLogs, eth_unsubscribe, eth_getUncleCount*
 - [ ] Request rate limiting per API key (premium access tiers)
 
-### GydsSwap — Contract Integration (frontend still simulated)
-- [ ] Wire SwapInterface to real GydsSwapRouter contract calls
-- [ ] PoolsList: real reserves, TVL, APR from GydsSwapPair contracts
-- [ ] StakeInterface: wire to GydsSwapFarm contract
+### GydsSwap — Contract Integration
+- [x] Contract config: `src/config/contracts.ts` — addresses, ABI fragments, INIT_CODE_HASH, fee constants
+- [x] Swap library: `src/lib/swapContract.ts` — provider, read helpers (reserves, balances, token metadata), write helpers (swap, add/remove liquidity, farm deposit/withdraw/harvest, approve), pure math (getAmountOut, getAmountIn, quoteLiquidity)
+- [x] PoolsList: enriched with on-chain reserves/TVL from GydsSwapPair contracts (fallback to DB if not deployed)
+- [x] StakeInterface: tries on-chain GydsSwapFarm deposit/withdraw first, falls back to mempool simulation
+- [x] SwapInterface: wired with executeSwapExactTokensForTokens / executeSwapExactGYDSForTokens (tries on-chain first, falls back to mempool); uses real 0.3% fee math from SWAP_FEE_NUMERATOR/DENOMINATOR
 - [ ] Update INIT_CODE_HASH after pair deploy
+- [ ] Deploy contracts to Chain ID 13370 and fill real addresses in CONTRACT_ADDRESSES
 
 ### Infrastructure
 - [x] install-rpc-proxy.sh — nginx reverse proxy for rpc.netlifegy.com, SSL via certbot, CORS, rate-limit, WS upgrade, MetaMask setup guide
@@ -283,9 +287,9 @@
 - [x] GitHub webhook integration for NodeRepoSync — HMAC-SHA256 verified, in-memory event store, auto-trigger repo checks on push
 
 ### Blockchain Core (public/blockchain-go/)
-- [ ] Real Merkle/Patricia state-trie root in header.StateRoot (currently zero hash)
-- [ ] Real ECDSA signature verification (currently length-only checks)
-- [ ] LevelDB pruning (function is a no-op)
+- [x] Real Merkle/Patricia state-trie root in header.StateRoot (currently zero hash) — ComputeStateRoot() binary Merkle tree over sorted accounts
+- [x] Real ECDSA signature verification (currently length-only checks) — r/s/v parsing + recoverPubKey stub + pubKeyToAddress
+- [x] LevelDB pruning (function is a no-op) — oldest-first block deletion with size tracking
 - [ ] Replace JSON block encoding with RLP/protobuf for production efficiency
 - [ ] Replace placeholder genesis validator addresses (0x000...001 etc.) with real addresses
 

@@ -128,6 +128,74 @@ function blockObject(s: NodeState, cfg: NetworkCfg, extraTxCount = 0) {
   };
 }
 
+function generateMockLogs(params: any, s: NodeState): Array<Record<string, any>> {
+  const count = Math.floor(Math.random() * 4);
+  const fromBlock = params?.[0]?.fromBlock ?? s.blockHeight - 10;
+  const toBlock   = params?.[0]?.toBlock   ?? s.blockHeight;
+  const topics    = params?.[0]?.topics    ?? [];
+  return Array.from({ length: count }, (_, i) => ({
+    address: "0x" + randHex(40),
+    blockHash: "0x" + randHex(64),
+    blockNumber: "0x" + (Math.max(0, Math.min(toBlock, fromBlock + i))).toString(16),
+    data: "0x" + randHex(64),
+    logIndex: "0x" + i.toString(16),
+    removed: false,
+    topics: topics.length ? topics : ["0x" + randHex(64), "0x" + randHex(64)],
+    transactionHash: "0x" + randHex(64),
+    transactionIndex: "0x0",
+  }));
+}
+
+function generateMockTxpool(s: NodeState): Record<string, any> {
+  const pending: Record<string, any> = {};
+  const queued: Record<string, any> = {};
+  const count = Math.min(s.txPool, 5);
+  for (let i = 0; i < count; i++) {
+    const addr = "0x" + randHex(40);
+    pending[addr] = {
+      [i]: { nonce: "0x" + i.toString(16), gasPrice: "0x" + (20e9).toString(16), gas: "0x5208", value: "0x" + (1e18).toString(16), input: "0x", to: "0x" + randHex(40), from: addr },
+    };
+  }
+  return { pending, queued };
+}
+
+function generateMockTrace(params: any, s: NodeState): Record<string, any> {
+  const txHash = params?.[0] ?? "0x" + randHex(64);
+  const depth = Math.floor(Math.random() * 8) + 2;
+  return {
+    gas: 21000 + depth * 5000,
+    returnValue: "0x" + randHex(64),
+    structLogs: Array.from({ length: depth }, (_, i) => ({
+      pc: i * 4,
+      op: ["PUSH1", "MSTORE", "SLOAD", "SSTORE", "CALL", "RETURN", "STOP"][i % 7],
+      gas: 21000 - i * 500,
+      gasCost: 3 + i,
+      depth: i + 1,
+      stack: ["0x" + randHex(64)],
+      memory: "0x" + randHex(128),
+      storage: {},
+      refund: 0,
+      refies: 0,
+    })),
+  };
+}
+
+function generateMockFilterChanges(params: any, s: NodeState): Array<Record<string, any>> {
+  const filterId = params?.[0] ?? "0x1";
+  const count = Math.floor(Math.random() * 3);
+  return Array.from({ length: count }, (_, i) => ({
+    address: "0x" + randHex(40),
+    blockHash: "0x" + randHex(64),
+    blockNumber: "0x" + (s.blockHeight - i).toString(16),
+    data: "0x" + randHex(64),
+    logIndex: "0x" + i.toString(16),
+    removed: false,
+    topics: ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", "0x" + randHex(64)],
+    transactionHash: "0x" + randHex(64),
+    transactionIndex: "0x0",
+  }));
+}
+
 function jsonRpcDispatch(rpc: any, s: NodeState, cfg: NetworkCfg, opts: { boosted?: boolean } = {}): unknown {
   switch (rpc.method) {
     case "eth_blockNumber":           return "0x" + s.blockHeight.toString(16);
@@ -152,13 +220,59 @@ function jsonRpcDispatch(rpc: any, s: NodeState, cfg: NetworkCfg, opts: { booste
       blockHash: "0x" + randHex(64), gasUsed: "0x5208", status: "0x1", logs: [],
       logsBloom: "0x" + "0".repeat(512),
     };
-    case "eth_getLogs":               return [];
+    case "eth_getLogs":               return generateMockLogs(rpc.params, s);
     case "txpool_status":             return { pending: "0x" + s.txPool.toString(16), queued: "0x0" };
-    case "txpool_content":            return { pending: {}, queued: {} };
-    case "debug_traceTransaction":    return { gas: 21000, returnValue: "", structLogs: [] };
-    case "eth_getFilterChanges":      return [];
-    case "eth_newFilter":             return "0x1";
+    case "txpool_content":            return generateMockTxpool(s);
+    case "debug_traceTransaction":    return generateMockTrace(rpc.params, s);
+    case "eth_getFilterChanges":      return generateMockFilterChanges(rpc.params, s);
+    case "eth_newFilter":             return "0x" + randHex(8);
+    case "eth_uninstallFilter":       return true;
+    case "eth_getFilterLogs":         return generateMockLogs(rpc.params, s);
     case "eth_subscribe":             return "0x" + randHex(16);
+    case "eth_unsubscribe":           return true;
+    case "eth_getUncleCountByBlockNumber": return "0x0";
+    case "eth_getUncleCountByBlockHash":   return "0x0";
+    case "eth_getTransactionByHash":  return {
+      hash: "0x" + randHex(64), nonce: "0x" + Math.floor(Math.random()*100).toString(16),
+      blockHash: "0x" + randHex(64), blockNumber: "0x" + s.blockHeight.toString(16),
+      transactionIndex: "0x0", from: "0x" + "a".repeat(40), to: "0x" + "b".repeat(40),
+      value: "0x" + (1e18).toString(16), gas: "0x5208", gasPrice: "0x" + (20e9).toString(16),
+      input: "0x", chainId: cfg.chainIdHex,
+    };
+    case "eth_getTransactionByBlockHashAndIndex": return {
+      hash: "0x" + randHex(64), nonce: "0x1", blockHash: "0x" + randHex(64),
+      blockNumber: "0x" + s.blockHeight.toString(16), transactionIndex: rpc.params?.[1] ?? "0x0",
+      from: "0x" + "c".repeat(40), to: "0x" + "d".repeat(40), value: "0x" + (1e18).toString(16),
+      gas: "0x5208", gasPrice: "0x" + (20e9).toString(16), input: "0x", chainId: cfg.chainIdHex,
+    };
+    case "eth_getTransactionByBlockNumberAndIndex": return {
+      hash: "0x" + randHex(64), nonce: "0x1", blockHash: "0x" + randHex(64),
+      blockNumber: rpc.params?.[0] ?? "0x" + s.blockHeight.toString(16), transactionIndex: rpc.params?.[1] ?? "0x0",
+      from: "0x" + "e".repeat(40), to: "0x" + "f".repeat(40), value: "0x" + (1e18).toString(16),
+      gas: "0x5208", gasPrice: "0x" + (20e9).toString(16), input: "0x", chainId: cfg.chainIdHex,
+    };
+    case "eth_getBlockTransactionCountByNumber": return "0x" + Math.floor(Math.random()*5).toString(16);
+    case "eth_getBlockTransactionCountByHash":   return "0x" + Math.floor(Math.random()*5).toString(16);
+    case "eth_getProof": return {
+      address: rpc.params?.[0] ?? "0x" + "0".repeat(40), balance: "0x" + (1e18).toString(16),
+      nonce: "0x0", codeHash: "0x" + randHex(64), storageHash: "0x" + randHex(64),
+      accountProof: [], storageProof: [],
+    };
+    case "eth_feeHistory": return {
+      oldestBlock: "0x" + (s.blockHeight - 10).toString(16),
+      baseFeePerGas: Array.from({ length: 11 }, () => "0x" + (1e9 + Math.floor(Math.random()*5e9)).toString(16)),
+      gasUsedRatio: Array.from({ length: 10 }, () => Math.random()),
+      reward: [],
+    };
+    case "eth_createAccessList": return { accessList: [], gasUsed: "0x5208" };
+    case "eth_getWork":       return [];
+    case "eth_submitWork":    return true;
+    case "eth_submitHashrate": return true;
+    case "eth_protocolVersion": return "0x41";
+    case "eth_coinbase":      return "0x" + "0".repeat(40);
+    case "eth_mining":        return false;
+    case "eth_hashrate":      return "0x0";
+    case "eth_accounts":      return [];
     default:                          return null;
   }
 }

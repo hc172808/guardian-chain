@@ -3,6 +3,8 @@
 package blockchain
 
 import (
+        "bytes"
+        "crypto/sha256"
         "errors"
         "math/big"
         "sync"
@@ -486,4 +488,71 @@ func (s *StateDB) GetAccountCount() int {
         s.mu.RLock()
         defer s.mu.RUnlock()
         return len(s.accounts)
+}
+
+// ComputeStateRoot computes a simple Merkle-like root hash over all accounts.
+// In production, replace with a real Patricia trie (e.g., go-ethereum/trie).
+func (s *StateDB) ComputeStateRoot() ([32]byte, error) {
+        s.mu.RLock()
+        defer s.mu.RUnlock()
+
+        if len(s.accounts) == 0 {
+                return [32]byte{}, nil
+        }
+
+        // Collect all account hashes, sorted by address for determinism
+        addrs := make([][20]byte, 0, len(s.accounts))
+        for addr := range s.accounts {
+                addrs = append(addrs, addr)
+        }
+        // Simple deterministic ordering: sort by raw bytes
+        for i := 0; i < len(addrs); i++ {
+                for j := i + 1; j < len(addrs); j++ {
+                        if bytes.Compare(addrs[i][:], addrs[j][:]) > 0 {
+                                addrs[i], addrs[j] = addrs[j], addrs[i]
+                        }
+                }
+        }
+
+        // Build a binary Merkle tree over account hashes
+        layer := make([][32]byte, 0, len(addrs))
+        for _, addr := range addrs {
+                acc := s.accounts[addr]
+                h := sha256.Sum256(s.serializeAccount(acc))
+                layer = append(layer, h)
+        }
+
+        // Pairwise hash until single root
+        for len(layer) > 1 {
+                next := make([][32]byte, 0, (len(layer)+1)/2)
+                for i := 0; i < len(layer); i += 2 {
+                        if i+1 < len(layer) {
+                                combined := append(layer[i][:], layer[i+1][:]...)
+                                h := sha256.Sum256(combined)
+                                next = append(next, h)
+                        } else {
+                                next = append(next, layer[i])
+                        }
+                }
+                layer = next
+        }
+
+        return layer[0], nil
+}
+
+// Prune removes old state snapshots to free memory.
+// In production, this should also prune LevelDB history.
+func (s *StateDB) Prune(maxSnapshots int) {
+        s.mu.Lock()
+        defer s.mu.Unlock()
+
+        if len(s.snapshots) <= maxSnapshots {
+                return
+        }
+        // Keep only the most recent maxSnapshots
+        s.snapshots = s.snapshots[len(s.snapshots)-maxSnapshots:]
+        for i := range s.snapshots {
+                s.snapshots[i].id = i
+        }
+        s.nextSnapID = len(s.snapshots)
 }
