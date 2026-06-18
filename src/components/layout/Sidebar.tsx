@@ -123,7 +123,7 @@ interface SidebarProps {
 
 export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
   const { user, signOut, isFounder, isAdmin } = useAuth();
-  const roles = user?.roles ?? [];
+  const roles = Array.isArray(user?.roles) ? user!.roles : [];
   const navigate = useNavigate();
 
   const handleAuthClick = async () => {

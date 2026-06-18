@@ -195,6 +195,17 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  app.patch("/api/wallets/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { encrypted_seed, pin_hash } = req.body;
+    const row = await storage.updateWallet(req.params.id, user.id, {
+      ...(encrypted_seed !== undefined ? { encryptedSeed: encryptSeed(encrypted_seed) } : {}),
+      ...(pin_hash !== undefined ? { pinHash: pin_hash } : {}),
+    });
+    if (!row) return res.status(404).json({ error: 'Wallet not found' });
+    res.json(row);
+  });
+
   // ── Transactions ───────────────────────────────────────────────────────────
   app.get("/api/transactions", requireAuth, async (req, res) => {
     const user = req.user as any;

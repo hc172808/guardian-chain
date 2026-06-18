@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FounderWalletConfig } from '@/components/wallet/FounderWalletConfig';
@@ -201,11 +201,10 @@ const WalletContent = () => {
 
   const fetchWallets = async () => {
     if (!user) return;
-    const { data, error } = await supabase
-      .from('wallets')
-      .select('id, address, created_at')
-      .eq('user_id', user.id);
-    if (!error && data) setWallets(data);
+    try {
+      const data = await api.get('/api/wallets');
+      setWallets(data || []);
+    } catch { }
     setLoading(false);
   };
 
@@ -213,30 +212,24 @@ const WalletContent = () => {
     if (!user) { setBalancesLoading(false); return; }
     setBalancesLoading(true);
 
-    // Get GYDS price
-    const { data: priceData } = await supabase
-      .from('token_price')
-      .select('*')
-      .limit(1)
-      .single();
+    const [priceData, userWallets, allTx, opsRaw, allTokensRaw, founderCfg, gydsCfg, gydCfg] = await Promise.all([
+      api.get('/api/token-price').catch(() => null),
+      api.get('/api/wallets').catch(() => []),
+      api.get('/api/transactions').catch(() => []),
+      api.get('/api/token-operations').catch(() => []),
+      api.get('/api/tokens').catch(() => []),
+      api.get('/api/config/founder_wallet').catch(() => null),
+      api.get('/api/config/gyds_logo').catch(() => null),
+      api.get('/api/config/gyd_logo').catch(() => null),
+    ]);
 
     // Get user wallets to find addresses
-    const { data: userWallets } = await supabase
-      .from('wallets')
-      .select('address')
-      .eq('user_id', user.id);
-
-    const myAddresses = new Set((userWallets || []).map(w => w.address.toLowerCase()));
+    const myAddresses = new Set((userWallets || []).map((w: any) => w.address.toLowerCase()));
 
     // For founders, also check the founder wallet config
-    const { data: founderConfig } = await supabase
-      .from('admin_config')
-      .select('config_value')
-      .eq('config_key', 'founder_wallet')
-      .maybeSingle();
-
-    if (founderConfig?.config_value) {
-      const fc = founderConfig.config_value as Record<string, string>;
+    const fcVal = founderCfg?.configValue ?? founderCfg?.config_value;
+    if (fcVal) {
+      const fc = fcVal as Record<string, string>;
       if (fc.address) myAddresses.add(fc.address.toLowerCase());
     }
 
@@ -249,49 +242,34 @@ const WalletContent = () => {
     const isCreator = (createdBy: string | null) => createdBy === user.id;
 
     // Get all confirmed transactions involving user's addresses
-    const { data: txData } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('status', 'confirmed');
+    const txData = (allTx || []).filter((tx: any) =>
+      (tx.user_id === user.id || tx.userId === user.id) && tx.status === 'confirmed'
+    );
 
     // Get token operations (pre-mine / mint) for the user
-    const { data: opsData } = await supabase
-      .from('token_operations')
-      .select('*')
-      .eq('status', 'confirmed');
+    const opsData = (opsRaw || []).filter((op: any) => op.status === 'confirmed');
 
     // Get all active tokens + user's blocked tokens
-    const { data: activeTokens } = await supabase
-      .from('tokens')
-      .select('*')
-      .eq('is_active', true);
-    
-    const { data: myBlockedTokens } = await supabase
-      .from('tokens')
-      .select('*')
-      .eq('is_active', false)
-      .eq('creator_id', user.id);
-    
+    const activeTokens = (allTokensRaw || []).filter((t: any) =>
+      t.isActive !== false && t.is_active !== false
+    );
+    const myBlockedTokens = (allTokensRaw || []).filter((t: any) =>
+      (t.isActive === false || t.is_active === false) &&
+      (t.creatorId === user.id || t.creator_id === user.id)
+    );
+
     // Merge active + user's blocked tokens (deduped)
-    const tokensData = [...(activeTokens || [])];
-    (myBlockedTokens || []).forEach(bt => {
-      if (!tokensData.find(t => t.id === bt.id)) {
-        tokensData.push(bt);
-      }
+    const tokensData = [...activeTokens];
+    myBlockedTokens.forEach((bt: any) => {
+      if (!tokensData.find((t: any) => t.id === bt.id)) tokensData.push(bt);
     });
 
     // Get coin logos from admin_config
-    const { data: logoConfig } = await supabase
-      .from('admin_config')
-      .select('config_key, config_value')
-      .in('config_key', ['gyds_logo', 'gyd_logo']);
-
     const logos: Record<string, string> = {};
-    (logoConfig || []).forEach(c => {
-      const val = c.config_value as Record<string, string>;
-      if (val?.url) logos[c.config_key] = val.url;
-    });
+    const gydsLogoVal = gydsCfg?.configValue ?? gydsCfg?.config_value;
+    const gydLogoVal = gydCfg?.configValue ?? gydCfg?.config_value;
+    if (gydsLogoVal?.url) logos['gyds_logo'] = gydsLogoVal.url;
+    if (gydLogoVal?.url) logos['gyd_logo'] = gydLogoVal.url;
 
     const gydsPrice = priceData?.price || 0.0000001;
 
@@ -390,14 +368,12 @@ const WalletContent = () => {
     const wallet = generateSecureWallet();
     const encryptedSeed = await encryptWithPin(wallet.seedPhrase, pin);
     const pinHash = await hashPin(pin);
-    const { error } = await supabase.from('wallets').insert({
-      user_id: user!.id, address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
-    });
-    if (error) {
-      toast({ title: 'Failed to create wallet', variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/wallets', { address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash });
       setNewWalletData({ address: wallet.address, seedPhrase: wallet.seedPhrase });
       fetchWallets();
+    } catch {
+      toast({ title: 'Failed to create wallet', variant: 'destructive' });
     }
   };
 
@@ -408,25 +384,24 @@ const WalletContent = () => {
     const wallet = generateSecureWallet();
     const encryptedSeed = await encryptWithPin(importSeed.trim(), pin);
     const pinHash = await hashPin(pin);
-    const { error } = await supabase.from('wallets').insert({
-      user_id: user!.id, address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash,
-    });
-    if (error) {
-      toast({ title: 'Failed to import wallet', variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/wallets', { address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash });
       toast({ title: 'Wallet imported successfully!' });
       setImportDialogOpen(false); setPin(''); setConfirmPin(''); setImportSeed('');
       fetchWallets();
+    } catch {
+      toast({ title: 'Failed to import wallet', variant: 'destructive' });
     }
   };
 
   const handleViewSeed = async () => {
     if (!selectedWallet) return;
-    const { data } = await supabase.from('wallets').select('encrypted_seed, pin_hash').eq('id', selectedWallet).single();
+    const walletList = await api.get('/api/wallets').catch(() => []);
+    const data = walletList.find((w: any) => w.id === selectedWallet);
     if (!data) { toast({ title: 'Wallet not found', variant: 'destructive' }); return; }
-    const pinValid = await verifyPin(pin, data.pin_hash);
+    const pinValid = await verifyPin(pin, data.pin_hash ?? data.pinHash);
     if (pinValid) {
-      const seed = await decryptWithPin(data.encrypted_seed, pin);
+      const seed = await decryptWithPin(data.encrypted_seed ?? data.encryptedSeed, pin);
       if (seed) setRevealedSeed(seed);
       else toast({ title: 'Failed to decrypt', variant: 'destructive' });
     } else {
@@ -435,8 +410,11 @@ const WalletContent = () => {
   };
 
   const handleDeleteWallet = async (id: string) => {
-    const { error } = await supabase.from('wallets').delete().eq('id', id);
-    if (!error) { toast({ title: 'Wallet deleted' }); fetchWallets(); }
+    try {
+      await api.delete(`/api/wallets/${id}`);
+      toast({ title: 'Wallet deleted' });
+      fetchWallets();
+    } catch { }
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -456,35 +434,36 @@ const WalletContent = () => {
       return;
     }
     setRotateLoading(true);
-    const { data } = await supabase.from('wallets').select('encrypted_seed, pin_hash').eq('id', rotateWalletId).single();
+    const walletList2 = await api.get('/api/wallets').catch(() => []);
+    const data = walletList2.find((w: any) => w.id === rotateWalletId);
     if (!data) {
       toast({ title: 'Wallet not found', variant: 'destructive' });
       setRotateLoading(false);
       return;
     }
-    const pinValid = await verifyPin(oldPin, data.pin_hash);
+    const pinValid = await verifyPin(oldPin, data.pin_hash ?? data.pinHash);
     if (!pinValid) {
       toast({ title: 'Current PIN is incorrect', variant: 'destructive' });
       setRotateLoading(false);
       return;
     }
-    const result = await rotatePin(data.encrypted_seed, oldPin, newPin);
+    const result = await rotatePin(data.encrypted_seed ?? data.encryptedSeed, oldPin, newPin);
     if (!result) {
       toast({ title: 'Failed to rotate PIN', variant: 'destructive' });
       setRotateLoading(false);
       return;
     }
-    const { error } = await supabase.from('wallets').update({
-      encrypted_seed: result.newEncryptedSeed,
-      pin_hash: result.newPinHash,
-    }).eq('id', rotateWalletId);
     setRotateLoading(false);
-    if (error) {
-      toast({ title: 'Failed to save new PIN', variant: 'destructive' });
-    } else {
+    try {
+      await api.patch(`/api/wallets/${rotateWalletId}`, {
+        encrypted_seed: result.newEncryptedSeed,
+        pin_hash: result.newPinHash,
+      });
       toast({ title: 'PIN rotated successfully!' });
       setRotatePinDialogOpen(false);
       setOldPin(''); setNewPin(''); setConfirmNewPin('');
+    } catch {
+      toast({ title: 'Failed to save new PIN', variant: 'destructive' });
     }
   };
 
@@ -579,26 +558,25 @@ const WalletContent = () => {
     setSendLoading(true);
     const fee = amount * 0.001;
     const txHash = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    const { error } = await supabase.from('transactions').insert({
-      user_id: user.id,
-      from_address: wallets[0].address,
-      to_address: sendTo.trim(),
-      amount,
-      fee,
-      tx_hash: txHash,
-      status: 'confirmed',
-      confirmed_at: new Date().toISOString(),
-      wallet_id: wallets[0].id,
-    });
     setSendLoading(false);
-    if (error) {
-      toast({ title: 'Transaction failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/transactions', {
+        from_address: wallets[0].address,
+        to_address: sendTo.trim(),
+        amount,
+        fee,
+        tx_hash: txHash,
+        status: 'confirmed',
+        confirmed_at: new Date().toISOString(),
+        wallet_id: wallets[0].id,
+      });
       toast({ title: `Sent ${amount} ${sendAsset}`, description: `Fee: ${fee.toFixed(6)} ${sendAsset}` });
       setSendDialogOpen(false);
       setSendTo('');
       setSendAmount('');
       loadBalances();
+    } catch (err: any) {
+      toast({ title: 'Transaction failed', description: err.message, variant: 'destructive' });
     }
   };
 

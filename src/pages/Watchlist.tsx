@@ -3,7 +3,7 @@ import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Star, Coins, Trash2, TrendingUp, TrendingDown, Loader2, ArrowLeft } from 'lucide-react';
@@ -33,27 +33,44 @@ const WatchlistPage = () => {
 
   const fetchWatchlist = async () => {
     if (!user) { setLoading(false); return; }
-    const { data } = await supabase
-      .from('token_watchlist')
-      .select('id, token_id, tokens(id, name, symbol, address, logo_url, gyds_liquidity, total_supply)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-    if (data) setWatchlist(data as unknown as WatchlistToken[]);
+    try {
+      const [watchlistData, tokensData] = await Promise.all([
+        api.get('/api/watchlist'),
+        api.get('/api/tokens'),
+      ]);
+      const tokensMap = new Map((tokensData || []).map((t: any) => [t.id, t]));
+      const merged = (watchlistData || []).map((item: any) => {
+        const tok = tokensMap.get(item.tokenId ?? item.token_id);
+        if (!tok) return null;
+        return {
+          id: item.id,
+          token_id: item.tokenId ?? item.token_id,
+          tokens: {
+            id: tok.id,
+            name: tok.name,
+            symbol: tok.symbol,
+            address: tok.address,
+            logo_url: tok.logoUrl ?? tok.logo_url ?? null,
+            gyds_liquidity: tok.gydsLiquidity ?? tok.gyds_liquidity ?? 0,
+            total_supply: tok.totalSupply ?? tok.total_supply ?? 0,
+          },
+        };
+      }).filter(Boolean);
+      setWatchlist(merged as WatchlistToken[]);
+    } catch { }
     setLoading(false);
   };
 
   useEffect(() => {
     fetchWatchlist();
-    const channel = supabase
-      .channel('watchlist-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'token_watchlist' }, () => fetchWatchlist())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tokens' }, () => fetchWatchlist())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   const removeFromWatchlist = async (id: string) => {
-    await supabase.from('token_watchlist').delete().eq('id', id);
+    const item = watchlist.find(w => w.id === id);
+    if (!item) return;
+    try {
+      await api.delete(`/api/watchlist/${item.token_id}`);
+    } catch { }
     toast({ title: 'Removed from watchlist' });
     fetchWatchlist();
   };

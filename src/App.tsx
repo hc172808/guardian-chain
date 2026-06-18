@@ -48,6 +48,7 @@ import LandingPage from "./pages/Landing";
 import PressKitPage from "./pages/PressKit";
 import BlogPage from "./pages/Blog";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const queryClient = new QueryClient();
 
@@ -149,7 +150,9 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <AppContent />
+          <ErrorBoundary>
+            <AppContent />
+          </ErrorBoundary>
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>

@@ -177,6 +177,14 @@ export const storage = {
     await db.delete(wallets).where(and(eq(wallets.id, id), eq(wallets.userId, userId)));
   },
 
+  async updateWallet(id: string, userId: string, data: { encryptedSeed?: string; pinHash?: string }) {
+    const [row] = await db.update(wallets)
+      .set(data)
+      .where(and(eq(wallets.id, id), eq(wallets.userId, userId)))
+      .returning();
+    return row ?? null;
+  },
+
   // ── Transactions ──────────────────────────────────────────────────────────
   async getUserTransactions(userId: string) {
     return db.select().from(transactions).where(eq(transactions.userId, userId)).orderBy(desc(transactions.createdAt));

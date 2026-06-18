@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { TOKENOMICS } from '@/config/wallets';
@@ -61,50 +61,18 @@ const TransactionsContent = () => {
   useEffect(() => {
     if (user) {
       fetchData();
-      
-      // Real-time subscription for transactions
-      const channel = supabase
-        .channel('user-transactions')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'transactions',
-            filter: `user_id=eq.${user.id}`,
-          },
-          (payload) => {
-            if (payload.eventType === 'INSERT') {
-              setTransactions((prev) => [payload.new as Transaction, ...prev]);
-            } else if (payload.eventType === 'UPDATE') {
-              setTransactions((prev) =>
-                prev.map((tx) =>
-                  tx.id === (payload.new as Transaction).id ? (payload.new as Transaction) : tx
-                )
-              );
-            } else if (payload.eventType === 'DELETE') {
-              setTransactions((prev) =>
-                prev.filter((tx) => tx.id !== (payload.old as Transaction).id)
-              );
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
     }
   }, [user]);
 
   const fetchData = async () => {
-    const [walletsRes, txRes] = await Promise.all([
-      supabase.from('wallets').select('id, address').eq('user_id', user!.id),
-      supabase.from('transactions').select('*').eq('user_id', user!.id).order('created_at', { ascending: false })
-    ]);
-
-    if (walletsRes.data) setWallets(walletsRes.data);
-    if (txRes.data) setTransactions(txRes.data as Transaction[]);
+    try {
+      const [walletsData, txData] = await Promise.all([
+        api.get('/api/wallets'),
+        api.get('/api/transactions'),
+      ]);
+      setWallets(walletsData || []);
+      setTransactions((txData || []) as Transaction[]);
+    } catch { }
     setLoading(false);
   };
 
@@ -132,36 +100,24 @@ const TransactionsContent = () => {
     
     const txHash = generateTxHash();
     
-    const { error } = await supabase.from('transactions').insert({
-      user_id: user!.id,
-      wallet_id: fromWallet,
-      from_address: wallet.address,
-      to_address: toAddress,
-      amount: amountNum,
-      fee,
-      tx_hash: txHash,
-      status: 'pending'
-    });
-
-    if (error) {
-      toast({ title: 'Transaction failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/transactions', {
+        wallet_id: fromWallet,
+        from_address: wallet.address,
+        to_address: toAddress,
+        amount: amountNum,
+        fee,
+        tx_hash: txHash,
+        status: 'pending',
+      });
       toast({ title: 'Transaction submitted!', description: 'Waiting for confirmation...' });
       setToAddress('');
       setAmount('');
       fetchData();
-
-      // Simulate confirmation after delay
-      setTimeout(async () => {
-        await supabase
-          .from('transactions')
-          .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
-          .eq('tx_hash', txHash);
-        fetchData();
-        toast({ title: 'Transaction confirmed!' });
-      }, 10000);
+    } catch (err: any) {
+      toast({ title: 'Transaction failed', description: err.message, variant: 'destructive' });
     }
-    
+
     setSending(false);
   };
 
