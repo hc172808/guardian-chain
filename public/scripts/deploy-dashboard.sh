@@ -142,7 +142,16 @@ chmod 600 "$APP_DIR/.env"
 id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" || true
 
 cd "$APP_DIR"
-npm ci --prefer-offline 2>/dev/null || npm install --legacy-peer-deps
+
+# ── Reset npm to public registry ──────────────────────────────────────────────
+# package-lock.json generated inside Replit has all resolved URLs pointing to
+# package-firewall.replit.local (Replit's internal mirror), which is unreachable
+# on any external server. Delete it so npm regenerates a clean lock file.
+npm config set registry https://registry.npmjs.org/
+rm -f package-lock.json
+log "  Using public npm registry — regenerating lock file"
+
+npm install --legacy-peer-deps
 npm run build
 log "Build complete → $APP_DIR/dist"
 
