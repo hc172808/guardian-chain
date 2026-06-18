@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Upload, Loader2, Save, Image as ImageIcon } from 'lucide-react';
 
@@ -23,12 +23,16 @@ export const CoinLogoUpload = () => {
   }, []);
 
   const loadLogos = async () => {
-    const { data } = await supabase
-      .from('admin_config')
-      .select('config_key, config_value')
-      .in('config_key', ['gyds_logo', 'gyd_logo']);
+    const [gydsRow, gydRow] = await Promise.all([
+      api.get('/api/config/gyds_logo').catch(() => null),
+      api.get('/api/config/gyd_logo').catch(() => null),
+    ]);
+    const data = [
+      gydsRow ? { config_key: 'gyds_logo', config_value: gydsRow.configValue } : null,
+      gydRow  ? { config_key: 'gyd_logo',  config_value: gydRow.configValue  } : null,
+    ].filter(Boolean);
 
-    (data || []).forEach(c => {
+    (data || []).forEach((c: any) => {
       const val = c.config_value as Record<string, string>;
       if (c.config_key === 'gyds_logo' && val?.url) {
         setGydsLogo(val.url);
@@ -55,21 +59,14 @@ export const CoinLogoUpload = () => {
     const ext = file.name.split('.').pop();
     const path = `coin-logos/${coin}-logo.${ext}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('token-logos')
-      .upload(path, file, { upsert: true });
-
-    if (uploadError) {
-      toast({ title: 'Upload failed', description: uploadError.message, variant: 'destructive' });
+    // No storage backend — ask for a URL instead
+    const urlInput = window.prompt(`Paste a public image URL for ${coin.toUpperCase()} logo:`);
+    if (!urlInput) {
       setUploading(null);
       return;
     }
 
-    const { data: urlData } = supabase.storage
-      .from('token-logos')
-      .getPublicUrl(path);
-
-    const url = urlData.publicUrl;
+    const url = urlInput.trim();
 
     if (coin === 'gyds') {
       setGydsLogo(url);
@@ -93,11 +90,10 @@ export const CoinLogoUpload = () => {
 
     for (const { key, url } of saves) {
       if (!url) continue;
-      await supabase.from('admin_config').upsert({
-        config_key: key,
-        config_value: { url, updated_at: new Date().toISOString() },
-        updated_by: user?.id,
-      }, { onConflict: 'config_key' });
+      await api.post('/api/config', {
+        key,
+        value: { url, updated_at: new Date().toISOString() },
+      });
     }
 
     toast({ title: 'Coin logos saved!' });

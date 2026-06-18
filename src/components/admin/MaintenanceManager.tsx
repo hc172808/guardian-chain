@@ -5,7 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Wrench, AlertTriangle, Save, RefreshCw, Eye, Users, Lock } from 'lucide-react';
@@ -23,16 +23,14 @@ export const MaintenanceManager = () => {
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', CONFIG_KEY)
-        .maybeSingle();
-      if (data?.config_value) {
-        const v = data.config_value as { enabled?: boolean; message?: string };
-        setEnabled(!!v.enabled);
-        setMessage(v.message ?? '');
-      }
+      try {
+        const row = await api.get(`/api/config/${CONFIG_KEY}`);
+        if (row?.configValue) {
+          const v = row.configValue as { enabled?: boolean; message?: string };
+          setEnabled(!!v.enabled);
+          setMessage(v.message ?? '');
+        }
+      } catch { /* use defaults */ }
       setLoading(false);
     };
     load();
@@ -41,27 +39,17 @@ export const MaintenanceManager = () => {
   const save = async (nextEnabled?: boolean) => {
     setSaving(true);
     const newEnabled = nextEnabled !== undefined ? nextEnabled : enabled;
-    const { error } = await supabase
-      .from('admin_config')
-      .upsert(
-        {
-          config_key:   CONFIG_KEY,
-          config_value: { enabled: newEnabled, message: message.trim(), updated_by: user?.id, updated_at: new Date().toISOString() },
-          updated_by:   user?.id,
-          is_public:    true,
-        },
-        { onConflict: 'config_key' }
-      );
-
-    if (error) {
-      toast({ title: 'Save failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/config', {
+        key: CONFIG_KEY,
+        value: { enabled: newEnabled, message: message.trim(), updated_by: user?.id, updated_at: new Date().toISOString() },
+      });
       toast({
         title: newEnabled ? '🔒 Maintenance mode ON' : '✅ Maintenance mode OFF',
-        description: newEnabled
-          ? 'New visitors now see the maintenance page.'
-          : 'Site is live for all visitors.',
+        description: newEnabled ? 'New visitors now see the maintenance page.' : 'Site is live for all visitors.',
       });
+    } catch (e: any) {
+      toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };

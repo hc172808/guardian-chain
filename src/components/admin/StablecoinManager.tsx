@@ -6,7 +6,7 @@ import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { logAuditEvent } from '@/lib/auditLog';
 import { GYD_TOKEN, GYDS_TOKEN } from '@/config/tokens';
@@ -68,48 +68,36 @@ export const StablecoinManager = () => {
 
   const fetchConfig = async () => {
     setLoading(true);
-    
-    // Fetch token price data
-    const { data: priceData } = await supabase
-      .from('token_price')
-      .select('*')
-      .maybeSingle();
-    
-    if (priceData) {
-      setGydsConfig({
-        price: priceData.price,
-        totalSupply: priceData.total_supply,
-        circulatingSupply: priceData.circulating_supply,
-        burnedTotal: priceData.burned_total,
-      });
-    }
-
-    // Fetch stablecoin config from admin_config
-    const { data: configData } = await supabase
-      .from('admin_config')
-      .select('*')
-      .eq('config_key', 'gyd_stablecoin')
-      .maybeSingle();
-
-    if (configData?.config_value) {
-      const config = configData.config_value as Record<string, unknown>;
-      setGydConfig({
-        isPegged: config.isPegged as boolean ?? true,
-        pegValue: config.pegValue as number ?? 1.0,
-        customPrice: config.customPrice as number ?? 1.0,
-        totalSupply: config.totalSupply as number ?? 0,
-        circulatingSupply: config.circulatingSupply as number ?? 0,
-        collateralUSD: config.collateralUSD as number ?? 0,
-      });
-    }
-
+    try {
+      const [priceData, configRow] = await Promise.all([
+        api.get('/api/token-price').catch(() => null),
+        api.get('/api/config/gyd_stablecoin').catch(() => null),
+      ]);
+      if (priceData) {
+        setGydsConfig({
+          price: priceData.price,
+          totalSupply: priceData.total_supply,
+          circulatingSupply: priceData.circulating_supply,
+          burnedTotal: priceData.burned_total,
+        });
+      }
+      if (configRow?.configValue) {
+        const config = configRow.configValue as Record<string, unknown>;
+        setGydConfig({
+          isPegged: (config.isPegged as boolean) ?? true,
+          pegValue: (config.pegValue as number) ?? 1.0,
+          customPrice: (config.customPrice as number) ?? 1.0,
+          totalSupply: (config.totalSupply as number) ?? 0,
+          circulatingSupply: (config.circulatingSupply as number) ?? 0,
+          collateralUSD: (config.collateralUSD as number) ?? 0,
+        });
+      }
+    } catch { /* use defaults */ }
     setLoading(false);
   };
 
   const saveGydConfig = async () => {
     setSaving(true);
-
-    // Convert to JSON-compatible object
     const configValue = {
       isPegged: gydConfig.isPegged,
       pegValue: gydConfig.pegValue,
@@ -118,115 +106,39 @@ export const StablecoinManager = () => {
       circulatingSupply: gydConfig.circulatingSupply,
       collateralUSD: gydConfig.collateralUSD,
     };
-
-    // Check if config exists
-    const { data: existing } = await supabase
-      .from('admin_config')
-      .select('id')
-      .eq('config_key', 'gyd_stablecoin')
-      .maybeSingle();
-
-    let error;
-    if (existing) {
-      const result = await supabase
-        .from('admin_config')
-        .update({
-          config_value: configValue,
-          updated_by: user?.id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existing.id);
-      error = result.error;
-    } else {
-      const result = await supabase
-        .from('admin_config')
-        .insert([{
-          config_key: 'gyd_stablecoin',
-          config_value: configValue,
-          updated_by: user?.id,
-        }]);
-      error = result.error;
-    }
-
-    if (error) {
-      toast({ title: 'Failed to save', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/config', { key: 'gyd_stablecoin', value: configValue });
       toast({ title: 'GYD configuration saved!' });
       if (user) {
         await logAuditEvent(user.id, user.email ?? null, {
-          action: 'stablecoin_config_save',
-          category: 'token',
-          target_type: 'token',
-          target_id: 'gyd',
-          details: configValue,
+          action: 'stablecoin_config_save', category: 'token', target_type: 'token', target_id: 'gyd', details: configValue,
         });
       }
+    } catch (e: any) {
+      toast({ title: 'Failed to save', description: e.message, variant: 'destructive' });
     }
-
     setSaving(false);
   };
 
   const saveGydsPrice = async () => {
     setSaving(true);
-
-    const { data: existing } = await supabase
-      .from('token_price')
-      .select('id')
-      .maybeSingle();
-
-    if (existing) {
-      const { error } = await supabase
-        .from('token_price')
-        .update({
-          price: gydsConfig.price,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existing.id);
-
-      if (error) {
-        toast({ title: 'Failed to save', description: error.message, variant: 'destructive' });
-      } else {
-        toast({ title: 'GYDS price updated!' });
-        if (user) {
-          await logAuditEvent(user.id, user.email ?? null, {
-            action: 'token_price_update',
-            category: 'token',
-            target_type: 'token',
-            target_id: 'gyds',
-            details: { price: gydsConfig.price },
-          });
-        }
-      }
-    } else {
-      const { error } = await supabase
-        .from('token_price')
-        .insert({
-          price: gydsConfig.price,
-          total_supply: gydsConfig.totalSupply,
-          circulating_supply: gydsConfig.circulatingSupply,
-          burned_total: gydsConfig.burnedTotal,
+    try {
+      await api.patch('/api/token-price', {
+        price: gydsConfig.price,
+        total_supply: gydsConfig.totalSupply,
+        circulating_supply: gydsConfig.circulatingSupply,
+        burned_total: gydsConfig.burnedTotal,
+      });
+      toast({ title: 'GYDS price updated!' });
+      if (user) {
+        await logAuditEvent(user.id, user.email ?? null, {
+          action: 'token_price_update', category: 'token', target_type: 'token', target_id: 'gyds',
+          details: { price: gydsConfig.price },
         });
-
-      if (error) {
-        toast({ title: 'Failed to create', description: error.message, variant: 'destructive' });
-      } else {
-        toast({ title: 'GYDS price created!' });
-        if (user) {
-          await logAuditEvent(user.id, user.email ?? null, {
-            action: 'token_price_create',
-            category: 'token',
-            target_type: 'token',
-            target_id: 'gyds',
-            details: {
-              price: gydsConfig.price,
-              total_supply: gydsConfig.totalSupply,
-              circulating_supply: gydsConfig.circulatingSupply,
-            },
-          });
-        }
       }
+    } catch (e: any) {
+      toast({ title: 'Failed to save', description: e.message, variant: 'destructive' });
     }
-
     setSaving(false);
   };
 

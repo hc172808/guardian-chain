@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { Coins, Save, Loader2, Rocket, ShieldCheck, AlertTriangle } from 'lucide-react';
 import {
   ALL_AUTHORITIES,
@@ -26,12 +26,10 @@ export const TokenPricingManager = () => {
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', 'token_factory_pricing')
-        .maybeSingle();
-      setPricing(normalizePricing(data?.config_value));
+      try {
+        const row = await api.get('/api/config/token_factory_pricing');
+        setPricing(normalizePricing(row?.configValue));
+      } catch { /* use defaults */ }
       setLoading(false);
     };
     load();
@@ -52,15 +50,7 @@ export const TokenPricingManager = () => {
     if (!user) return;
     setSaving(true);
     try {
-      const { error } = await supabase.from('admin_config').upsert(
-        {
-          config_key: 'token_factory_pricing',
-          config_value: pricing as any,
-          updated_by: user.id,
-        },
-        { onConflict: 'config_key' },
-      );
-      if (error) throw error;
+      await api.post('/api/config', { key: 'token_factory_pricing', value: pricing });
       toast({ title: 'Pricing Updated', description: 'Token factory rules saved.' });
     } catch (err: any) {
       toast({ title: 'Failed', description: err.message, variant: 'destructive' });
@@ -76,7 +66,6 @@ export const TokenPricingManager = () => {
 
   return (
     <div className="space-y-6">
-      {/* Base fees */}
       <GlassCard className="p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="p-2 rounded-lg bg-primary/20"><Coins className="h-5 w-5 text-primary" /></div>
@@ -133,7 +122,6 @@ export const TokenPricingManager = () => {
         </div>
       </GlassCard>
 
-      {/* Authorities matrix */}
       <GlassCard className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -192,7 +180,6 @@ export const TokenPricingManager = () => {
         </div>
       </GlassCard>
 
-      {/* Mainnet promotion */}
       <GlassCard className="p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-primary/20"><Rocket className="h-5 w-5 text-primary" /></div>

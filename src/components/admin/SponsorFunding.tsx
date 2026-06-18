@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { 
   Wallet, 
   Plus, 
@@ -77,16 +77,13 @@ export const SponsorFunding = ({ sponsor, open, onOpenChange, onUpdate }: Sponso
 
     try {
       // Fetch current sponsors
-      const { data } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', 'fee_sponsors')
-        .single();
+      const row = await api.get('/api/config/fee_sponsors').catch(() => null);
 
-      if (!data) {
+      if (!row) {
         toast({ title: 'Sponsors not found', variant: 'destructive' });
         return;
       }
+      const data = { config_value: row.configValue };
 
       const configValue = data.config_value as { sponsors?: FeeSponsor[] };
       const sponsors = configValue?.sponsors || [];
@@ -125,18 +122,13 @@ export const SponsorFunding = ({ sponsor, open, onOpenChange, onUpdate }: Sponso
         created_at: s.created_at,
       }));
       
-      const { error } = await supabase
-        .from('admin_config')
-        .update({ 
-          config_value: JSON.parse(JSON.stringify({ sponsors: sponsorsJson })),
-          updated_at: new Date().toISOString()
-        })
-        .eq('config_key', 'fee_sponsors');
-
-      if (error) throw error;
+      await api.post('/api/config', {
+        key: 'fee_sponsors',
+        value: { sponsors: sponsorsJson },
+      });
 
       // Log the operation
-      await supabase.from('token_operations').insert({
+      await api.post('/api/token-operations', {
         operation_type: operation === 'deposit' ? 'mint' : 'burn',
         wallet_address: `sponsor:${sponsor.id}`,
         amount: parseFloat(amount),

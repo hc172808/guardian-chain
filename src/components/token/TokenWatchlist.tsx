@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Star, Coins, Trash2, Bell, Loader2 } from 'lucide-react';
@@ -30,12 +30,8 @@ export const TokenWatchlist = () => {
 
   const fetchWatchlist = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('token_watchlist')
-      .select('id, token_id, tokens(id, name, symbol, address, logo_url, gyds_liquidity, total_supply)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-    if (data) setWatchlist(data as unknown as WatchlistToken[]);
+    const data = await api.get('/api/watchlist').catch(() => []);
+    if (Array.isArray(data)) setWatchlist(data as unknown as WatchlistToken[]);
     setLoading(false);
   };
 
@@ -44,7 +40,7 @@ export const TokenWatchlist = () => {
   }, [user]);
 
   const removeFromWatchlist = async (id: string) => {
-    await supabase.from('token_watchlist').delete().eq('id', id);
+    await api.delete(`/api/watchlist/${id}`).catch(() => {});
     toast({ title: 'Removed from watchlist' });
     fetchWatchlist();
   };
@@ -115,24 +111,20 @@ export const useWatchlist = (tokenId: string | undefined) => {
 
   useEffect(() => {
     if (!user || !tokenId) return;
-    supabase
-      .from('token_watchlist')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('token_id', tokenId)
-      .maybeSingle()
-      .then(({ data }) => setIsWatched(!!data));
+    api.get(`/api/watchlist/check/${tokenId}`)
+      .then((d: any) => setIsWatched(!!d?.watched))
+      .catch(() => {});
   }, [user, tokenId]);
 
   const toggle = async () => {
     if (!user || !tokenId) return;
     setLoading(true);
     if (isWatched) {
-      await supabase.from('token_watchlist').delete().eq('user_id', user.id).eq('token_id', tokenId);
+      await api.delete(`/api/watchlist/token/${tokenId}`).catch(() => {});
       setIsWatched(false);
       toast({ title: 'Removed from watchlist' });
     } else {
-      await supabase.from('token_watchlist').insert({ user_id: user.id, token_id: tokenId });
+      await api.post('/api/watchlist', { token_id: tokenId }).catch(() => {});
       setIsWatched(true);
       toast({ title: 'Added to watchlist ⭐' });
     }

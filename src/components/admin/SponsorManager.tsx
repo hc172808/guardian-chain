@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { 
   Building2, 
   Plus, 
@@ -74,20 +74,14 @@ export const SponsorManager = () => {
 
   const fetchSponsors = async () => {
     setLoading(true);
-    
-    const { data, error } = await supabase
-      .from('admin_config')
-      .select('*')
-      .eq('config_key', 'fee_sponsors');
-
-    if (error) {
-      console.error('Failed to fetch sponsors:', error);
-      setSponsors([]);
-    } else if (data && data.length > 0) {
-      const configValue = data[0].config_value as { sponsors?: FeeSponsor[] };
+    try {
+      const row = await api.get('/api/config/fee_sponsors');
+      const configValue = row?.configValue as { sponsors?: FeeSponsor[] };
       setSponsors(configValue?.sponsors || []);
+    } catch (e) {
+      console.error('Failed to fetch sponsors:', e);
+      setSponsors([]);
     }
-    
     setLoading(false);
   };
 
@@ -106,35 +100,12 @@ export const SponsorManager = () => {
       created_at: s.created_at,
     }));
 
-    // First check if config exists
-    const { data: existing } = await supabase
-      .from('admin_config')
-      .select('id')
-      .eq('config_key', 'fee_sponsors')
-      .maybeSingle();
-
-    let error;
-    if (existing) {
-      const result = await supabase
-        .from('admin_config')
-        .update({ 
-          config_value: { sponsors: sponsorsJson },
-          updated_at: new Date().toISOString() 
-        })
-        .eq('config_key', 'fee_sponsors');
-      error = result.error;
-    } else {
-      const result = await supabase
-        .from('admin_config')
-        .insert([{
-          config_key: 'fee_sponsors',
-          config_value: { sponsors: sponsorsJson },
-          updated_at: new Date().toISOString(),
-        }]);
-      error = result.error;
-    }
-
-    if (error) {
+    try {
+      await api.post('/api/config', {
+        key: 'fee_sponsors',
+        value: { sponsors: sponsorsJson },
+      });
+    } catch (err) {
       toast({ title: 'Failed to save sponsors', variant: 'destructive' });
       return false;
     }

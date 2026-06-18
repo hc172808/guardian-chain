@@ -5,7 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
+import { logAuditEvent } from '@/lib/auditLog';
 import { Coins, Search, Ban, CheckCircle, Trash2, Loader2, Shield, RefreshCw } from 'lucide-react';
 import {
   AlertDialog,
@@ -42,12 +43,10 @@ export const TokenManager = () => {
 
   const fetchTokens = async () => {
     setLoading(true);
-    // Admins can see all tokens via RLS
-    const { data } = await supabase
-      .from('tokens')
-      .select('id, name, symbol, address, total_supply, gyds_liquidity, is_active, created_at, logo_url, creator_id')
-      .order('created_at', { ascending: false });
-    if (data) setTokens(data as TokenRow[]);
+    try {
+      const data = await api.get('/api/tokens');
+      setTokens(Array.isArray(data) ? data : []);
+    } catch { setTokens([]); }
     setLoading(false);
   };
 
@@ -57,26 +56,19 @@ export const TokenManager = () => {
     if (!user) return;
     setActing(token.id);
     const newStatus = !token.is_active;
-    const { error } = await supabase
-      .from('tokens')
-      .update({ is_active: newStatus })
-      .eq('id', token.id);
-
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.patch(`/api/tokens/${token.id}`, { is_active: newStatus });
       toast({ title: newStatus ? 'Token Restored' : 'Token Blocked', description: `${token.symbol} is now ${newStatus ? 'active' : 'blocked'}.` });
-      // Log audit
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
+      logAuditEvent(user.id, user.email || null, {
         action: newStatus ? 'token_unblock' : 'token_block',
         category: 'token',
         target_type: 'token',
         target_id: token.id,
-        user_email: user.email,
         details: { symbol: token.symbol, address: token.address },
       });
       fetchTokens();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
     }
     setActing(null);
   };
@@ -84,26 +76,19 @@ export const TokenManager = () => {
   const deleteToken = async (token: TokenRow) => {
     if (!user) return;
     setActing(token.id);
-    // Deactivate rather than hard-delete to preserve history
-    const { error } = await supabase
-      .from('tokens')
-      .update({ is_active: false })
-      .eq('id', token.id);
-
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.patch(`/api/tokens/${token.id}`, { is_active: false });
       toast({ title: 'Token Removed', description: `${token.symbol} has been removed from the marketplace.` });
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
+      logAuditEvent(user.id, user.email || null, {
         action: 'token_remove',
         category: 'token',
         target_type: 'token',
         target_id: token.id,
-        user_email: user.email,
         details: { symbol: token.symbol, address: token.address },
       });
       fetchTokens();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
     }
     setActing(null);
   };

@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { ArrowLeft, Rocket, TrendingUp } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
@@ -51,11 +51,11 @@ export const CreateLaunch = ({ onBack }: CreateLaunchProps) => {
   useEffect(() => {
     if (!user) return;
     const loadTokens = async () => {
-      const { data } = await supabase
-        .from('tokens')
-        .select('id, name, symbol, logo_url')
-        .eq('creator_id', user.id);
-      if (data) setUserTokens(data);
+      const tokensData = await api.get('/api/tokens').catch(() => []);
+      const data = Array.isArray(tokensData)
+        ? tokensData.filter((t: any) => t.creator_id === user.id || t.creatorId === user.id)
+        : [];
+      setUserTokens(data);
     };
     loadTokens();
   }, [user]);
@@ -77,7 +77,7 @@ export const CreateLaunch = ({ onBack }: CreateLaunchProps) => {
     setLoading(true);
     try {
       const token = userTokens.find(t => t.id === form.tokenId);
-      const { error } = await supabase.from('token_launches').insert({
+      await api.post('/api/token-launches', {
         creator_id: user.id,
         token_id: form.tokenId || null,
         name: form.name,
@@ -94,8 +94,6 @@ export const CreateLaunch = ({ onBack }: CreateLaunchProps) => {
         is_premier: form.isPremier,
         status: 'upcoming',
       });
-
-      if (error) throw error;
 
       toast({ title: 'Launch Submitted!', description: 'Your token launch is now listed as upcoming.' });
       onBack();

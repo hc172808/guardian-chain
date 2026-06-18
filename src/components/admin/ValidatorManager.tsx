@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { logAuditEvent } from '@/lib/auditLog';
@@ -41,11 +41,10 @@ export const ValidatorManager = () => {
   });
 
   const fetchValidators = async () => {
-    const { data } = await supabase
-      .from('network_validators')
-      .select('*')
-      .order('stake', { ascending: false });
-    if (data) setValidators(data as unknown as Validator[]);
+    try {
+      const data = await api.get('/api/validators');
+      setValidators(Array.isArray(data) ? data : []);
+    } catch { setValidators([]); }
     setLoading(false);
   };
 
@@ -60,19 +59,13 @@ export const ValidatorManager = () => {
       stake: parseFloat(form.stake),
       commission: parseInt(form.commission),
       is_active: form.is_active,
-      created_by: user.id,
     };
-
-    let error;
-    if (editingId) {
-      ({ error } = await supabase.from('network_validators').update(payload).eq('id', editingId));
-    } else {
-      ({ error } = await supabase.from('network_validators').insert(payload));
-    }
-
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      if (editingId) {
+        await api.patch(`/api/validators/${editingId}`, payload);
+      } else {
+        await api.post('/api/validators', payload);
+      }
       toast({ title: editingId ? 'Validator updated' : 'Validator added' });
       logAuditEvent(user.id, user.email || null, {
         action: editingId ? 'Updated validator' : 'Added validator',
@@ -83,23 +76,28 @@ export const ValidatorManager = () => {
       setDialogOpen(false);
       resetForm();
       fetchValidators();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };
 
   const handleDelete = async (id: string) => {
-    const { user: currentUser } = { user };
-    await supabase.from('network_validators').delete().eq('id', id);
-    toast({ title: 'Validator removed' });
-    if (user) {
-      logAuditEvent(user.id, user.email || null, {
-        action: 'Removed validator',
-        category: 'validator',
-        target_type: 'network_validators',
-        target_id: id,
-      });
+    try {
+      await api.delete(`/api/validators/${id}`);
+      toast({ title: 'Validator removed' });
+      if (user) {
+        logAuditEvent(user.id, user.email || null, {
+          action: 'Removed validator',
+          category: 'validator',
+          target_type: 'network_validators',
+          target_id: id,
+        });
+      }
+      fetchValidators();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
     }
-    fetchValidators();
   };
 
   const handleEdit = (v: Validator) => {

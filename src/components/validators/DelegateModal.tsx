@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, ArrowUpRight, Shield } from 'lucide-react';
@@ -34,16 +34,19 @@ export const DelegateModal = ({ open, onOpenChange, validator, onSuccess }: Dele
     if (!user || !amount || parseFloat(amount) <= 0) return;
     setSaving(true);
 
-    const { error } = await supabase.from('validator_delegations' as any).insert({
-      user_id: user.id,
-      validator_id: validator.id,
-      amount: parseFloat(amount),
-      status: 'active',
-    });
-
-    if (error) {
+    try {
+      await api.post('/api/validator-delegations', {
+        user_id: user.id,
+        validator_id: validator.id,
+        amount: parseFloat(amount),
+        status: 'active',
+      });
+    } catch (error: any) {
       toast({ title: 'Delegation failed', description: error.message, variant: 'destructive' });
-    } else {
+      setSaving(false);
+      return;
+    }
+    {
       toast({ title: 'Delegation successful!', description: `${amount} GYDS delegated to ${validator.name || 'validator'}` });
       setAmount('');
       onOpenChange(false);

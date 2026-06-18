@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { logAuditEvent } from '@/lib/auditLog';
 import {
   DollarSign, Coins, Shield, AlertTriangle, Loader2, CheckCircle,
@@ -201,14 +201,15 @@ export const StablecoinFactory = () => {
         if (myRes.ok) setMyStablecoins(await myRes.json());
       }
       // Load config
-      const { data: cfg } = await supabase.from('admin_config').select('config_key,config_value').in('config_key', ['stablecoin_creation_fee', 'stablecoin_max_per_user']);
-      cfg?.forEach(row => {
-        if (row.config_key === 'stablecoin_creation_fee') setCreationFee(Number(row.config_value) || 10000);
-        if (row.config_key === 'stablecoin_max_per_user') setMaxPerUser(Number(row.config_value) || 3);
-      });
-      // Load existing symbols (tokens + stablecoins)
-      const { data: tokens } = await supabase.from('tokens').select('symbol');
-      const symbols = [...RESERVED_SYMBOLS, ...(tokens?.map((t: any) => t.symbol) ?? [])];
+      const [feeRow, maxRow, tokensData] = await Promise.all([
+        api.get('/api/config/stablecoin_creation_fee').catch(() => null),
+        api.get('/api/config/stablecoin_max_per_user').catch(() => null),
+        api.get('/api/tokens').catch(() => []),
+      ]);
+      if (feeRow?.configValue) setCreationFee(Number(feeRow.configValue) || 10000);
+      if (maxRow?.configValue) setMaxPerUser(Number(maxRow.configValue) || 3);
+      const tokens = Array.isArray(tokensData) ? tokensData : [];
+      const symbols = [...RESERVED_SYMBOLS, ...tokens.map((t: any) => t.symbol)];
       setExistingSymbols(symbols.map(s => s.toUpperCase()));
     } finally {
       setLoading(false);

@@ -146,10 +146,16 @@ cd "$APP_DIR"
 # ── Reset npm to public registry ──────────────────────────────────────────────
 # package-lock.json generated inside Replit has all resolved URLs pointing to
 # package-firewall.replit.local (Replit's internal mirror), which is unreachable
-# on any external server. Delete it so npm regenerates a clean lock file.
+# on any external server.  Three-step purge:
+#   1. Force user-level registry to npmjs.org
+#   2. Delete the lock file so npm regenerates it cleanly
+#   3. Purge the npm cache so no stale .tgz files from the Replit mirror survive
 npm config set registry https://registry.npmjs.org/
+# Also remove any project-level .npmrc that might override the registry
+rm -f .npmrc
 rm -f package-lock.json
-log "  Using public npm registry — regenerating lock file"
+npm cache clean --force 2>/dev/null || true
+log "  npm registry → registry.npmjs.org (cache cleared, lock regenerated)"
 
 npm install --legacy-peer-deps
 npm run build

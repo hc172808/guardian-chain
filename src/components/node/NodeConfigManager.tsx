@@ -5,7 +5,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Server,
@@ -52,14 +52,8 @@ export const NodeConfigManager = () => {
   const fetchNodes = async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from('node_installations')
-      .select('id,node_type,is_online,is_synced,is_approved,last_heartbeat,wireguard_public_key,hash_rate,peer_count,sync_progress')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setNodes(data as NodeEntry[]);
-    }
+    const data = await api.get('/api/node-installations').catch(() => null);
+    if (Array.isArray(data)) setNodes(data as NodeEntry[]);
     setLoading(false);
   };
 
@@ -70,13 +64,13 @@ export const NodeConfigManager = () => {
   const addNode = async () => {
     if (!user) return;
 
-    const { error } = await supabase.from('node_installations').insert({
-      user_id: user.id,
-      node_type: newNodeType,
-      is_approved: newNodeType === 'fullnode' && (isFounder || isAdmin),
-    });
-
-    if (error) {
+    try {
+      await api.post('/api/node-installations', {
+        user_id: user.id,
+        node_type: newNodeType,
+        is_approved: newNodeType === 'fullnode' && (isFounder || isAdmin),
+      });
+    } catch (error: any) {
       toast({ title: 'Failed to add node', description: error.message, variant: 'destructive' });
       return;
     }
@@ -87,9 +81,9 @@ export const NodeConfigManager = () => {
   };
 
   const removeNode = async (id: string) => {
-    // Only admins/founders can delete nodes (RLS handles this)
-    const { error } = await supabase.from('node_installations').delete().eq('id', id);
-    if (error) {
+    try {
+      await api.delete(`/api/node-installations/${id}`);
+    } catch (error: any) {
       toast({ title: 'Cannot delete node', description: 'You may not have permission.', variant: 'destructive' });
       return;
     }
@@ -135,13 +129,15 @@ export const NodeConfigManager = () => {
 
       let added = 0;
       for (const node of config.nodes) {
-        const { error } = await supabase.from('node_installations').insert({
-          user_id: user!.id,
-          node_type: node.type || 'litenode',
-          wireguard_public_key: node.wireguard_pubkey || null,
-          is_approved: node.type === 'fullnode' && (isFounder || isAdmin),
-        });
-        if (!error) added++;
+        try {
+          await api.post('/api/node-installations', {
+            user_id: user!.id,
+            node_type: node.type || 'litenode',
+            wireguard_public_key: node.wireguard_pubkey || null,
+            is_approved: node.type === 'fullnode' && (isFounder || isAdmin),
+          });
+          added++;
+        } catch { /* skip failed */ }
       }
 
       toast({ title: `Imported ${added} nodes`, description: `${config.nodes.length - added} failed` });

@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ArrowLeft, Droplets } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
@@ -37,17 +37,13 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
 
   useEffect(() => {
     const loadTokens = async () => {
-      const { data } = await supabase.from('tokens').select('symbol, address').eq('is_active', true);
-      if (data) setCustomTokens(data);
+      const tokensData = await api.get('/api/tokens').catch(() => []);
+      const data = Array.isArray(tokensData) ? tokensData : [];
+      setCustomTokens(data.filter((t: any) => t.isActive || t.is_active));
 
-      // Load tokens user owns (created or has balance)
       if (user) {
-        const { data: userTokens } = await supabase
-          .from('tokens')
-          .select('symbol')
-          .eq('creator_id', user.id)
-          .eq('is_active', true);
-        if (userTokens) setWalletTokens(userTokens.map(t => t.symbol));
+        const userTokens = data.filter((t: any) => t.creatorId === user.id || t.creator_id === user.id);
+        setWalletTokens(userTokens.map((t: any) => t.symbol));
       }
     };
     loadTokens();
@@ -70,7 +66,7 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
       const tokenAMeta = customTokens.find(t => t.symbol === form.tokenA);
       const tokenBMeta = customTokens.find(t => t.symbol === form.tokenB);
 
-      const { error } = await supabase.from('liquidity_pools').insert({
+      await api.post('/api/liquidity-pools', {
         creator_id: user.id,
         token_a_symbol: form.tokenA,
         token_b_symbol: form.tokenB,
@@ -80,7 +76,6 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
         tvl: (parseFloat(form.initialLiquidityA) || 0) + (parseFloat(form.initialLiquidityB) || 0),
       });
 
-      if (error) throw error;
       toast({ title: 'Pool Created!', description: `${form.tokenA} / ${form.tokenB} pool is now live.` });
       onBack();
     } catch (err: any) {

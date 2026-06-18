@@ -3,7 +3,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Activity, Database, Globe, Radio, Shield, Server, RefreshCw, Wifi } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 
 interface ComponentStatus {
   reachable: boolean;
@@ -36,8 +36,7 @@ export const HealthCheck = () => {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('health-check');
-      if (fnError) throw fnError;
+      const data = await api.get('/api/health');
       setResult(data);
     } catch (e: any) {
       setError(e.message);

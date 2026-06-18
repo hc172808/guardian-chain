@@ -3,7 +3,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Bell, BellRing, Plus, Trash2, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
@@ -31,19 +31,15 @@ export const PriceAlerts = () => {
 
   const fetchAlerts = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('token_price_alerts')
-      .select('*, tokens(name, symbol, address, logo_url)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-    if (data) setAlerts(data as unknown as PriceAlert[]);
+    const data = await api.get('/api/price-alerts').catch(() => []);
+    if (Array.isArray(data)) setAlerts(data as unknown as PriceAlert[]);
     setLoading(false);
   };
 
   useEffect(() => { fetchAlerts(); }, [user]);
 
   const deleteAlert = async (id: string) => {
-    await supabase.from('token_price_alerts').delete().eq('id', id);
+    await api.delete(`/api/price-alerts/${id}`).catch(() => {});
     toast({ title: 'Alert deleted' });
     fetchAlerts();
   };
@@ -117,15 +113,18 @@ export const CreatePriceAlert = ({ tokenId, tokenSymbol }: { tokenId: string; to
   const handleCreate = async () => {
     if (!user || !price) return;
     setCreating(true);
-    const { error } = await supabase.from('token_price_alerts').insert({
-      user_id: user.id,
-      token_id: tokenId,
-      target_price: parseFloat(price),
-      direction,
-    });
-    if (error) {
+    try {
+      await api.post('/api/price-alerts', {
+        token_id: tokenId,
+        target_price: parseFloat(price),
+        direction,
+      });
+    } catch (error: any) {
       toast({ title: 'Failed to create alert', description: error.message, variant: 'destructive' });
-    } else {
+      setCreating(false);
+      return;
+    }
+    {
       toast({ title: `Alert set for ${tokenSymbol}`, description: `When price goes ${direction} $${price}` });
       setOpen(false);
       setPrice('');

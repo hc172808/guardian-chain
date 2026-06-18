@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Search, Save, RefreshCw, Server, Globe, Database, Unlink, Link } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 
 const CONFIG_KEY = 'explorer_config';
@@ -40,19 +40,17 @@ export const ExplorerConfig = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    const fetch = async () => {
+    const load = async () => {
       setLoading(true);
-      const { data } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', CONFIG_KEY)
-        .maybeSingle();
-      if (data?.config_value && typeof data.config_value === 'object' && !Array.isArray(data.config_value)) {
-        setCfg({ ...DEFAULTS, ...(data.config_value as Partial<ExplorerConfigData>) });
-      }
+      try {
+        const row = await api.get(`/api/config/${CONFIG_KEY}`);
+        if (row?.configValue && typeof row.configValue === 'object' && !Array.isArray(row.configValue)) {
+          setCfg({ ...DEFAULTS, ...(row.configValue as Partial<ExplorerConfigData>) });
+        }
+      } catch { /* use defaults */ }
       setLoading(false);
     };
-    fetch();
+    load();
   }, []);
 
   const set = <K extends keyof ExplorerConfigData>(key: K, val: ExplorerConfigData[K]) =>
@@ -60,15 +58,13 @@ export const ExplorerConfig = () => {
 
   const save = async () => {
     setSaving(true);
-    const { error } = await supabase
-      .from('admin_config')
-      .upsert({ config_key: CONFIG_KEY, config_value: cfg as any, updated_at: new Date().toISOString() }, { onConflict: 'config_key' });
-    setSaving(false);
-    if (error) {
-      toast({ title: 'Failed to save', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/config', { key: CONFIG_KEY, value: cfg });
       toast({ title: 'Explorer config saved', description: 'Configuration applied.' });
+    } catch (e: any) {
+      toast({ title: 'Failed to save', description: e.message, variant: 'destructive' });
     }
+    setSaving(false);
   };
 
   if (loading) {
@@ -81,7 +77,6 @@ export const ExplorerConfig = () => {
 
   return (
     <div className="space-y-4">
-      {/* Deployment Mode */}
       <GlassCard className="p-6 space-y-4">
         <div className="flex items-center gap-3 mb-2">
           <div className="p-3 rounded-lg bg-primary/20">
@@ -130,34 +125,23 @@ export const ExplorerConfig = () => {
         </div>
       </GlassCard>
 
-      {/* Explorer Endpoint */}
       <GlassCard className="p-6 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <Globe className="h-5 w-5 text-primary" />
           <h4 className="font-semibold">Explorer Endpoint</h4>
         </div>
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Explorer URL {cfg.mode === 'standalone' ? '(remote server)' : '(this server)'}</Label>
-            <Input
-              placeholder="https://explorer.netlifegy.com"
-              value={cfg.explorerUrl}
-              onChange={e => set('explorerUrl', e.target.value)}
-            />
+            <Input placeholder="https://explorer.netlifegy.com" value={cfg.explorerUrl} onChange={e => set('explorerUrl', e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Explorer Port</Label>
-            <Input
-              placeholder="4000"
-              value={cfg.explorerPort}
-              onChange={e => set('explorerPort', e.target.value)}
-            />
+            <Input placeholder="4000" value={cfg.explorerPort} onChange={e => set('explorerPort', e.target.value)} />
           </div>
         </div>
       </GlassCard>
 
-      {/* Node RPC Endpoints */}
       <GlassCard className="p-6 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <Server className="h-5 w-5 text-primary" />
@@ -166,28 +150,18 @@ export const ExplorerConfig = () => {
             <Badge variant="outline" className="text-xs ml-auto">Explorer will connect to these remotely</Badge>
           )}
         </div>
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>HTTP RPC URL</Label>
-            <Input
-              placeholder="http://localhost:8545"
-              value={cfg.rpcHttpUrl}
-              onChange={e => set('rpcHttpUrl', e.target.value)}
-            />
+            <Input placeholder="http://localhost:8545" value={cfg.rpcHttpUrl} onChange={e => set('rpcHttpUrl', e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>WebSocket RPC URL</Label>
-            <Input
-              placeholder="ws://localhost:8546"
-              value={cfg.rpcWsUrl}
-              onChange={e => set('rpcWsUrl', e.target.value)}
-            />
+            <Input placeholder="ws://localhost:8546" value={cfg.rpcWsUrl} onChange={e => set('rpcWsUrl', e.target.value)} />
           </div>
         </div>
       </GlassCard>
 
-      {/* Indexer DB */}
       <GlassCard className="p-6 space-y-4">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
@@ -214,16 +188,12 @@ export const ExplorerConfig = () => {
             </div>
             <div className="space-y-2">
               <Label>Indexer API Port</Label>
-              <Input
-                placeholder="4001"
-                value={cfg.indexerPort}
-                onChange={e => set('indexerPort', e.target.value)}
-              />
+              <Input placeholder="4001" value={cfg.indexerPort} onChange={e => set('indexerPort', e.target.value)} />
             </div>
           </div>
         ) : (
           <div className="p-3 rounded-lg bg-secondary/30 text-sm text-muted-foreground">
-            Using the main Supabase database for block indexing. Switch the toggle above to use a dedicated indexer database (recommended for mainnet).
+            Using the main database for block indexing. Switch the toggle above to use a dedicated indexer database (recommended for mainnet).
           </div>
         )}
       </GlassCard>

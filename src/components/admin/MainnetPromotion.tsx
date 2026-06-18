@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { Rocket, RefreshCw, Loader2, CheckCircle2, Clock, TrendingUp, Network } from 'lucide-react';
 import {
   loadPricingConfig,
@@ -46,13 +46,11 @@ export const MainnetPromotion = () => {
     const pricing = await loadPricingConfig();
     setPromo(pricing.mainnet_promotion);
 
-    const { data: tokens } = await supabase
-      .from('tokens')
-      .select('id, name, symbol, created_at, total_supply, burned_supply, gyds_liquidity')
-      .order('created_at', { ascending: false });
+    const tokensData = await api.get('/api/tokens').catch(() => []);
+    const tokens = Array.isArray(tokensData) ? tokensData : [];
 
     const states = await readAllTokenNetworkStates();
-    const built: TokenRow[] = (tokens ?? []).map((t: any) => {
+    const built: TokenRow[] = tokens.map((t: any) => {
       const state = states.get(t.id) ?? { network_type: 'devnet' as const, mainnet_promoted_at: null, market_cap_usd: 0, extra_authorities: {} };
       const mc = computeMarketCapUsd(t, pricing.mainnet_promotion.gyds_price_usd);
       const v = evaluateEligibility(t, state, mc, pricing.mainnet_promotion);

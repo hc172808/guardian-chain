@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { logAuditEvent } from '@/lib/auditLog';
@@ -70,8 +70,10 @@ const UfwRulesTab = () => {
   });
 
   const fetchRules = async () => {
-    const { data } = await supabase.from('firewall_rules').select('*').order('created_at', { ascending: false });
-    if (data) setRules(data as unknown as FirewallRule[]);
+    try {
+      const data = await api.get('/api/firewall/rules');
+      setRules(Array.isArray(data) ? data : []);
+    } catch { setRules([]); }
     setLoading(false);
   };
 
@@ -80,19 +82,16 @@ const UfwRulesTab = () => {
   const handleAdd = async () => {
     if (!user) return;
     setSaving(true);
-    const { error } = await supabase.from('firewall_rules').insert({
-      rule_type: 'ufw',
-      action: form.action,
-      protocol: form.protocol,
-      port: form.port || null,
-      ip_address: form.ip_address || null,
-      direction: form.direction,
-      description: form.description || null,
-      created_by: user.id,
-    });
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/firewall/rules', {
+        rule_type: 'ufw',
+        action: form.action,
+        protocol: form.protocol,
+        port: form.port || null,
+        ip_address: form.ip_address || null,
+        direction: form.direction,
+        description: form.description || null,
+      });
       toast({ title: 'Firewall rule added' });
       logAuditEvent(user.id, user.email || null, {
         action: 'Added UFW rule', category: 'firewall', target_type: 'firewall_rules',
@@ -101,25 +100,31 @@ const UfwRulesTab = () => {
       setDialogOpen(false);
       setForm({ action: 'allow', protocol: 'tcp', port: '', ip_address: '', direction: 'in', description: '' });
       fetchRules();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };
 
   const toggleRule = async (id: string, active: boolean) => {
-    await supabase.from('firewall_rules').update({ is_active: !active }).eq('id', id);
-    if (user) logAuditEvent(user.id, user.email || null, {
-      action: active ? 'Disabled UFW rule' : 'Enabled UFW rule', category: 'firewall', target_type: 'firewall_rules', target_id: id,
-    });
-    fetchRules();
+    try {
+      await api.patch(`/api/firewall/rules/${id}`, { is_active: !active });
+      if (user) logAuditEvent(user.id, user.email || null, {
+        action: active ? 'Disabled UFW rule' : 'Enabled UFW rule', category: 'firewall', target_type: 'firewall_rules', target_id: id,
+      });
+      fetchRules();
+    } catch { /* ignore */ }
   };
 
   const deleteRule = async (id: string) => {
-    await supabase.from('firewall_rules').delete().eq('id', id);
-    toast({ title: 'Rule removed' });
-    if (user) logAuditEvent(user.id, user.email || null, {
-      action: 'Removed UFW rule', category: 'firewall', target_type: 'firewall_rules', target_id: id,
-    });
-    fetchRules();
+    try {
+      await api.delete(`/api/firewall/rules/${id}`);
+      toast({ title: 'Rule removed' });
+      if (user) logAuditEvent(user.id, user.email || null, {
+        action: 'Removed UFW rule', category: 'firewall', target_type: 'firewall_rules', target_id: id,
+      });
+      fetchRules();
+    } catch { /* ignore */ }
   };
 
   return (
@@ -194,10 +199,9 @@ const UfwRulesTab = () => {
         </Dialog>
       </div>
 
-      {/* Default rules info */}
       <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-sm">
         <p className="text-muted-foreground">
-          <strong className="text-foreground">Default policy:</strong> Deny all incoming, Allow all outgoing. 
+          <strong className="text-foreground">Default policy:</strong> Deny all incoming, Allow all outgoing.
           Essential ports (22/SSH, 80/HTTP, 443/HTTPS, 30303/P2P, 8545/RPC) should be explicitly allowed.
         </p>
       </div>
@@ -260,8 +264,10 @@ const Fail2BanTab = () => {
   });
 
   const fetchJails = async () => {
-    const { data } = await supabase.from('fail2ban_jails').select('*').order('created_at', { ascending: false });
-    if (data) setJails(data as unknown as Fail2BanJail[]);
+    try {
+      const data = await api.get('/api/firewall/jails');
+      setJails(Array.isArray(data) ? data : []);
+    } catch { setJails([]); }
     setLoading(false);
   };
 
@@ -270,19 +276,16 @@ const Fail2BanTab = () => {
   const handleAdd = async () => {
     if (!user || !form.jail_name) return;
     setSaving(true);
-    const { error } = await supabase.from('fail2ban_jails').insert({
-      jail_name: form.jail_name,
-      max_retries: parseInt(form.max_retries),
-      ban_time: parseInt(form.ban_time),
-      find_time: parseInt(form.find_time),
-      log_path: form.log_path || null,
-      filter_name: form.filter_name || null,
-      description: form.description || null,
-      created_by: user.id,
-    });
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/firewall/jails', {
+        jail_name: form.jail_name,
+        max_retries: parseInt(form.max_retries),
+        ban_time: parseInt(form.ban_time),
+        find_time: parseInt(form.find_time),
+        log_path: form.log_path || null,
+        filter_name: form.filter_name || null,
+        description: form.description || null,
+      });
       toast({ title: 'Fail2Ban jail added' });
       logAuditEvent(user.id, user.email || null, {
         action: 'Added Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails',
@@ -291,25 +294,31 @@ const Fail2BanTab = () => {
       setDialogOpen(false);
       setForm({ jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600', log_path: '', filter_name: '', description: '' });
       fetchJails();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };
 
   const toggleJail = async (id: string, enabled: boolean) => {
-    await supabase.from('fail2ban_jails').update({ is_enabled: !enabled }).eq('id', id);
-    if (user) logAuditEvent(user.id, user.email || null, {
-      action: enabled ? 'Disabled Fail2Ban jail' : 'Enabled Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails', target_id: id,
-    });
-    fetchJails();
+    try {
+      await api.patch(`/api/firewall/jails/${id}`, { is_enabled: !enabled });
+      if (user) logAuditEvent(user.id, user.email || null, {
+        action: enabled ? 'Disabled Fail2Ban jail' : 'Enabled Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails', target_id: id,
+      });
+      fetchJails();
+    } catch { /* ignore */ }
   };
 
   const deleteJail = async (id: string) => {
-    await supabase.from('fail2ban_jails').delete().eq('id', id);
-    toast({ title: 'Jail removed' });
-    if (user) logAuditEvent(user.id, user.email || null, {
-      action: 'Removed Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails', target_id: id,
-    });
-    fetchJails();
+    try {
+      await api.delete(`/api/firewall/jails/${id}`);
+      toast({ title: 'Jail removed' });
+      if (user) logAuditEvent(user.id, user.email || null, {
+        action: 'Removed Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails', target_id: id,
+      });
+      fetchJails();
+    } catch { /* ignore */ }
   };
 
   const formatDuration = (seconds: number) => {
@@ -426,8 +435,10 @@ const IpAccessListTab = () => {
   const [form, setForm] = useState({ ip_address: '', list_type: 'whitelist', reason: '' });
 
   const fetchEntries = async () => {
-    const { data } = await supabase.from('ip_access_list').select('*').order('created_at', { ascending: false });
-    if (data) setEntries(data as unknown as IpAccessEntry[]);
+    try {
+      const data = await api.get('/api/firewall/ip-list');
+      setEntries(Array.isArray(data) ? data : []);
+    } catch { setEntries([]); }
     setLoading(false);
   };
 
@@ -436,15 +447,12 @@ const IpAccessListTab = () => {
   const handleAdd = async () => {
     if (!user || !form.ip_address) return;
     setSaving(true);
-    const { error } = await supabase.from('ip_access_list').insert({
-      ip_address: form.ip_address,
-      list_type: form.list_type,
-      reason: form.reason || null,
-      created_by: user.id,
-    });
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/firewall/ip-list', {
+        ip_address: form.ip_address,
+        list_type: form.list_type,
+        reason: form.reason || null,
+      });
       toast({ title: `IP ${form.list_type === 'whitelist' ? 'whitelisted' : 'blacklisted'}` });
       logAuditEvent(user.id, user.email || null, {
         action: `Added IP to ${form.list_type}`, category: 'firewall', target_type: 'ip_access_list',
@@ -453,17 +461,21 @@ const IpAccessListTab = () => {
       setDialogOpen(false);
       setForm({ ip_address: '', list_type: 'whitelist', reason: '' });
       fetchEntries();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };
 
   const deleteEntry = async (id: string) => {
-    await supabase.from('ip_access_list').delete().eq('id', id);
-    toast({ title: 'IP entry removed' });
-    if (user) logAuditEvent(user.id, user.email || null, {
-      action: 'Removed IP entry', category: 'firewall', target_type: 'ip_access_list', target_id: id,
-    });
-    fetchEntries();
+    try {
+      await api.delete(`/api/firewall/ip-list/${id}`);
+      toast({ title: 'IP entry removed' });
+      if (user) logAuditEvent(user.id, user.email || null, {
+        action: 'Removed IP entry', category: 'firewall', target_type: 'ip_access_list', target_id: id,
+      });
+      fetchEntries();
+    } catch { /* ignore */ }
   };
 
   const whitelisted = entries.filter(e => e.list_type === 'whitelist');
@@ -576,8 +588,10 @@ const RateLimitTab = () => {
   });
 
   const fetchRules = async () => {
-    const { data } = await supabase.from('rate_limit_rules').select('*').order('created_at', { ascending: false });
-    if (data) setRules(data);
+    try {
+      const data = await api.get('/api/firewall/rate-limits');
+      setRules(Array.isArray(data) ? data : []);
+    } catch { setRules([]); }
     setLoading(false);
   };
 
@@ -586,19 +600,16 @@ const RateLimitTab = () => {
   const handleAdd = async () => {
     if (!user || !form.name || !form.endpoint) return;
     setSaving(true);
-    const { error } = await supabase.from('rate_limit_rules').insert({
-      name: form.name,
-      endpoint: form.endpoint,
-      requests_per_window: parseInt(form.requests_per_window),
-      window_seconds: parseInt(form.window_seconds),
-      burst_limit: parseInt(form.burst_limit),
-      action: form.action,
-      description: form.description || null,
-      created_by: user.id,
-    });
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/firewall/rate-limits', {
+        name: form.name,
+        endpoint: form.endpoint,
+        requests_per_window: parseInt(form.requests_per_window),
+        window_seconds: parseInt(form.window_seconds),
+        burst_limit: parseInt(form.burst_limit),
+        action: form.action,
+        description: form.description || null,
+      });
       toast({ title: 'Rate limit rule added' });
       logAuditEvent(user.id, user.email || null, {
         action: 'Added rate limit rule', category: 'firewall', target_type: 'rate_limit_rules',
@@ -607,25 +618,31 @@ const RateLimitTab = () => {
       setDialogOpen(false);
       setForm({ name: '', endpoint: '', requests_per_window: '100', window_seconds: '60', burst_limit: '20', action: 'throttle', description: '' });
       fetchRules();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };
 
   const toggleRule = async (id: string, enabled: boolean) => {
-    await supabase.from('rate_limit_rules').update({ is_enabled: !enabled }).eq('id', id);
-    if (user) logAuditEvent(user.id, user.email || null, {
-      action: enabled ? 'Disabled rate limit rule' : 'Enabled rate limit rule', category: 'firewall', target_type: 'rate_limit_rules', target_id: id,
-    });
-    fetchRules();
+    try {
+      await api.patch(`/api/firewall/rate-limits/${id}`, { is_enabled: !enabled });
+      if (user) logAuditEvent(user.id, user.email || null, {
+        action: enabled ? 'Disabled rate limit rule' : 'Enabled rate limit rule', category: 'firewall', target_type: 'rate_limit_rules', target_id: id,
+      });
+      fetchRules();
+    } catch { /* ignore */ }
   };
 
   const deleteRule = async (id: string) => {
-    await supabase.from('rate_limit_rules').delete().eq('id', id);
-    toast({ title: 'Rule removed' });
-    if (user) logAuditEvent(user.id, user.email || null, {
-      action: 'Removed rate limit rule', category: 'firewall', target_type: 'rate_limit_rules', target_id: id,
-    });
-    fetchRules();
+    try {
+      await api.delete(`/api/firewall/rate-limits/${id}`);
+      toast({ title: 'Rule removed' });
+      if (user) logAuditEvent(user.id, user.email || null, {
+        action: 'Removed rate limit rule', category: 'firewall', target_type: 'rate_limit_rules', target_id: id,
+      });
+      fetchRules();
+    } catch { /* ignore */ }
   };
 
   return (
@@ -751,8 +768,10 @@ const DDoSProtectionTab = () => {
   });
 
   const fetchConfigs = async () => {
-    const { data } = await supabase.from('ddos_protection').select('*').order('created_at', { ascending: false });
-    if (data) setConfigs(data);
+    try {
+      const data = await api.get('/api/firewall/ddos');
+      setConfigs(Array.isArray(data) ? data : []);
+    } catch { setConfigs([]); }
     setLoading(false);
   };
 
@@ -761,17 +780,14 @@ const DDoSProtectionTab = () => {
   const handleAdd = async () => {
     if (!user || !form.name) return;
     setSaving(true);
-    const { error } = await supabase.from('ddos_protection').insert({
-      name: form.name,
-      protection_type: form.protection_type,
-      threshold: parseInt(form.threshold),
-      action: form.action,
-      description: form.description || null,
-      created_by: user.id,
-    });
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/firewall/ddos', {
+        name: form.name,
+        protection_type: form.protection_type,
+        threshold: parseInt(form.threshold),
+        action: form.action,
+        description: form.description || null,
+      });
       toast({ title: 'DDoS protection rule added' });
       logAuditEvent(user.id, user.email || null, {
         action: 'Added DDoS protection rule', category: 'firewall', target_type: 'ddos_protection',
@@ -780,25 +796,31 @@ const DDoSProtectionTab = () => {
       setDialogOpen(false);
       setForm({ name: '', protection_type: 'syn_flood', threshold: '1000', action: 'drop', description: '' });
       fetchConfigs();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };
 
   const toggleConfig = async (id: string, enabled: boolean) => {
-    await supabase.from('ddos_protection').update({ is_enabled: !enabled }).eq('id', id);
-    if (user) logAuditEvent(user.id, user.email || null, {
-      action: enabled ? 'Disabled DDoS protection' : 'Enabled DDoS protection', category: 'firewall', target_type: 'ddos_protection', target_id: id,
-    });
-    fetchConfigs();
+    try {
+      await api.patch(`/api/firewall/ddos/${id}`, { is_enabled: !enabled });
+      if (user) logAuditEvent(user.id, user.email || null, {
+        action: enabled ? 'Disabled DDoS protection' : 'Enabled DDoS protection', category: 'firewall', target_type: 'ddos_protection', target_id: id,
+      });
+      fetchConfigs();
+    } catch { /* ignore */ }
   };
 
   const deleteConfig = async (id: string) => {
-    await supabase.from('ddos_protection').delete().eq('id', id);
-    toast({ title: 'Protection rule removed' });
-    if (user) logAuditEvent(user.id, user.email || null, {
-      action: 'Removed DDoS protection rule', category: 'firewall', target_type: 'ddos_protection', target_id: id,
-    });
-    fetchConfigs();
+    try {
+      await api.delete(`/api/firewall/ddos/${id}`);
+      toast({ title: 'Protection rule removed' });
+      if (user) logAuditEvent(user.id, user.email || null, {
+        action: 'Removed DDoS protection rule', category: 'firewall', target_type: 'ddos_protection', target_id: id,
+      });
+      fetchConfigs();
+    } catch { /* ignore */ }
   };
 
   const protectionTypes: Record<string, { label: string; icon: string }> = {
@@ -998,34 +1020,17 @@ export const FirewallManager = () => {
         <TabsContent value="iplist"><IpAccessListTab /></TabsContent>
       </Tabs>
 
-      {/* Quick reference */}
       <div className="mt-6 p-4 rounded-lg bg-secondary/20 border border-border/50">
         <h4 className="text-sm font-medium mb-2">🔒 Recommended Ports for Blockchain Node</h4>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-          <div className="p-2 rounded bg-secondary/30">
-            <p className="font-mono font-bold">22/TCP</p><p className="text-muted-foreground">SSH</p>
-          </div>
-          <div className="p-2 rounded bg-secondary/30">
-            <p className="font-mono font-bold">80/TCP</p><p className="text-muted-foreground">HTTP</p>
-          </div>
-          <div className="p-2 rounded bg-secondary/30">
-            <p className="font-mono font-bold">443/TCP</p><p className="text-muted-foreground">HTTPS/WSS</p>
-          </div>
-          <div className="p-2 rounded bg-secondary/30">
-            <p className="font-mono font-bold">30303/TCP+UDP</p><p className="text-muted-foreground">P2P Sync</p>
-          </div>
-          <div className="p-2 rounded bg-secondary/30">
-            <p className="font-mono font-bold">8545/TCP</p><p className="text-muted-foreground">RPC</p>
-          </div>
-          <div className="p-2 rounded bg-secondary/30">
-            <p className="font-mono font-bold">8546/TCP</p><p className="text-muted-foreground">WebSocket</p>
-          </div>
-          <div className="p-2 rounded bg-secondary/30">
-            <p className="font-mono font-bold">51820/UDP</p><p className="text-muted-foreground">WireGuard</p>
-          </div>
-          <div className="p-2 rounded bg-secondary/30">
-            <p className="font-mono font-bold">5432/TCP</p><p className="text-muted-foreground">PostgreSQL</p>
-          </div>
+          <div className="p-2 rounded bg-secondary/30"><p className="font-mono font-bold">22/TCP</p><p className="text-muted-foreground">SSH</p></div>
+          <div className="p-2 rounded bg-secondary/30"><p className="font-mono font-bold">80/TCP</p><p className="text-muted-foreground">HTTP</p></div>
+          <div className="p-2 rounded bg-secondary/30"><p className="font-mono font-bold">443/TCP</p><p className="text-muted-foreground">HTTPS/WSS</p></div>
+          <div className="p-2 rounded bg-secondary/30"><p className="font-mono font-bold">30303/TCP+UDP</p><p className="text-muted-foreground">P2P Sync</p></div>
+          <div className="p-2 rounded bg-secondary/30"><p className="font-mono font-bold">8545/TCP</p><p className="text-muted-foreground">RPC</p></div>
+          <div className="p-2 rounded bg-secondary/30"><p className="font-mono font-bold">8546/TCP</p><p className="text-muted-foreground">WebSocket</p></div>
+          <div className="p-2 rounded bg-secondary/30"><p className="font-mono font-bold">51820/UDP</p><p className="text-muted-foreground">WireGuard</p></div>
+          <div className="p-2 rounded bg-secondary/30"><p className="font-mono font-bold">5432/TCP</p><p className="text-muted-foreground">PostgreSQL</p></div>
         </div>
       </div>
     </GlassCard>

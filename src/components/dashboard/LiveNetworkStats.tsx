@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 
 interface NetworkStatsData {
   blockHeight: number;
@@ -38,20 +38,22 @@ export const LiveNetworkStats = () => {
   // Fetch real stats from DB
   useEffect(() => {
     const fetchStats = async () => {
-      const [validatorsRes, minersRes, txRes] = await Promise.all([
-        supabase.from('network_validators').select('id', { count: 'exact' }).eq('is_active', true),
-        supabase.from('node_installations').select('hash_rate', { count: 'exact' }).eq('is_online', true),
-        supabase.from('transactions').select('id', { count: 'exact' }),
+      const [validatorsData, minersData, txData] = await Promise.all([
+        api.get('/api/validators?active=true').catch(() => []),
+        api.get('/api/node-installations?online=true').catch(() => []),
+        api.get('/api/transactions/count').catch(() => ({ count: 0 })),
       ]);
 
-      const totalHash = minersRes.data?.reduce((acc, n) => acc + (Number(n.hash_rate) || 0), 0) || 0;
+      const validators = Array.isArray(validatorsData) ? validatorsData : [];
+      const miners = Array.isArray(minersData) ? minersData : [];
+      const totalHash = miners.reduce((acc: number, n: any) => acc + (Number(n.hash_rate || n.hashRate) || 0), 0);
 
       setStats(prev => ({
         ...prev,
-        activeValidators: validatorsRes.count || 0,
-        activeMiners: minersRes.count || 0,
-        totalTxs24h: txRes.count || 0,
-        networkHashRate: totalHash / 1e12, // Convert to TH/s
+        activeValidators: validators.length,
+        activeMiners: miners.length,
+        totalTxs24h: txData?.count || 0,
+        networkHashRate: totalHash / 1e12,
       }));
     };
     fetchStats();

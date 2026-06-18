@@ -3,7 +3,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Terminal, Trash2, Download } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useComponentVisibility, KNOWN_COMPONENTS } from '@/hooks/useComponentVisibility';
 
@@ -100,17 +100,17 @@ export const AdminConsole = () => {
         case 'version': out(`Frontend: GYDSchain Dashboard v2.1.0\nChain ID: 13370\nBlock time: 120s`); break;
 
         case 'status': {
-          const [{ count: u }, { count: n }, { count: t }, { count: tx }] = await Promise.all([
-            supabase.from('profiles').select('*', { count: 'exact', head: true }),
-            supabase.from('node_installations').select('*', { count: 'exact', head: true }),
-            supabase.from('tokens').select('*', { count: 'exact', head: true }),
-            supabase.from('transactions').select('*', { count: 'exact', head: true }),
+          const [users, nodes, tokens, txs] = await Promise.all([
+            api.get('/api/admin/users').catch(() => []),
+            api.get('/api/nodes').catch(() => []),
+            api.get('/api/tokens').catch(() => []),
+            api.get('/api/transactions').catch(() => []),
           ]);
           out(
-            `Users:        ${u ?? '?'}\n` +
-            `Nodes:        ${n ?? '?'}\n` +
-            `Tokens:       ${t ?? '?'}\n` +
-            `Transactions: ${tx ?? '?'}\n` +
+            `Users:        ${Array.isArray(users) ? users.length : '?'}\n` +
+            `Nodes:        ${Array.isArray(nodes) ? nodes.length : '?'}\n` +
+            `Tokens:       ${Array.isArray(tokens) ? tokens.length : '?'}\n` +
+            `Transactions: ${Array.isArray(txs) ? txs.length : '?'}\n` +
             `Hidden cmps:  ${hidden.length}`
           );
           break;
@@ -118,42 +118,41 @@ export const AdminConsole = () => {
 
         case 'users': {
           const limit = parseInt(args[0] || '20', 10);
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('user_id, email, created_at')
-            .order('created_at', { ascending: false })
-            .limit(limit);
-          if (error) throw error;
-          out(fmtTable((data || []).map((r: any) => ({
-            user_id: String(r.user_id).slice(0, 8) + '…',
+          const data = await api.get(`/api/admin/users`);
+          const rows = (Array.isArray(data) ? data : []).slice(0, limit);
+          out(fmtTable(rows.map((r: any) => ({
+            id: String(r.id || r.user_id || '').slice(0, 8) + '…',
+            username: r.username || '-',
             email: r.email || '-',
-            created_at: new Date(r.created_at).toISOString().slice(0, 19),
+            role: r.role || 'user',
+            created: new Date(r.created_at || Date.now()).toISOString().slice(0, 10),
           }))));
           break;
         }
 
         case 'nodes': {
           const limit = parseInt(args[0] || '20', 10);
-          const { data, error } = await supabase
-            .from('node_installations')
-            .select('node_type, is_online, sync_progress, peer_count, is_approved, created_at')
-            .order('created_at', { ascending: false })
-            .limit(limit);
-          if (error) throw error;
-          out(fmtTable(data || []));
+          const data = await api.get('/api/nodes');
+          const rows = (Array.isArray(data) ? data : []).slice(0, limit);
+          out(fmtTable(rows.map((r: any) => ({
+            type: r.node_type || r.nodeType || '-',
+            online: r.is_online || r.isOnline ? 'yes' : 'no',
+            sync: r.sync_progress || r.syncProgress || '-',
+            approved: r.is_approved || r.isApproved ? 'yes' : 'no',
+            created: new Date(r.created_at || Date.now()).toISOString().slice(0, 10),
+          }))));
           break;
         }
 
         case 'tokens': {
           const which = (args[0] || 'all').toLowerCase();
-          let q = supabase.from('tokens').select('symbol, name, address, is_active, total_supply').limit(50);
-          if (which === 'active') q = q.eq('is_active', true);
-          const { data, error } = await q;
-          if (error) throw error;
-          out(fmtTable((data || []).map((r) => ({
+          let data = await api.get('/api/tokens');
+          if (!Array.isArray(data)) data = [];
+          if (which === 'active') data = data.filter((r: any) => r.is_active);
+          out(fmtTable(data.slice(0, 50).map((r: any) => ({
             symbol: r.symbol,
             name: r.name,
-            address: (r.address as string).slice(0, 10) + '…',
+            address: String(r.address || '').slice(0, 10) + '…',
             active: r.is_active ? 'yes' : 'no',
             supply: Number(r.total_supply).toLocaleString(),
           }))));
@@ -162,59 +161,56 @@ export const AdminConsole = () => {
 
         case 'txs': {
           const limit = parseInt(args[0] || '20', 10);
-          const { data, error } = await supabase
-            .from('transactions')
-            .select('tx_hash, from_address, to_address, amount, status, created_at')
-            .order('created_at', { ascending: false })
-            .limit(limit);
-          if (error) throw error;
-          out(fmtTable((data || []).map((r) => ({
-            tx: (r.tx_hash as string)?.slice(0, 12) + '…',
-            from: (r.from_address as string)?.slice(0, 10) + '…',
-            to: r.to_address,
+          const data = await api.get('/api/transactions');
+          const rows = (Array.isArray(data) ? data : []).slice(0, limit);
+          out(fmtTable(rows.map((r: any) => ({
+            tx: String(r.tx_hash || r.txHash || '').slice(0, 12) + '…',
+            from: String(r.from_address || r.fromAddress || '').slice(0, 10) + '…',
+            to: r.to_address || r.toAddress || '-',
             amount: r.amount,
             status: r.status,
-            time: new Date(r.created_at).toISOString().slice(11, 19),
+            time: new Date(r.created_at || Date.now()).toISOString().slice(11, 19),
           }))));
           break;
         }
 
         case 'wallet': {
           if (!args[0]) { err('usage: wallet <address>'); break; }
-          const { data } = await supabase
-            .from('wallets')
-            .select('address, user_id, network, created_at')
-            .ilike('address', `%${args[0]}%`);
-          out(fmtTable(data || []));
+          const data = await api.get('/api/wallets');
+          const matches = (Array.isArray(data) ? data : []).filter((w: any) =>
+            String(w.address || '').toLowerCase().includes(args[0].toLowerCase())
+          );
+          out(fmtTable(matches.map((w: any) => ({
+            address: w.address,
+            network: w.network,
+            created: new Date(w.created_at || Date.now()).toISOString().slice(0, 10),
+          }))));
           break;
         }
 
         case 'tx': {
           if (!args[0]) { err('usage: tx <hash>'); break; }
-          const { data } = await supabase
-            .from('transactions')
-            .select('*')
-            .ilike('tx_hash', `%${args[0]}%`)
-            .maybeSingle();
-          out(data ? JSON.stringify(data, null, 2) : 'not found');
+          const data = await api.get('/api/transactions');
+          const match = (Array.isArray(data) ? data : []).find((t: any) =>
+            String(t.tx_hash || t.txHash || '').toLowerCase().includes(args[0].toLowerCase())
+          );
+          out(match ? JSON.stringify(match, null, 2) : 'not found');
           break;
         }
 
         case 'bridges': {
           const limit = parseInt(args[0] || '20', 10);
-          const { data } = await supabase
-            .from('token_operations')
-            .select('operation_type, wallet_address, amount, usdt_amount, status, created_at')
-            .ilike('wallet_address', 'bridge:%')
-            .order('created_at', { ascending: false })
-            .limit(limit);
-          out(fmtTable((data || []).map((r) => ({
+          const data = await api.get('/api/token-operations');
+          const rows = (Array.isArray(data) ? data : [])
+            .filter((r: any) => String(r.wallet_address || '').startsWith('bridge:'))
+            .slice(0, limit);
+          out(fmtTable(rows.map((r: any) => ({
             type: r.operation_type,
-            wallet: (r.wallet_address as string).slice(0, 24) + '…',
+            wallet: String(r.wallet_address).slice(0, 24) + '…',
             amount: r.amount,
             usd: r.usdt_amount,
             status: r.status,
-            time: new Date(r.created_at).toISOString().slice(11, 19),
+            time: new Date(r.created_at || Date.now()).toISOString().slice(11, 19),
           }))));
           break;
         }
@@ -253,19 +249,17 @@ export const AdminConsole = () => {
         case 'announce': {
           const msg = args.join(' ');
           if (!msg) { err('usage: announce <text>'); break; }
-          await supabase
-            .from('admin_config')
-            .upsert(
-              { config_key: ANNOUNCE_KEY, config_value: { message: msg, set_by: user?.id, at: new Date().toISOString() } as any },
-              { onConflict: 'config_key' }
-            );
+          await api.post('/api/config', {
+            key: ANNOUNCE_KEY,
+            value: { message: msg, set_by: user?.id, at: new Date().toISOString() },
+          });
           sys(`announcement set: "${msg}"`);
           break;
         }
 
         case 'banner': {
           if (args[0] === 'clear') {
-            await supabase.from('admin_config').delete().eq('config_key', ANNOUNCE_KEY);
+            await api.post('/api/config', { key: ANNOUNCE_KEY, value: null });
             sys('banner cleared');
           } else err('usage: banner clear');
           break;
@@ -383,10 +377,10 @@ export const AdminConsole = () => {
             <div
               key={i}
               className={
-                l.kind === 'in'   ? 'text-primary'
-              : l.kind === 'err'  ? 'text-destructive whitespace-pre-wrap'
-              : l.kind === 'sys'  ? 'text-yellow-400 whitespace-pre-wrap'
-              :                     'text-foreground/90 whitespace-pre-wrap'
+                l.kind === 'in'  ? 'text-primary'
+              : l.kind === 'err' ? 'text-destructive whitespace-pre-wrap'
+              : l.kind === 'sys' ? 'text-yellow-400 whitespace-pre-wrap'
+              :                    'text-foreground/90 whitespace-pre-wrap'
               }
             >
               {l.text}

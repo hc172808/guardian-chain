@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { getUserAddresses, computeUserBalances } from '@/lib/balances';
 import {
@@ -67,12 +67,8 @@ export const TokenFactory = () => {
   // Load admin pricing and user GYDS balance
   useEffect(() => {
     const loadData = async () => {
-      const { data } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', 'token_factory_pricing')
-        .maybeSingle();
-      setPricing(normalizePricing(data?.config_value));
+      const row = await api.get('/api/config/token_factory_pricing').catch(() => null);
+      setPricing(normalizePricing(row?.configValue));
 
       if (user) {
         const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
@@ -151,20 +147,14 @@ export const TokenFactory = () => {
       let logoUrl: string | null = null;
 
       if (logoFile) {
-        const ext = logoFile.name.split('.').pop();
-        const path = `${user.id}/${params.symbol.toLowerCase()}-${Date.now()}.${ext}`;
-        const { error: uploadError } = await supabase.storage
-          .from('token-logos')
-          .upload(path, logoFile, { upsert: true });
-        if (uploadError) throw uploadError;
-        const { data: urlData } = supabase.storage.from('token-logos').getPublicUrl(path);
-        logoUrl = urlData.publicUrl;
+        const logoUrlInput = window.prompt('Paste a public URL for the token logo (file upload not supported in this build):');
+        if (logoUrlInput) logoUrl = logoUrlInput.trim();
       }
 
       const tokenAddress = '0x' + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       const walletAddr = address || `user:${user.id}`;
 
-      const { data: newToken, error } = await supabase.from('tokens').insert({
+      const newToken = await api.post('/api/tokens', {
         creator_id: user.id,
         name: params.name,
         symbol: params.symbol,
@@ -180,9 +170,7 @@ export const TokenFactory = () => {
         update_enabled: !!params.authorities.update,
         mint_enabled:   !!params.authorities.mint,
         address: tokenAddress,
-      }).select('id').single();
-
-      if (error) throw error;
+      });
 
       const tokenId = newToken?.id;
 
@@ -209,7 +197,7 @@ export const TokenFactory = () => {
       }
 
       // Deduct GYDS fee (record as burn operation)
-      await supabase.from('token_operations').insert({
+      await api.post('/api/token-operations', {
         operation_type: 'burn',
         wallet_address: walletAddr.toLowerCase(),
         amount: totalRequired,
@@ -221,25 +209,23 @@ export const TokenFactory = () => {
 
       // Set creator as first holder with full initial supply
       if (tokenId) {
-        await supabase.from('admin_config').upsert({
-          config_key: `token_holders_${tokenId}`,
-          config_value: {
+        await api.post('/api/config', {
+          key: `token_holders_${tokenId}`,
+          value: {
             count: 1,
             holders: [{ address: walletAddr, amount: parseFloat(params.initialSupply), label: 'Creator' }],
-          } as any,
-          updated_by: user.id,
-        }, { onConflict: 'config_key' });
+          },
+        });
       }
 
       // Store purchase limits in admin_config keyed by token address
-      await supabase.from('admin_config').upsert({
-        config_key: `token_limits_${tokenAddress}`,
-        config_value: {
+      await api.post('/api/config', {
+        key: `token_limits_${tokenAddress}`,
+        value: {
           max_buy_per_wallet: maxBuy,
           daily_buy_limit: dailyLimit,
-        } as any,
-        updated_by: user.id,
-      }, { onConflict: 'config_key' });
+        },
+      });
 
       // Refresh balance
       const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);

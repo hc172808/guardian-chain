@@ -5,17 +5,10 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
-  Database, 
-  Cloud, 
-  Server,
-  Save,
-  TestTube,
-  Loader2,
-  CheckCircle,
-  XCircle
+  Database, Cloud, Server, Save, TestTube, Loader2, CheckCircle, XCircle
 } from 'lucide-react';
 
 interface DatabaseConfig {
@@ -34,47 +27,34 @@ export const DatabaseSettings = () => {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
-  
-  const [config, setConfig] = useState<DatabaseConfig>({
-    type: 'cloud',
-    enabled: true
-  });
-  
+  const [config, setConfig] = useState<DatabaseConfig>({ type: 'cloud', enabled: true });
   const [externalHost, setExternalHost] = useState('');
   const [externalPort, setExternalPort] = useState('5432');
   const [externalDb, setExternalDb] = useState('chaincore');
   const [externalUser, setExternalUser] = useState('');
   const [externalPass, setExternalPass] = useState('');
 
-  useEffect(() => {
-    fetchConfig();
-  }, []);
+  useEffect(() => { fetchConfig(); }, []);
 
   const fetchConfig = async () => {
-    const { data } = await supabase
-      .from('admin_config')
-      .select('config_value')
-      .eq('config_key', 'database_connection')
-      .single();
-    
-    if (data?.config_value) {
-      const cfg = data.config_value as unknown as DatabaseConfig;
-      setConfig(cfg);
-      if (cfg.host) setExternalHost(cfg.host);
-      if (cfg.port) setExternalPort(cfg.port.toString());
-      if (cfg.database) setExternalDb(cfg.database);
-      if (cfg.username) setExternalUser(cfg.username);
-    }
+    try {
+      const row = await api.get('/api/config/database_connection');
+      if (row?.configValue) {
+        const cfg = row.configValue as DatabaseConfig;
+        setConfig(cfg);
+        if (cfg.host) setExternalHost(cfg.host);
+        if (cfg.port) setExternalPort(cfg.port.toString());
+        if (cfg.database) setExternalDb(cfg.database);
+        if (cfg.username) setExternalUser(cfg.username);
+      }
+    } catch { /* use defaults */ }
     setLoading(false);
   };
 
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
-    
-    // Simulate connection test
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
     if (externalHost && externalUser) {
       setTestResult('success');
       toast({ title: 'Connection successful!' });
@@ -82,13 +62,11 @@ export const DatabaseSettings = () => {
       setTestResult('error');
       toast({ title: 'Connection failed', variant: 'destructive' });
     }
-    
     setTesting(false);
   };
 
   const handleSave = async () => {
     setSaving(true);
-    
     const newConfig: DatabaseConfig = {
       type: config.type,
       enabled: config.enabled,
@@ -96,21 +74,15 @@ export const DatabaseSettings = () => {
         host: externalHost,
         port: parseInt(externalPort),
         database: externalDb,
-        username: externalUser
-      })
+        username: externalUser,
+      }),
     };
-    
-    const { error } = await supabase
-      .from('admin_config')
-      .update({ config_value: JSON.parse(JSON.stringify(newConfig)) })
-      .eq('config_key', 'database_connection');
-    
-    if (error) {
-      toast({ title: 'Failed to save', variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/config', { key: 'database_connection', value: newConfig });
       toast({ title: 'Settings saved!' });
+    } catch (e: any) {
+      toast({ title: 'Failed to save', description: e.message, variant: 'destructive' });
     }
-    
     setSaving(false);
   };
 
@@ -139,13 +111,12 @@ export const DatabaseSettings = () => {
       </div>
 
       <div className="space-y-6">
-        {/* Cloud Toggle */}
         <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30">
           <div className="flex items-center gap-3">
             <Cloud className="h-5 w-5 text-primary" />
             <div>
               <p className="font-medium">Cloud Database</p>
-              <p className="text-sm text-muted-foreground">Use Lovable Cloud database</p>
+              <p className="text-sm text-muted-foreground">Use managed cloud database (Replit PostgreSQL)</p>
             </div>
           </div>
           <Switch
@@ -154,90 +125,51 @@ export const DatabaseSettings = () => {
           />
         </div>
 
-        {/* External Database Config */}
         {config.type === 'external' && (
           <div className="p-4 rounded-lg bg-secondary/30 space-y-4">
             <div className="flex items-center gap-2 mb-2">
               <Server className="h-4 w-4" />
               <p className="font-medium">External Database</p>
             </div>
-            
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Host</Label>
-                <Input
-                  value={externalHost}
-                  onChange={(e) => setExternalHost(e.target.value)}
-                  placeholder="db.example.com"
-                />
+                <Input value={externalHost} onChange={(e) => setExternalHost(e.target.value)} placeholder="db.example.com" />
               </div>
               <div>
                 <Label>Port</Label>
-                <Input
-                  value={externalPort}
-                  onChange={(e) => setExternalPort(e.target.value)}
-                  placeholder="5432"
-                />
+                <Input value={externalPort} onChange={(e) => setExternalPort(e.target.value)} placeholder="5432" />
               </div>
             </div>
-            
             <div>
               <Label>Database Name</Label>
-              <Input
-                value={externalDb}
-                onChange={(e) => setExternalDb(e.target.value)}
-                placeholder="chaincore"
-              />
+              <Input value={externalDb} onChange={(e) => setExternalDb(e.target.value)} placeholder="chaincore" />
             </div>
-            
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Username</Label>
-                <Input
-                  value={externalUser}
-                  onChange={(e) => setExternalUser(e.target.value)}
-                  placeholder="admin"
-                />
+                <Input value={externalUser} onChange={(e) => setExternalUser(e.target.value)} placeholder="admin" />
               </div>
               <div>
                 <Label>Password</Label>
-                <Input
-                  type="password"
-                  value={externalPass}
-                  onChange={(e) => setExternalPass(e.target.value)}
-                  placeholder="••••••••"
-                />
+                <Input type="password" value={externalPass} onChange={(e) => setExternalPass(e.target.value)} placeholder="••••••••" />
               </div>
             </div>
-            
-            <Button 
-              variant="outline" 
-              onClick={handleTestConnection} 
-              disabled={testing}
-              className="w-full gap-2"
-            >
-              {testing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : testResult === 'success' ? (
-                <CheckCircle className="h-4 w-4 text-neon-emerald" />
-              ) : testResult === 'error' ? (
-                <XCircle className="h-4 w-4 text-destructive" />
-              ) : (
-                <TestTube className="h-4 w-4" />
-              )}
+            <Button variant="outline" onClick={handleTestConnection} disabled={testing} className="w-full gap-2">
+              {testing ? <Loader2 className="h-4 w-4 animate-spin" />
+                : testResult === 'success' ? <CheckCircle className="h-4 w-4 text-neon-emerald" />
+                : testResult === 'error' ? <XCircle className="h-4 w-4 text-destructive" />
+                : <TestTube className="h-4 w-4" />}
               {testing ? 'Testing...' : 'Test Connection'}
             </Button>
           </div>
         )}
 
-        {/* Disable Cloud */}
         {config.type === 'external' && (
           <div className="flex items-center justify-between p-4 rounded-lg border border-destructive/30 bg-destructive/5">
             <div>
               <p className="font-medium text-destructive">Disable Cloud Database</p>
-              <p className="text-sm text-muted-foreground">
-                This will stop all cloud database operations
-              </p>
+              <p className="text-sm text-muted-foreground">This will stop all cloud database operations</p>
             </div>
             <Switch
               checked={!config.enabled}
@@ -247,11 +179,7 @@ export const DatabaseSettings = () => {
         )}
 
         <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
-          {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           {saving ? 'Saving...' : 'Save Configuration'}
         </Button>
       </div>

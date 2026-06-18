@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { logAuditEvent } from '@/lib/auditLog';
@@ -156,32 +156,20 @@ export const AIFirewallTab = () => {
   const loadSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', 'ai_firewall_settings')
-        .maybeSingle();
-      if (data?.config_value) {
-        const s = data.config_value as any;
-        setSettings(prev => ({ ...prev, ...s }));
-        // Fix lockdown desync: derive from persisted threat_response
-        setLockdown(s.threat_response === 'lockdown');
-      }
-
-      const { data: pData } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', 'ai_firewall_patterns')
-        .maybeSingle();
-      if (pData?.config_value && Array.isArray(pData.config_value)) {
-        setPatterns(pData.config_value as ThreatPattern[]);
-      }
-
-      // Load live blocked IPs and firewall status
-      const [ipsRes, statusRes] = await Promise.all([
+      const [settingsRow, patternsRow, ipsRes, statusRes] = await Promise.all([
+        api.get('/api/config/ai_firewall_settings').catch(() => null),
+        api.get('/api/config/ai_firewall_patterns').catch(() => null),
         fetch('/api/security/blocked-ips', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch('/api/security/status',     { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
+      if (settingsRow?.configValue) {
+        const s = settingsRow.configValue as any;
+        setSettings(prev => ({ ...prev, ...s }));
+        setLockdown(s.threat_response === 'lockdown');
+      }
+      if (patternsRow?.configValue && Array.isArray(patternsRow.configValue)) {
+        setPatterns(patternsRow.configValue as ThreatPattern[]);
+      }
       if (ipsRes?.ips) setBlockedIps(ipsRes.ips);
       if (statusRes) setFwStatus(statusRes);
     } catch {}
@@ -214,19 +202,15 @@ export const AIFirewallTab = () => {
   const saveSettings = async (newSettings: AISettings) => {
     if (!canControl) return;
     setSaving(true);
-    const { error } = await supabase.from('admin_config').upsert({
-      config_key: 'ai_firewall_settings',
-      config_value: newSettings as any,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'config_key' });
-    if (error) {
-      toast({ title: 'Save failed', description: error.message, variant: 'destructive' });
-    } else {
+    try {
+      await api.post('/api/config', { key: 'ai_firewall_settings', value: newSettings });
       toast({ title: 'AI Firewall settings saved' });
       if (user) logAuditEvent(user.id, user.email || null, {
         action: 'Updated AI Firewall settings', category: 'firewall', target_type: 'admin_config',
         details: { sensitivity: newSettings.sensitivity, auto_block: newSettings.auto_block, threat_response: newSettings.threat_response },
       });
+    } catch (e: any) {
+      toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
     }
     setSaving(false);
   };
@@ -240,11 +224,7 @@ export const AIFirewallTab = () => {
   // ── Save patterns ──
   const savePatterns = async (next: ThreatPattern[]) => {
     if (!canControl) return;
-    await supabase.from('admin_config').upsert({
-      config_key: 'ai_firewall_patterns',
-      config_value: next as any,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'config_key' });
+    await api.post('/api/config', { key: 'ai_firewall_patterns', value: next }).catch(() => {});
   };
 
   const addPattern = async () => {

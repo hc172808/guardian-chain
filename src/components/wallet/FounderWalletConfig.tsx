@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { hashPin, encryptWithPin } from '@/lib/walletCrypto';
 import { 
   Crown, 
@@ -69,28 +69,21 @@ export const FounderWalletConfig = ({ onWalletConfigured }: FounderWalletConfigP
       const pinHash = await hashPin(pin);
       
       // Save to database
-      const { error } = await supabase.from('wallets').upsert({
+      await api.post('/api/wallets', {
         user_id: user!.id,
         address: walletAddress.toLowerCase(),
         encrypted_seed: encryptedSeed,
         pin_hash: pinHash,
-      }, {
-        onConflict: 'user_id,address'
       });
 
-      if (error) throw error;
-
       // Store founder wallet config in admin_config
-      await supabase.from('admin_config').upsert({
-        config_key: 'founder_wallet',
-        config_value: { 
+      await api.post('/api/config', {
+        key: 'founder_wallet',
+        value: {
           address: walletAddress.toLowerCase(),
           configured_at: new Date().toISOString(),
-          configured_by: user?.id
+          configured_by: user?.id,
         },
-        updated_by: user?.id
-      }, {
-        onConflict: 'config_key'
       });
 
       toast({ title: 'Founder wallet configured!', description: 'Genesis wallet is now set up' });

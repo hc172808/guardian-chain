@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Coins, Loader2, Pickaxe } from 'lucide-react';
 import { RESERVED_WALLETS } from '@/config/wallets';
@@ -60,25 +60,22 @@ export const PremineManager = () => {
       });
     }
 
-    const { error } = await supabase.from('token_operations').insert(operations);
-
-    if (error) {
-      toast({ title: 'Pre-mine failed', description: error.message, variant: 'destructive' });
-    } else {
-      // Update circulating supply in token_price
+    try {
+      for (const op of operations) {
+        await api.post('/api/token-operations', op);
+      }
       if (gyds > 0) {
-        const { data: existing } = await supabase.from('token_price').select('*').maybeSingle();
+        const existing = await api.get('/api/token-price').catch(() => null);
         if (existing) {
-          await supabase.from('token_price').update({
-            circulating_supply: existing.circulating_supply + gyds,
-          }).eq('id', existing.id);
+          await api.patch('/api/token-price', { circulating_supply: existing.circulating_supply + gyds });
         }
       }
-
       toast({
         title: 'Pre-mine successful!',
         description: `${gyds > 0 ? `${gyds.toLocaleString()} GYDS` : ''}${gyds > 0 && gyd > 0 ? ' + ' : ''}${gyd > 0 ? `${gyd.toLocaleString()} GYD` : ''} → ${targetAddress.slice(0, 10)}...`,
       });
+    } catch (e: any) {
+      toast({ title: 'Pre-mine failed', description: e.message, variant: 'destructive' });
     }
 
     setLoading(false);
