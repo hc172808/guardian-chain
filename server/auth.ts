@@ -11,7 +11,16 @@ import { totp } from "./totp";
 import { pool } from "./db";
 import { storage } from "./storage";
 import { sendPasswordResetEmail, sendEmailVerification } from "./email";
+import { sendWhatsAppMessage } from "./whatsapp";
 const pgPool = pool;
+
+// ── WhatsApp OTP store (in-memory, short-lived) ───────────────────────────────
+interface WaOtpEntry { otp: string; userId: string; expiresAt: number; }
+const waOtpStore = new Map<string, WaOtpEntry>(); // key = username (lowercased)
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of waOtpStore) if (v.expiresAt < now) waOtpStore.delete(k);
+}, 60_000);
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
 
@@ -350,6 +359,78 @@ export async function setupAuth(app: Express): Promise<void> {
     } catch (err: any) {
       console.error("Wallet password reset error:", err.message);
       res.status(500).json({ error: "Wallet verification failed" });
+    }
+  });
+
+  // ── Password reset: send OTP via WhatsApp ─────────────────────────────────
+  // Takes { username }. Looks up user's whatsapp_number from profile metadata.
+  // Sends a 6-digit OTP. Valid for 10 minutes.
+  app.post("/api/auth/reset-password/whatsapp", authLimiter, async (req, res) => {
+    try {
+      const { username } = req.body ?? {};
+      if (!username) return res.status(400).json({ error: "username required" });
+      const slug = String(username).trim().toLowerCase();
+
+      const user = await storage.getUserByUsername(slug);
+      // Always return the same message to avoid username enumeration
+      const safeReply = { ok: true, message: "If that username is registered and has a WhatsApp number linked, a code has been sent." };
+      if (!user) return res.json(safeReply);
+
+      // Get WhatsApp number from profile metadata
+      const rows = await pgPool.query(`SELECT metadata FROM profiles WHERE user_id = $1`, [user.id]);
+      const meta = rows.rows[0]?.metadata ?? {};
+      const phone = meta.whatsapp_number ?? meta.phone ?? "";
+      if (!phone) return res.json(safeReply); // silently fail — don't reveal missing config
+
+      // Generate 6-digit OTP
+      const otp = String(Math.floor(100000 + Math.random() * 900000));
+      waOtpStore.set(slug, { otp, userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
+
+      const text = [
+        `🔐 *GYDSchain Password Reset*`,
+        ``,
+        `Your one-time code is:`,
+        `*${otp}*`,
+        ``,
+        `This code expires in 10 minutes. Do not share it with anyone.`,
+        `If you did not request this, ignore this message.`,
+      ].join("\n");
+
+      const result = await sendWhatsAppMessage(phone, text);
+      if (!result.ok) {
+        console.warn("[WA reset] send failed:", result.error);
+        // Still return safe reply — WhatsApp may not be configured yet
+      }
+      res.json(safeReply);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Password reset: verify WhatsApp OTP → return reset token ──────────────
+  app.post("/api/auth/reset-password/whatsapp/verify", authLimiter, async (req, res) => {
+    try {
+      const { username, otp } = req.body ?? {};
+      if (!username || !otp) return res.status(400).json({ error: "username and otp required" });
+      const slug = String(username).trim().toLowerCase();
+      const entry = waOtpStore.get(slug);
+
+      if (!entry) return res.status(400).json({ error: "No active OTP for this username — request a new code." });
+      if (Date.now() > entry.expiresAt) {
+        waOtpStore.delete(slug);
+        return res.status(400).json({ error: "OTP expired — request a new code." });
+      }
+      if (String(otp).trim() !== entry.otp) return res.status(401).json({ error: "Incorrect code — try again." });
+
+      // Correct — consume OTP and issue a reset token
+      waOtpStore.delete(slug);
+      const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await storage.createPasswordResetToken(entry.userId, token, expiresAt);
+
+      res.json({ ok: true, token, expiresAt, message: "OTP verified — use the token to set your new password." });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

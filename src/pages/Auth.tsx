@@ -264,11 +264,17 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
 
 // ── Password Reset form ───────────────────────────────────────────────────────
 const ResetForm = ({ onBack }: { onBack: () => void }) => {
-  const [mode, setMode] = useState<'email' | 'wallet'>('wallet');
-  const [step, setStep] = useState<'request' | 'sent' | 'confirm' | 'done'>('request');
+  const [mode, setMode] = useState<'whatsapp' | 'wallet' | 'email'>('whatsapp');
+  const [step, setStep] = useState<'request' | 'otp' | 'sent' | 'confirm' | 'done'>('request');
+  // WhatsApp mode
+  const [waUsername, setWaUsername] = useState('');
+  const [waOtp, setWaOtp] = useState('');
+  // Email mode
   const [email, setEmail] = useState('');
+  // Wallet mode
   const [walletAddress, setWalletAddress] = useState('');
-  const [resetToken, setResetToken] = useState('');  // wallet-flow only
+  // Shared confirm step
+  const [resetToken, setResetToken] = useState('');
   const [manualToken, setManualToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -277,6 +283,27 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const handleWhatsAppRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    try {
+      await api('/api/auth/reset-password/whatsapp', { username: waUsername.trim().toLowerCase() });
+      setStep('otp');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleWhatsAppVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    try {
+      const data = await api('/api/auth/reset-password/whatsapp/verify', { username: waUsername.trim().toLowerCase(), otp: waOtp.trim() });
+      setResetToken(data.token);
+      setStep('confirm');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
 
   const handleEmailRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -334,6 +361,37 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
     </div>
   );
 
+  if (step === 'otp') return (
+    <div className="space-y-4">
+      <div className="flex flex-col items-center gap-2 py-2 text-center">
+        <div className="h-14 w-14 rounded-full bg-green-500/10 flex items-center justify-center text-2xl">📱</div>
+        <p className="font-semibold">Check WhatsApp</p>
+        <p className="text-xs text-muted-foreground max-w-xs">
+          A 6-digit code was sent to the WhatsApp number linked to <span className="text-foreground font-medium">{waUsername}</span>. Enter it below.
+        </p>
+      </div>
+      <form onSubmit={handleWhatsAppVerify} className="space-y-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">WhatsApp Code</label>
+          <input type="text" inputMode="numeric" value={waOtp} onChange={e => setWaOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="• • • • • •" maxLength={6} autoFocus
+            className="w-full px-4 py-3 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-xl font-mono text-center tracking-[0.5em]" />
+          <p className="text-xs text-muted-foreground text-center">Code expires in 10 minutes</p>
+        </div>
+        {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+        <button type="submit" disabled={loading || waOtp.length < 6}
+          className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          {loading ? 'Verifying…' : 'Verify Code'}
+        </button>
+        <button type="button" onClick={() => { setStep('request'); setWaOtp(''); setError(''); }}
+          className="w-full text-xs text-muted-foreground hover:text-foreground">
+          ← Didn't receive it? Try again
+        </button>
+      </form>
+    </div>
+  );
+
   if (step === 'sent') return (
     <div className="flex flex-col items-center gap-3 py-4 text-center">
       <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center">
@@ -343,10 +401,6 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
       <p className="text-sm text-muted-foreground max-w-xs">
         If <span className="text-foreground font-mono text-xs">{email}</span> is registered, we've sent a secure reset link. It expires in 1 hour.
       </p>
-      <div className="w-full mt-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 text-left space-y-1">
-        <p className="font-medium">Didn't get an email?</p>
-        <p>Check your spam folder. If email is not configured on this server, use the <strong>Wallet</strong> reset method instead.</p>
-      </div>
       <button onClick={() => { setStep('confirm'); }} className="text-xs text-primary hover:underline mt-1">
         I have my reset token →
       </button>
@@ -356,40 +410,69 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/30">
         <ShieldAlert className="h-5 w-5 text-primary shrink-0" />
         <div>
           <p className="text-sm font-medium">Password Reset</p>
           <p className="text-xs text-muted-foreground">
-            {step === 'request' ? 'Prove account ownership to set a new password.' : 'Set your new password below.'}
+            {step === 'request' ? 'Choose how to verify account ownership.' : 'Set your new password below.'}
           </p>
         </div>
       </div>
 
       {step === 'request' && (
         <>
-          {/* Mode toggle — Wallet is the recommended/secure option */}
-          <div className="flex rounded-lg border border-border overflow-hidden text-sm font-medium">
-            <button type="button"
-              onClick={() => { setMode('wallet'); setError(''); }}
-              className={cn('flex-1 py-2 flex items-center justify-center gap-1.5 transition-colors',
-                mode === 'wallet' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/50')}>
-              <Wallet className="h-3.5 w-3.5" /> Wallet <span className="text-[10px] opacity-70">(Recommended)</span>
-            </button>
-            <button type="button"
-              onClick={() => { setMode('email'); setError(''); }}
-              className={cn('flex-1 py-2 flex items-center justify-center gap-1.5 transition-colors',
-                mode === 'email' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/50')}>
-              <Mail className="h-3.5 w-3.5" /> Email
-            </button>
+          {/* Mode tabs */}
+          <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
+            {([
+              { id: 'whatsapp', icon: '💬', label: 'WhatsApp' },
+              { id: 'wallet',   icon: null,  label: 'Wallet' },
+              { id: 'email',    icon: null,  label: 'Email' },
+            ] as const).map(t => (
+              <button key={t.id} type="button"
+                onClick={() => { setMode(t.id); setError(''); }}
+                className={cn('flex-1 py-2 flex items-center justify-center gap-1 transition-colors',
+                  mode === t.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/50')}>
+                {t.icon && <span>{t.icon}</span>}
+                {!t.icon && (t.id === 'wallet' ? <Wallet className="h-3 w-3" /> : <Mail className="h-3 w-3" />)}
+                {t.label}
+                {t.id === 'whatsapp' && <span className="text-[9px] opacity-70 ml-0.5">(Recommended)</span>}
+              </button>
+            ))}
           </div>
 
+          {/* WhatsApp mode */}
+          {mode === 'whatsapp' && (
+            <form onSubmit={handleWhatsAppRequest} className="space-y-4">
+              <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-sm text-green-300 space-y-1">
+                <p className="font-medium">📱 Reset via WhatsApp OTP</p>
+                <p className="text-xs">Enter your username. A 6-digit code will be sent to the WhatsApp number linked to your account.</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground">Username</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input type="text" value={waUsername} onChange={e => setWaUsername(e.target.value)}
+                    placeholder="your_username" required autoComplete="username"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm" />
+                </div>
+              </div>
+              {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+              <button type="submit" disabled={loading || !waUsername.trim()}
+                className="w-full py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-green-500 transition-colors disabled:opacity-60">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>💬</span>}
+                {loading ? 'Sending…' : 'Send WhatsApp Code'}
+              </button>
+              <button type="button" onClick={onBack} className="w-full text-xs text-muted-foreground hover:text-foreground">← Back to Sign In</button>
+            </form>
+          )}
+
+          {/* Wallet mode */}
           {mode === 'wallet' && (
             <div className="space-y-4">
               <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm text-blue-300 space-y-1">
                 <p className="font-medium">Most secure method</p>
-                <p className="text-xs">Connect the wallet that is linked to your account and sign a one-time challenge. No transaction, no gas fee — just a cryptographic proof that you own the wallet.</p>
+                <p className="text-xs">Connect the wallet linked to your account and sign a challenge. No transaction needed.</p>
               </div>
               {walletAddress && (
                 <div className="p-2 rounded bg-secondary/30 text-xs font-mono text-muted-foreground break-all">{walletAddress}</div>
@@ -400,17 +483,18 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
                 {loading ? 'Waiting for signature…' : 'Sign with Wallet to Reset'}
               </button>
-              <button type="button" onClick={onBack} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">← Back to Sign In</button>
+              <button type="button" onClick={onBack} className="w-full text-xs text-muted-foreground hover:text-foreground">← Back to Sign In</button>
             </div>
           )}
 
+          {/* Email mode */}
           {mode === 'email' && (
             <form onSubmit={handleEmailRequest} className="space-y-4">
               <div className="p-3 rounded-lg bg-secondary/20 border border-border/30 text-xs text-muted-foreground">
-                Enter the <strong>email address</strong> registered to your account. A secure reset link will be sent there — knowing your username alone is not enough.
+                Enter the <strong>email address</strong> registered to your account. A secure reset link will be sent.
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-muted-foreground">Registered Email Address</label>
+                <label className="text-sm font-medium text-muted-foreground">Registered Email</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <input type="email" value={email} onChange={e => setEmail(e.target.value)}
@@ -424,7 +508,7 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {loading ? 'Sending…' : 'Send Reset Link'}
               </button>
-              <button type="button" onClick={onBack} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">← Back to Sign In</button>
+              <button type="button" onClick={onBack} className="w-full text-xs text-muted-foreground hover:text-foreground">← Back to Sign In</button>
             </form>
           )}
         </>
@@ -432,8 +516,11 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
 
       {step === 'confirm' && (
         <form onSubmit={handleConfirm} className="space-y-4">
-          {/* Token field — shown for email reset; hidden for wallet reset (auto-set) */}
-          {!resetToken && (
+          {resetToken ? (
+            <div className="p-2 rounded-lg bg-green-500/10 border border-green-500/20 text-xs text-green-400 flex items-center gap-2">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> Identity verified — set your new password below.
+            </div>
+          ) : (
             <div className="space-y-2">
               <label className="text-sm font-medium text-muted-foreground">Reset Token <span className="text-xs font-normal">(from email)</span></label>
               <div className="relative">
@@ -442,11 +529,6 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
                   placeholder="Paste token from email"
                   className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm font-mono" />
               </div>
-            </div>
-          )}
-          {resetToken && (
-            <div className="p-2 rounded-lg bg-green-500/10 border border-green-500/20 text-xs text-green-400 flex items-center gap-2">
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> Wallet verified — set your new password below.
             </div>
           )}
           <div className="space-y-2">
@@ -471,17 +553,16 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
                   confirm && newPassword !== confirm ? 'border-destructive' : 'border-border focus:border-primary')} />
             </div>
           </div>
-          {/* 2FA field — shown automatically if server says account has 2FA enabled */}
           {needs2fa && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-amber-400 flex items-center gap-1.5">
                 <Smartphone className="h-3.5 w-3.5" /> 2FA Code Required
               </label>
               <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 mb-1">
-                This account has 2FA enabled. Enter your authenticator code or a backup code to continue.
+                This account has 2FA enabled. Enter your authenticator code or a backup code.
               </div>
               <input type="text" value={totpCode} onChange={e => setTotpCode(e.target.value)}
-                placeholder="6-digit code or XXXX-XXXX backup code" maxLength={12}
+                placeholder="6-digit code" maxLength={12}
                 className="w-full px-3 py-2.5 rounded-lg bg-background border border-amber-500/40 focus:border-amber-400 focus:outline-none text-sm font-mono text-center tracking-widest" />
             </div>
           )}
