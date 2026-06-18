@@ -503,6 +503,16 @@ export const userStablecoins = pgTable("user_stablecoins", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const userFeatures = pgTable("user_features", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  featureKey: text("feature_key").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  grantedBy: text("granted_by").notNull(),
+  grantedAt: timestamp("granted_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

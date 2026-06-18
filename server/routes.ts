@@ -2616,4 +2616,98 @@ export function registerRoutes(app: Express) {
     else githubPendingRecheck.clear();
     res.json({ ok: true });
   });
+
+  // ── User Feature Grants ────────────────────────────────────────────────────
+  // List all known features (static — same as frontend)
+  app.get("/api/admin/feature-definitions", requireAdmin, async (_req, res) => {
+    const definitions = [
+      { key: 'defi.swap',        label: 'DeFi: Swap',             group: 'DeFi' },
+      { key: 'defi.crosschain',  label: 'DeFi: Cross-Chain Bridge', group: 'DeFi' },
+      { key: 'defi.stake',       label: 'DeFi: Staking',          group: 'DeFi' },
+      { key: 'defi.pools',       label: 'DeFi: Liquidity Pools',  group: 'DeFi' },
+      { key: 'defi.farm',        label: 'DeFi: LP Farming',       group: 'DeFi' },
+      { key: 'defi.launchpad',   label: 'DeFi: Launchpad',        group: 'DeFi' },
+      { key: 'defi.portfolio',   label: 'DeFi: Portfolio',        group: 'DeFi' },
+      { key: 'defi.vaults',      label: 'DeFi: Yield Vaults',     group: 'DeFi' },
+      { key: 'defi.orderbook',   label: 'DeFi: Orderbook',        group: 'DeFi' },
+      { key: 'defi.perps',       label: 'DeFi: Perpetuals',       group: 'DeFi' },
+      { key: 'defi.predict',     label: 'DeFi: Prediction',       group: 'DeFi' },
+      { key: 'defi.stable',      label: 'DeFi: Stablecoin',         group: 'DeFi' },
+      { key: 'defi.ilcalc',      label: 'DeFi: IL Calculator',    group: 'DeFi' },
+      { key: 'wallet.faucet',    label: 'Wallet: Faucet',         group: 'Wallet' },
+      { key: 'wallet.create',    label: 'Wallet: Create',         group: 'Wallet' },
+      { key: 'wallet.ledger',    label: 'Wallet: Ledger',         group: 'Wallet' },
+      { key: 'mining.dashboard', label: 'Mining Dashboard',       group: 'Mining' },
+      { key: 'tokens.create',    label: 'Tokens: Create',       group: 'Tokens' },
+      { key: 'tokens.list',      label: 'Tokens: Public List',   group: 'Tokens' },
+      { key: 'explorer.search',  label: 'Explorer: Search',       group: 'Explorer' },
+      { key: 'governance.vote',  label: 'Governance: Vote',       group: 'Governance' },
+      { key: 'governance.propose', label: 'Governance: Propose', group: 'Governance' },
+      { key: 'governance.treasury', label: 'Governance: Treasury', group: 'Governance' },
+      { key: 'nft.mint',         label: 'NFT: Mint',              group: 'NFT' },
+      { key: 'nft.market',       label: 'NFT: Marketplace',       group: 'NFT' },
+      { key: 'identity.did',     label: 'Identity: DID',          group: 'Identity' },
+      { key: 'rwa.invest',       label: 'RWA: Invest',           group: 'RWA' },
+      { key: 'community.post',   label: 'Community: Post',        group: 'Community' },
+      { key: 'developer.api',    label: 'Developer: API',         group: 'Developer' },
+      { key: 'developer.sdk',    label: 'Developer: SDK',         group: 'Developer' },
+      { key: 'insurance.buy',    label: 'Insurance: Buy',         group: 'Insurance' },
+      { key: 'multisig.create',  label: 'Multi-Sig: Create',      group: 'Multi-Sig' },
+      { key: 'analytics.view',   label: 'Analytics: View',        group: 'Analytics' },
+      { key: 'leaderboard.view', label: 'Leaderboard: View',      group: 'Leaderboard' },
+      { key: 'referrals.view',   label: 'Referrals: View',        group: 'Referrals' },
+      { key: 'docs.cli',         label: 'Docs: CLI Reference',    group: 'Docs' },
+      { key: 'network.validators', label: 'Network: Validators',  group: 'Network' },
+      { key: 'network.nodes',    label: 'Network: Nodes',         group: 'Network' },
+      { key: 'mobile.biometric', label: 'Mobile: Biometric',    group: 'Mobile' },
+      { key: 'mobile.push',      label: 'Mobile: Push',          group: 'Mobile' },
+      { key: 'mobile.qrpay',     label: 'Mobile: QR Pay',        group: 'Mobile' },
+    ];
+    res.json(definitions);
+  });
+
+  // Get a user's feature grants
+  app.get("/api/admin/user-features/:userId", requireAdmin, async (req, res) => {
+    const rows = await storage.getUserFeaturesWithAll(req.params.userId);
+    res.json(rows);
+  });
+
+  // Set a feature for a user
+  app.post("/api/admin/user-features/:userId", requireAdmin, async (req, res) => {
+    const admin = req.user as any;
+    const { featureKey, enabled } = req.body;
+    await storage.setUserFeature(req.params.userId, featureKey, enabled, admin.id);
+    res.json({ ok: true });
+  });
+
+  // Grant all features to a user
+  app.post("/api/admin/user-features/:userId/grant-all", requireAdmin, async (req, res) => {
+    const admin = req.user as any;
+    const keys = [
+      'defi.swap','defi.crosschain','defi.stake','defi.pools','defi.farm','defi.launchpad',
+      'defi.portfolio','defi.vaults','defi.orderbook','defi.perps','defi.predict','defi.stable','defi.ilcalc',
+      'wallet.faucet','wallet.create','wallet.ledger',
+      'mining.dashboard','tokens.create','tokens.list','explorer.search',
+      'governance.vote','governance.propose','governance.treasury',
+      'nft.mint','nft.market','identity.did','rwa.invest','community.post',
+      'developer.api','developer.sdk','insurance.buy','multisig.create',
+      'analytics.view','leaderboard.view','referrals.view','docs.cli',
+      'network.validators','network.nodes','mobile.biometric','mobile.push','mobile.qrpay',
+    ];
+    await storage.grantAllUserFeatures(req.params.userId, admin.id, keys);
+    res.json({ ok: true });
+  });
+
+  // Revoke all features from a user
+  app.post("/api/admin/user-features/:userId/revoke-all", requireAdmin, async (req, res) => {
+    await storage.revokeAllUserFeatures(req.params.userId);
+    res.json({ ok: true });
+  });
+
+  // Get my own features (for non-admin users)
+  app.get("/api/me/features", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const rows = await storage.getUserFeatures(user.id);
+    res.json(rows.map((r: any) => r.feature_key));
+  });
 }

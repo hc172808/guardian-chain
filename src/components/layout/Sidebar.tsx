@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { 
+import {
   Blocks, Users, Pickaxe, FileText, Shield, BarChart3,
   ChevronRight, Download, Menu, X, LogIn, LogOut,
   User, Wallet, Settings, BookOpen, ArrowRightLeft, Network,
@@ -13,41 +13,42 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import { useComponentVisibility } from '@/hooks/useComponentVisibility';
 
-interface NavItem { to: string; icon: any; label: string; }
+interface NavItem { to: string; icon: any; label: string; featureKey?: string; }
 
 const coreNav: NavItem[] = [
   { to: '/',           icon: BarChart3,      label: 'Dashboard' },
-  { to: '/explorer',   icon: Blocks,         label: 'Block Explorer' },
-  { to: '/validators', icon: Users,          label: 'Validators' },
-  { to: '/mining',     icon: Pickaxe,        label: 'Mining' },
-  { to: '/tokens',     icon: Coins,          label: 'Token Factory' },
-  { to: '/defi',       icon: ArrowRightLeft, label: 'DeFi' },
-  { to: '/wallet',     icon: Wallet,         label: 'Wallet' },
+  { to: '/explorer',   icon: Blocks,         label: 'Block Explorer', featureKey: 'explorer.search' },
+  { to: '/validators', icon: Users,          label: 'Validators',     featureKey: 'network.validators' },
+  { to: '/mining',     icon: Pickaxe,        label: 'Mining',         featureKey: 'mining.dashboard' },
+  { to: '/tokens',     icon: Coins,          label: 'Token Factory',  featureKey: 'tokens.create' },
+  { to: '/defi',       icon: ArrowRightLeft, label: 'DeFi',           featureKey: 'defi.swap' },
+  { to: '/wallet',     icon: Wallet,         label: 'Wallet',         featureKey: 'wallet.create' },
   { to: '/transactions',icon: ArrowRightLeft,label: 'Transactions' },
   { to: '/watchlist',    icon: Star,     label: 'Watchlist' },
   { to: '/price-alerts', icon: BellRing,  label: 'Price Alerts' },
   { to: '/webhooks',     icon: Webhook,   label: 'Webhooks' },
-  { to: '/network',    icon: Network,        label: 'Network Config' },
+  { to: '/network',    icon: Network,        label: 'Network Config', featureKey: 'network.nodes' },
   { to: '/node-terminal',icon: Terminal,     label: 'Node Terminal' },
-  { to: '/faucet',     icon: Droplets,       label: 'Testnet Faucet' },
+  { to: '/faucet',     icon: Droplets,       label: 'Testnet Faucet', featureKey: 'wallet.faucet' },
 ];
 
 const ecosystemNav: NavItem[] = [
-  { to: '/governance', icon: Vote,          label: 'Governance' },
-  { to: '/nft',        icon: Image,         label: 'NFT Marketplace' },
-  { to: '/analytics',  icon: TrendingUp,    label: 'Analytics' },
-  { to: '/community',  icon: MessageSquare, label: 'Community' },
-  { to: '/leaderboard',icon: Trophy,        label: 'Leaderboard' },
-  { to: '/multisig',   icon: ShieldCheck,   label: 'Multi-Sig' },
-  { to: '/identity',   icon: Fingerprint,   label: 'Identity' },
-  { to: '/rwa',        icon: Building2,       label: 'Real-World Assets' },
-  { to: '/insurance',  icon: HeartHandshake, label: 'Insurance' },
-  { to: '/developer',  icon: Code2,           label: 'Developer Portal' },
+  { to: '/governance', icon: Vote,          label: 'Governance',        featureKey: 'governance.vote' },
+  { to: '/nft',        icon: Image,         label: 'NFT Marketplace',   featureKey: 'nft.market' },
+  { to: '/analytics',  icon: TrendingUp,    label: 'Analytics',         featureKey: 'analytics.view' },
+  { to: '/community',  icon: MessageSquare, label: 'Community',         featureKey: 'community.post' },
+  { to: '/leaderboard',icon: Trophy,        label: 'Leaderboard',       featureKey: 'leaderboard.view' },
+  { to: '/multisig',   icon: ShieldCheck,   label: 'Multi-Sig',         featureKey: 'multisig.create' },
+  { to: '/identity',   icon: Fingerprint,   label: 'Identity',          featureKey: 'identity.did' },
+  { to: '/rwa',        icon: Building2,   label: 'Real-World Assets', featureKey: 'rwa.invest' },
+  { to: '/insurance',  icon: HeartHandshake, label: 'Insurance',        featureKey: 'insurance.buy' },
+  { to: '/developer',  icon: Code2,         label: 'Developer Portal',  featureKey: 'developer.api' },
 ];
 
 const infoNav: NavItem[] = [
-  { to: '/protocol', icon: FileText,  label: 'Protocol Docs' },
+  { to: '/protocol', icon: FileText,  label: 'Protocol Docs', featureKey: 'docs.cli' },
   { to: '/security', icon: Shield,    label: 'Security Audit' },
   { to: '/download', icon: Download,  label: 'Download' },
 ];
@@ -71,6 +72,9 @@ const NavSection = ({
   defaultOpen?: boolean;
 }) => {
   const [open, setOpen] = useState(defaultOpen);
+  const { isHidden, isAdmin } = useComponentVisibility();
+  const visible = items.filter(item => isAdmin || !item.featureKey || !isHidden(item.featureKey));
+  if (visible.length === 0) return null;
   return (
     <div>
       <button
@@ -89,7 +93,7 @@ const NavSection = ({
             transition={{ duration: 0.2 }}
             className="overflow-hidden space-y-0.5"
           >
-            {items.map((item, index) => (
+            {visible.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

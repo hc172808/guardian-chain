@@ -17,19 +17,54 @@ import { LPFarmingDashboard } from '@/components/defi/LPFarmingDashboard';
 import { StablecoinFactory } from '@/components/defi/StablecoinFactory';
 import { DeFiBottomNav } from '@/components/defi/DeFiBottomNav';
 import { WalletConnectBar } from '@/components/defi/WalletConnectBar';
+import { useComponentVisibility } from '@/hooks/useComponentVisibility';
+import { useAuth } from '@/contexts/AuthContext';
+
+const TAB_MAP: Record<string, { featureKey: string; component: React.ReactNode }> = {
+  swap:       { featureKey: 'defi.swap',       component: <SwapInterface /> },
+  pools:      { featureKey: 'defi.pools',      component: <PoolsList /> },
+  stake:      { featureKey: 'defi.stake',      component: <StakeInterface /> },
+  farm:       { featureKey: 'defi.farm',       component: <LPFarmingDashboard /> },
+  orderbook:  { featureKey: 'defi.orderbook',  component: <OrderBook /> },
+  vaults:     { featureKey: 'defi.vaults',     component: <YieldVaults /> },
+  bridge:     { featureKey: 'defi.crosschain', component: <CrossChainBridge /> },
+  stablecoin: { featureKey: 'defi.stable',     component: <StablecoinFactory /> },
+  perps:      { featureKey: 'defi.perps',      component: <Perpetuals /> },
+  predict:    { featureKey: 'defi.predict',    component: <PredictionMarkets /> },
+  launchpad:  { featureKey: 'defi.launchpad',  component: <Launchpad /> },
+  portfolio:  { featureKey: 'defi.portfolio',  component: null },
+  ilcalc:     { featureKey: 'defi.ilcalc',     component: <ImpermanentLossCalc /> },
+  position:   { featureKey: '', component: null }, // handled separately
+};
 
 const DeFiPage = () => {
   const location = useLocation();
   const [activeTab, setActiveTab] = useState('swap');
   const [selectedPosition, setSelectedPosition] = useState<any>(null);
+  const { isHidden, isAdmin } = useComponentVisibility();
+  const { isFounder } = useAuth();
+  const isAdminLike = isAdmin || isFounder;
+
+  const visibleTabs = Object.keys(TAB_MAP).filter(
+    t => t === 'position' || isAdminLike || !isHidden(TAB_MAP[t].featureKey)
+  );
 
   useEffect(() => {
     const tab = (location.state as any)?.tab;
-    const validTabs = ['swap','pools','stake','orderbook','vaults','bridge','launchpad','stablecoin','portfolio','ilcalc','perps','predict','farm'];
-    if (tab && validTabs.includes(tab)) {
+    if (tab && visibleTabs.includes(tab)) {
       setActiveTab(tab);
+    } else if (tab && !visibleTabs.includes(tab)) {
+      // requested tab is hidden, fall back to first visible
+      setActiveTab(visibleTabs[0] ?? 'swap');
     }
-  }, [location.state]);
+  }, [location.state, visibleTabs.join(',')]);
+
+  // If current tab became hidden, switch to first visible
+  useEffect(() => {
+    if (activeTab !== 'position' && !visibleTabs.includes(activeTab)) {
+      setActiveTab(visibleTabs[0] ?? 'swap');
+    }
+  }, [visibleTabs.join(','), activeTab]);
 
   const handleViewPosition = (position: any) => {
     setSelectedPosition(position);
@@ -37,23 +72,11 @@ const DeFiPage = () => {
   };
 
   const renderContent = () => {
-    switch (activeTab) {
-      case 'pools':     return <PoolsList />;
-      case 'portfolio': return <Portfolio onViewPosition={handleViewPosition} />;
-      case 'swap':      return <SwapInterface />;
-      case 'stake':     return <StakeInterface />;
-      case 'launchpad':    return <Launchpad />;
-      case 'stablecoin':  return <StablecoinFactory />;
-      case 'bridge':       return <CrossChainBridge />;
-      case 'orderbook': return <OrderBook />;
-      case 'vaults':    return <YieldVaults />;
-      case 'ilcalc':    return <ImpermanentLossCalc />;
-      case 'perps':     return <Perpetuals />;
-      case 'predict':   return <PredictionMarkets />;
-      case 'farm':      return <LPFarmingDashboard />;
-      case 'position':  return <PositionDetails position={selectedPosition} />;
-      default:          return <SwapInterface />;
-    }
+    if (activeTab === 'position') return <PositionDetails position={selectedPosition} />;
+    const entry = TAB_MAP[activeTab];
+    if (!entry) return <SwapInterface />;
+    if (activeTab === 'portfolio') return <Portfolio onViewPosition={handleViewPosition} />;
+    return entry.component;
   };
 
   return (

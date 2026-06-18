@@ -52,6 +52,7 @@ import { MainnetPromotion } from '@/components/admin/MainnetPromotion';
 import { MiningPoolAdmin } from '@/components/admin/MiningPoolAdmin';
 import { NodeVisibilitySettings } from '@/components/admin/NodeVisibilitySettings';
 import { UserManager } from '@/components/admin/UserManager';
+import { FeatureGrantManager } from '@/components/admin/FeatureGrantManager';
 import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe, Wrench, Link2, Search as SearchIcon } from 'lucide-react';
 import { MaintenanceManager } from '@/components/admin/MaintenanceManager';
 import { BridgeNetworkManager } from '@/components/admin/BridgeNetworkManager';
@@ -779,6 +780,10 @@ const AdminContent = () => {
             <EyeOff className="h-4 w-4" />
             <span className="hidden md:inline">Visibility</span>
           </TabsTrigger>
+          <TabsTrigger value="features" className="gap-2" data-testid="tab-features">
+            <Key className="h-4 w-4" />
+            <span className="hidden md:inline">Features</span>
+          </TabsTrigger>
           <TabsTrigger value="promotion" className="gap-2" data-testid="tab-promotion">
             <Rocket className="h-4 w-4" />
             <span className="hidden md:inline">Promotion</span>
@@ -871,6 +876,10 @@ const AdminContent = () => {
 
         <TabsContent value="visibility">
           <ComponentVisibility />
+        </TabsContent>
+
+        <TabsContent value="features">
+          <FeatureGrantManager />
         </TabsContent>
 
         <TabsContent value="promotion">

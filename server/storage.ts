@@ -4,7 +4,7 @@ import { users, userRoles, profiles, wallets, nodeInstallations, transactions,
   liquidityPools, tokenWatchlist, tokenPriceAlerts, networkValidators,
   validatorDelegations, firewallRules, fail2banJails, ipAccessList,
   rateLimitRules, ddosProtection, auditLogs, faucetClaims, passwordResetTokens,
-  orders, vaultPositions,
+  orders, vaultPositions, userFeatures,
   governanceProposals, governanceVotes,
   communityPosts, communityComments, communityVotes } from "../shared/schema";
 import { eq, and, gte, desc, sql, count, inArray } from "drizzle-orm";
@@ -2173,5 +2173,92 @@ export const storage = {
     ]);
     const totalHashrate = liveNodes.reduce((s, n) => s + (Number(n.hashRate) || 0), 0);
     return { activeValidators, activeMiners, totalTransactions, totalTokens: totalTokensCount, liveNodes: liveNodes.length, networkHashRateThps: totalHashrate / 1e12 };
+  },
+
+  // ── User Features ──────────────────────────────────────────────────────────
+  async getUserFeatures(userId: string) {
+    const res = await pgPool.query(
+      `SELECT id, user_id, feature_key, enabled, granted_by, granted_at
+       FROM user_features WHERE user_id=$1 AND enabled=true`,
+      [userId]
+    ).catch(async () => {
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS user_features (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          feature_key TEXT NOT NULL,
+          enabled BOOLEAN NOT NULL DEFAULT true,
+          granted_by TEXT NOT NULL,
+          granted_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW(),
+          UNIQUE(user_id, feature_key)
+        )`
+      );
+      return pgPool.query(
+        `SELECT id, user_id, feature_key, enabled, granted_by, granted_at FROM user_features WHERE user_id=$1 AND enabled=true`,
+        [userId]
+      );
+    });
+    return res.rows;
+  },
+
+  async getUserFeaturesWithAll(userId: string) {
+    const res = await pgPool.query(
+      `SELECT id, user_id, feature_key, enabled, granted_by, granted_at
+       FROM user_features WHERE user_id=$1`,
+      [userId]
+    ).catch(() => ({ rows: [] }));
+    return res.rows;
+  },
+
+  async setUserFeature(userId: string, featureKey: string, enabled: boolean, grantedBy: string) {
+    await pgPool.query(
+      `INSERT INTO user_features (user_id, feature_key, enabled, granted_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, feature_key)
+       DO UPDATE SET enabled=$3, granted_by=$4, updated_at=NOW()`,
+      [userId, featureKey, enabled, grantedBy]
+    ).catch(async () => {
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS user_features (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          feature_key TEXT NOT NULL,
+          enabled BOOLEAN NOT NULL DEFAULT true,
+          granted_by TEXT NOT NULL,
+          granted_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW(),
+          UNIQUE(user_id, feature_key)
+        )`
+      );
+      return pgPool.query(
+        `INSERT INTO user_features (user_id, feature_key, enabled, granted_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, feature_key)
+         DO UPDATE SET enabled=$3, granted_by=$4, updated_at=NOW()`,
+        [userId, featureKey, enabled, grantedBy]
+      );
+    });
+    return { ok: true };
+  },
+
+  async revokeAllUserFeatures(userId: string) {
+    await pgPool.query(
+      `UPDATE user_features SET enabled=false, updated_at=NOW() WHERE user_id=$1`,
+      [userId]
+    );
+    return { ok: true };
+  },
+
+  async grantAllUserFeatures(userId: string, grantedBy: string, featureKeys: string[]) {
+    const values = featureKeys.map((k, i) => `($1, $${i + 2}, true, $${featureKeys.length + 2})`).join(', ');
+    const params = [userId, ...featureKeys, grantedBy];
+    await pgPool.query(
+      `INSERT INTO user_features (user_id, feature_key, enabled, granted_by)
+       VALUES ${values}
+       ON CONFLICT (user_id, feature_key) DO UPDATE SET enabled=true, granted_by=EXCLUDED.granted_by, updated_at=NOW()`,
+      params
+    ).catch(() => ({ rows: [] }));
+    return { ok: true };
   },
 };

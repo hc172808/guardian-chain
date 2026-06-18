@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { Droplets, Briefcase, ArrowLeftRight, Layers, Rocket, Link2, BookOpen, TrendingUp, Calculator, Zap, Target, Sprout, DollarSign } from 'lucide-react';
+import { useComponentVisibility } from '@/hooks/useComponentVisibility';
 
 interface DeFiBottomNavProps {
   activeTab: string;
@@ -7,26 +8,28 @@ interface DeFiBottomNavProps {
 }
 
 const navItems = [
-  { id: 'swap',        icon: ArrowLeftRight, label: 'Swap' },
-  { id: 'pools',       icon: Droplets,       label: 'Pools' },
-  { id: 'stake',       icon: Layers,         label: 'Stake' },
-  { id: 'farm',        icon: Sprout,         label: 'Farm' },
-  { id: 'orderbook',   icon: BookOpen,       label: 'Orders' },
-  { id: 'vaults',      icon: TrendingUp,     label: 'Vaults' },
-  { id: 'bridge',      icon: Link2,          label: 'Bridge' },
-  { id: 'stablecoin',  icon: DollarSign,     label: 'Stable' },
-  { id: 'perps',       icon: Zap,            label: 'Perps' },
-  { id: 'predict',     icon: Target,         label: 'Predict' },
-  { id: 'launchpad',   icon: Rocket,         label: 'Launch' },
-  { id: 'portfolio',   icon: Briefcase,      label: 'Portfolio' },
-  { id: 'ilcalc',      icon: Calculator,     label: 'IL Calc' },
+  { id: 'swap',        icon: ArrowLeftRight, label: 'Swap',        featureKey: 'defi.swap' },
+  { id: 'pools',       icon: Droplets,       label: 'Pools',       featureKey: 'defi.pools' },
+  { id: 'stake',       icon: Layers,         label: 'Stake',       featureKey: 'defi.stake' },
+  { id: 'farm',        icon: Sprout,         label: 'Farm',        featureKey: 'defi.farm' },
+  { id: 'orderbook',   icon: BookOpen,       label: 'Orders',      featureKey: 'defi.orderbook' },
+  { id: 'vaults',      icon: TrendingUp,     label: 'Vaults',      featureKey: 'defi.vaults' },
+  { id: 'bridge',      icon: Link2,          label: 'Bridge',      featureKey: 'defi.crosschain' },
+  { id: 'stablecoin',  icon: DollarSign,     label: 'Stable',      featureKey: 'defi.stable' },
+  { id: 'perps',       icon: Zap,            label: 'Perps',       featureKey: 'defi.perps' },
+  { id: 'predict',     icon: Target,         label: 'Predict',     featureKey: 'defi.predict' },
+  { id: 'launchpad',   icon: Rocket,         label: 'Launch',      featureKey: 'defi.launchpad' },
+  { id: 'portfolio',   icon: Briefcase,      label: 'Portfolio',   featureKey: 'defi.portfolio' },
+  { id: 'ilcalc',      icon: Calculator,     label: 'IL Calc',     featureKey: 'defi.ilcalc' },
 ];
 
 export const DeFiBottomNav = ({ activeTab, onTabChange }: DeFiBottomNavProps) => {
+  const { isHidden } = useComponentVisibility();
+  const visible = navItems.filter(n => !isHidden(n.featureKey));
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border safe-area-bottom">
       <div className="flex items-center justify-around h-16 overflow-x-auto">
-        {navItems.map((item) => (
+        {visible.map((item) => (
           <button
             key={item.id}
             onClick={() => onTabChange(item.id)}
