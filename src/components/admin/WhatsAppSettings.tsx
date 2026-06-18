@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { WhatsAppBroadcast } from './WhatsAppBroadcast';
 import {
   MessageCircle, Save, RefreshCw, Send, Eye, EyeOff,
   CheckCircle2, XCircle, Info, ExternalLink
@@ -259,6 +260,10 @@ export function WhatsAppSettings() {
           <p>Alerts are sent automatically for: <strong>faucet drips</strong>, <strong>governance votes</strong>, <strong>XP milestones</strong>, <strong>staking events</strong>, and <strong>node alerts</strong>.</p>
         </div>
       </GlassCard>
+
+      {/* Bulk broadcast */}
+      <hr className="border-border/30" />
+      <WhatsAppBroadcast />
     </div>
   );
 }

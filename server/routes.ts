@@ -131,10 +131,36 @@ export function registerRoutes(app: Express) {
   });
 
   app.post("/api/admin/whatsapp-test", requireAdmin, async (req, res) => {
-    const { to, phoneNumberId, accessToken } = req.body;
+    const { to, message, phoneNumberId, accessToken } = req.body;
     if (!to) return res.status(400).json({ ok: false, error: "Recipient phone number (to) is required" });
+    // If a custom message is provided, send it directly instead of the test template
+    if (message && message.trim()) {
+      const result = await sendWhatsAppMessage(to, message.trim(), {
+        enabled: true,
+        phoneNumberId: phoneNumberId || (await getWhatsAppConfig()).phoneNumberId,
+        accessToken: accessToken || (await getWhatsAppConfig()).accessToken,
+        businessId: '',
+      });
+      return res.json(result);
+    }
     const result = await testWhatsAppConnection(to, { phoneNumberId, accessToken });
     res.json(result);
+  });
+
+  // ── WhatsApp — bulk broadcast (admin) ──────────────────────────────────────
+  app.post("/api/admin/whatsapp-broadcast", requireAdmin, async (req, res) => {
+    const { numbers, message } = req.body;
+    if (!Array.isArray(numbers) || numbers.length === 0) return res.status(400).json({ ok: false, error: "numbers array required" });
+    if (!message || !message.trim()) return res.status(400).json({ ok: false, error: "message required" });
+    const cfg = await getWhatsAppConfig();
+    if (!cfg.enabled) return res.status(400).json({ ok: false, error: "WhatsApp not enabled in admin config" });
+    let ok = 0, fail = 0;
+    const errors: string[] = [];
+    for (const num of numbers) {
+      const result = await sendWhatsAppMessage(num, message.trim(), cfg);
+      if (result.ok) ok++; else { fail++; errors.push(`${num}: ${result.error}`); }
+    }
+    res.json({ ok: true, sent: ok, failed: fail, errors: errors.slice(0, 10) });
   });
 
   // ── WhatsApp — user test ───────────────────────────────────────────────────
@@ -915,6 +941,11 @@ export function registerRoutes(app: Express) {
   app.get("/api/admin/users", requireAdmin, async (_req, res) => {
     const users = await storage.getAllUsersWithRoles();
     res.json(users);
+  });
+
+  app.get("/api/admin/users-whatsapp", requireAdmin, async (_req, res) => {
+    const rows = await storage.getUsersWithWhatsApp();
+    res.json({ users: rows });
   });
 
   app.patch("/api/admin/users/:id/role", requireAdmin, async (req, res) => {

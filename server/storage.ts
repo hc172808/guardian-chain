@@ -148,6 +148,22 @@ export const storage = {
     }));
   },
 
+  async getUsersWithWhatsApp() {
+    const res = await pgPool.query(
+      `SELECT u.id, u.username, u.first_name, p.metadata->>'whatsapp_number' AS whatsapp_number
+       FROM users u
+       LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE p.metadata->>'whatsapp_number' IS NOT NULL
+       ORDER BY u.username`
+    );
+    return res.rows.map(r => ({
+      id: r.id,
+      username: r.username,
+      display_name: r.first_name || r.username,
+      whatsapp_number: r.whatsapp_number,
+    }));
+  },
+
   async getUserProfile(userId: string) {
     const [row] = await db.select().from(profiles).where(eq(profiles.userId, userId));
     return row ?? null;

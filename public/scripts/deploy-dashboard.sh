@@ -130,11 +130,13 @@ step "4/8 — Install & build"
 mkdir -p /var/log/gydschain
 id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" /var/log/gydschain || true
 
+APP_URL="${APP_URL:-https://${FQDN}}"
 cat > "$APP_DIR/.env" <<ENVEOF
 NODE_ENV=${NODE_ENV}
 PORT=${PORT_API}
 DATABASE_URL=${DATABASE_URL}
 SESSION_SECRET=${SESSION_SECRET}
+APP_URL=${APP_URL}
 REPLIT_DOMAINS=${FQDN},${DOMAIN}
 SUBDOMAIN=${SUBDOMAIN}
 ENVEOF
@@ -162,10 +164,14 @@ npm run build
 log "Build complete → $APP_DIR/dist"
 
 info "Applying DB schema..."
-npx drizzle-kit generate 2>/dev/null || true
-for f in "$APP_DIR"/drizzle/*.sql; do
-    [[ -f "$f" ]] && psql "$DATABASE_URL" -f "$f" 2>/dev/null && log "  Schema: $(basename "$f")" || true
+# Run migrations in order (lowest number first)
+for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
+    [[ -f "$f" ]] && psql "$DATABASE_URL" -f "$f" 2>/dev/null && log "  Migration: $(basename "$f")" || true
 done
+# Also ensure full schema is present (fallback for any missing tables)
+if [[ -f "$APP_DIR"/public/scripts/gydschain-complete-schema.sql ]]; then
+    psql "$DATABASE_URL" -f "$APP_DIR"/public/scripts/gydschain-complete-schema.sql 2>/dev/null && log "  Full schema: gydschain-complete-schema.sql" || true
+fi
 
 # ─── Step 5: PM2 ──────────────────────────────────────────────────────────────
 step "5/8 — PM2 service"
@@ -182,6 +188,7 @@ module.exports = {
       PORT: '${PORT_API}',
       DATABASE_URL: '${DATABASE_URL}',
       SESSION_SECRET: '${SESSION_SECRET}',
+      APP_URL: '${APP_URL}',
       REPLIT_DOMAINS: '${FQDN},${DOMAIN}',
     },
     watch: false,
