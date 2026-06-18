@@ -6,9 +6,13 @@ type AppRole = 'user' | 'admin' | 'founder';
 interface AuthUser {
   id: string;
   email?: string | null;
+  username?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   profileImageUrl?: string | null;
+  walletAddress?: string | null;
+  totpEnabled?: boolean;
+  isBanned?: boolean;
   roles: AppRole[];
   isAdmin: boolean;
   isFounder: boolean;

@@ -67,9 +67,13 @@ export function registerRoutes(app: Express) {
     res.json({
       id: user.id,
       email: user.email,
+      username: user.username,
       firstName: user.firstName,
       lastName: user.lastName,
       profileImageUrl: user.profileImageUrl,
+      walletAddress: user.walletAddress,
+      totpEnabled: user.totpEnabled ?? false,
+      isBanned: user.isBanned ?? false,
       roles: user.roles ?? [],
       isAdmin: user._isAdmin ?? false,
       isFounder: user._isFounder ?? false,
@@ -387,8 +391,17 @@ export function registerRoutes(app: Express) {
     const data = await storage.getActiveLaunches();
     res.json(data);
   });
+  app.get("/api/token-launches", async (_req, res) => {
+    const data = await storage.getActiveLaunches();
+    res.json(data);
+  });
 
   app.post("/api/launches", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const row = await storage.insertLaunch({ ...req.body, creatorId: user.id });
+    res.json(row);
+  });
+  app.post("/api/token-launches", requireAuth, async (req, res) => {
     const user = req.user as any;
     const row = await storage.insertLaunch({ ...req.body, creatorId: user.id });
     res.json(row);
@@ -570,8 +583,17 @@ export function registerRoutes(app: Express) {
     const data = await storage.getActivePools();
     res.json(data);
   });
+  app.get("/api/liquidity-pools", async (_req, res) => {
+    const data = await storage.getActivePools();
+    res.json(data);
+  });
 
   app.post("/api/pools", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const row = await storage.insertPool({ ...req.body, creatorId: user.id });
+    res.json(row);
+  });
+  app.post("/api/liquidity-pools", requireAuth, async (req, res) => {
     const user = req.user as any;
     const row = await storage.insertPool({ ...req.body, creatorId: user.id });
     res.json(row);
@@ -644,8 +666,18 @@ export function registerRoutes(app: Express) {
     const data = await storage.getUserDelegations(user.id);
     res.json(data);
   });
+  app.get("/api/validator-delegations", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const data = await storage.getUserDelegations(user.id);
+    res.json(data);
+  });
 
   app.post("/api/delegations", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const row = await storage.insertDelegation({ ...req.body, userId: user.id });
+    res.json(row);
+  });
+  app.post("/api/validator-delegations", requireAuth, async (req, res) => {
     const user = req.user as any;
     const row = await storage.insertDelegation({ ...req.body, userId: user.id });
     res.json(row);
@@ -1381,6 +1413,13 @@ export function registerRoutes(app: Express) {
     try {
       const { search = '', collectionId = '' } = req.query as Record<string, string>;
       res.json(await storage.getNftTokens(search, collectionId));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.get("/api/nfts", async (req, res) => {
+    try {
+      const { search = '', collectionId = '', limit } = req.query as Record<string, string>;
+      const tokens = await storage.getNftTokens(search, collectionId);
+      res.json(limit ? tokens.slice(0, Number(limit)) : tokens);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

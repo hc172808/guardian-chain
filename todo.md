@@ -1,6 +1,6 @@
 # GYDSchain — Master Project TODO & Roadmap
 
-> Last updated: 2026-06-17 | Always update this file when work is done or started.
+> Last updated: 2026-06-18 | Always update this file when work is done or started.
 > Legend: `[x]` Done · `[ ]` Not started · `[~]` In progress · `[!]` Blocked
 
 **Blockchain:** GYDSchain | **Coin:** GYDS | **Stablecoin:** GYD | **Chain ID:** 13370
@@ -54,6 +54,10 @@
 - [x] Password reset via token (request + confirm routes)
 - [x] Email verification on register (token in email_verification_tokens; real SMTP if SMTP_HOST set)
 - [x] 2FA / TOTP (setup, verify, disable — RFC 6238, built-in crypto in server/totp.ts)
+- [x] **DB schema fully synced** — added missing columns to `users` (username, password_hash, wallet_address, auth_nonce, totp_secret, totp_enabled, is_banned, totp_backup_codes) + created missing tables (achievements, orders, vault_positions, governance_proposals, governance_votes, community_posts, community_comments, community_votes, user_xp, xp_events, user_achievements, user_stablecoins, cashout_requests, password_reset_tokens) — 66 tables total
+- [x] **Route aliases fixed** — `/api/liquidity-pools`, `/api/token-launches`, `/api/validator-delegations`, `/api/nfts` all wired to correct handlers
+- [x] `/api/me` now returns username, walletAddress, totpEnabled, isBanned alongside existing fields
+- [x] AuthContext AuthUser type updated to match full /api/me response
 
 ### Mobile Experience & PWA
 - [x] Mobile device auto-redirect to /mobile
