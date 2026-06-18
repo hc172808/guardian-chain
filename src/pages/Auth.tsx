@@ -309,8 +309,13 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
     e.preventDefault();
     setError(''); setLoading(true);
     try {
-      await api('/api/auth/reset-password/request', { email: email.trim().toLowerCase() });
-      setStep('sent');
+      const data = await api('/api/auth/reset-password/request', { email: email.trim().toLowerCase() });
+      // noSmtp: server logged the token — skip inbox step, go straight to token-paste
+      if (data?.noSmtp) {
+        setStep('confirm');
+      } else {
+        setStep('sent');
+      }
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
   };

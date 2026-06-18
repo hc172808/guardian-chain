@@ -61,8 +61,9 @@ export const storage = {
   },
 
   async getUserByWallet(walletAddress: string) {
-    const [user] = await db.select().from(users).where(eq(users.walletAddress, walletAddress));
-    return user ?? null;
+    const lower = walletAddress.toLowerCase();
+    const rows = await db.execute(sql`SELECT * FROM users WHERE LOWER(wallet_address) = ${lower} LIMIT 1`);
+    return (rows.rows[0] as any) ?? null;
   },
 
   async createLocalUser(data: { username: string; passwordHash: string; email?: string | null }) {

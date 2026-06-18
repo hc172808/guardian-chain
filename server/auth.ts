@@ -261,15 +261,14 @@ export async function setupAuth(app: Express): Promise<void> {
       if (!user) return res.json(safeReply);
       if (!user.email) return res.json(safeReply);
 
-      // If SMTP is not configured, block email-based reset and guide to wallet reset
+      // If SMTP is not configured: generate a token, log it server-side, and tell the
+      // user to paste it manually. Admin can retrieve it from the workflow console.
       if (!process.env.SMTP_HOST) {
-        // Still log the token server-side so the owner can use it via console access
         const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
         const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
         await storage.createPasswordResetToken(user.id, token, expiresAt);
-        console.warn(`[PASSWORD RESET] No SMTP configured. Reset token for ${user.username} (expires ${expiresAt.toISOString()}): ${token}`);
-        // Tell user to use wallet reset — never expose the token in the API response
-        return res.status(503).json({ error: "Email service is not configured on this server. Use 'Reset via Wallet' to regain access — connect the wallet linked to your account and sign a challenge. If you don't have a linked wallet, contact the server administrator." });
+        console.warn(`\n[PASSWORD RESET TOKEN] username=${user.username} expires=${expiresAt.toISOString()}\ntoken=${token}\n`);
+        return res.json({ ok: true, noSmtp: true, message: "Email is not configured on this server. Your reset token has been printed to the server console. Paste it in the field below." });
       }
 
       const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
@@ -372,15 +371,13 @@ export async function setupAuth(app: Express): Promise<void> {
       const slug = String(username).trim().toLowerCase();
 
       const user = await storage.getUserByUsername(slug);
-      // Always return the same message to avoid username enumeration
-      const safeReply = { ok: true, message: "If that username is registered and has a WhatsApp number linked, a code has been sent." };
-      if (!user) return res.json(safeReply);
+      if (!user) return res.status(404).json({ error: "Username not found." });
 
       // Get WhatsApp number from profile metadata
       const rows = await pgPool.query(`SELECT metadata FROM profiles WHERE user_id = $1`, [user.id]);
       const meta = rows.rows[0]?.metadata ?? {};
       const phone = meta.whatsapp_number ?? meta.phone ?? "";
-      if (!phone) return res.json(safeReply); // silently fail — don't reveal missing config
+      if (!phone) return res.status(400).json({ error: "No WhatsApp number is linked to this account. Add your number in Profile → Settings first, or use the Wallet reset method." });
 
       // Generate 6-digit OTP
       const otp = String(Math.floor(100000 + Math.random() * 900000));
