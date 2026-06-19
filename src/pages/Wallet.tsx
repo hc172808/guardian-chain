@@ -31,7 +31,15 @@ import {
   ShieldAlert,
   ArrowRightLeft,
   Layers,
-  Banknote
+  Banknote,
+  ShoppingCart,
+  ArrowDownLeft,
+  ArrowUpRight,
+  CreditCard,
+  Smartphone,
+  Building,
+  DollarSign,
+  Info
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -127,27 +135,110 @@ const WalletContent = () => {
   const [cashOutDest, setCashOutDest] = useState('');
   const [cashOutNote, setCashOutNote] = useState('');
   const [cashOutLoading, setCashOutLoading] = useState(false);
+  const [cashOutPaymentMethod, setCashOutPaymentMethod] = useState('');
+
+  // Buy tokens state
+  const [buyOpen, setBuyOpen] = useState(false);
+  const [buyToken, setBuyToken] = useState('GYD');
+  const [buyAmount, setBuyAmount] = useState('');
+  const [buyFiat, setBuyFiat] = useState('');
+  const [buyPaymentMethod, setBuyPaymentMethod] = useState<any>(null);
+  const [buyNote, setBuyNote] = useState('');
+  const [buyLoading, setBuyLoading] = useState(false);
+  const [buyStep, setBuyStep] = useState<'select' | 'confirm' | 'done'>('select');
+  const [buyReference, setBuyReference] = useState('');
+
+  // Payment methods
+  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+
+  // Activity / transaction state
+  const [activityTxList, setActivityTxList] = useState<any[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [selectedTx, setSelectedTx] = useState<any | null>(null);
+  const [txDetailOpen, setTxDetailOpen] = useState(false);
+
+  const loadPaymentMethods = async () => {
+    try {
+      const res = await fetch('/api/payment-methods', { credentials: 'include' });
+      if (res.ok) setPaymentMethods(await res.json());
+    } catch {}
+  };
+
+  const loadActivity = async () => {
+    if (!user) return;
+    setActivityLoading(true);
+    try {
+      const [txRes, cashoutRes, buyRes] = await Promise.all([
+        fetch('/api/transactions', { credentials: 'include' }),
+        fetch('/api/wallet/cashouts', { credentials: 'include' }),
+        fetch('/api/buy-tokens', { credentials: 'include' }),
+      ]);
+      const txs = txRes.ok ? await txRes.json() : [];
+      const cashouts = cashoutRes.ok ? await cashoutRes.json() : [];
+      const buys = buyRes.ok ? await buyRes.json() : [];
+      const combined: any[] = [
+        ...txs.map((t: any) => ({ ...t, _kind: 'tx' })),
+        ...cashouts.map((c: any) => ({ ...c, _kind: 'cashout' })),
+        ...buys.map((b: any) => ({ ...b, _kind: 'buy' })),
+      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setActivityTxList(combined);
+    } finally { setActivityLoading(false); }
+  };
 
   const handleCashOut = async () => {
-    if (!cashOutAmount || !cashOutDest) return;
+    if (!cashOutAmount || !cashOutDest || !cashOutPaymentMethod) return;
     setCashOutLoading(true);
     try {
       const res = await fetch('/api/wallet/cashout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ asset: cashOutAsset, amount: cashOutAmount, destination: cashOutDest, note: cashOutNote }),
+        body: JSON.stringify({ asset: cashOutAsset, amount: cashOutAmount, destination: cashOutDest, note: cashOutNote, payment_method: cashOutPaymentMethod }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Cash out failed');
       toast({ title: 'Cash out request submitted', description: `Reference: ${data.reference}` });
       setCashOutOpen(false);
-      setCashOutAmount(''); setCashOutDest(''); setCashOutNote('');
+      setCashOutAmount(''); setCashOutDest(''); setCashOutNote(''); setCashOutPaymentMethod('');
+      loadActivity();
     } catch (e: any) {
       toast({ title: 'Cash out failed', description: e.message, variant: 'destructive' });
     } finally {
       setCashOutLoading(false);
     }
+  };
+
+  const handleBuySubmit = async () => {
+    if (!buyAmount || !buyPaymentMethod) return;
+    setBuyLoading(true);
+    try {
+      const res = await fetch('/api/buy-tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          payment_method_id: buyPaymentMethod.id,
+          payment_method_name: buyPaymentMethod.name,
+          token_symbol: buyToken,
+          token_amount: buyAmount,
+          fiat_amount: buyFiat || null,
+          fiat_currency: 'USD',
+          notes: buyNote,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Buy request failed');
+      setBuyReference(data.reference);
+      setBuyStep('done');
+      loadActivity();
+    } catch (e: any) {
+      toast({ title: 'Buy request failed', description: e.message, variant: 'destructive' });
+    } finally { setBuyLoading(false); }
+  };
+
+  const openTxDetail = (item: any) => {
+    setSelectedTx(item);
+    setTxDetailOpen(true);
   };
 
   const [pinLockEnabled, setPinLockEnabled] = useState(isPinLockEnabled());
@@ -178,6 +269,8 @@ const WalletContent = () => {
     fetchWallets();
     loadBalances();
     fetchBridgeHistory();
+    loadPaymentMethods();
+    loadActivity();
   }, [user]);
 
   const fetchBridgeHistory = async () => {
@@ -683,15 +776,114 @@ const WalletContent = () => {
               </div>
             </DialogContent>
           </Dialog>
+          <Button className="gap-2 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => { setBuyStep('select'); setBuyAmount(''); setBuyFiat(''); setBuyPaymentMethod(null); setBuyNote(''); setBuyOpen(true); }}>
+            <ShoppingCart className="h-4 w-4" /> Buy
+          </Button>
           <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setCashOutOpen(true)}>
             <Banknote className="h-4 w-4" /> Cash Out
           </Button>
+
+          {/* ── Buy Tokens Dialog ── */}
+          <Dialog open={buyOpen} onOpenChange={(o) => { setBuyOpen(o); if (!o) setBuyStep('select'); }}>
+            <DialogContent className="max-w-md">
+              <DialogHeader><DialogTitle className="flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-blue-400" /> Buy Tokens</DialogTitle></DialogHeader>
+              {buyStep === 'done' ? (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-center space-y-2">
+                    <CheckCircle2 className="h-10 w-10 text-emerald-400 mx-auto" />
+                    <p className="font-semibold text-emerald-300">Buy Request Submitted!</p>
+                    <p className="text-xs text-muted-foreground">Reference: <span className="font-mono">{buyReference}</span></p>
+                    <p className="text-sm text-muted-foreground">{buyPaymentMethod?.instructions}</p>
+                  </div>
+                  <Button className="w-full" onClick={() => setBuyOpen(false)}>Done</Button>
+                </div>
+              ) : buyStep === 'confirm' ? (
+                <div className="space-y-4">
+                  <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 space-y-2">
+                    <p className="text-sm font-semibold text-blue-300">Payment Instructions</p>
+                    <p className="text-sm text-muted-foreground">{buyPaymentMethod?.instructions}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-secondary/30 text-sm space-y-2">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Token</span><span className="font-semibold">{buyToken}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-semibold">{buyAmount} {buyToken}</span></div>
+                    {buyFiat && <div className="flex justify-between"><span className="text-muted-foreground">Fiat equiv.</span><span>USD {buyFiat}</span></div>}
+                    <div className="flex justify-between"><span className="text-muted-foreground">Payment via</span><span>{buyPaymentMethod?.name}</span></div>
+                  </div>
+                  <div>
+                    <Label>Note / Transaction ID (optional)</Label>
+                    <Input value={buyNote} onChange={e => setBuyNote(e.target.value)} placeholder="e.g. PayPal transaction ID" />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1" onClick={() => setBuyStep('select')}>Back</Button>
+                    <Button className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700" onClick={handleBuySubmit} disabled={buyLoading}>
+                      {buyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
+                      {buyLoading ? 'Submitting...' : 'Confirm & Submit'}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Token</Label>
+                      <Select value={buyToken} onValueChange={setBuyToken}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="GYD">GYD — Stablecoin</SelectItem>
+                          <SelectItem value="GYDS">GYDS — Gas Token</SelectItem>
+                          {balances.filter(b => b.symbol !== 'GYDS' && b.symbol !== 'GYD').map(t => (
+                            <SelectItem key={t.symbol} value={t.symbol}>{t.symbol}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Amount</Label>
+                      <Input type="number" value={buyAmount} onChange={e => setBuyAmount(e.target.value)} placeholder="100" min="0" step="any" />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Fiat amount (USD, optional)</Label>
+                    <Input type="number" value={buyFiat} onChange={e => setBuyFiat(e.target.value)} placeholder="0.00" min="0" step="0.01" />
+                  </div>
+                  <div>
+                    <Label>Payment Method</Label>
+                    {paymentMethods.length === 0 ? (
+                      <p className="text-sm text-muted-foreground mt-2">No payment methods enabled yet. Contact admin.</p>
+                    ) : (
+                      <div className="space-y-2 mt-2">
+                        {paymentMethods.map(m => (
+                          <button
+                            key={m.id}
+                            onClick={() => setBuyPaymentMethod(m)}
+                            className={`w-full text-left p-3 rounded-lg border transition-colors ${buyPaymentMethod?.id === m.id ? 'border-primary bg-primary/10' : 'border-border/40 bg-card/50 hover:border-primary/50'}`}
+                          >
+                            <p className="font-semibold text-sm">{m.name}</p>
+                            <p className="text-xs text-muted-foreground">{m.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
+                    disabled={!buyAmount || !buyPaymentMethod}
+                    onClick={() => setBuyStep('confirm')}
+                  >
+                    <ArrowDownLeft className="h-4 w-4" /> Continue
+                  </Button>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Cash Out Dialog ── */}
           <Dialog open={cashOutOpen} onOpenChange={setCashOutOpen}>
             <DialogContent>
               <DialogHeader><DialogTitle className="flex items-center gap-2"><Banknote className="h-5 w-5 text-emerald-400" /> Cash Out</DialogTitle></DialogHeader>
               <div className="space-y-4">
                 <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-300">
-                  Submit a cash-out request to convert your on-chain tokens to fiat or external wallet.
+                  Submit a cash-out request to convert your on-chain tokens to fiat.
                 </div>
                 <div>
                   <Label>Asset</Label>
@@ -711,8 +903,27 @@ const WalletContent = () => {
                   <Input type="number" value={cashOutAmount} onChange={e => setCashOutAmount(e.target.value)} placeholder="0.00" min="0" step="any" />
                 </div>
                 <div>
-                  <Label>Destination (wallet address or bank reference)</Label>
-                  <Input value={cashOutDest} onChange={e => setCashOutDest(e.target.value)} placeholder="0x... or bank account ref" />
+                  <Label>Payment Method</Label>
+                  {paymentMethods.length === 0 ? (
+                    <p className="text-sm text-muted-foreground mt-1">No payment methods available. Contact admin.</p>
+                  ) : (
+                    <div className="space-y-2 mt-2">
+                      {paymentMethods.map(m => (
+                        <button
+                          key={m.id}
+                          onClick={() => setCashOutPaymentMethod(m.name)}
+                          className={`w-full text-left p-3 rounded-lg border transition-colors ${cashOutPaymentMethod === m.name ? 'border-emerald-500 bg-emerald-500/10' : 'border-border/40 bg-card/50 hover:border-emerald-500/50'}`}
+                        >
+                          <p className="font-semibold text-sm">{m.name}</p>
+                          <p className="text-xs text-muted-foreground">{m.description}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <Label>Destination (account / wallet address)</Label>
+                  <Input value={cashOutDest} onChange={e => setCashOutDest(e.target.value)} placeholder="PayPal email, MMG number, bank ref, 0x..." />
                 </div>
                 <div>
                   <Label>Note (optional)</Label>
@@ -726,7 +937,7 @@ const WalletContent = () => {
                     <p className="text-xs text-muted-foreground pt-1">Processing time: 1–3 business days</p>
                   </div>
                 )}
-                <Button onClick={handleCashOut} className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700" disabled={cashOutLoading || !cashOutAmount || !cashOutDest}>
+                <Button onClick={handleCashOut} className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700" disabled={cashOutLoading || !cashOutAmount || !cashOutDest || !cashOutPaymentMethod}>
                   {cashOutLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
                   {cashOutLoading ? 'Submitting...' : 'Submit Cash Out Request'}
                 </Button>
@@ -1119,11 +1330,258 @@ const WalletContent = () => {
         </div>
       </GlassCard>
 
-      {/* Bridge Transfer History */}
+      {/* ── Activity Feed ── */}
       <GlassCard className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <Activity className="h-6 w-6 text-primary" />
+            <h2 className="text-xl font-bold">Activity</h2>
+          </div>
+          <Button variant="outline" size="sm" onClick={loadActivity} disabled={activityLoading}>
+            <RefreshCw className={`h-4 w-4 ${activityLoading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+        {activityLoading ? (
+          <div className="flex items-center gap-2 justify-center py-8 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" /> Loading activity…
+          </div>
+        ) : activityTxList.length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground">
+            <Activity className="h-8 w-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No activity yet.</p>
+            <p className="text-xs mt-1">Transactions, buy requests, and cash outs will appear here.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {activityTxList.map((item: any) => {
+              const kind = item._kind;
+              let icon = <ArrowRightLeft className="h-4 w-4 text-primary" />;
+              let label = '';
+              let subLabel = '';
+              let amountStr = '';
+              let statusColor = '';
+
+              if (kind === 'tx') {
+                icon = item.to_address === user?.id ? <ArrowDownLeft className="h-4 w-4 text-emerald-400" /> : <ArrowUpRight className="h-4 w-4 text-red-400" />;
+                label = 'Transfer';
+                subLabel = item.tx_hash ? `${item.tx_hash.slice(0, 10)}…` : (item.reference || '');
+                amountStr = `${Number(item.amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${item.asset || 'GYD'}`;
+                statusColor = item.status === 'confirmed' ? 'text-emerald-400' : item.status === 'failed' ? 'text-red-400' : 'text-amber-400';
+              } else if (kind === 'cashout') {
+                icon = <ArrowUpRight className="h-4 w-4 text-amber-400" />;
+                label = 'Cash Out';
+                subLabel = item.reference || '';
+                amountStr = `${Number(item.amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${item.asset}`;
+                statusColor = item.status === 'approved' || item.status === 'completed' ? 'text-emerald-400' : item.status === 'rejected' ? 'text-red-400' : 'text-amber-400';
+              } else if (kind === 'buy') {
+                icon = <ArrowDownLeft className="h-4 w-4 text-blue-400" />;
+                label = 'Buy';
+                subLabel = item.reference || '';
+                amountStr = `${Number(item.token_amount).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${item.token_symbol}`;
+                statusColor = item.status === 'approved' || item.status === 'completed' ? 'text-emerald-400' : item.status === 'rejected' ? 'text-red-400' : 'text-amber-400';
+              }
+
+              return (
+                <button
+                  key={`${kind}-${item.id}`}
+                  onClick={() => openTxDetail(item)}
+                  className="w-full text-left p-3 rounded-lg bg-card/50 border border-border/30 hover:border-primary/40 hover:bg-card/80 transition-colors flex items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2 rounded-lg bg-primary/10 flex-shrink-0">{icon}</div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm">{label}</span>
+                        <span className={`text-xs capitalize ${statusColor}`}>{item.status}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground font-mono truncate">{subLabel}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-semibold font-mono">{amountStr}</p>
+                    {kind === 'cashout' && item.payment_method && (
+                      <p className="text-xs text-muted-foreground">{item.payment_method}</p>
+                    )}
+                    {kind === 'buy' && item.payment_method_name && (
+                      <p className="text-xs text-muted-foreground">{item.payment_method_name}</p>
+                    )}
+                    <Info className="h-3 w-3 text-muted-foreground ml-auto mt-0.5" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </GlassCard>
+
+      {/* Transaction Detail Modal */}
+      <Dialog open={txDetailOpen} onOpenChange={setTxDetailOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedTx?._kind === 'buy' ? <ShoppingCart className="h-5 w-5 text-blue-400" /> :
+               selectedTx?._kind === 'cashout' ? <Banknote className="h-5 w-5 text-emerald-400" /> :
+               <ArrowRightLeft className="h-5 w-5 text-primary" />}
+              {selectedTx?._kind === 'buy' ? 'Buy Request' :
+               selectedTx?._kind === 'cashout' ? 'Cash Out Request' : 'Transaction'} Details
+            </DialogTitle>
+          </DialogHeader>
+          {selectedTx && (
+            <div className="space-y-3">
+              {/* Status banner */}
+              <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${
+                (selectedTx.status === 'confirmed' || selectedTx.status === 'approved' || selectedTx.status === 'completed')
+                  ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
+                  : (selectedTx.status === 'rejected' || selectedTx.status === 'failed')
+                  ? 'bg-red-500/10 border border-red-500/20 text-red-300'
+                  : 'bg-amber-500/10 border border-amber-500/20 text-amber-300'
+              }`}>
+                {(selectedTx.status === 'confirmed' || selectedTx.status === 'approved' || selectedTx.status === 'completed')
+                  ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                  : (selectedTx.status === 'rejected' || selectedTx.status === 'failed')
+                  ? <XCircle className="h-4 w-4 flex-shrink-0" />
+                  : <Clock className="h-4 w-4 flex-shrink-0" />}
+                <span className="capitalize font-medium">{selectedTx.status}</span>
+              </div>
+
+              {/* Fields */}
+              <div className="space-y-2 text-sm">
+                {selectedTx.reference && (
+                  <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                    <span className="text-muted-foreground flex-shrink-0">Reference</span>
+                    <span className="font-mono text-xs break-all text-right">{selectedTx.reference}</span>
+                  </div>
+                )}
+                {selectedTx.tx_hash && (
+                  <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                    <span className="text-muted-foreground flex-shrink-0">TX Hash</span>
+                    <span className="font-mono text-xs break-all text-right">{selectedTx.tx_hash}</span>
+                  </div>
+                )}
+                {selectedTx._kind === 'tx' && (
+                  <>
+                    {selectedTx.from_address && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground flex-shrink-0">From</span>
+                        <span className="font-mono text-xs break-all text-right">{selectedTx.from_address}</span>
+                      </div>
+                    )}
+                    {selectedTx.to_address && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground flex-shrink-0">To</span>
+                        <span className="font-mono text-xs break-all text-right">{selectedTx.to_address}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                      <span className="text-muted-foreground">Amount</span>
+                      <span className="font-semibold">{Number(selectedTx.amount).toLocaleString()} {selectedTx.asset || 'GYD'}</span>
+                    </div>
+                    {selectedTx.fee !== undefined && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground">Fee</span>
+                        <span>{Number(selectedTx.fee).toFixed(6)} {selectedTx.asset || 'GYD'}</span>
+                      </div>
+                    )}
+                    {selectedTx.block_height && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground">Block</span>
+                        <span className="font-mono">#{Number(selectedTx.block_height).toLocaleString()}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+                {selectedTx._kind === 'cashout' && (
+                  <>
+                    <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                      <span className="text-muted-foreground">Asset</span>
+                      <span className="font-semibold">{selectedTx.asset}</span>
+                    </div>
+                    <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                      <span className="text-muted-foreground">Amount</span>
+                      <span className="font-semibold">{Number(selectedTx.amount).toLocaleString()} {selectedTx.asset}</span>
+                    </div>
+                    <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                      <span className="text-muted-foreground">Net payout</span>
+                      <span>{(Number(selectedTx.amount) * 0.995).toFixed(6)} {selectedTx.asset}</span>
+                    </div>
+                    {selectedTx.payment_method && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground">Via</span>
+                        <span>{selectedTx.payment_method}</span>
+                      </div>
+                    )}
+                    {selectedTx.destination && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground flex-shrink-0">Destination</span>
+                        <span className="font-mono text-xs break-all text-right">{selectedTx.destination}</span>
+                      </div>
+                    )}
+                    {selectedTx.note && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground">Note</span>
+                        <span>{selectedTx.note}</span>
+                      </div>
+                    )}
+                    {selectedTx.processed_at && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground">Processed</span>
+                        <span>{new Date(selectedTx.processed_at).toLocaleString()}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+                {selectedTx._kind === 'buy' && (
+                  <>
+                    <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                      <span className="text-muted-foreground">Token</span>
+                      <span className="font-semibold">{selectedTx.token_symbol}</span>
+                    </div>
+                    <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                      <span className="text-muted-foreground">Amount</span>
+                      <span className="font-semibold">{Number(selectedTx.token_amount).toLocaleString()} {selectedTx.token_symbol}</span>
+                    </div>
+                    {selectedTx.fiat_amount && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground">Fiat value</span>
+                        <span>{selectedTx.fiat_currency} {Number(selectedTx.fiat_amount).toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                      <span className="text-muted-foreground">Via</span>
+                      <span>{selectedTx.payment_method_name}</span>
+                    </div>
+                    {selectedTx.notes && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground">Note</span>
+                        <span>{selectedTx.notes}</span>
+                      </div>
+                    )}
+                    {selectedTx.processed_at && (
+                      <div className="flex justify-between gap-4 py-2 border-b border-border/30">
+                        <span className="text-muted-foreground">Processed</span>
+                        <span>{new Date(selectedTx.processed_at).toLocaleString()}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div className="flex justify-between gap-4 py-2">
+                  <span className="text-muted-foreground">Date</span>
+                  <span>{new Date(selectedTx.created_at).toLocaleString()}</span>
+                </div>
+              </div>
+
+              <Button variant="outline" className="w-full mt-2" onClick={() => setTxDetailOpen(false)}>Close</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bridge Transfer History */}
+      <GlassCard className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <ArrowRightLeft className="h-6 w-6 text-primary" />
             <h2 className="text-xl font-bold">Bridge History</h2>
           </div>
           <Button variant="outline" size="sm" onClick={fetchBridgeHistory} disabled={bridgeLoading}>

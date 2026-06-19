@@ -62,6 +62,7 @@ import { GrantAchievementPanel } from '@/components/admin/GrantAchievementPanel'
 import { FlaskConical, Trophy, Rocket as RocketIcon, ArrowRightLeft, RotateCcw, ExternalLink, ToggleLeft, ToggleRight, Zap, Timer } from 'lucide-react';
 import { CronJobManager } from '@/components/admin/CronJobManager';
 import { NodeRepoSync } from '@/components/admin/NodeRepoSync';
+import { PaymentMethodsManager } from '@/components/admin/PaymentMethodsManager';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -844,6 +845,10 @@ const AdminContent = () => {
             <Timer className="h-4 w-4" />
             <span className="hidden md:inline">Cron Jobs</span>
           </TabsTrigger>
+          <TabsTrigger value="payments" className="gap-2" data-testid="tab-payments">
+            <Coins className="h-4 w-4" />
+            <span className="hidden md:inline">Payments</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="maintenance">
@@ -1101,6 +1106,9 @@ const AdminContent = () => {
         </TabsContent>
         <TabsContent value="cron">
           <CronJobManager toast={toast} />
+        </TabsContent>
+        <TabsContent value="payments">
+          <PaymentMethodsManager />
         </TabsContent>
       </Tabs>
     </motion.div>

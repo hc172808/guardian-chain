@@ -137,6 +137,11 @@
 - [x] Wallet: GYDS on-chain balance via useRpcBalance hook; all RPC endpoints; refresh button
 - [x] Ledger hardware wallet (LedgerConnect.tsx — WebHID; reads 5 accounts via BIP44 APDU; Chrome/Edge)
 - [x] Faucet: 24h cooldown enforced server-side
+- [x] Activity feed — all transactions, buy requests, cash outs in unified list; click any item for full detail modal (hash, from/to, amount, fee, block, status, payment method, destination)
+- [x] Buy Tokens flow — 3-step wizard (select token + amount → choose payment method → confirm + payment instructions); POST /api/buy-tokens; reference returned
+- [x] Cash Out with payment method — payment method picker added to cash out dialog; payment_method stored in cashout_requests
+- [x] Payment methods DB — `payment_methods` table; 5 seeded defaults: PayPal, MMG Guyana, Bank Transfer (GY), VISA/MC, Crypto USDT/USDC; GET /api/payment-methods (enabled only)
+- [x] Admin → Payments tab (PaymentMethodsManager.tsx) — toggle enable/disable each method, edit name/description/instructions/icon, add/delete methods; review + approve/reject Buy Requests and Cash Out Requests with pending counts badges
 
 ### Governance (Phase 3) — fully wired to DB
 - [x] Proposal list, detail, voting (one-vote enforced), progress bars + quorum

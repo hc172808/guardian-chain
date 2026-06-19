@@ -2292,7 +2292,7 @@ export function registerRoutes(app: Express) {
   // ── Cash Out requests ──────────────────────────────────────────────────────
   app.post("/api/wallet/cashout", requireAuth, async (req, res) => {
     const user = req.user as any;
-    const { asset, amount, destination, note } = req.body;
+    const { asset, amount, destination, note, payment_method } = req.body;
     if (!asset || !amount || !destination) return res.status(400).json({ error: "asset, amount, destination required" });
     try {
       const reference = `CO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -2304,9 +2304,11 @@ export function registerRoutes(app: Express) {
           created_at TIMESTAMPTZ DEFAULT NOW(), processed_at TIMESTAMPTZ
         )`
       );
+      // Ensure payment_method column exists
+      await pgPool.query(`ALTER TABLE cashout_requests ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT ''`).catch(() => {});
       await pgPool.query(
-        `INSERT INTO cashout_requests (user_id, asset, amount, destination, note, reference) VALUES ($1,$2,$3,$4,$5,$6)`,
-        [user.id, asset, amount, destination, note || '', reference]
+        `INSERT INTO cashout_requests (user_id, asset, amount, destination, note, reference, payment_method) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [user.id, asset, amount, destination, note || '', reference, payment_method || '']
       );
       res.json({ ok: true, reference, status: 'pending', message: 'Cash out request submitted. Processing: 1–3 business days.' });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -2709,5 +2711,165 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const rows = await storage.getUserFeatures(user.id);
     res.json(rows.map((r: any) => r.feature_key));
+  });
+
+  // ── Payment Methods ────────────────────────────────────────────────────────
+  async function ensurePaymentTables() {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS payment_methods (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        description TEXT,
+        instructions TEXT,
+        icon TEXT,
+        is_enabled BOOLEAN DEFAULT true,
+        config_json TEXT DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS buy_requests (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        payment_method_id INTEGER,
+        payment_method_name TEXT NOT NULL,
+        token_symbol TEXT NOT NULL DEFAULT 'GYD',
+        token_amount NUMERIC NOT NULL,
+        fiat_amount NUMERIC,
+        fiat_currency TEXT DEFAULT 'USD',
+        status TEXT DEFAULT 'pending',
+        reference TEXT UNIQUE NOT NULL,
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        processed_at TIMESTAMPTZ
+      )
+    `);
+    // Alter cashout_requests to add payment_method column if missing
+    await pgPool.query(`
+      ALTER TABLE cashout_requests ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT ''
+    `).catch(() => {});
+    // Seed default payment methods if empty
+    const { rows: existing } = await pgPool.query(`SELECT id FROM payment_methods LIMIT 1`);
+    if (existing.length === 0) {
+      const defaults = [
+        { name: 'PayPal', type: 'paypal', description: 'Pay with PayPal balance or linked card', instructions: 'Send payment to the PayPal address provided by admin. Include your reference number in the note.', icon: 'paypal' },
+        { name: 'MMG Guyana', type: 'mmg', description: 'Mobile Money Guyana (MMG) mobile wallet', instructions: 'Transfer via MMG to the number provided. Use your reference as the transfer note.', icon: 'phone' },
+        { name: 'Bank Transfer (Guyana)', type: 'bank_gy', description: 'Local bank transfer in Guyana (GYD)', instructions: 'Transfer to the bank account details provided. Processing takes 1-2 business days.', icon: 'building' },
+        { name: 'VISA / Mastercard', type: 'card', description: 'Pay with debit or credit card', instructions: 'Card payment link will be provided after submission. Funds credited within minutes.', icon: 'credit-card' },
+        { name: 'Crypto (USDT/USDC)', type: 'crypto', description: 'Pay with USDT or USDC on any network', instructions: 'Send USDT or USDC to the wallet address provided. Include your reference as memo/tag.', icon: 'coins' },
+      ];
+      for (const m of defaults) {
+        await pgPool.query(
+          `INSERT INTO payment_methods (name, type, description, instructions, icon) VALUES ($1,$2,$3,$4,$5)`,
+          [m.name, m.type, m.description, m.instructions, m.icon]
+        );
+      }
+    }
+  }
+  ensurePaymentTables().catch(console.error);
+
+  app.get("/api/payment-methods", async (_req, res) => {
+    try {
+      const { rows } = await pgPool.query(`SELECT * FROM payment_methods WHERE is_enabled=true ORDER BY id`);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/admin/payment-methods", requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await pgPool.query(`SELECT * FROM payment_methods ORDER BY id`);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/admin/payment-methods", requireAdmin, async (req, res) => {
+    const { name, type, description, instructions, icon } = req.body;
+    if (!name || !type) return res.status(400).json({ error: 'name and type required' });
+    try {
+      const { rows } = await pgPool.query(
+        `INSERT INTO payment_methods (name, type, description, instructions, icon) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [name, type || 'custom', description || '', instructions || '', icon || 'credit-card']
+      );
+      res.json(rows[0]);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/admin/payment-methods/:id", requireAdmin, async (req, res) => {
+    const { name, description, instructions, icon, is_enabled, config_json } = req.body;
+    try {
+      const fields: string[] = [];
+      const vals: any[] = [];
+      let idx = 1;
+      if (name !== undefined) { fields.push(`name=$${idx++}`); vals.push(name); }
+      if (description !== undefined) { fields.push(`description=$${idx++}`); vals.push(description); }
+      if (instructions !== undefined) { fields.push(`instructions=$${idx++}`); vals.push(instructions); }
+      if (icon !== undefined) { fields.push(`icon=$${idx++}`); vals.push(icon); }
+      if (is_enabled !== undefined) { fields.push(`is_enabled=$${idx++}`); vals.push(is_enabled); }
+      if (config_json !== undefined) { fields.push(`config_json=$${idx++}`); vals.push(JSON.stringify(config_json)); }
+      if (fields.length === 0) return res.status(400).json({ error: 'nothing to update' });
+      vals.push(req.params.id);
+      const { rows } = await pgPool.query(
+        `UPDATE payment_methods SET ${fields.join(', ')} WHERE id=$${idx} RETURNING *`,
+        vals
+      );
+      res.json(rows[0] || {});
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/admin/payment-methods/:id", requireAdmin, async (req, res) => {
+    try {
+      await pgPool.query(`DELETE FROM payment_methods WHERE id=$1`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Buy token requests
+  app.post("/api/buy-tokens", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { payment_method_id, payment_method_name, token_symbol, token_amount, fiat_amount, fiat_currency, notes } = req.body;
+    if (!payment_method_name || !token_symbol || !token_amount) {
+      return res.status(400).json({ error: 'payment_method_name, token_symbol, token_amount required' });
+    }
+    try {
+      const reference = `BUY-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      const { rows } = await pgPool.query(
+        `INSERT INTO buy_requests (user_id, payment_method_id, payment_method_name, token_symbol, token_amount, fiat_amount, fiat_currency, reference, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [user.id, payment_method_id || null, payment_method_name, token_symbol, token_amount, fiat_amount || null, fiat_currency || 'USD', reference, notes || '']
+      );
+      res.json({ ok: true, reference, request: rows[0] });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/buy-tokens", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT * FROM buy_requests WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`,
+        [user.id]
+      );
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/admin/buy-requests", requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT br.*, u.username FROM buy_requests br LEFT JOIN users u ON u.id::text=br.user_id ORDER BY br.created_at DESC LIMIT 200`
+      );
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/admin/buy-requests/:id", requireAdmin, async (req, res) => {
+    const { status, notes } = req.body;
+    try {
+      const { rows } = await pgPool.query(
+        `UPDATE buy_requests SET status=$1, notes=COALESCE($2, notes), processed_at=NOW() WHERE id=$3 RETURNING *`,
+        [status, notes || null, req.params.id]
+      );
+      res.json(rows[0] || {});
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 }
