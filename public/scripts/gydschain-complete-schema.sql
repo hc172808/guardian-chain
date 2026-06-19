@@ -1907,8 +1907,57 @@ CREATE TABLE IF NOT EXISTS public.email_verification_tokens (
 CREATE INDEX IF NOT EXISTS evt_user_idx ON public.email_verification_tokens(user_id);
 CREATE INDEX IF NOT EXISTS evt_token_idx ON public.email_verification_tokens(token) WHERE used_at IS NULL;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- §32  PAYMENT METHODS & BUY REQUESTS — Added 2026-06-19
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.payment_methods (
+    id           SERIAL PRIMARY KEY,
+    name         TEXT NOT NULL,
+    type         TEXT NOT NULL UNIQUE,
+    description  TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
+    icon         TEXT NOT NULL DEFAULT 'credit-card',
+    is_enabled   BOOLEAN NOT NULL DEFAULT TRUE,
+    config_json  TEXT NOT NULL DEFAULT '{}',
+    created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed default payment methods (idempotent)
+INSERT INTO public.payment_methods (name, type, description, instructions, icon, is_enabled) VALUES
+('PayPal',             'paypal',        'Pay via PayPal',                       'Send payment to payments@gyds.network on PayPal, then upload your receipt.',                                           'paypal',      TRUE),
+('MMG Guyana',         'mmg_guyana',    'Mobile Money Guyana (MMG)',             'Send to MMG wallet #592-XXX-XXXX. Include your reference in the memo.',                                               'phone',       TRUE),
+('Bank Transfer (GY)', 'bank_gy',       'Guyana bank wire transfer',             'Wire to Republic Bank Guyana, Acc# 123456789, Swift: RBGLGYGG. Use your reference as memo.',                          'building',    TRUE),
+('VISA / Mastercard',  'card',          'Credit or debit card',                  'Card payments are processed via our secure payment gateway. You will be redirected after confirmation.',               'credit-card', TRUE),
+('Crypto (USDT/USDC)', 'crypto_stable', 'Stablecoin on-chain payment',           'Send USDT or USDC (TRC-20 or ERC-20) to: 0xGYDSPAYMENTWALLET. Include your reference in memo.',                     'coins',       TRUE)
+ON CONFLICT (type) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.buy_requests (
+    id                  SERIAL PRIMARY KEY,
+    user_id             TEXT NOT NULL,
+    username            TEXT,
+    payment_method_id   INTEGER REFERENCES public.payment_methods(id),
+    payment_method_name TEXT NOT NULL,
+    token_symbol        TEXT NOT NULL DEFAULT 'GYDS',
+    token_amount        NUMERIC(36,8) NOT NULL,
+    fiat_amount         NUMERIC(18,2),
+    fiat_currency       TEXT DEFAULT 'USD',
+    reference           TEXT NOT NULL UNIQUE,
+    status              TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | rejected | completed
+    notes               TEXT,
+    processed_at        TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS buy_requests_user_idx   ON public.buy_requests(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS buy_requests_status_idx ON public.buy_requests(status);
+CREATE INDEX IF NOT EXISTS buy_requests_ref_idx    ON public.buy_requests(reference);
+
+-- Ensure cashout_requests has the payment_method column (added 2026-06-19)
+ALTER TABLE public.cashout_requests ADD COLUMN IF NOT EXISTS payment_method TEXT;
+
 -- ═══════════════════════════════════════════════════════════════════════════
 --  END OF SCHEMA
---  Tables: 70  |  Functions: 4  |  Views: 3  |  Indexes: 27+
+--  Tables: 72  |  Functions: 4  |  Views: 3  |  Indexes: 30+
 --  Safe to run multiple times. Check supabase dashboard after applying.
 -- ═══════════════════════════════════════════════════════════════════════════

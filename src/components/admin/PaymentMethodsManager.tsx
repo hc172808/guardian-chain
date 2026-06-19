@@ -41,6 +41,12 @@ interface BuyRequest {
   processed_at: string | null;
 }
 
+interface RejectTarget {
+  id: number;
+  kind: 'buy' | 'cashout';
+  label: string;
+}
+
 interface CashoutRequest {
   id: number;
   username: string;
@@ -76,6 +82,8 @@ export function PaymentMethodsManager() {
   const [activeTab, setActiveTab] = useState<'methods' | 'buy' | 'cashout'>('methods');
 
   const [form, setForm] = useState({ name: '', type: '', description: '', instructions: '', icon: 'credit-card' });
+  const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -160,26 +168,42 @@ export function PaymentMethodsManager() {
     } finally { setSaving(false); }
   };
 
-  const updateBuyRequest = async (id: number, status: string) => {
+  const updateBuyRequest = async (id: number, status: string, notes?: string) => {
     await fetch(`/api/admin/buy-requests/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, notes }),
     });
     toast({ title: `Request marked ${status}` });
     load();
   };
 
-  const updateCashout = async (id: number, status: string) => {
+  const updateCashout = async (id: number, status: string, notes?: string) => {
     await fetch(`/api/admin/cashouts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, notes }),
     });
     toast({ title: `Cashout marked ${status}` });
     load();
+  };
+
+  const openReject = (id: number, kind: 'buy' | 'cashout', label: string) => {
+    setRejectTarget({ id, kind, label });
+    setRejectNote('');
+  };
+
+  const confirmReject = async () => {
+    if (!rejectTarget) return;
+    if (rejectTarget.kind === 'buy') {
+      await updateBuyRequest(rejectTarget.id, 'rejected', rejectNote || undefined);
+    } else {
+      await updateCashout(rejectTarget.id, 'rejected', rejectNote || undefined);
+    }
+    setRejectTarget(null);
+    setRejectNote('');
   };
 
   const statusBadge = (s: string) => {
@@ -306,7 +330,7 @@ export function PaymentMethodsManager() {
                     <Button size="sm" className="gap-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => updateBuyRequest(r.id, 'approved')}>
                       <CheckCircle2 className="h-3 w-3" /> Approve
                     </Button>
-                    <Button size="sm" variant="destructive" className="gap-1 h-7 text-xs" onClick={() => updateBuyRequest(r.id, 'rejected')}>
+                    <Button size="sm" variant="destructive" className="gap-1 h-7 text-xs" onClick={() => openReject(r.id, 'buy', `${Number(r.token_amount).toLocaleString()} ${r.token_symbol} for ${r.username}`)}>
                       <XCircle className="h-3 w-3" /> Reject
                     </Button>
                   </div>
@@ -346,7 +370,7 @@ export function PaymentMethodsManager() {
                     <Button size="sm" className="gap-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => updateCashout(r.id, 'approved')}>
                       <CheckCircle2 className="h-3 w-3" /> Approve
                     </Button>
-                    <Button size="sm" variant="destructive" className="gap-1 h-7 text-xs" onClick={() => updateCashout(r.id, 'rejected')}>
+                    <Button size="sm" variant="destructive" className="gap-1 h-7 text-xs" onClick={() => openReject(r.id, 'cashout', `${Number(r.amount).toLocaleString()} ${r.asset} for ${r.username}`)}>
                       <XCircle className="h-3 w-3" /> Reject
                     </Button>
                   </div>
@@ -379,6 +403,41 @@ export function PaymentMethodsManager() {
             <Button onClick={saveEdit} className="w-full" disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Save Changes
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject with Reason Dialog */}
+      <Dialog open={!!rejectTarget} onOpenChange={open => { if (!open) { setRejectTarget(null); setRejectNote(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <XCircle className="h-5 w-5" /> Reject Request
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Rejecting: <span className="text-foreground font-medium">{rejectTarget?.label}</span>
+            </p>
+            <div>
+              <Label>Reason for rejection <span className="text-muted-foreground">(optional)</span></Label>
+              <Textarea
+                className="mt-1"
+                rows={3}
+                placeholder="e.g. Payment proof not submitted, incorrect amount sent…"
+                value={rejectNote}
+                onChange={e => setRejectNote(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground mt-1">This reason will be sent to the user via notification, email, and Telegram.</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => { setRejectTarget(null); setRejectNote(''); }}>
+                Cancel
+              </Button>
+              <Button variant="destructive" className="flex-1 gap-2" onClick={confirmReject}>
+                <XCircle className="h-4 w-4" /> Confirm Rejection
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
