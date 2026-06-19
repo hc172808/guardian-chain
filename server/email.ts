@@ -109,3 +109,82 @@ export async function sendGovernanceNotificationEmail(to: string, title: string,
     `,
   });
 }
+
+export async function sendBuyRequestStatusEmail(to: string, opts: {
+  status: string; reference: string; tokenAmount: string; tokenSymbol: string;
+  paymentMethod: string; adminNote?: string;
+}) {
+  const approved = opts.status === 'approved' || opts.status === 'completed';
+  const color = approved ? '#00e5b4' : '#f85149';
+  const emoji = approved ? '✅' : '❌';
+  const heading = approved ? 'Buy Request Approved' : 'Buy Request Rejected';
+  const body = approved
+    ? `Your request to buy <strong>${opts.tokenAmount} ${opts.tokenSymbol}</strong> via ${opts.paymentMethod} has been <strong style="color:${color}">approved</strong>. Tokens will be credited to your wallet shortly.`
+    : `Your request to buy <strong>${opts.tokenAmount} ${opts.tokenSymbol}</strong> via ${opts.paymentMethod} has been <strong style="color:${color}">rejected</strong>.${opts.adminNote ? ` Reason: ${opts.adminNote}` : ''}`;
+  return sendEmail({
+    to,
+    subject: `${emoji} Buy Request ${opts.status.charAt(0).toUpperCase() + opts.status.slice(1)} — ${opts.reference}`,
+    text: `${heading}: ${opts.tokenAmount} ${opts.tokenSymbol} via ${opts.paymentMethod}. Reference: ${opts.reference}. View your wallet at ${APP_URL}/wallet`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#0d1117;color:#e6edf3;padding:32px;border-radius:12px;">
+        <div style="text-align:center;margin-bottom:20px;">
+          <h1 style="color:#00e5b4;margin:0;font-size:22px;">ChainCore</h1>
+          <p style="color:#8b949e;margin:4px 0 0;font-size:13px;">GYDSchain Network</p>
+        </div>
+        <h2 style="font-size:18px;color:${color};margin-bottom:12px;">${emoji} ${heading}</h2>
+        <p style="color:#c9d1d9;">${body}</p>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin:20px 0;">
+          <p style="margin:4px 0;font-size:13px;color:#8b949e;">Reference: <span style="color:#c9d1d9;font-family:monospace;">${opts.reference}</span></p>
+          <p style="margin:4px 0;font-size:13px;color:#8b949e;">Token: <strong style="color:#c9d1d9;">${opts.tokenAmount} ${opts.tokenSymbol}</strong></p>
+          <p style="margin:4px 0;font-size:13px;color:#8b949e;">Payment via: <span style="color:#c9d1d9;">${opts.paymentMethod}</span></p>
+          <p style="margin:4px 0;font-size:13px;color:#8b949e;">Status: <strong style="color:${color};">${opts.status.toUpperCase()}</strong></p>
+        </div>
+        <div style="text-align:center;">
+          <a href="${APP_URL}/wallet" style="background:#00e5b4;color:#0d1117;font-weight:700;padding:11px 28px;border-radius:8px;text-decoration:none;display:inline-block;">View Wallet</a>
+        </div>
+        <hr style="border-color:#30363d;margin:24px 0;">
+        <p style="color:#8b949e;font-size:11px;text-align:center;">ChainCore — <a href="${APP_URL}" style="color:#00e5b4;">${APP_URL}</a></p>
+      </div>
+    `,
+  });
+}
+
+export async function sendCashoutStatusEmail(to: string, opts: {
+  status: string; reference: string; amount: string; asset: string;
+  paymentMethod: string; destination: string; adminNote?: string;
+}) {
+  const approved = opts.status === 'approved' || opts.status === 'completed';
+  const color = approved ? '#00e5b4' : '#f85149';
+  const emoji = approved ? '✅' : '❌';
+  const heading = approved ? 'Cash Out Approved' : 'Cash Out Rejected';
+  const body = approved
+    ? `Your cash out of <strong>${opts.amount} ${opts.asset}</strong> via ${opts.paymentMethod} has been <strong style="color:${color}">approved</strong>. Funds will be sent to your destination within 1–3 business days.`
+    : `Your cash out of <strong>${opts.amount} ${opts.asset}</strong> via ${opts.paymentMethod} has been <strong style="color:${color}">rejected</strong>.${opts.adminNote ? ` Reason: ${opts.adminNote}` : ''}`;
+  return sendEmail({
+    to,
+    subject: `${emoji} Cash Out ${opts.status.charAt(0).toUpperCase() + opts.status.slice(1)} — ${opts.reference}`,
+    text: `${heading}: ${opts.amount} ${opts.asset} via ${opts.paymentMethod}. Reference: ${opts.reference}. View your wallet at ${APP_URL}/wallet`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#0d1117;color:#e6edf3;padding:32px;border-radius:12px;">
+        <div style="text-align:center;margin-bottom:20px;">
+          <h1 style="color:#00e5b4;margin:0;font-size:22px;">ChainCore</h1>
+          <p style="color:#8b949e;margin:4px 0 0;font-size:13px;">GYDSchain Network</p>
+        </div>
+        <h2 style="font-size:18px;color:${color};margin-bottom:12px;">${emoji} ${heading}</h2>
+        <p style="color:#c9d1d9;">${body}</p>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin:20px 0;">
+          <p style="margin:4px 0;font-size:13px;color:#8b949e;">Reference: <span style="color:#c9d1d9;font-family:monospace;">${opts.reference}</span></p>
+          <p style="margin:4px 0;font-size:13px;color:#8b949e;">Amount: <strong style="color:#c9d1d9;">${opts.amount} ${opts.asset}</strong></p>
+          <p style="margin:4px 0;font-size:13px;color:#8b949e;">Payment via: <span style="color:#c9d1d9;">${opts.paymentMethod}</span></p>
+          <p style="margin:4px 0;font-size:13px;color:#8b949e;">Destination: <span style="color:#c9d1d9;font-family:monospace;">${opts.destination}</span></p>
+          <p style="margin:4px 0;font-size:13px;color:#8b949e;">Status: <strong style="color:${color};">${opts.status.toUpperCase()}</strong></p>
+        </div>
+        <div style="text-align:center;">
+          <a href="${APP_URL}/wallet" style="background:#00e5b4;color:#0d1117;font-weight:700;padding:11px 28px;border-radius:8px;text-decoration:none;display:inline-block;">View Wallet</a>
+        </div>
+        <hr style="border-color:#30363d;margin:24px 0;">
+        <p style="color:#8b949e;font-size:11px;text-align:center;">ChainCore — <a href="${APP_URL}" style="color:#00e5b4;">${APP_URL}</a></p>
+      </div>
+    `,
+  });
+}

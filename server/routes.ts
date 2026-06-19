@@ -8,6 +8,7 @@ import { getVapidPublicKey, sendPushToUser } from "./webpush";
 import { Pool } from "pg";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
+import { sendBuyRequestStatusEmail, sendCashoutStatusEmail } from "./email";
 import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -2335,13 +2336,48 @@ export function registerRoutes(app: Express) {
   });
 
   app.patch("/api/admin/cashouts/:id", requireAdmin, async (req, res) => {
-    const { status } = req.body;
+    const { status, notes } = req.body;
     try {
       const { rows } = await pgPool.query(
         `UPDATE cashout_requests SET status=$1, processed_at=NOW() WHERE id=$2 RETURNING *`,
         [status, String(req.params.id)]
       );
-      res.json(rows[0] || {});
+      const cashout = rows[0];
+      if (cashout && (status === 'approved' || status === 'rejected' || status === 'completed')) {
+        // Fetch user info for notifications
+        const userRes = await pgPool.query(
+          `SELECT id, email, telegram_chat_id FROM users WHERE id::text=$1`,
+          [cashout.user_id]
+        ).catch(() => ({ rows: [] }));
+        const u = userRes.rows[0];
+        if (u) {
+          const isApproved = status === 'approved' || status === 'completed';
+          const emoji = isApproved ? '✅' : '❌';
+          const notifTitle = isApproved ? `${emoji} Cash Out Approved` : `${emoji} Cash Out Rejected`;
+          const notifBody = isApproved
+            ? `Your cash out of ${Number(cashout.amount).toLocaleString()} ${cashout.asset} via ${cashout.payment_method || 'bank'} has been approved.`
+            : `Your cash out of ${Number(cashout.amount).toLocaleString()} ${cashout.asset} was rejected.${notes ? ` Reason: ${notes}` : ''}`;
+          // In-app notification
+          (storage as any).createNotification(u.id.toString(), 'cashout', notifTitle, notifBody, '/wallet').catch(() => {});
+          // Email
+          if (u.email) {
+            sendCashoutStatusEmail(u.email, {
+              status,
+              reference: cashout.reference,
+              amount: Number(cashout.amount).toLocaleString(),
+              asset: cashout.asset,
+              paymentMethod: cashout.payment_method || 'bank',
+              destination: cashout.destination,
+              adminNote: notes,
+            }).catch(() => {});
+          }
+          // Telegram
+          if (u.telegram_chat_id) {
+            sendTelegramMessage(u.telegram_chat_id, `${notifTitle}\n${notifBody}\nRef: ${cashout.reference}`).catch(() => {});
+          }
+        }
+      }
+      res.json(cashout || {});
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -2869,7 +2905,40 @@ export function registerRoutes(app: Express) {
         `UPDATE buy_requests SET status=$1, notes=COALESCE($2, notes), processed_at=NOW() WHERE id=$3 RETURNING *`,
         [status, notes || null, req.params.id]
       );
-      res.json(rows[0] || {});
+      const buyReq = rows[0];
+      if (buyReq && (status === 'approved' || status === 'rejected' || status === 'completed')) {
+        const userRes = await pgPool.query(
+          `SELECT id, email, telegram_chat_id FROM users WHERE id::text=$1`,
+          [buyReq.user_id]
+        ).catch(() => ({ rows: [] }));
+        const u = userRes.rows[0];
+        if (u) {
+          const isApproved = status === 'approved' || status === 'completed';
+          const emoji = isApproved ? '✅' : '❌';
+          const notifTitle = isApproved ? `${emoji} Buy Request Approved` : `${emoji} Buy Request Rejected`;
+          const notifBody = isApproved
+            ? `Your request to buy ${Number(buyReq.token_amount).toLocaleString()} ${buyReq.token_symbol} via ${buyReq.payment_method_name} has been approved. Tokens will be credited shortly.`
+            : `Your request to buy ${Number(buyReq.token_amount).toLocaleString()} ${buyReq.token_symbol} was rejected.${notes ? ` Reason: ${notes}` : ''}`;
+          // In-app notification
+          (storage as any).createNotification(u.id.toString(), 'buy', notifTitle, notifBody, '/wallet').catch(() => {});
+          // Email
+          if (u.email) {
+            sendBuyRequestStatusEmail(u.email, {
+              status,
+              reference: buyReq.reference,
+              tokenAmount: Number(buyReq.token_amount).toLocaleString(),
+              tokenSymbol: buyReq.token_symbol,
+              paymentMethod: buyReq.payment_method_name,
+              adminNote: notes,
+            }).catch(() => {});
+          }
+          // Telegram
+          if (u.telegram_chat_id) {
+            sendTelegramMessage(u.telegram_chat_id, `${notifTitle}\n${notifBody}\nRef: ${buyReq.reference}`).catch(() => {});
+          }
+        }
+      }
+      res.json(buyReq || {});
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 }

@@ -1,0 +1,128 @@
+1. Full Nodes (Network Backbone)
+
+Full nodes are the foundation of the blockchain.
+
+Responsibilities:
+
+Store the complete blockchain history.
+Verify every block and transaction independently.
+Enforce all consensus and protocol rules.
+Relay transactions and blocks to other nodes.
+Reject invalid blocks or transactions.
+
+A full node does not need to create blocks, but it must verify every block it receives. If a validator creates an invalid block, full nodes reject it.
+
+For GYDS:
+
+Public users should be able to run full nodes.
+Full nodes maintain a complete copy of the blockchain.
+Full nodes help decentralize and secure the network.
+2. Validator Nodes (Block Producers)
+
+Validators are responsible for creating and validating new blocks.
+
+Responsibilities:
+
+Receive transactions from the network.
+Validate transactions.
+Produce new blocks.
+Participate in consensus.
+Broadcast newly created blocks to the network.
+
+For GYDS:
+
+Validators should be the only nodes allowed to produce blocks.
+Initially, validators may be controlled by the project.
+Over time, additional independent validators should be added to increase decentralization.
+3. RPC Nodes (API Layer)
+
+RPC nodes act as the communication layer between applications and the blockchain.
+
+Responsibilities:
+
+Provide API endpoints.
+Accept wallet requests.
+Accept transactions from users.
+Return balances, transaction history, and blockchain data.
+Broadcast transactions to validators.
+
+RPC nodes generally do not create blocks.
+
+For GYDS:
+
+Wallets should connect to RPC nodes.
+Explorers should connect to RPC nodes.
+Applications should connect to RPC nodes.
+Example endpoint:
+rpc.netlifegy.com
+4. Lite Nodes (Light Clients)
+
+Lite nodes are designed for end users.
+
+Responsibilities:
+
+Store only essential blockchain information such as block headers.
+Do not store the complete blockchain.
+Rely on full nodes and RPC nodes for detailed information.
+Verify enough data to maintain security while minimizing storage requirements.
+
+Benefits:
+
+Fast synchronization.
+Low disk usage.
+Low bandwidth usage.
+Suitable for mobile devices and desktop wallets.
+
+For GYDS:
+
+The Lite Node software should function as a light client.
+End users should not need to download the entire blockchain.
+Real-World Transaction Flow
+User opens a wallet.
+Wallet connects to an RPC node.
+User submits a transaction.
+RPC node forwards the transaction to validator nodes.
+A validator includes the transaction in a new block.
+The new block is broadcast to the network.
+Full nodes verify the block.
+If valid, full nodes accept and store the block.
+Lite nodes update using information from full nodes and RPC nodes.
+Recommended GYDS Architecture
+
+Validator Nodes:
+
+Produce blocks.
+Participate in consensus.
+Secure the network.
+
+Full Nodes:
+
+Store the complete blockchain.
+Verify every block.
+Relay data across the network.
+
+RPC Nodes:
+
+Serve wallets, explorers, and applications.
+Provide public API access.
+Forward transactions to validators.
+
+Lite Nodes:
+
+Used by end users.
+Fast synchronization.
+Minimal storage requirements.
+Important Design Rules
+Wallets should never communicate directly with validators.
+Wallets should communicate with RPC nodes.
+Validators should focus on consensus and block production.
+Full nodes should independently verify every block.
+Lite nodes should not store the full blockchain.
+Anyone should be able to run a full node.
+Multiple validators should exist to prevent centralization.
+RPC nodes should be load-balanced and redundant.
+Full nodes should remain the source of truth for blockchain verification.
+Every block produced by a validator must be verified by full nodes before being accepted by the network.
+One-Sentence Summary
+
+A real blockchain network uses validator nodes to create blocks, full nodes to verify and store the complete ledger, RPC nodes to provide API access for wallets and applications, and lite nodes to allow end users to participate without downloading the entire blockchain.

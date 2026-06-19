@@ -142,6 +142,7 @@
 - [x] Cash Out with payment method — payment method picker added to cash out dialog; payment_method stored in cashout_requests
 - [x] Payment methods DB — `payment_methods` table; 5 seeded defaults: PayPal, MMG Guyana, Bank Transfer (GY), VISA/MC, Crypto USDT/USDC; GET /api/payment-methods (enabled only)
 - [x] Admin → Payments tab (PaymentMethodsManager.tsx) — toggle enable/disable each method, edit name/description/instructions/icon, add/delete methods; review + approve/reject Buy Requests and Cash Out Requests with pending counts badges
+- [x] Buy/cashout approval notifications — in-app bell, email (sendBuyRequestStatusEmail / sendCashoutStatusEmail in server/email.ts), Telegram; fires on approved/rejected/completed for both buy requests and cashouts; admin can include a rejection note
 
 ### Governance (Phase 3) — fully wired to DB
 - [x] Proposal list, detail, voting (one-vote enforced), progress bars + quorum
