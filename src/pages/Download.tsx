@@ -105,7 +105,7 @@ const DownloadPage = () => {
         {/* Quick Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[
-            { label: 'Block Time', value: '5s' },
+            { label: 'Block Time', value: '120s' },
             { label: 'Chain ID', value: '13370' },
             { label: 'Consensus', value: 'PoS' },
             { label: 'Node Binary', value: 'gyds-fullnode' },

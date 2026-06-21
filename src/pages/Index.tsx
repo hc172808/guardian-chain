@@ -23,7 +23,7 @@ const IndexContent = () => {
             <span className="text-gradient-primary">ChainCore</span> Dashboard
           </h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            Real-time overview • Block time: 5s
+            Real-time overview • Block time: 120s
           </p>
         </div>
 

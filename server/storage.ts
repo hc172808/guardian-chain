@@ -969,22 +969,22 @@ export const storage = {
     return res.rows[0];
   },
 
-  async getMyDelegations(userId: number) {
+  async getMyDelegations(userId: string | number) {
     const res = await pgPool.query(
       `SELECT * FROM voting_delegations WHERE delegator_id=$1 ORDER BY created_at DESC`,
-      [userId]
+      [String(userId)]
     );
     return res.rows;
   },
 
-  async revokeDelegation(userId: number, delegationId: string) {
+  async revokeDelegation(userId: string | number, delegationId: string) {
     await pgPool.query(
       `UPDATE voting_delegations SET active=false, revoked_at=NOW() WHERE id=$1 AND delegator_id=$2`,
-      [delegationId, userId]
+      [delegationId, String(userId)]
     );
   },
 
-  async generateSocialChallenge(userId: number, platform: string, handle: string) {
+  async generateSocialChallenge(userId: string | number, platform: string, handle: string) {
     const { randomBytes } = await import('crypto');
     const code = 'GYDS-' + randomBytes(8).toString('hex').toUpperCase();
     await pgPool.query(
@@ -1006,10 +1006,10 @@ export const storage = {
     return res.rows[0];
   },
 
-  async getUserSocialVerifications(userId: number) {
+  async getUserSocialVerifications(userId: string | number) {
     const res = await pgPool.query(
       `SELECT * FROM social_verifications WHERE user_id=$1`,
-      [userId]
+      [String(userId)]
     );
     return res.rows;
   },
@@ -1036,7 +1036,7 @@ export const storage = {
     const [nodeRes, xpRes, valRes] = await Promise.all([
       pgPool.query(`SELECT COUNT(*) as cnt FROM node_installations WHERE user_id=$1 AND is_approved=true`, [userId]),
       pgPool.query(`SELECT total_xp, level FROM user_xp WHERE user_id=$1`, [userId]),
-      pgPool.query(`SELECT stake FROM network_validators WHERE wallet_address IN (SELECT address FROM wallets WHERE user_id=$1) LIMIT 1`, [userId]),
+      pgPool.query(`SELECT stake FROM network_validators WHERE address IN (SELECT address FROM wallets WHERE user_id=$1) LIMIT 1`, [userId]),
     ]);
     const nodes = parseInt(nodeRes.rows[0]?.cnt ?? '0');
     const xp = parseInt(xpRes.rows[0]?.total_xp ?? '0');
@@ -1187,10 +1187,10 @@ export const storage = {
     return res.rows[0];
   },
 
-  async getUserBridgeTransfers(userId: number) {
+  async getUserBridgeTransfers(userId: string | number) {
     const res = await pgPool.query(
       `SELECT * FROM bridge_transfers WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`,
-      [userId]
+      [String(userId)]
     );
     return res.rows;
   },
@@ -1427,18 +1427,18 @@ export const storage = {
     return { ...res.rows[0], premium, pool_name: p.name };
   },
 
-  async getUserInsurancePolicies(userId: number) {
+  async getUserInsurancePolicies(userId: string | number) {
     const res = await pgPool.query(
       `SELECT p.*, ip.name AS pool_name, ip.coverage_type, ip.image_emoji
        FROM insurance_policies p
        JOIN insurance_pools ip ON ip.id=p.pool_id
        WHERE p.holder_id=$1 ORDER BY p.created_at DESC`,
-      [userId]
+      [String(userId)]
     );
     return res.rows;
   },
 
-  async submitInsuranceClaim(userId: number, policyId: string, reason: string) {
+  async submitInsuranceClaim(userId: string | number, policyId: string, reason: string) {
     const res = await pgPool.query(
       `UPDATE insurance_policies
        SET status='claimed', claim_reason=$1, claim_submitted_at=NOW()
@@ -1817,7 +1817,7 @@ export const storage = {
         COALESCE(ux.total_xp, 0) AS total_xp,
         COALESCE(ux.level, 1) AS level,
         COUNT(DISTINCT ua.achievement_id) AS achievement_count,
-        COUNT(DISTINCT ni.id) FILTER (WHERE ni.status='active') AS active_nodes,
+        COUNT(DISTINCT ni.id) FILTER (WHERE ni.is_approved=true) AS active_nodes,
         COUNT(DISTINCT t.id) AS tx_count
       FROM users u
       LEFT JOIN user_xp ux ON ux.user_id=u.id

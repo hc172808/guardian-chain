@@ -2818,7 +2818,24 @@ export function registerRoutes(app: Express) {
         processed_at TIMESTAMPTZ
       )
     `);
-    // Alter cashout_requests to add payment_method column if missing
+    // Create cashout_requests if it doesn't exist yet
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS cashout_requests (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        asset TEXT NOT NULL DEFAULT 'GYDS',
+        amount NUMERIC NOT NULL,
+        destination TEXT NOT NULL,
+        note TEXT,
+        reference TEXT UNIQUE NOT NULL,
+        payment_method TEXT DEFAULT '',
+        status TEXT DEFAULT 'pending',
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        processed_at TIMESTAMPTZ
+      )
+    `);
+    // Ensure payment_method column exists (migration guard)
     await pgPool.query(`
       ALTER TABLE cashout_requests ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT ''
     `).catch(() => {});

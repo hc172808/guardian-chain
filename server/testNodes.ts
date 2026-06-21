@@ -317,9 +317,10 @@ function makeHandler(network: Network, type: NodeType) {
         chainIdHex: cfg.chainIdHex, chainName: cfg.name, symbol: cfg.symbol,
         syncing: false, currentBlock: s.blockHeight, peers: s.peers, txPool: s.txPool, mode: type,
         uptime: s.startedAt ? Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000) : 0,
-        ...(type === "boostnode" ? { blockTime: "1s", mevBundles: Math.floor(Math.random() * 8), tps: Math.floor(s.txPool * 0.8 + Math.random() * 10), priorityFee: "2 gwei" } : {}),
+        blockTime: "120s",
+        ...(type === "boostnode" ? { mevBundles: Math.floor(Math.random() * 8), tps: Math.floor(s.txPool * 0.8 + Math.random() * 10), priorityFee: "2 gwei" } : {}),
         ...(type === "validator" ? {
-          blockTime: "120s", validators: MOCK_VALIDATORS[network].length,
+          validators: MOCK_VALIDATORS[network].length,
           activeSet: MOCK_VALIDATORS[network].filter(v => v.active).length,
           epoch: Math.floor(s.blockHeight / 100), epochLength: 100,
           stakeRequired: "1000 " + cfg.symbol,
