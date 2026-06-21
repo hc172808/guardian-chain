@@ -190,29 +190,56 @@ EOF
   systemctl --user enable gyds-litenode 2>/dev/null || true
 fi
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# ── Summary & Web Setup Wizard ────────────────────────────────────────────────
+SETUP_PORT="${GYDS_SETUP_PORT:-8888}"
+LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "YOUR_SERVER_IP")
+
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║         GYDSchain LITE NODE — INSTALLED                     ║"
+echo "║         GYDSchain LITE NODE — INSTALLED ✓                   ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║                                                              ║"
+echo "║  Binary   : ${GYDS_BIN}/${BINARY}"
+echo "║  Data dir : ${DATA_DIR}"
+echo "║  Config   : ${GYDS_HOME}/config/node.env"
+echo "║  Chain ID : ${CHAIN_ID}"
+echo "║                                                              ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║   🌐  WEB SETUP WIZARD                                       ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║                                                              ║"
+echo "║  A browser-based setup wizard is launching now.             ║"
+echo "║  Open one of these URLs to configure your node:             ║"
+echo "║                                                              ║"
+echo "║  ➜  http://localhost:${SETUP_PORT}                                 ║"
+echo "║  ➜  http://${LOCAL_IP}:${SETUP_PORT}  (from another machine)       ║"
+echo "║                                                              ║"
+echo "║  The wizard will:                                           ║"
+echo "║    • Ask for RPC endpoints, ports, sync settings            ║"
+echo "║    • Generate your node.env config file                     ║"
+echo "║    • Show you the exact start commands                      ║"
+echo "║                                                              ║"
+echo "║  Press Ctrl+C to stop the wizard when done.                 ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
-echo "  Binary   : ${GYDS_BIN}/${BINARY}"
-echo "  Data dir : ${DATA_DIR}"
-echo "  Logs     : ${LOG_DIR}/litenode.log"
-echo "  Config   : ${GYDS_HOME}/config/node.env"
-echo "  Chain ID : ${CHAIN_ID}"
-echo "  RPC port : ${RPC_PORT}  (localhost only)"
-echo "  P2P port : ${P2P_PORT}"
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  START / MANAGE"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Manual start    : ${GYDS_HOME}/start.sh"
-echo "  Service start   : systemctl --user start gyds-litenode"
-echo "  Service status  : systemctl --user status gyds-litenode"
-echo "  Live logs       : journalctl --user -u gyds-litenode -f"
-echo "  Log file        : tail -f ${LOG_DIR}/litenode.log"
-echo ""
-echo "  RPC test:"
-echo "  curl -s http://localhost:${RPC_PORT}/health"
-echo ""
+
+# Launch the web setup wizard (runs in foreground — Ctrl+C to stop)
+# Skipped if --no-wizard flag is passed or GYDS_SKIP_WIZARD=1 is set
+if [[ "${GYDS_SKIP_WIZARD:-0}" != "1" ]] && ! echo "${@}" | grep -q "\-\-no-wizard"; then
+  export PATH="${GYDS_BIN}:$PATH"
+  "${GYDS_BIN}/${BINARY}" setup --port "${SETUP_PORT}" 2>&1 || true
+else
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  START / MANAGE (wizard skipped)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  Run wizard     : ${GYDS_BIN}/${BINARY} setup"
+  echo "  Manual start   : ${GYDS_HOME}/start.sh"
+  echo "  Service start  : systemctl --user start gyds-litenode"
+  echo "  Live logs      : journalctl --user -u gyds-litenode -f"
+  echo "  Log file       : tail -f ${LOG_DIR}/litenode.log"
+  echo ""
+  echo "  RPC test:"
+  echo "  curl -s http://localhost:${RPC_PORT}/health"
+  echo ""
+fi

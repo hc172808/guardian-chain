@@ -27,19 +27,36 @@ func main() {
 		Use:   "gyds-fullnode",
 		Short: "GYDS Chain Full Node",
 		Long: `GYDS Fullnode — a full blockchain node for the GYDS Chain.
-Supports full sync, RPC API, WebSocket subscriptions, and P2P networking.`,
+Supports full sync, RPC API, WebSocket subscriptions, and P2P networking.
+
+Run 'gyds-fullnode setup' to open the web configuration wizard.`,
 	}
 
-	root.AddCommand(startCmd(), genesisCmd(), versionCmd())
+	root.AddCommand(startCmd(), genesisCmd(), versionCmd(), setupCmd())
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func setupCmd() *cobra.Command {
+	var port int
+	cmd := &cobra.Command{
+		Use:   "setup",
+		Short: "Launch the web setup wizard to configure this node",
+		Long:  `Opens a local web server on port 8888 (by default) serving a step-by-step configuration wizard for the GYDS Full Node.`,
+		Run: func(cmd *cobra.Command, args []string) {
+			startFullSetupWizard(port, version)
+		},
+	}
+	cmd.Flags().IntVar(&port, "port", 8888, "Port for the setup wizard web server")
+	return cmd
 }
 
 func startCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "start",
 		Short: "Start the GYDS fullnode",
+		Long:  `Start the GYDS fullnode. Run 'gyds-fullnode setup' first to configure it via web UI.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runNode()
 		},

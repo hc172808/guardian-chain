@@ -287,10 +287,67 @@ fi
 
 systemctl daemon-reload
 systemctl enable gyds-fullnode
+
+# ── Web Setup Wizard — run BEFORE starting the service ────────────────────────
+SETUP_PORT="${GYDS_SETUP_PORT:-8888}"
+LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "YOUR_SERVER_IP")
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║         GYDSchain FULL NODE — INSTALLED ✓                   ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║                                                              ║"
+echo "║  Binary  : ${GYDS_BIN}/${BINARY}"
+echo "║  Service : gyds-fullnode.service"
+echo "║  Data    : ${DATA_DIR}"
+echo "║  Logs    : ${LOG_DIR}/fullnode.log"
+echo "║                                                              ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║   🌐  WEB SETUP WIZARD                                       ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║                                                              ║"
+echo "║  A browser-based setup wizard is launching now.             ║"
+echo "║  Open one of these URLs to configure your node:             ║"
+echo "║                                                              ║"
+echo "║  ➜  http://localhost:${SETUP_PORT}                                 ║"
+echo "║  ➜  http://${LOCAL_IP}:${SETUP_PORT}  (from another machine)       ║"
+echo "║                                                              ║"
+echo "║  The wizard will help you configure:                        ║"
+echo "║    • RPC / WS / P2P ports                                   ║"
+echo "║    • Bootstrap peer addresses                               ║"
+echo "║    • Data directory, logging, domain/SSL                    ║"
+echo "║    • Generate node.env and start commands                   ║"
+echo "║                                                              ║"
+echo "║  When done, the node service will start automatically.      ║"
+echo "║  Press Ctrl+C to skip the wizard and start with defaults.   ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+
+# Launch the web setup wizard (foreground — Ctrl+C or wizard completion exits)
+if [[ "${GYDS_SKIP_WIZARD:-0}" != "1" ]] && ! echo "${@}" | grep -q "\-\-no-wizard"; then
+  "${GYDS_BIN}/${BINARY}" setup --port "${SETUP_PORT}" 2>&1 || true
+  log "Wizard completed — applying configuration and starting node..."
+fi
+
+# Load generated config if it exists, then start the service
+GENERATED_ENV="${DATA_DIR}/config/node.env"
+if [[ -f "$GENERATED_ENV" ]]; then
+  log "Loading wizard-generated config from ${GENERATED_ENV}..."
+  # Merge wizard env into the systemd env file
+  cp "$GENERATED_ENV" "/etc/gyds-fullnode.env" 2>/dev/null || true
+fi
+
+# Start the systemd service
 systemctl restart gyds-fullnode
 sleep 3
 
 # ── Health check ──────────────────────────────────────────────────────────────
+# Read RPC port from generated env if available
+if [[ -f "$GENERATED_ENV" ]]; then
+  WIZARD_RPC=$(grep "^GYDS_RPC_PORT=" "$GENERATED_ENV" | cut -d= -f2 | tr -d ' ' || echo "")
+  [[ -n "$WIZARD_RPC" ]] && RPC_PORT="$WIZARD_RPC"
+fi
+
 NODE_OK=false
 for i in 1 2 3 4 5; do
   RESP=$(curl -sf --max-time 4 "http://localhost:${RPC_PORT}/health" 2>/dev/null || true)
@@ -300,19 +357,16 @@ for i in 1 2 3 4 5; do
 done
 
 SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+WIZARD_DOMAIN=""
+[[ -f "$GENERATED_ENV" ]] && WIZARD_DOMAIN=$(grep "^DOMAIN=" "$GENERATED_ENV" | cut -d= -f2 | tr -d ' ' || echo "")
+[[ -n "$WIZARD_DOMAIN" ]] && DOMAIN="$WIZARD_DOMAIN"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║         GYDSchain FULL NODE — DEPLOYED                      ║"
+echo "║         GYDSchain FULL NODE — RUNNING                       ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 $NODE_OK && echo "  Status  : ✅ RUNNING" || echo "  Status  : ⚠️  NOT RESPONDING — check logs"
-echo ""
-echo "  Binary  : ${GYDS_BIN}/${BINARY}"
-echo "  Service : gyds-fullnode.service"
-echo "  Data    : ${DATA_DIR}"
-echo "  Logs    : ${LOG_DIR}/fullnode.log"
-echo "  Repo    : ${REPO_URL}"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  ENDPOINTS"
@@ -326,14 +380,14 @@ else
 fi
 echo "  P2P         : tcp://${SERVER_IP}:${P2P_PORT}"
 echo "  Chain ID    : ${CHAIN_ID}"
-echo "  Block time  : 5s"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  MANAGEMENT"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  systemctl status gyds-fullnode"
-echo "  journalctl -u gyds-fullnode -f"
-echo "  tail -f ${LOG_DIR}/fullnode.log"
+echo "  Reconfigure    : ${GYDS_BIN}/${BINARY} setup"
+echo "  Service status : systemctl status gyds-fullnode"
+echo "  Live logs      : journalctl -u gyds-fullnode -f"
+echo "  Log file       : tail -f ${LOG_DIR}/fullnode.log"
 echo ""
 echo "  RPC test:"
 echo "  curl -s -X POST http://localhost:${RPC_PORT} \\"
@@ -341,7 +395,7 @@ echo "    -H 'Content-Type: application/json' \\"
 echo "    -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}'"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  METAMASK / WALLET SETTINGS"
+echo "  ADD TO METAMASK / WALLET"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Network Name : GYDS Chain"
 echo "  Chain ID     : ${CHAIN_ID}"
