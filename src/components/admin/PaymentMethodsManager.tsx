@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   CreditCard, Smartphone, Building, Coins, Plus, Edit, Trash2,
   Loader2, RefreshCw, CheckCircle2, XCircle, ShoppingCart,
-  Users, Clock, DollarSign
+  Users, Clock, DollarSign, PackageCheck
 } from 'lucide-react';
 
 interface PaymentMethod {
@@ -244,16 +244,26 @@ export function PaymentMethodsManager() {
             }`}
           >
             <Icon className="h-4 w-4" /> {label}
-            {tab === 'buy' && buyRequests.filter(r => r.status === 'pending').length > 0 && (
-              <Badge variant="destructive" className="h-4 min-w-4 text-xs px-1 ml-1">
-                {buyRequests.filter(r => r.status === 'pending').length}
-              </Badge>
-            )}
-            {tab === 'cashout' && cashoutRequests.filter(r => r.status === 'pending').length > 0 && (
-              <Badge variant="destructive" className="h-4 min-w-4 text-xs px-1 ml-1">
-                {cashoutRequests.filter(r => r.status === 'pending').length}
-              </Badge>
-            )}
+            {tab === 'buy' && (() => {
+              const pending = buyRequests.filter(r => r.status === 'pending').length;
+              const approved = buyRequests.filter(r => r.status === 'approved').length;
+              return (
+                <>
+                  {pending > 0 && <Badge variant="destructive" className="h-4 min-w-4 text-xs px-1 ml-1">{pending}</Badge>}
+                  {approved > 0 && <Badge className="h-4 min-w-4 text-xs px-1 ml-1 bg-amber-500 hover:bg-amber-500 text-black">{approved}</Badge>}
+                </>
+              );
+            })()}
+            {tab === 'cashout' && (() => {
+              const pending = cashoutRequests.filter(r => r.status === 'pending').length;
+              const approved = cashoutRequests.filter(r => r.status === 'approved').length;
+              return (
+                <>
+                  {pending > 0 && <Badge variant="destructive" className="h-4 min-w-4 text-xs px-1 ml-1">{pending}</Badge>}
+                  {approved > 0 && <Badge className="h-4 min-w-4 text-xs px-1 ml-1 bg-amber-500 hover:bg-amber-500 text-black">{approved}</Badge>}
+                </>
+              );
+            })()}
           </button>
         ))}
       </div>
@@ -325,16 +335,23 @@ export function PaymentMethodsManager() {
                     <Clock className="h-3 w-3" /> {new Date(r.created_at).toLocaleString()}
                   </p>
                 </div>
-                {r.status === 'pending' && (
-                  <div className="flex gap-2 flex-shrink-0">
-                    <Button size="sm" className="gap-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => updateBuyRequest(r.id, 'approved')}>
-                      <CheckCircle2 className="h-3 w-3" /> Approve
+                <div className="flex gap-2 flex-shrink-0">
+                  {r.status === 'pending' && (
+                    <>
+                      <Button size="sm" className="gap-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => updateBuyRequest(r.id, 'approved')}>
+                        <CheckCircle2 className="h-3 w-3" /> Approve
+                      </Button>
+                      <Button size="sm" variant="destructive" className="gap-1 h-7 text-xs" onClick={() => openReject(r.id, 'buy', `${Number(r.token_amount).toLocaleString()} ${r.token_symbol} for ${r.username}`)}>
+                        <XCircle className="h-3 w-3" /> Reject
+                      </Button>
+                    </>
+                  )}
+                  {r.status === 'approved' && (
+                    <Button size="sm" className="gap-1 h-7 bg-violet-600 hover:bg-violet-700 text-white text-xs" onClick={() => updateBuyRequest(r.id, 'completed')}>
+                      <PackageCheck className="h-3 w-3" /> Mark Completed
                     </Button>
-                    <Button size="sm" variant="destructive" className="gap-1 h-7 text-xs" onClick={() => openReject(r.id, 'buy', `${Number(r.token_amount).toLocaleString()} ${r.token_symbol} for ${r.username}`)}>
-                      <XCircle className="h-3 w-3" /> Reject
-                    </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -365,16 +382,23 @@ export function PaymentMethodsManager() {
                     <Clock className="h-3 w-3" /> {new Date(r.created_at).toLocaleString()}
                   </p>
                 </div>
-                {r.status === 'pending' && (
-                  <div className="flex gap-2 flex-shrink-0">
-                    <Button size="sm" className="gap-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => updateCashout(r.id, 'approved')}>
-                      <CheckCircle2 className="h-3 w-3" /> Approve
+                <div className="flex gap-2 flex-shrink-0">
+                  {r.status === 'pending' && (
+                    <>
+                      <Button size="sm" className="gap-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => updateCashout(r.id, 'approved')}>
+                        <CheckCircle2 className="h-3 w-3" /> Approve
+                      </Button>
+                      <Button size="sm" variant="destructive" className="gap-1 h-7 text-xs" onClick={() => openReject(r.id, 'cashout', `${Number(r.amount).toLocaleString()} ${r.asset} for ${r.username}`)}>
+                        <XCircle className="h-3 w-3" /> Reject
+                      </Button>
+                    </>
+                  )}
+                  {r.status === 'approved' && (
+                    <Button size="sm" className="gap-1 h-7 bg-violet-600 hover:bg-violet-700 text-white text-xs" onClick={() => updateCashout(r.id, 'completed')}>
+                      <PackageCheck className="h-3 w-3" /> Mark Completed
                     </Button>
-                    <Button size="sm" variant="destructive" className="gap-1 h-7 text-xs" onClick={() => openReject(r.id, 'cashout', `${Number(r.amount).toLocaleString()} ${r.asset} for ${r.username}`)}>
-                      <XCircle className="h-3 w-3" /> Reject
-                    </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           ))}
