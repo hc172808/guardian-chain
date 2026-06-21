@@ -113,19 +113,97 @@ log "PM2 $(pm2 --version 2>/dev/null | tail -1)"
 
 # ─── Step 2: PostgreSQL ───────────────────────────────────────────────────────
 step "2/9 — PostgreSQL"
+
 if [[ "$SKIP_DB" == "1" ]]; then
-    warn "SKIP_DB=1 — skipping DB creation, using existing DATABASE_URL"
+    warn "SKIP_DB=1 — skipping DB creation"
     [[ -n "${DATABASE_URL:-}" ]] || { err "DATABASE_URL must be set when SKIP_DB=1"; exit 1; }
+    log "Using provided DATABASE_URL"
 else
-    systemctl enable postgresql --now 2>/dev/null || true
-    sleep 2
-    PG_DBNAME="${PG_DBNAME:-gydschain}"
-    PG_USER="${PG_USER:-gydschain}"
-    PG_PASS="${PG_PASS:-$(openssl rand -hex 16)}"
-    su - postgres -c "psql -qc \"SELECT 1 FROM pg_roles WHERE rolname='${PG_USER}'\" | grep -q 1 || psql -qc \"CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASS}';\"" 2>/dev/null || true
-    su - postgres -c "psql -qc \"SELECT 1 FROM pg_database WHERE datname='${PG_DBNAME}'\" | grep -q 1 || psql -qc \"CREATE DATABASE ${PG_DBNAME} OWNER ${PG_USER};\"" 2>/dev/null || true
-    DATABASE_URL="${DATABASE_URL:-postgresql://${PG_USER}:${PG_PASS}@localhost/${PG_DBNAME}}"
-    log "Database: ${PG_DBNAME} | User: ${PG_USER}"
+    echo ""
+    echo -e "${CYAN}PostgreSQL setup:${NC}"
+    echo "  [1] Create a new local database (auto-configure)"
+    echo "  [2] Use an existing database (provide connection details)"
+    echo ""
+
+    if [[ -n "${DATABASE_URL:-}" ]]; then
+        echo -e "${YELLOW}DATABASE_URL is already set in environment — using it.${NC}"
+        echo "  DATABASE_URL: ${DATABASE_URL}"
+        read -rp "  Use this existing value? (Y/n) " -n 1 _use_existing; echo
+        if [[ ! "$_use_existing" =~ ^[Nn]$ ]]; then
+            PG_MODE="existing_url"
+        else
+            unset DATABASE_URL
+            PG_MODE=""
+        fi
+    fi
+
+    if [[ -z "${PG_MODE:-}" ]]; then
+        read -rp "Choice [1/2]: " -n 1 PG_CHOICE; echo
+        if [[ "$PG_CHOICE" == "2" ]]; then
+            PG_MODE="existing"
+            echo ""
+            echo -e "${CYAN}Enter your PostgreSQL connection details:${NC}"
+            read -rp "  Host         [localhost]: " PG_HOST; PG_HOST="${PG_HOST:-localhost}"
+            read -rp "  Port         [5432]:      " PG_PORT; PG_PORT="${PG_PORT:-5432}"
+            read -rp "  Database name:            " PG_DBNAME
+            read -rp "  Username:                 " PG_USER
+            read -rsp "  Password:                 " PG_PASS; echo
+            [[ -z "$PG_DBNAME" || -z "$PG_USER" ]] && { err "Database name and username are required."; exit 1; }
+            DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@${PG_HOST}:${PG_PORT}/${PG_DBNAME}"
+            echo ""
+            info "Testing connection..."
+            if ! psql "$DATABASE_URL" -c "SELECT 1;" &>/dev/null; then
+                err "Cannot connect with those credentials. Check host/port/user/password and try again."
+                exit 1
+            fi
+            log "Connection OK → ${PG_HOST}:${PG_PORT}/${PG_DBNAME}"
+        else
+            PG_MODE="new"
+            systemctl enable postgresql --now 2>/dev/null || true
+            sleep 2
+            PG_DBNAME="${PG_DBNAME:-gydschain}"
+            PG_USER="${PG_USER:-gydschain}"
+            PG_PASS="${PG_PASS:-$(openssl rand -hex 16)}"
+            echo ""
+            echo -e "${CYAN}New local database will be created with these settings:${NC}"
+            echo "  Database: $PG_DBNAME"
+            echo "  User:     $PG_USER"
+            echo "  Password: $PG_PASS"
+            echo ""
+            read -rp "  Customise these values? (y/N) " -n 1 _custom; echo
+            if [[ "$_custom" =~ ^[Yy]$ ]]; then
+                read -rp "  Database name [$PG_DBNAME]: " _in; [[ -n "$_in" ]] && PG_DBNAME="$_in"
+                read -rp "  Username      [$PG_USER]:   " _in; [[ -n "$_in" ]] && PG_USER="$_in"
+                read -rsp "  Password (leave blank to keep generated): " _in; echo
+                [[ -n "$_in" ]] && PG_PASS="$_in"
+            fi
+            su - postgres -c "psql -qc \"SELECT 1 FROM pg_roles WHERE rolname='${PG_USER}'\" | grep -q 1 || psql -qc \"CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASS}';\"" 2>/dev/null || true
+            su - postgres -c "psql -qc \"SELECT 1 FROM pg_database WHERE datname='${PG_DBNAME}'\" | grep -q 1 || psql -qc \"CREATE DATABASE ${PG_DBNAME} OWNER ${PG_USER};\"" 2>/dev/null || true
+            DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@localhost/${PG_DBNAME}"
+        fi
+    fi
+
+    # ── Warn if existing data would be affected ───────────────────────────────
+    _EXISTING_TABLES=$(psql "$DATABASE_URL" -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';" 2>/dev/null | tr -d ' ' || echo "0")
+    if [[ "$_EXISTING_TABLES" -gt 0 ]]; then
+        echo ""
+        echo -e "${YELLOW}┌─────────────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}│  ⚠  EXISTING DATABASE DETECTED                                   │${NC}"
+        echo -e "${YELLOW}│                                                                   │${NC}"
+        printf  "${YELLOW}│  Found ${BOLD}%-2s table(s)${NC}${YELLOW} in database '%-30s' │${NC}\n" "$_EXISTING_TABLES" "${PG_DBNAME:-database}"
+        echo -e "${YELLOW}│                                                                   │${NC}"
+        echo -e "${YELLOW}│  Migrations use IF NOT EXISTS / ON CONFLICT DO NOTHING — your    │${NC}"
+        echo -e "${YELLOW}│  existing rows will NOT be deleted. Only new tables/columns       │${NC}"
+        echo -e "${YELLOW}│  will be added.                                                   │${NC}"
+        echo -e "${YELLOW}│                                                                   │${NC}"
+        echo -e "${YELLOW}│  Your existing data is safe UNLESS you chose to wipe the DB.     │${NC}"
+        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────┘${NC}"
+        echo ""
+        read -rp "Continue and apply migrations to the existing database? (y/N) " -n 1 _mig_ok; echo
+        [[ "$_mig_ok" =~ ^[Yy]$ ]] || { warn "Aborted — no changes made to the database."; exit 0; }
+    fi
+
+    log "Database ready: ${PG_DBNAME:-configured} (${_EXISTING_TABLES:-0} existing tables)"
 fi
 
 # ─── Step 3: Clone / pull repo ────────────────────────────────────────────────

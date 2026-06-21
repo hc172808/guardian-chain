@@ -201,24 +201,53 @@ fi
 if [ "$ENV_ONLY" = false ]; then
   header "Step 2: Import Database Schema"
 
-  # Get DB URL
-  DB_URL="${SUPABASE_DB_URL:-}"
+  # Get DB URL — prefer DATABASE_URL env var, then prompt
+  DB_URL="${DATABASE_URL:-${SUPABASE_DB_URL:-}}"
 
   if [ -z "$DB_URL" ] && [ -f "$ENV_OUTPUT" ]; then
-    DB_URL=$(grep '^SUPABASE_DB_URL=' "$ENV_OUTPUT" 2>/dev/null | cut -d'=' -f2-)
+    DB_URL=$(grep '^DATABASE_URL=' "$ENV_OUTPUT" 2>/dev/null | cut -d'=' -f2- || \
+             grep '^SUPABASE_DB_URL=' "$ENV_OUTPUT" 2>/dev/null | cut -d'=' -f2- || true)
   fi
 
-  if [ -z "$DB_URL" ] || [ "$DB_URL" = "postgresql://postgres:your-password@db.your-project.supabase.co:5432/postgres" ]; then
+  # Strip placeholder values
+  case "$DB_URL" in
+    *supabase.co*|*your-password*|*your-project*) DB_URL="" ;;
+  esac
+
+  if [ -z "$DB_URL" ]; then
     if [ "$NON_INTERACTIVE" = false ]; then
       echo ""
-      info "Enter your PostgreSQL connection URL."
-      info "Format: postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres"
+      echo "  How would you like to connect to PostgreSQL?"
+      echo "  [1] Enter a connection URL  (postgresql://user:pass@host:port/dbname)"
+      echo "  [2] Enter details manually  (host / port / user / password / database)"
       echo ""
-      read -rsp "  Database URL (hidden): " DB_URL
-      echo ""
+      read -rp "  Choice [1/2]: " -n 1 _pg_choice; echo
+      if [ "$_pg_choice" = "2" ]; then
+        read -rp "  Host     [localhost]: " _h; _h="${_h:-localhost}"
+        read -rp "  Port     [5432]:      " _pt; _pt="${_pt:-5432}"
+        read -rp "  Database name:        " _db
+        read -rp "  Username:             " _u
+        read -rsp "  Password:            " _pw; echo
+        [ -z "$_db" ] || [ -z "$_u" ] && { echo "Database name and username are required." >&2; exit 1; }
+        DB_URL="postgresql://${_u}:${_pw}@${_h}:${_pt}/${_db}"
+      else
+        echo ""
+        info "Format: postgresql://user:password@host:5432/dbname"
+        read -rsp "  Database URL (hidden): " DB_URL; echo
+      fi
     else
-      error "No SUPABASE_DB_URL set. Export it or run in interactive mode."
+      echo "No DATABASE_URL set. Export it or run in interactive mode." >&2
       exit 1
+    fi
+  else
+    echo ""
+    info "Using database URL from environment."
+    if [ "$NON_INTERACTIVE" = false ]; then
+      read -rp "  Keep this connection? (Y/n) " -n 1 _keep; echo
+      if [[ "$_keep" =~ ^[Nn]$ ]]; then
+        DB_URL=""
+        read -rsp "  New Database URL (hidden): " DB_URL; echo
+      fi
     fi
   fi
 
@@ -230,23 +259,35 @@ if [ "$ENV_ONLY" = false ]; then
     if psql "$DB_URL" -c "SELECT 1;" &>/dev/null; then
       log "Database connection successful!"
     else
-      error "Cannot connect to database. Check your URL and try again."
+      error "Cannot connect to database. Check your credentials and try again."
       exit 1
     fi
 
-    # Count existing tables
-    EXISTING=$(psql "$DB_URL" -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')
+    # Count existing tables and warn before touching data
+    EXISTING=$(psql "$DB_URL" -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "0")
 
-    if [ "$EXISTING" -gt 5 ] 2>/dev/null; then
-      warn "Found $EXISTING existing tables in public schema."
+    if [ "${EXISTING:-0}" -gt 0 ] 2>/dev/null; then
+      echo ""
+      echo "┌─────────────────────────────────────────────────────────────────┐"
+      echo "│  ⚠  EXISTING DATABASE DETECTED                                   │"
+      echo "│                                                                   │"
+      printf "│  Found %-2s table(s) already in this database.                   │\n" "$EXISTING"
+      echo "│                                                                   │"
+      echo "│  The schema file uses IF NOT EXISTS — your existing rows will    │"
+      echo "│  NOT be deleted or overwritten. Only missing tables and columns  │"
+      echo "│  will be added.                                                   │"
+      echo "│                                                                   │"
+      echo "│  Your data is safe UNLESS you chose to wipe the database first.  │"
+      echo "└─────────────────────────────────────────────────────────────────┘"
+      echo ""
       if [ "$NON_INTERACTIVE" = false ]; then
-        read -rp "  Continue and apply schema (IF NOT EXISTS used)? (y/N): " CONFIRM
+        read -rp "  Continue and apply schema to the existing database? (y/N): " CONFIRM
         if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
           info "Skipping schema import."
           DB_URL=""
         fi
       else
-        info "Non-interactive: applying schema with IF NOT EXISTS"
+        info "Non-interactive: applying schema with IF NOT EXISTS (existing data preserved)"
       fi
     fi
 
