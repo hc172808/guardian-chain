@@ -168,38 +168,168 @@ const RegisterForm = ({ onSuccess }: { onSuccess: () => void }) => {
   );
 };
 
+// ── Wallet definitions ────────────────────────────────────────────────────────
+interface WalletDef {
+  id: string;
+  name: string;
+  icon: React.ReactNode;
+  installUrl: string;
+  getProvider: () => any | null;
+}
+
+const WalletIcon = ({ src, alt }: { src: string; alt: string }) => (
+  <img src={src} alt={alt} className="w-8 h-8 rounded-full" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+);
+
+const WALLET_DEFS: WalletDef[] = [
+  {
+    id: 'metamask',
+    name: 'MetaMask',
+    icon: <WalletIcon src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg" alt="MetaMask" />,
+    installUrl: 'https://metamask.io/download/',
+    getProvider: () => {
+      const w = window as any;
+      if (w.ethereum?.isMetaMask && !w.ethereum?.isPhantom) return w.ethereum;
+      if (w.ethereum?.providers) return w.ethereum.providers.find((p: any) => p.isMetaMask && !p.isPhantom) ?? null;
+      return null;
+    },
+  },
+  {
+    id: 'phantom',
+    name: 'Phantom',
+    icon: <WalletIcon src="https://phantom.app/img/phantom-logo.png" alt="Phantom" />,
+    installUrl: 'https://phantom.app/',
+    getProvider: () => {
+      const w = window as any;
+      if (w.phantom?.ethereum) return w.phantom.ethereum;
+      if (w.ethereum?.isPhantom) return w.ethereum;
+      if (w.ethereum?.providers) return w.ethereum.providers.find((p: any) => p.isPhantom) ?? null;
+      return null;
+    },
+  },
+  {
+    id: 'trustwallet',
+    name: 'Trust Wallet',
+    icon: <WalletIcon src="https://trustwallet.com/assets/images/favicon.png" alt="Trust Wallet" />,
+    installUrl: 'https://trustwallet.com/download',
+    getProvider: () => {
+      const w = window as any;
+      if (w.trustwallet) return w.trustwallet;
+      if (w.ethereum?.isTrust) return w.ethereum;
+      if (w.ethereum?.providers) return w.ethereum.providers.find((p: any) => p.isTrust) ?? null;
+      return null;
+    },
+  },
+  {
+    id: 'coinbase',
+    name: 'Coinbase Wallet',
+    icon: <WalletIcon src="https://www.coinbase.com/favicon.ico" alt="Coinbase Wallet" />,
+    installUrl: 'https://www.coinbase.com/wallet/downloads',
+    getProvider: () => {
+      const w = window as any;
+      if (w.coinbaseWalletExtension) return w.coinbaseWalletExtension;
+      if (w.ethereum?.isCoinbaseWallet) return w.ethereum;
+      if (w.ethereum?.providers) return w.ethereum.providers.find((p: any) => p.isCoinbaseWallet) ?? null;
+      return null;
+    },
+  },
+  {
+    id: 'brave',
+    name: 'Brave Wallet',
+    icon: (
+      <div className="w-8 h-8 rounded-full bg-[#FB542B] flex items-center justify-center text-white font-bold text-sm">B</div>
+    ),
+    installUrl: 'https://brave.com/wallet/',
+    getProvider: () => {
+      const w = window as any;
+      if (w.ethereum?.isBraveWallet) return w.ethereum;
+      if (w.ethereum?.providers) return w.ethereum.providers.find((p: any) => p.isBraveWallet) ?? null;
+      return null;
+    },
+  },
+  {
+    id: 'okx',
+    name: 'OKX Wallet',
+    icon: <WalletIcon src="https://www.okx.com/favicon.ico" alt="OKX Wallet" />,
+    installUrl: 'https://www.okx.com/web3',
+    getProvider: () => {
+      const w = window as any;
+      return w.okxwallet ?? null;
+    },
+  },
+  {
+    id: 'rabby',
+    name: 'Rabby Wallet',
+    icon: (
+      <div className="w-8 h-8 rounded-full bg-[#7B5CF5] flex items-center justify-center text-white font-bold text-sm">R</div>
+    ),
+    installUrl: 'https://rabby.io/',
+    getProvider: () => {
+      const w = window as any;
+      if (w.rabby) return w.rabby;
+      if (w.ethereum?.isRabby) return w.ethereum;
+      return null;
+    },
+  },
+  {
+    id: 'other',
+    name: 'Other / Injected',
+    icon: <Wallet className="w-8 h-8 text-primary" />,
+    installUrl: 'https://ethereum.org/en/wallets/',
+    getProvider: () => (window as any).ethereum ?? null,
+  },
+];
+
 // ── Web3 form ─────────────────────────────────────────────────────────────────
 const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
-  const [step, setStep] = useState<'connect' | 'sign' | 'done'>('connect');
+  const [step, setStep] = useState<'pick' | 'sign' | 'done'>('pick');
   const [address, setAddress] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const hasEthereum = typeof window !== 'undefined' && !!(window as any).ethereum;
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [activeProvider, setActiveProvider] = useState<any>(null);
 
-  const handleConnect = async () => {
-    setError(''); setLoading(true);
+  // EIP-6963 detected wallets
+  const [eip6963Wallets, setEip6963Wallets] = useState<{ info: any; provider: any }[]>([]);
+
+  useEffect(() => {
+    const detected: { info: any; provider: any }[] = [];
+    const handler = (e: any) => {
+      if (!detected.find(w => w.info.uuid === e.detail.info.uuid)) {
+        detected.push(e.detail);
+        setEip6963Wallets([...detected]);
+      }
+    };
+    window.addEventListener('eip6963:announceProvider', handler as any);
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+    return () => window.removeEventListener('eip6963:announceProvider', handler as any);
+  }, []);
+
+  const connectWith = async (walletId: string, provider: any) => {
+    setError(''); setConnecting(walletId); setLoading(true);
     try {
-      const eth = (window as any).ethereum;
-      if (!eth) throw new Error('No Web3 wallet detected. Install MetaMask or another wallet.');
-      const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
+      if (!provider) throw new Error('Wallet not available');
+      const accounts: string[] = await provider.request({ method: 'eth_requestAccounts' });
       if (!accounts[0]) throw new Error('No account selected');
       const addr = accounts[0].toLowerCase();
-      setAddress(addr);
       const res = await fetch(`/api/auth/nonce?address=${encodeURIComponent(addr)}`, { credentials: 'include' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to get nonce');
+      setAddress(addr);
       setMessage(data.message);
+      setActiveProvider(provider);
       setStep('sign');
-    } catch (err: any) { setError(err.message); }
-    finally { setLoading(false); }
+    } catch (err: any) {
+      if (err.code === 4001) setError('Connection cancelled.');
+      else setError(err.message);
+    } finally { setLoading(false); setConnecting(null); }
   };
 
   const handleSign = async () => {
     setError(''); setLoading(true);
     try {
-      const eth = (window as any).ethereum;
-      const signature = await eth.request({ method: 'personal_sign', params: [message, address] });
+      const signature = await activeProvider.request({ method: 'personal_sign', params: [message, address] });
       await api('/api/auth/web3', { address, signature });
       setStep('done');
       setTimeout(onSuccess, 800);
@@ -217,47 +347,133 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
     </div>
   );
 
-  return (
+  if (step === 'sign') return (
     <div className="space-y-4">
-      {step === 'connect' && (
-        <>
-          <p className="text-sm text-muted-foreground text-center">Connect your Web3 wallet to sign in. No password needed.</p>
-          {!hasEthereum && (
-            <div className="flex items-start gap-2 text-amber-500 text-sm bg-amber-500/10 rounded-lg px-3 py-2">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              No wallet detected. Install <a href="https://metamask.io" target="_blank" rel="noopener noreferrer" className="underline ml-1">MetaMask</a>.
-            </div>
-          )}
-          <button onClick={handleConnect} disabled={loading || !hasEthereum}
-            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
-            {loading ? 'Connecting…' : 'Connect Wallet'}
-          </button>
-        </>
-      )}
-      {step === 'sign' && (
-        <>
-          <div className="p-3 rounded-lg bg-card border border-border">
-            <p className="text-xs text-muted-foreground mb-1">Connected address</p>
-            <p className="font-mono text-xs break-all">{address}</p>
-          </div>
-          <div className="p-3 rounded-lg bg-muted/40 border border-border">
-            <p className="text-xs text-muted-foreground mb-1">Message to sign</p>
-            <p className="text-xs font-mono whitespace-pre-wrap break-all">{message}</p>
-          </div>
-          <p className="text-xs text-muted-foreground text-center">Sign this message in your wallet to verify ownership. No gas required.</p>
-          <button onClick={handleSign} disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
-            {loading ? 'Waiting for signature…' : 'Sign & Verify'}
-          </button>
-          <button onClick={() => { setStep('connect'); setAddress(''); setMessage(''); setError(''); }}
-            className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
-            ← Use a different wallet
-          </button>
-        </>
-      )}
+      <div className="p-3 rounded-lg bg-card border border-border">
+        <p className="text-xs text-muted-foreground mb-1">Connected address</p>
+        <p className="font-mono text-xs break-all">{address}</p>
+      </div>
+      <div className="p-3 rounded-lg bg-muted/40 border border-border">
+        <p className="text-xs text-muted-foreground mb-1">Message to sign</p>
+        <p className="text-xs font-mono whitespace-pre-wrap break-all">{message}</p>
+      </div>
+      <p className="text-xs text-muted-foreground text-center">Sign this message in your wallet to verify ownership. No gas or fees required.</p>
+      <button onClick={handleSign} disabled={loading}
+        className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+        {loading ? 'Waiting for signature…' : 'Sign & Verify'}
+      </button>
       {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+      <button onClick={() => { setStep('pick'); setAddress(''); setMessage(''); setError(''); setActiveProvider(null); }}
+        className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+        ← Use a different wallet
+      </button>
+    </div>
+  );
+
+  // Build the list: EIP-6963 wallets first, then legacy detected, then install prompts
+  const eip6963Ids = new Set(eip6963Wallets.map(w => w.info.name?.toLowerCase()));
+
+  // Check which legacy wallets are available
+  const legacyAvailable = WALLET_DEFS.filter(d => d.id !== 'other' && d.getProvider() !== null && !eip6963Ids.has(d.name.toLowerCase()));
+  const anyInjected = !!(window as any).ethereum;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground text-center">Choose your wallet to sign in. No password needed.</p>
+
+      {/* EIP-6963 announced wallets (modern standard) */}
+      {eip6963Wallets.length > 0 && (
+        <div className="space-y-2">
+          {eip6963Wallets.map(({ info, provider }) => (
+            <button key={info.uuid}
+              onClick={() => connectWith(info.uuid, provider)}
+              disabled={loading}
+              className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-secondary/30 hover:border-primary/40 transition-all disabled:opacity-60 text-left">
+              {connecting === info.uuid
+                ? <Loader2 className="h-8 w-8 animate-spin text-primary shrink-0" />
+                : <img src={info.icon} alt={info.name} className="w-8 h-8 rounded-full shrink-0" onError={e => { (e.target as HTMLImageElement).src = ''; }} />
+              }
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm">{info.name}</p>
+                <p className="text-xs text-muted-foreground">Detected · Click to connect</p>
+              </div>
+              <div className="w-2 h-2 rounded-full bg-green-400 shrink-0" title="Detected" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Legacy wallet detection */}
+      {legacyAvailable.length > 0 && (
+        <div className="space-y-2">
+          {legacyAvailable.map(def => (
+            <button key={def.id}
+              onClick={() => connectWith(def.id, def.getProvider())}
+              disabled={loading}
+              className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-secondary/30 hover:border-primary/40 transition-all disabled:opacity-60 text-left">
+              {connecting === def.id
+                ? <Loader2 className="h-8 w-8 animate-spin text-primary shrink-0" />
+                : <span className="shrink-0">{def.icon}</span>
+              }
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm">{def.name}</p>
+                <p className="text-xs text-muted-foreground">Detected · Click to connect</p>
+              </div>
+              <div className="w-2 h-2 rounded-full bg-green-400 shrink-0" title="Detected" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Generic injected fallback if ethereum exists but no specific wallet matched */}
+      {anyInjected && eip6963Wallets.length === 0 && legacyAvailable.length === 0 && (
+        <button onClick={() => connectWith('other', (window as any).ethereum)} disabled={loading}
+          className="w-full flex items-center gap-3 p-3 rounded-lg border border-primary/40 bg-primary/5 hover:bg-primary/10 transition-all disabled:opacity-60 text-left">
+          {connecting === 'other' ? <Loader2 className="h-8 w-8 animate-spin text-primary shrink-0" /> : <Wallet className="w-8 h-8 text-primary shrink-0" />}
+          <div className="flex-1">
+            <p className="font-medium text-sm">Browser Wallet</p>
+            <p className="text-xs text-muted-foreground">Wallet detected · Click to connect</p>
+          </div>
+          <div className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+        </button>
+      )}
+
+      {/* No wallet detected at all */}
+      {!anyInjected && eip6963Wallets.length === 0 && (
+        <div className="flex items-start gap-2 text-amber-500 text-sm bg-amber-500/10 rounded-lg px-3 py-2">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>No wallet detected in this browser. Install one below to continue.</span>
+        </div>
+      )}
+
+      {/* Install options */}
+      <div>
+        <p className="text-xs text-muted-foreground mb-2 text-center">
+          {(anyInjected || eip6963Wallets.length > 0) ? 'Or install another wallet:' : 'Download a wallet:'}
+        </p>
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { name: 'MetaMask', url: 'https://metamask.io/download/', icon: 'https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg' },
+            { name: 'Phantom', url: 'https://phantom.app/', icon: 'https://phantom.app/img/phantom-logo.png' },
+            { name: 'Trust', url: 'https://trustwallet.com/download', icon: 'https://trustwallet.com/assets/images/favicon.png' },
+            { name: 'Coinbase', url: 'https://www.coinbase.com/wallet/downloads', icon: 'https://www.coinbase.com/favicon.ico' },
+          ].map(w => (
+            <a key={w.name} href={w.url} target="_blank" rel="noopener noreferrer"
+              className="flex flex-col items-center gap-1.5 p-2 rounded-lg border border-border hover:border-primary/40 hover:bg-secondary/30 transition-all text-center group">
+              <img src={w.icon} alt={w.name} className="w-7 h-7 rounded-full"
+                onError={e => { (e.target as HTMLImageElement).style.opacity = '0.3'; }} />
+              <span className="text-[10px] text-muted-foreground group-hover:text-foreground transition-colors leading-tight">{w.name}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+
+      {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+
+      <p className="text-[11px] text-muted-foreground/60 text-center">
+        Works with any EVM-compatible wallet (MetaMask, Phantom, Trust Wallet, Coinbase, Brave, OKX, Rabby, and more)
+      </p>
     </div>
   );
 };
