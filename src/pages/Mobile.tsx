@@ -303,52 +303,70 @@ const HomeTab = () => {
 
   return (
     <div className="space-y-4 pb-2">
-      {/* Balance card */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/90 via-primary/70 to-primary/50 p-5 shadow-lg">
-        <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/10 blur-xl" />
-        <div className="absolute -bottom-4 -left-4 w-24 h-24 rounded-full bg-white/5 blur-lg" />
-        <div className="relative">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-xs font-medium text-white/70 uppercase tracking-wider">Total Balance</p>
-            <button onClick={() => setBalanceHidden(v => !v)} className="text-white/60 hover:text-white transition-colors">
-              {balanceHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+
+      {/* ── Logged-out hero ─────────────────────────────────────── */}
+      {!user && (
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/90 via-primary/70 to-primary/50 p-5 shadow-lg">
+          <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/10 blur-xl" />
+          <div className="absolute -bottom-4 -left-4 w-24 h-24 rounded-full bg-white/5 blur-lg" />
+          <div className="relative text-center py-3">
+            <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center mx-auto mb-3">
+              <Wallet className="h-7 w-7 text-white" />
+            </div>
+            <p className="text-white font-bold text-base mb-1">Your GYDSchain Wallet</p>
+            <p className="text-white/70 text-xs mb-4">Sign in to view your balance,<br />transactions, and assets</p>
+            <button onClick={() => go('/auth')}
+              className="bg-white text-primary font-bold text-sm px-6 py-2.5 rounded-2xl active:scale-95 transition-all">
+              Sign In / Connect Wallet
             </button>
           </div>
-          <p className="text-4xl font-bold text-white mb-1 tracking-tight">
-            {balanceHidden ? '••••••' : totalUsd}
-          </p>
-          <p className="text-xs text-white/60 flex items-center gap-1">
-            <ArrowUp className="h-3 w-3 text-green-300" />
-            <span className="text-green-300 font-medium">+4.2%</span>
-            <span className="ml-0.5">today</span>
-          </p>
+        </div>
+      )}
 
-          {/* Address */}
-          <button
-            onClick={() => copy(address)}
-            className="mt-4 flex items-center gap-2 bg-white/10 hover:bg-white/20 transition-colors rounded-xl px-3 py-2 text-xs text-white/80"
-          >
-            <span className="font-mono">{shortAddr}</span>
-            {copied ? <Check className="h-3 w-3 text-green-300" /> : <Copy className="h-3 w-3" />}
-          </button>
-
-          {/* Token breakdown */}
-          <div className="flex gap-2 mt-3">
-            {tokens.map(t => (
-              <div key={t.symbol} className="flex-1 bg-white/10 rounded-xl p-2.5">
-                <p className="text-[10px] text-white/60 uppercase tracking-wider">{t.symbol}</p>
-                <p className="text-sm font-bold text-white mt-0.5">{balanceHidden ? '••••' : t.balance}</p>
-                <p className={cn('text-[10px] mt-0.5', t.up ? 'text-green-300' : t.up === false ? 'text-red-300' : 'text-white/50')}>{t.change}</p>
+      {/* ── Balance card (logged in only) ───────────────────────── */}
+      {user && (
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/90 via-primary/70 to-primary/50 p-5 shadow-lg">
+          <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/10 blur-xl" />
+          <div className="absolute -bottom-4 -left-4 w-24 h-24 rounded-full bg-white/5 blur-lg" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-medium text-white/70 uppercase tracking-wider">GYDSchain Balance</p>
+              <button onClick={() => setBalanceHidden(v => !v)} className="text-white/60 hover:text-white transition-colors">
+                {balanceHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <p className="text-4xl font-bold text-white mb-1 tracking-tight">
+              {balanceHidden ? '••••••' : totalUsd}
+            </p>
+            <p className="text-xs text-white/60 flex items-center gap-1">
+              <ArrowUp className="h-3 w-3 text-green-300" />
+              <span className="text-green-300 font-medium">+4.2%</span>
+              <span className="ml-0.5">today</span>
+            </p>
+            <button
+              onClick={() => copy(address)}
+              className="mt-4 flex items-center gap-2 bg-white/10 hover:bg-white/20 transition-colors rounded-xl px-3 py-2 text-xs text-white/80"
+            >
+              <span className="font-mono">{shortAddr}</span>
+              {copied ? <Check className="h-3 w-3 text-green-300" /> : <Copy className="h-3 w-3" />}
+            </button>
+            <div className="flex gap-2 mt-3">
+              {tokens.map(t => (
+                <div key={t.symbol} className="flex-1 bg-white/10 rounded-xl p-2.5">
+                  <p className="text-[10px] text-white/60 uppercase tracking-wider">{t.symbol}</p>
+                  <p className="text-sm font-bold text-white mt-0.5">{balanceHidden ? '••••' : t.balance}</p>
+                  <p className={cn('text-[10px] mt-0.5', t.up ? 'text-green-300' : t.up === false ? 'text-red-300' : 'text-white/50')}>{t.change}</p>
+                </div>
+              ))}
+              <div className="flex-1 bg-white/10 rounded-xl p-2.5">
+                <p className="text-[10px] text-white/60 uppercase tracking-wider">Staked</p>
+                <p className="text-sm font-bold text-white mt-0.5">{balanceHidden ? '••••' : '5,000'}</p>
+                <p className="text-[10px] text-cyan-300 mt-0.5">12.4% APY</p>
               </div>
-            ))}
-            <div className="flex-1 bg-white/10 rounded-xl p-2.5">
-              <p className="text-[10px] text-white/60 uppercase tracking-wider">Staked</p>
-              <p className="text-sm font-bold text-white mt-0.5">{balanceHidden ? '••••' : '5,000'}</p>
-              <p className="text-[10px] text-cyan-300 mt-0.5">12.4% APY</p>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* QR Scanner overlay */}
       {showQRScanner && (
@@ -378,34 +396,36 @@ const HomeTab = () => {
         ))}
       </div>
 
-      {/* Faucet inline banner */}
-      <button
-        onClick={faucetInfo.canClaim ? claimFaucet : () => go('/faucet')}
-        disabled={claiming}
-        className={cn(
-          'w-full flex items-center gap-3 p-3 rounded-2xl border transition-all active:scale-[0.98]',
-          faucetInfo.canClaim
-            ? 'bg-gradient-to-r from-pink-500/10 to-primary/5 border-pink-500/20 hover:border-pink-400/40'
-            : 'bg-card border-border/60'
-        )}
-      >
-        <div className={cn('p-2 rounded-xl', faucetInfo.canClaim ? 'bg-pink-500/15' : 'bg-muted/40')}>
-          <Gift className={cn('h-4 w-4', faucetInfo.canClaim ? 'text-pink-400' : 'text-muted-foreground')} />
-        </div>
-        <div className="flex-1 text-left">
-          <p className="text-xs font-semibold">{faucetInfo.canClaim ? 'Daily Faucet Ready!' : 'Faucet Claimed'}</p>
-          <p className="text-[10px] text-muted-foreground">
-            {faucetInfo.canClaim ? 'Tap to claim free GYDS tokens' : faucetInfo.lastClaim ? `Next claim: ${new Date(new Date(faucetInfo.lastClaim).getTime() + 86400000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Check back tomorrow'}
-          </p>
-        </div>
-        {faucetInfo.canClaim && (
-          <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-pink-500/20 text-pink-400">
-            {claiming ? '…' : 'Claim'}
-          </span>
-        )}
-      </button>
+      {/* Faucet banner — logged in only */}
+      {user && (
+        <button
+          onClick={faucetInfo.canClaim ? claimFaucet : () => go('/faucet')}
+          disabled={claiming}
+          className={cn(
+            'w-full flex items-center gap-3 p-3 rounded-2xl border transition-all active:scale-[0.98]',
+            faucetInfo.canClaim
+              ? 'bg-gradient-to-r from-pink-500/10 to-primary/5 border-pink-500/20 hover:border-pink-400/40'
+              : 'bg-card border-border/60'
+          )}
+        >
+          <div className={cn('p-2 rounded-xl', faucetInfo.canClaim ? 'bg-pink-500/15' : 'bg-muted/40')}>
+            <Gift className={cn('h-4 w-4', faucetInfo.canClaim ? 'text-pink-400' : 'text-muted-foreground')} />
+          </div>
+          <div className="flex-1 text-left">
+            <p className="text-xs font-semibold">{faucetInfo.canClaim ? 'Daily Faucet Ready!' : 'Faucet Claimed'}</p>
+            <p className="text-[10px] text-muted-foreground">
+              {faucetInfo.canClaim ? 'Tap to claim free GYDS tokens' : faucetInfo.lastClaim ? `Next claim: ${new Date(new Date(faucetInfo.lastClaim).getTime() + 86400000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Check back tomorrow'}
+            </p>
+          </div>
+          {faucetInfo.canClaim && (
+            <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-pink-500/20 text-pink-400">
+              {claiming ? '…' : 'Claim'}
+            </span>
+          )}
+        </button>
+      )}
 
-      {/* Network stats — live */}
+      {/* Network stats — live, always visible */}
       <div>
         <div className="flex items-center justify-between mb-2.5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Network</p>
@@ -426,46 +446,48 @@ const HomeTab = () => {
         </div>
       </div>
 
-      {/* Recent activity */}
-      <div>
-        <div className="flex items-center justify-between mb-2.5">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Activity</p>
-          <button onClick={() => go('/transactions')} className="text-[10px] text-primary font-medium">See all</button>
+      {/* Recent activity — logged in only */}
+      {user && (
+        <div>
+          <div className="flex items-center justify-between mb-2.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Activity</p>
+            <button onClick={() => go('/transactions')} className="text-[10px] text-primary font-medium">See all</button>
+          </div>
+          <div className="space-y-1.5">
+            {recentTx.length === 0 ? (
+              <div className="flex flex-col items-center py-6 rounded-2xl bg-card border border-border/60 text-muted-foreground">
+                <Activity className="h-7 w-7 mb-2 opacity-30" />
+                <p className="text-xs">No transactions yet</p>
+                <button onClick={() => go('/transactions')} className="mt-2 text-[10px] text-primary font-medium underline underline-offset-2">Go to Transactions →</button>
+              </div>
+            ) : recentTx.map((tx, i) => (
+              <button key={i} onClick={() => go('/transactions')}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-[0.98] transition-all text-left"
+              >
+                <div className={cn('p-2 rounded-xl shrink-0',
+                  tx.type === 'send' ? 'bg-red-400/10' : tx.type === 'receive' ? 'bg-green-400/10' : tx.type === 'swap' ? 'bg-purple-400/10' : 'bg-cyan-400/10'
+                )}>
+                  {tx.type === 'send'    && <ArrowUp       className="h-4 w-4 text-red-400" />}
+                  {tx.type === 'receive' && <ArrowDown      className="h-4 w-4 text-green-400" />}
+                  {tx.type === 'swap'    && <ArrowLeftRight className="h-4 w-4 text-purple-400" />}
+                  {tx.type === 'stake'   && <TrendingUp     className="h-4 w-4 text-cyan-400" />}
+                  {!['send','receive','swap','stake'].includes(tx.type) && <Activity className="h-4 w-4 text-muted-foreground" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{tx.label}</p>
+                  <p className="text-[10px] text-muted-foreground font-mono truncate">{tx.hash} · {tx.time}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={cn('text-sm font-semibold',
+                    tx.type === 'send' ? 'text-red-400' : tx.type === 'receive' ? 'text-green-400' : 'text-foreground'
+                  )}>{tx.amount}</p>
+                  {tx.usd && <p className="text-[10px] text-muted-foreground">{tx.usd}</p>}
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="space-y-1.5">
-          {recentTx.length === 0 ? (
-            <div className="flex flex-col items-center py-6 rounded-2xl bg-card border border-border/60 text-muted-foreground">
-              <Activity className="h-7 w-7 mb-2 opacity-30" />
-              <p className="text-xs">No transactions yet</p>
-              <button onClick={() => go('/transactions')} className="mt-2 text-[10px] text-primary font-medium underline underline-offset-2">Go to Transactions →</button>
-            </div>
-          ) : recentTx.map((tx, i) => (
-            <button key={i} onClick={() => go('/transactions')}
-              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-[0.98] transition-all text-left"
-            >
-              <div className={cn('p-2 rounded-xl shrink-0',
-                tx.type === 'send' ? 'bg-red-400/10' : tx.type === 'receive' ? 'bg-green-400/10' : tx.type === 'swap' ? 'bg-purple-400/10' : 'bg-cyan-400/10'
-              )}>
-                {tx.type === 'send'    && <ArrowUp       className="h-4 w-4 text-red-400" />}
-                {tx.type === 'receive' && <ArrowDown      className="h-4 w-4 text-green-400" />}
-                {tx.type === 'swap'    && <ArrowLeftRight className="h-4 w-4 text-purple-400" />}
-                {tx.type === 'stake'   && <TrendingUp     className="h-4 w-4 text-cyan-400" />}
-                {!['send','receive','swap','stake'].includes(tx.type) && <Activity className="h-4 w-4 text-muted-foreground" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{tx.label}</p>
-                <p className="text-[10px] text-muted-foreground font-mono truncate">{tx.hash} · {tx.time}</p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className={cn('text-sm font-semibold',
-                  tx.type === 'send' ? 'text-red-400' : tx.type === 'receive' ? 'text-green-400' : 'text-foreground'
-                )}>{tx.amount}</p>
-                {tx.usd && <p className="text-[10px] text-muted-foreground">{tx.usd}</p>}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
     </div>
   );
 };
@@ -661,6 +683,106 @@ const DefiTab = () => {
   );
 };
 
+// ── Multi-Chain Assets ────────────────────────────────────────────────────────
+const CHAIN_LIST = [
+  { name: 'Ethereum',   symbol: 'ETH',   rpc: 'https://eth.llamarpc.com',                decimals: 18, color: 'text-blue-400',    bg: 'bg-blue-400/10',    logoColor: '#627EEA' },
+  { name: 'BNB Chain',  symbol: 'BNB',   rpc: 'https://bsc-rpc.publicnode.com',           decimals: 18, color: 'text-amber-400',   bg: 'bg-amber-400/10',   logoColor: '#F3BA2F' },
+  { name: 'Polygon',    symbol: 'POL',   rpc: 'https://polygon-rpc.com',                  decimals: 18, color: 'text-purple-400',  bg: 'bg-purple-400/10',  logoColor: '#8247E5' },
+  { name: 'Arbitrum',   symbol: 'ETH',   rpc: 'https://arb1.arbitrum.io/rpc',             decimals: 18, color: 'text-cyan-400',    bg: 'bg-cyan-400/10',    logoColor: '#28A0F0' },
+  { name: 'Optimism',   symbol: 'ETH',   rpc: 'https://mainnet.optimism.io',              decimals: 18, color: 'text-red-400',     bg: 'bg-red-400/10',     logoColor: '#FF0420' },
+  { name: 'Base',       symbol: 'ETH',   rpc: 'https://mainnet.base.org',                 decimals: 18, color: 'text-indigo-400',  bg: 'bg-indigo-400/10',  logoColor: '#0052FF' },
+  { name: 'Avalanche',  symbol: 'AVAX',  rpc: 'https://api.avax.network/ext/bc/C/rpc',    decimals: 18, color: 'text-red-300',     bg: 'bg-red-300/10',     logoColor: '#E84142' },
+];
+
+async function fetchNativeBalance(rpc: string, address: string): Promise<number> {
+  const res = await fetch(rpc, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [address, 'latest'], id: 1 }),
+    signal: AbortSignal.timeout(6000),
+  });
+  const data = await res.json();
+  if (!data.result) return 0;
+  return Number(BigInt(data.result)) / 1e18;
+}
+
+const MultiChainAssets = ({ address, onBridge }: { address: string; onBridge: () => void }) => {
+  const [balances, setBalances] = useState<Record<string, number | null>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!address || address === '—' || !address.startsWith('0x')) { setLoading(false); return; }
+    setLoading(true);
+    const results: Record<string, number | null> = {};
+    Promise.allSettled(
+      CHAIN_LIST.map(async (chain) => {
+        try {
+          results[chain.name] = await fetchNativeBalance(chain.rpc, address);
+        } catch {
+          results[chain.name] = null;
+        }
+      })
+    ).then(() => { setBalances(results); setLoading(false); });
+  }, [address]);
+
+  const visible = CHAIN_LIST.filter(c => {
+    const b = balances[c.name];
+    return loading || b === null || b === undefined || b > 0;
+  });
+
+  if (!address || address === '—' || !address.startsWith('0x')) {
+    return (
+      <div className="p-4 rounded-2xl bg-card border border-border/60 text-center">
+        <Globe className="h-6 w-6 text-muted-foreground/40 mx-auto mb-2" />
+        <p className="text-xs text-muted-foreground">Connect an EVM wallet address to see<br />multi-chain assets</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {loading ? (
+        [0,1,2,3].map(i => (
+          <div key={i} className="h-[60px] rounded-2xl bg-muted/30 animate-pulse" />
+        ))
+      ) : visible.length === 0 ? (
+        <div className="p-4 rounded-2xl bg-card border border-border/60 text-center">
+          <p className="text-xs text-muted-foreground">No native token balances found on other chains</p>
+          <button onClick={onBridge} className="mt-2 text-[10px] text-primary font-medium underline underline-offset-2">
+            Bridge assets to GYDSchain →
+          </button>
+        </div>
+      ) : visible.map(chain => {
+        const bal = balances[chain.name];
+        const balStr = bal === null || bal === undefined ? '—' : bal > 0 ? bal.toFixed(6) : '0.000000';
+        return (
+          <button key={chain.name} onClick={onBridge}
+            className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-[0.98] transition-all text-left"
+          >
+            <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold shrink-0', chain.bg)}>
+              <span className={cn('text-xs font-bold', chain.color)}>{chain.symbol.slice(0,3)}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">{chain.symbol}</p>
+              <p className="text-[10px] text-muted-foreground">{chain.name}</p>
+            </div>
+            <div className="text-right shrink-0">
+              {bal === null ? (
+                <p className="text-xs text-muted-foreground/50">timeout</p>
+              ) : (
+                <p className={cn('text-sm font-semibold', bal > 0 ? '' : 'text-muted-foreground/50')}>{balStr}</p>
+              )}
+              {bal !== null && bal > 0 && (
+                <p className="text-[10px] text-primary font-medium">Bridge →</p>
+              )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 // ── Wallet Tab ────────────────────────────────────────────────────────────────
 const WalletTab = () => {
   const go = useMobileNavigate();
@@ -802,6 +924,18 @@ const WalletTab = () => {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Multi-chain assets */}
+      <div>
+        <div className="flex items-center justify-between mb-2.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Other Networks</p>
+          <button onClick={() => go('/defi', { state: { tab: 'bridge' } })} className="text-[10px] text-primary font-medium">Bridge →</button>
+        </div>
+        <MultiChainAssets
+          address={address}
+          onBridge={() => go('/defi', { state: { tab: 'bridge' } })}
+        />
       </div>
 
       {/* Delegations / Staking positions */}
