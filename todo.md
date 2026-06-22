@@ -1,6 +1,6 @@
 # ChainCore — GYDS Dashboard · Feature Todo
 
-_Last updated: June 2026_
+_Last updated: June 22, 2026_
 
 ---
 
@@ -40,6 +40,7 @@ npm run typecheck:server  # check server types (pre-existing Express 5 errors ex
   ```
 - Always verify with: `psql "$DATABASE_URL" -c "\d tablename"` before assuming it worked
 - Drizzle returns **camelCase** column names — use camelCase in TypeScript interfaces
+- **Full schema snapshot** (all 75+ tables, safe to re-run): `psql "$DATABASE_URL" < migrations/0002_full_schema_sync.sql`
 
 ### Key files
 | File | Purpose |
@@ -96,6 +97,8 @@ Change this after first login! Founder role has full admin access.
 
 ### Viewing all pages
 Go to **`/preview`** — the App Preview page shows all 36 pages with descriptions, routes, and live Preview/Open buttons. Also has a mobile phone mockup and wallet app info.
+
+> **Remember:** whenever you add a new page, add it to the `PAGES` array in `src/pages/Preview.tsx` too.
 
 ### Git & pushing code
 See `mobile-wallet/git-push-guide.md` for full instructions. Quick version:
@@ -239,6 +242,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] Cashout requests (approve / reject)
 - [x] Monitoring tab (RPC health, DB status, memory, uptime)
 - [x] DB pruner cron (auto-prunes logs, snapshots, expired tokens)
+- [x] **Wallet App tab** — upload APK / IPA / EXE / DMG builds (multer, 500 MB max); manage & delete releases
 
 ### Notifications
 - [x] In-app notification bell (faucet, governance, proposals)
@@ -269,8 +273,11 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] Progressive Web App (manifest v2, 7 icons, 4 shortcuts)
 - [x] Service worker (stale-while-revalidate + background sync)
 - [x] Install prompt (Android + iOS guide)
-- [x] Mobile bottom nav hub page
+- [x] Mobile bottom nav hub page (`/mobile`) with 5 tabs: Home, Explorer, DeFi, Wallet, More
 - [x] Edge side panel support
+- [x] **Real wallet address on mobile page** — fetches from `user.walletAddress` → `/api/wallets` fallback (no more hardcoded address)
+- [x] **Real recent transactions on mobile page** — fetches from `/api/transactions`; falls back to demo data if empty
+- [x] **Activity rows clickable** — each transaction row navigates to `/transactions`; empty state with direct link shown when no transactions exist
 
 ### GYDS Wallet — Mobile App (Android & iOS)
 > **Repo:** https://github.com/hc172808/your-digital-wallet
