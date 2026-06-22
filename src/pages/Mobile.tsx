@@ -697,10 +697,11 @@ const WalletTab = () => {
   const address = walletAddr || '—';
   const gydsBalance = walletBalance || '12,450.00';
 
+  const stakedBal = delegations.reduce((s,d)=>s+Number(d.amount??0),0);
   const assets = [
-    { symbol: 'GYDS', name: 'GYDSchain', balance: gydsBalance, usd: `$${(parseFloat(gydsBalance.replace(/,/g,'')) * 0.0847).toFixed(2)}`, change: '+4.2%', up: true,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10' },
-    { symbol: 'GYD',  name: 'GYD Stable',balance: '500.00',    usd: '$500.00',   change: '+0.0%', up: null,  icon: CircleDollarSign,color: 'text-blue-400',   bg: 'bg-blue-400/10' },
-    { symbol: 'sGYDS',name: 'Staked',    balance: delegations.reduce((s,d)=>s+Number(d.amount??0),0).toLocaleString() || '5,000', usd: '', change: '+12.4%', up: true, icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-400/10' },
+    { symbol: 'GYDS', name: 'GYDSchain',  balance: gydsBalance, usd: `$${(parseFloat(gydsBalance.replace(/,/g,'')) * 0.0847).toFixed(2)}`, change: '+4.2%',  up: true,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10',    path: '/wallet',                         state: undefined },
+    { symbol: 'GYD',  name: 'GYD Stable', balance: '500.00',    usd: '$500.00',  change: '+0.0%',  up: null,  icon: CircleDollarSign, color: 'text-blue-400',  bg: 'bg-blue-400/10',   path: '/defi',                           state: { tab: 'stablecoin' } },
+    { symbol: 'sGYDS',name: 'Staked GYDS',balance: stakedBal > 0 ? stakedBal.toLocaleString() : '5,000', usd: '', change: '+12.4%', up: true, icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-400/10', path: '/defi', state: { tab: 'stake' } },
   ];
 
   return (
@@ -776,15 +777,19 @@ const WalletTab = () => {
         </div>
         <div className="space-y-1.5">
           {assets.map(a => (
-            <div key={a.symbol} className="flex items-center gap-3 p-3.5 rounded-2xl bg-card border border-border/60">
-              <div className={cn('p-2.5 rounded-xl', a.bg)}>
+            <button
+              key={a.symbol}
+              onClick={() => go(a.path, a.state ? { state: a.state } : undefined)}
+              className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-[0.98] transition-all text-left"
+            >
+              <div className={cn('p-2.5 rounded-xl shrink-0', a.bg)}>
                 <a.icon className={cn('h-4 w-4', a.color)} />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold">{a.symbol}</p>
                 <p className="text-[10px] text-muted-foreground">{a.name}</p>
               </div>
-              <div className="text-right">
+              <div className="text-right shrink-0">
                 <p className="text-sm font-semibold">{a.balance}</p>
                 <div className="flex items-center gap-1 justify-end">
                   {a.usd && <p className="text-[10px] text-muted-foreground">{a.usd}</p>}
@@ -793,7 +798,8 @@ const WalletTab = () => {
                   )}>{a.change}</p>
                 </div>
               </div>
-            </div>
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 ml-1" />
+            </button>
           ))}
         </div>
       </div>
