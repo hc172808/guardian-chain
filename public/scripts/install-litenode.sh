@@ -208,8 +208,8 @@ echo "╠═══════════════════════�
 echo "║   🌐  WEB SETUP WIZARD                                       ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
 echo "║                                                              ║"
-echo "║  A browser-based setup wizard is launching now.             ║"
-echo "║  Open one of these URLs to configure your node:             ║"
+echo "║  A browser-based setup wizard is available.                 ║"
+echo "║  It will help you configure your node via a simple UI.      ║"
 echo "║                                                              ║"
 echo "║  ➜  http://localhost:${SETUP_PORT}                                 ║"
 echo "║  ➜  http://${LOCAL_IP}:${SETUP_PORT}  (from another machine)       ║"
@@ -219,13 +219,27 @@ echo "║    • Ask for RPC endpoints, ports, sync settings            ║"
 echo "║    • Generate your node.env config file                     ║"
 echo "║    • Show you the exact start commands                      ║"
 echo "║                                                              ║"
-echo "║  Press Ctrl+C to stop the wizard when done.                 ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
-# Launch the web setup wizard (runs in foreground — Ctrl+C to stop)
-# Skipped if --no-wizard flag is passed or GYDS_SKIP_WIZARD=1 is set
-if [[ "${GYDS_SKIP_WIZARD:-0}" != "1" ]] && ! echo "${@}" | grep -q "\-\-no-wizard"; then
+# ── Ask user if they want the web setup wizard ────────────────────────────────
+LAUNCH_WIZARD="${GYDS_SKIP_WIZARD:-}"
+if echo "${@}" | grep -q "\-\-no-wizard"; then
+  LAUNCH_WIZARD="n"
+fi
+if [[ -z "$LAUNCH_WIZARD" ]]; then
+  read -r -p "  Launch web setup wizard now? [Y/n]: " WIZARD_REPLY
+  case "${WIZARD_REPLY,,}" in
+    n|no) LAUNCH_WIZARD="n" ;;
+    *)    LAUNCH_WIZARD="y" ;;
+  esac
+fi
+
+if [[ "$LAUNCH_WIZARD" != "n" && "$LAUNCH_WIZARD" != "1" ]]; then
+  log "Starting web setup wizard on port ${SETUP_PORT}..."
+  echo "  Open → http://localhost:${SETUP_PORT}"
+  echo "  Press Ctrl+C when finished to continue."
+  echo ""
   export PATH="${GYDS_BIN}:$PATH"
   "${GYDS_BIN}/${BINARY}" setup --port "${SETUP_PORT}" 2>&1 || true
 else

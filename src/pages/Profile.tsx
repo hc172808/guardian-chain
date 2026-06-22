@@ -63,6 +63,61 @@ interface ProfileData {
   };
 }
 
+// ── Privacy Toggle ────────────────────────────────────────────────────────────
+const PrivacyToggle = () => {
+  const { toast } = useToast();
+  const [isPublic, setIsPublic] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/profile/privacy', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setIsPublic(d.is_public ?? false); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = async () => {
+    setSaving(true);
+    try {
+      const next = !isPublic;
+      const r = await fetch('/api/profile/privacy', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_public: next }),
+      });
+      if (!r.ok) throw new Error('Failed to update privacy setting');
+      setIsPublic(next);
+      toast({ title: next ? 'Profile is now public' : 'Profile is now private', description: next ? 'Others can view your public profile.' : 'Only you can see your profile.' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <GlassCard className={`p-4 border transition-colors ${isPublic ? 'border-green-500/30 bg-green-500/5' : 'border-primary/20 bg-primary/5'}`}>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          {isPublic ? <Eye className="w-4 h-4 text-green-400 mt-0.5 shrink-0" /> : <EyeOff className="w-4 h-4 text-primary mt-0.5 shrink-0" />}
+          <div>
+            <p className="font-medium text-foreground text-sm">
+              {loading ? 'Loading…' : isPublic ? 'Profile is Public' : 'Profile is Private'}
+            </p>
+            <p className="text-muted-foreground text-xs mt-0.5">
+              {isPublic
+                ? 'Your display name, bio, and wallet address are visible to other users.'
+                : 'Your profile is hidden from everyone. Only you can see it.'}
+            </p>
+          </div>
+        </div>
+        <Switch checked={isPublic} onCheckedChange={toggle} disabled={loading || saving} className="shrink-0" />
+      </div>
+    </GlassCard>
+  );
+};
+
 const TIMEZONES = [
   'UTC', 'America/New_York', 'America/Chicago', 'America/Denver',
   'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Europe/Berlin',
@@ -594,19 +649,8 @@ const ProfilePage = () => {
           </div>
         </div>
 
-        {/* Privacy notice */}
-        <GlassCard className="p-4 border-primary/20 bg-primary/5">
-          <div className="flex items-start gap-3 text-sm">
-            <Shield className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-            <div>
-              <p className="font-medium text-foreground">Your profile is completely private</p>
-              <p className="text-muted-foreground text-xs mt-0.5">
-                None of this information is visible to other users or shown publicly anywhere on the platform.
-                It is stored securely in your account only.
-              </p>
-            </div>
-          </div>
-        </GlassCard>
+        {/* Privacy toggle */}
+        <PrivacyToggle />
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 bg-muted/30 rounded-xl border border-border/50">

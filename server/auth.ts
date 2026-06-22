@@ -80,7 +80,7 @@ export async function setupAuth(app: Express): Promise<void> {
   // ── Register ───────────────────────────────────────────────────────────────
   app.post("/api/auth/register", authLimiter, async (req, res) => {
     try {
-      const { username, password, email } = req.body ?? {};
+      const { username, password, email, phone } = req.body ?? {};
       if (!username || !password) return res.status(400).json({ error: "Username and password required" });
       if (String(password).length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
 
@@ -90,6 +90,19 @@ export async function setupAuth(app: Express): Promise<void> {
 
       const passwordHash = await bcrypt.hash(password, 12);
       const user = await storage.createLocalUser({ username: slug, passwordHash, email: email ?? null });
+
+      // Save optional phone number
+      if (phone) {
+        await (storage as any).pgPool?.query(
+          `UPDATE users SET phone=$1 WHERE id=$2`,
+          [String(phone).trim(), user.id]
+        ).catch(() => {});
+        // Also store in profile metadata for WhatsApp use
+        await (storage as any).pgPool?.query(
+          `UPDATE profiles SET metadata = jsonb_set(COALESCE(metadata,'{}'), '{phone}', $1::jsonb) WHERE user_id=$2`,
+          [JSON.stringify(String(phone).trim()), user.id]
+        ).catch(() => {});
+      }
 
       // Generate email verification token (stored; actual email delivery requires SMTP configuration)
       if (email) {

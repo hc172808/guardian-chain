@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  Cpu, Eye, EyeOff, Wallet, User, Lock, Mail,
+  Cpu, Eye, EyeOff, Wallet, User, Lock, Mail, Phone,
   AlertCircle, Loader2, CheckCircle2, KeyRound, Smartphone,
   Copy, RefreshCw, ShieldAlert, Send
 } from 'lucide-react';
@@ -87,6 +87,7 @@ const LoginForm = ({ onSuccess, onReset }: { onSuccess: () => void; onReset: () 
 const RegisterForm = ({ onSuccess }: { onSuccess: () => void }) => {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -105,7 +106,12 @@ const RegisterForm = ({ onSuccess }: { onSuccess: () => void }) => {
     }
     setLoading(true);
     try {
-      await api('/api/auth/register', { username: username.trim(), email: email.trim() || undefined, password });
+      await api('/api/auth/register', {
+        username: username.trim(),
+        email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
+        password,
+      });
       onSuccess();
     } catch (err: any) {
       setError(err.message);
@@ -134,6 +140,16 @@ const RegisterForm = ({ onSuccess }: { onSuccess: () => void }) => {
             placeholder="you@example.com" autoComplete="email"
             className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
         </div>
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-muted-foreground">Phone <span className="text-muted-foreground/50">(optional)</span></label>
+        <div className="relative">
+          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+            placeholder="+1 555 000 0000" autoComplete="tel"
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
+        </div>
+        <p className="text-xs text-muted-foreground">Used for SMS / WhatsApp alerts (optional)</p>
       </div>
       <div className="space-y-2">
         <label className="text-sm font-medium text-muted-foreground">Password <span className="text-destructive">*</span></label>

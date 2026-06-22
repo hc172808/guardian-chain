@@ -306,8 +306,8 @@ echo "╠═══════════════════════�
 echo "║   🌐  WEB SETUP WIZARD                                       ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
 echo "║                                                              ║"
-echo "║  A browser-based setup wizard is launching now.             ║"
-echo "║  Open one of these URLs to configure your node:             ║"
+echo "║  A browser-based setup wizard is available.                 ║"
+echo "║  It will help you configure your node via a simple UI.      ║"
 echo "║                                                              ║"
 echo "║  ➜  http://localhost:${SETUP_PORT}                                 ║"
 echo "║  ➜  http://${LOCAL_IP}:${SETUP_PORT}  (from another machine)       ║"
@@ -318,13 +318,27 @@ echo "║    • Bootstrap peer addresses                               ║"
 echo "║    • Data directory, logging, domain/SSL                    ║"
 echo "║    • Generate node.env and start commands                   ║"
 echo "║                                                              ║"
-echo "║  When done, the node service will start automatically.      ║"
-echo "║  Press Ctrl+C to skip the wizard and start with defaults.   ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
-# Launch the web setup wizard (foreground — Ctrl+C or wizard completion exits)
-if [[ "${GYDS_SKIP_WIZARD:-0}" != "1" ]] && ! echo "${@}" | grep -q "\-\-no-wizard"; then
+# ── Ask user if they want the web setup wizard ────────────────────────────────
+LAUNCH_WIZARD="${GYDS_SKIP_WIZARD:-}"
+if echo "${@}" | grep -q "\-\-no-wizard"; then
+  LAUNCH_WIZARD="n"
+fi
+if [[ -z "$LAUNCH_WIZARD" ]]; then
+  read -r -p "  Launch web setup wizard now? [Y/n]: " WIZARD_REPLY
+  case "${WIZARD_REPLY,,}" in
+    n|no) LAUNCH_WIZARD="n" ;;
+    *)    LAUNCH_WIZARD="y" ;;
+  esac
+fi
+
+if [[ "$LAUNCH_WIZARD" != "n" && "$LAUNCH_WIZARD" != "1" ]]; then
+  log "Starting web setup wizard on port ${SETUP_PORT}..."
+  echo "  Open → http://localhost:${SETUP_PORT}"
+  echo "  Press Ctrl+C when finished to continue and start the service."
+  echo ""
   "${GYDS_BIN}/${BINARY}" setup --port "${SETUP_PORT}" 2>&1 || true
   log "Wizard completed — applying configuration and starting node..."
 fi

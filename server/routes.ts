@@ -94,6 +94,40 @@ export function registerRoutes(app: Express) {
     res.json(profile);
   });
 
+  // ── Profile privacy ────────────────────────────────────────────────────────
+  app.get("/api/profile/privacy", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const { rows } = await pgPool.query(`SELECT is_public FROM profiles WHERE user_id=$1`, [user.id]);
+      res.json({ is_public: rows[0]?.is_public ?? false });
+    } catch { res.json({ is_public: false }); }
+  });
+
+  app.patch("/api/profile/privacy", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { is_public } = req.body;
+    if (typeof is_public !== 'boolean') return res.status(400).json({ error: 'is_public must be boolean' });
+    try {
+      await pgPool.query(`UPDATE profiles SET is_public=$1, updated_at=NOW() WHERE user_id=$2`, [is_public, user.id]);
+      res.json({ ok: true, is_public });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Public profile view ────────────────────────────────────────────────────
+  app.get("/api/profile/:userId/public", async (req, res) => {
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT p.display_name, p.username, p.bio, p.avatar_url, p.is_public, u.wallet_address
+         FROM profiles p JOIN users u ON u.id=p.user_id
+         WHERE p.user_id=$1 LIMIT 1`,
+        [req.params.userId]
+      );
+      if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+      if (!rows[0].is_public) return res.status(403).json({ error: 'This profile is private' });
+      res.json(rows[0]);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Telegram alert test ────────────────────────────────────────────────────
   app.post("/api/profile/telegram-test", requireAuth, async (req, res) => {
     const user = req.user as any;
@@ -2939,6 +2973,205 @@ export function registerRoutes(app: Express) {
         }
       }
       res.json(buyReq || {});
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Living Trust ───────────────────────────────────────────────────────────
+  const ensureTrustTables = async () => {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS trusts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'draft',
+        fee_paid BOOLEAN DEFAULT FALSE,
+        setup_fee_tx TEXT,
+        trustee_address TEXT,
+        successor_trustee TEXT,
+        vault_balance NUMERIC(20,8) DEFAULT 0,
+        expires_at TIMESTAMP,
+        activated_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `).catch(() => {});
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS trust_beneficiaries (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        trust_id UUID NOT NULL,
+        name TEXT NOT NULL,
+        wallet_address TEXT NOT NULL,
+        percentage NUMERIC(5,2) NOT NULL,
+        relationship TEXT,
+        condition_note TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `).catch(() => {});
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS trust_conditions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        trust_id UUID NOT NULL,
+        type TEXT NOT NULL,
+        description TEXT NOT NULL,
+        trigger_date TIMESTAMP,
+        triggered BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `).catch(() => {});
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS trust_payments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        trust_id UUID NOT NULL,
+        user_id TEXT NOT NULL,
+        amount NUMERIC(20,8) NOT NULL,
+        payment_type TEXT NOT NULL,
+        tx_hash TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `).catch(() => {});
+  };
+  ensureTrustTables();
+
+  // List trusts for current user
+  app.get("/api/trusts", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const { rows } = await pgPool.query(`
+        SELECT t.*,
+          (SELECT COUNT(*) FROM trust_beneficiaries b WHERE b.trust_id = t.id)::int AS total_beneficiaries
+        FROM trusts t
+        WHERE t.user_id = $1
+        ORDER BY t.created_at DESC
+      `, [user.id]);
+      res.json({ trusts: rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        type: r.type,
+        description: r.description,
+        status: r.status,
+        feePaid: r.fee_paid,
+        setupFeeTx: r.setup_fee_tx,
+        trusteeAddress: r.trustee_address,
+        successorTrustee: r.successor_trustee,
+        vaultBalance: r.vault_balance ?? '0',
+        totalBeneficiaries: r.total_beneficiaries ?? 0,
+        createdAt: r.created_at,
+        activatedAt: r.activated_at,
+        expiresAt: r.expires_at,
+      })) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Create a new trust
+  app.post("/api/trusts", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { name, type, description, trusteeAddress, successorTrustee, beneficiaries, conditions, expiresAt } = req.body;
+    if (!name || !type) return res.status(400).json({ error: "name and type are required" });
+    const VALID_TYPES = ['revocable', 'irrevocable', 'testamentary', 'special_needs', 'spendthrift'];
+    if (!VALID_TYPES.includes(type)) return res.status(400).json({ error: "Invalid trust type" });
+    try {
+      const { rows } = await pgPool.query(`
+        INSERT INTO trusts (user_id, name, type, description, status, trustee_address, successor_trustee, expires_at)
+        VALUES ($1, $2, $3, $4, 'pending_payment', $5, $6, $7)
+        RETURNING *
+      `, [user.id, name.trim(), type, description?.trim() ?? null, trusteeAddress?.trim() ?? null, successorTrustee?.trim() ?? null, expiresAt || null]);
+      const trust = rows[0];
+
+      // Insert beneficiaries
+      if (Array.isArray(beneficiaries) && beneficiaries.length > 0) {
+        for (const b of beneficiaries) {
+          await pgPool.query(`
+            INSERT INTO trust_beneficiaries (trust_id, name, wallet_address, percentage, relationship, condition_note)
+            VALUES ($1,$2,$3,$4,$5,$6)
+          `, [trust.id, b.name, b.walletAddress, b.percentage, b.relationship ?? null, b.conditionNote ?? null]).catch(() => {});
+        }
+      }
+
+      // Insert conditions
+      if (Array.isArray(conditions) && conditions.length > 0) {
+        for (const c of conditions) {
+          await pgPool.query(`
+            INSERT INTO trust_conditions (trust_id, type, description, trigger_date)
+            VALUES ($1,$2,$3,$4)
+          `, [trust.id, c.type, c.description, c.triggerDate || null]).catch(() => {});
+        }
+      }
+
+      res.json({ ok: true, trustId: trust.id });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Pay setup fee — activates the trust
+  app.post("/api/trusts/:id/pay-fee", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { txHash } = req.body;
+    try {
+      const { rows } = await pgPool.query(`SELECT * FROM trusts WHERE id=$1 AND user_id=$2`, [req.params.id, user.id]);
+      if (!rows[0]) return res.status(404).json({ error: "Trust not found" });
+      if (rows[0].fee_paid) return res.status(400).json({ error: "Fee already paid" });
+
+      const FEE = 60; // 50 setup + 10 annual
+      await pgPool.query(`
+        UPDATE trusts SET fee_paid=TRUE, status='active', setup_fee_tx=$1, activated_at=NOW(), updated_at=NOW()
+        WHERE id=$2
+      `, [txHash ?? null, req.params.id]);
+      await pgPool.query(`
+        INSERT INTO trust_payments (trust_id, user_id, amount, payment_type, tx_hash)
+        VALUES ($1,$2,$3,'setup_fee',$4)
+      `, [req.params.id, user.id, FEE, txHash ?? null]).catch(() => {});
+
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Deposit to trust vault
+  app.post("/api/trusts/:id/deposit", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { amount } = req.body;
+    if (!amount || isNaN(parseFloat(amount))) return res.status(400).json({ error: "Invalid amount" });
+    try {
+      const { rows } = await pgPool.query(`SELECT * FROM trusts WHERE id=$1 AND user_id=$2`, [req.params.id, user.id]);
+      if (!rows[0]) return res.status(404).json({ error: "Trust not found" });
+      if (rows[0].status !== 'active') return res.status(400).json({ error: "Trust is not active" });
+
+      await pgPool.query(`
+        UPDATE trusts SET vault_balance = vault_balance + $1, updated_at=NOW() WHERE id=$2
+      `, [parseFloat(amount), req.params.id]);
+      await pgPool.query(`
+        INSERT INTO trust_payments (trust_id, user_id, amount, payment_type)
+        VALUES ($1,$2,$3,'vault_deposit')
+      `, [req.params.id, user.id, parseFloat(amount)]).catch(() => {});
+
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Get trust details + beneficiaries + conditions
+  app.get("/api/trusts/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const { rows: [trust] } = await pgPool.query(`SELECT * FROM trusts WHERE id=$1 AND user_id=$2`, [req.params.id, user.id]);
+      if (!trust) return res.status(404).json({ error: "Trust not found" });
+      const { rows: beneficiaries } = await pgPool.query(`SELECT * FROM trust_beneficiaries WHERE trust_id=$1 ORDER BY created_at`, [req.params.id]);
+      const { rows: conditions } = await pgPool.query(`SELECT * FROM trust_conditions WHERE trust_id=$1 ORDER BY created_at`, [req.params.id]);
+      const { rows: payments } = await pgPool.query(`SELECT * FROM trust_payments WHERE trust_id=$1 ORDER BY created_at DESC LIMIT 20`, [req.params.id]);
+      res.json({ trust, beneficiaries, conditions, payments });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Close/delete a draft trust
+  app.delete("/api/trusts/:id", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const { rows } = await pgPool.query(`SELECT status FROM trusts WHERE id=$1 AND user_id=$2`, [req.params.id, user.id]);
+      if (!rows[0]) return res.status(404).json({ error: "Trust not found" });
+      if (rows[0].status === 'active') return res.status(400).json({ error: "Cannot delete an active trust — close it first" });
+      await pgPool.query(`DELETE FROM trust_beneficiaries WHERE trust_id=$1`, [req.params.id]).catch(() => {});
+      await pgPool.query(`DELETE FROM trust_conditions WHERE trust_id=$1`, [req.params.id]).catch(() => {});
+      await pgPool.query(`DELETE FROM trusts WHERE id=$1 AND user_id=$2`, [req.params.id, user.id]);
+      res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 }

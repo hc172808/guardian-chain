@@ -47,6 +47,7 @@ import MobilePage from "./pages/Mobile";
 import LandingPage from "./pages/Landing";
 import PressKitPage from "./pages/PressKit";
 import BlogPage from "./pages/Blog";
+import TrustPage from "./pages/Trust";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -126,6 +127,7 @@ const AppContent = () => {
       <Route path="/identity" element={<IdentityPage />} />
       <Route path="/rwa" element={<RWAPage />} />
       <Route path="/insurance" element={<InsurancePage />} />
+      <Route path="/trust" element={<TrustPage />} />
       {/* Marketing */}
       <Route path="/landing" element={<LandingPage />} />
       <Route path="/press-kit" element={<PressKitPage />} />

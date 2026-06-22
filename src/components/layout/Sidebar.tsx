@@ -6,7 +6,7 @@ import {
   User, Wallet, Settings, BookOpen, ArrowRightLeft, Network,
   Coins, Star, Terminal, Droplets, UserCircle, Vote, Image,
   TrendingUp, MessageSquare, Code2, Trophy, ShieldCheck,
-  Fingerprint, Building2, Lock, ChevronDown, HeartHandshake, BellRing, Webhook
+  Fingerprint, Building2, Lock, ChevronDown, HeartHandshake, BellRing, Webhook, ScrollText
 } from 'lucide-react';
 import gydsCoinLogo from '/gyds-coin.jpg';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -44,6 +44,7 @@ const ecosystemNav: NavItem[] = [
   { to: '/identity',   icon: Fingerprint,   label: 'Identity',          featureKey: 'identity.did' },
   { to: '/rwa',        icon: Building2,   label: 'Real-World Assets', featureKey: 'rwa.invest' },
   { to: '/insurance',  icon: HeartHandshake, label: 'Insurance',        featureKey: 'insurance.buy' },
+  { to: '/trust',      icon: ScrollText,    label: 'Living Trust',      featureKey: 'trust.create' },
   { to: '/developer',  icon: Code2,         label: 'Developer Portal',  featureKey: 'developer.api' },
 ];
 
