@@ -4,6 +4,116 @@ _Last updated: June 2026_
 
 ---
 
+## 👋 Contributor Guide
+
+This section is for anyone helping build ChainCore. Read this first before touching any code.
+
+### Tech Stack
+| Layer | Tech | Notes |
+|-------|------|-------|
+| Frontend | Vite + React 18 + TypeScript | Port 5000 in dev |
+| Backend | Express.js + Passport.js | Port 5001 in dev |
+| Database | PostgreSQL via Drizzle ORM | `DATABASE_URL` env var (Replit managed) |
+| Auth | Username/password + Web3 signature | Sessions via connect-pg-simple |
+| Styling | Tailwind CSS + shadcn/ui | Dark theme only |
+| State | TanStack React Query + React Context | AuthContext is the main context |
+| Blockchain | Chain ID 13370, GYDS Network | RPC: rpc.netlifegy.com |
+
+### Running the project
+```bash
+npm run dev          # starts both Express (5001) + Vite (5000) concurrently
+npm run build        # build frontend only
+npm run typecheck:server  # check server types (pre-existing Express 5 errors exist; don't block deploy)
+```
+
+### Database rules — READ BEFORE ANY SCHEMA CHANGE
+- **Source of truth:** `shared/schema.ts` (Drizzle ORM schema)
+- **DO NOT use `npm run db:push` alone** — it has a TTY issue in this env and may say "nothing to migrate" even when the DB is out of sync
+- **Correct way to add tables/columns:**
+  ```bash
+  # 1. Add to shared/schema.ts
+  # 2. Generate migration SQL
+  npm run db:generate
+  # 3. Apply directly via psql
+  psql "$DATABASE_URL" < drizzle/migrations/latest.sql
+  # OR use raw ALTER TABLE / CREATE TABLE via psql for simple changes
+  ```
+- Always verify with: `psql "$DATABASE_URL" -c "\d tablename"` before assuming it worked
+- Drizzle returns **camelCase** column names — use camelCase in TypeScript interfaces
+
+### Key files
+| File | Purpose |
+|------|---------|
+| `shared/schema.ts` | All DB table definitions (source of truth) |
+| `server/routes.ts` | All Express API routes |
+| `server/auth.ts` | Auth logic (register, login, TOTP, sessions) |
+| `server/storage.ts` | DB query functions (used by routes) |
+| `server/db.ts` | Drizzle client + pgPool setup |
+| `src/App.tsx` | All frontend routes |
+| `src/components/layout/Sidebar.tsx` | Sidebar navigation |
+| `src/contexts/AuthContext.tsx` | Auth state (user, signIn, signOut) |
+| `src/integrations/supabase/client.ts` | **Supabase shim** — routes ALL Supabase calls to Express API. No real Supabase needed. |
+
+### Import rules (critical — breaks build if wrong)
+```typescript
+// ✅ CORRECT layout import (lowercase folder, named export):
+import { Layout } from '@/components/layout/Layout';
+
+// ❌ WRONG — causes Vite 500:
+import Layout from '@/components/Layout';
+```
+
+### Adding a new page
+1. Create `src/pages/YourPage.tsx` — use `<Layout>` as wrapper
+2. Add import + `<Route path="/your-page" element={<YourPage />} />` in `src/App.tsx`
+3. Add nav item to the correct section array in `src/components/layout/Sidebar.tsx`
+4. Add to the PAGES array in `src/pages/Preview.tsx` for the App Preview
+5. Add backend routes to `server/routes.ts` if the page has API calls
+6. Mark done in this todo.md
+
+### Adding a new API endpoint
+```typescript
+// server/routes.ts — follow this pattern:
+router.get('/api/your-endpoint', requireAuth, async (req, res) => {
+  try {
+    const data = await storage.getYourData(req.user!.id);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+```
+- Use `requireAuth` for user-protected routes
+- Use `requireAdmin` for admin-only routes
+- Always use `try/catch` and return proper error shapes
+
+### Login as founder (first boot)
+```
+Username: netlifegy
+Password: GYDSchain2026!
+```
+Change this after first login! Founder role has full admin access.
+
+### Viewing all pages
+Go to **`/preview`** — the App Preview page shows all 36 pages with descriptions, routes, and live Preview/Open buttons. Also has a mobile phone mockup and wallet app info.
+
+### Git & pushing code
+See `mobile-wallet/git-push-guide.md` for full instructions. Quick version:
+```bash
+# Push ChainCore dashboard (first time):
+git remote add origin https://github.com/YOUR-USERNAME/chaincore-dashboard.git
+git add -A && git commit -m "your message" && git push -u origin main
+
+# Push both ChainCore + wallet app:
+bash push-all.sh "your message"
+```
+
+### Mobile wallet app
+Separate repo: https://github.com/hc172808/your-digital-wallet
+Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build instructions (Android + iOS).
+
+---
+
 ## ✅ Completed Features
 
 ### Core Platform

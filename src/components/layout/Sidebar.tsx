@@ -6,7 +6,8 @@ import {
   User, Wallet, Settings, BookOpen, ArrowRightLeft, Network,
   Coins, Star, Terminal, Droplets, UserCircle, Vote, Image,
   TrendingUp, MessageSquare, Code2, Trophy, ShieldCheck,
-  Fingerprint, Building2, Lock, ChevronDown, HeartHandshake, BellRing, Webhook, ScrollText
+  Fingerprint, Building2, Lock, ChevronDown, HeartHandshake, BellRing, Webhook, ScrollText,
+  Eye, Smartphone
 } from 'lucide-react';
 import gydsCoinLogo from '/gyds-coin.jpg';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -49,6 +50,8 @@ const ecosystemNav: NavItem[] = [
 ];
 
 const infoNav: NavItem[] = [
+  { to: '/preview',  icon: Eye,       label: 'App Preview' },
+  { to: '/mobile',   icon: Smartphone,label: 'Mobile App' },
   { to: '/protocol', icon: FileText,  label: 'Protocol Docs', featureKey: 'docs.cli' },
   { to: '/security', icon: Shield,    label: 'Security Audit' },
   { to: '/download', icon: Download,  label: 'Download' },
