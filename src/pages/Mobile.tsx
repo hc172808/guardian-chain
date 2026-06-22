@@ -143,8 +143,26 @@ const HomeTab = () => {
   const [balanceHidden, setBalanceHidden] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const { copied, copy } = useCopy();
-  const address = '0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b';
-  const shortAddr = `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+  // Real wallet address — prefer user.walletAddress, fall back to first saved wallet
+  const [walletAddr, setWalletAddr] = useState<string>(user?.walletAddress ?? '');
+  const [recentTxReal, setRecentTxReal] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!user?.walletAddress) {
+      fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
+        if (ws?.[0]?.address) setWalletAddr(ws[0].address);
+      }).catch(() => {});
+    } else {
+      setWalletAddr(user.walletAddress);
+    }
+    fetch('/api/transactions').then(r => r.json()).then((txs: any[]) => {
+      if (Array.isArray(txs)) setRecentTxReal(txs.slice(0, 4));
+    }).catch(() => {});
+  }, [user]);
+
+  const address = walletAddr || '—';
+  const shortAddr = address.length > 10 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address;
 
   const tokens = [
     { symbol: 'GYDS', name: 'GYDSchain', balance: '12,450.00', usd: '$1,054.49', change: '+4.2%', up: true, color: 'from-primary/80 to-primary/40' },
@@ -169,12 +187,23 @@ const HomeTab = () => {
     { label: 'Validators',   value: '42',        sub: 'active',   icon: Shield,    color: 'text-cyan-400' },
   ];
 
-  const recentTx = [
+  const dummyTx = [
     { type: 'send',    label: 'Sent GYDS',      amount: '-250 GYDS',   usd: '-$21.18', time: '2m ago',  hash: '0xab12…ef34' },
     { type: 'receive', label: 'Received GYDS',  amount: '+1,000 GYDS', usd: '+$84.70', time: '1h ago',  hash: '0xcd56…gh78' },
     { type: 'swap',    label: 'Swapped → GYD',  amount: '500 GYDS',    usd: '$42.35',  time: '3h ago',  hash: '0xij90…kl12' },
     { type: 'stake',   label: 'Staked GYDS',    amount: '5,000 GYDS',  usd: '$423.50', time: '1d ago',  hash: '0xmn34…op56' },
   ];
+
+  const recentTx = recentTxReal.length > 0
+    ? recentTxReal.map((tx: any) => ({
+        type: tx.transactionType ?? tx.type ?? 'send',
+        label: tx.description ?? tx.transactionType ?? 'Transaction',
+        amount: `${tx.amount ?? ''} ${tx.tokenSymbol ?? 'GYDS'}`,
+        usd: tx.usdValue ? `$${tx.usdValue}` : '',
+        time: tx.createdAt ? new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+        hash: tx.txHash ? `${tx.txHash.slice(0, 6)}…${tx.txHash.slice(-4)}` : '—',
+      }))
+    : dummyTx;
 
   return (
     <div className="space-y-4 pb-2">
@@ -295,9 +324,19 @@ const HomeTab = () => {
           <button onClick={() => go('/transactions')} className="text-[10px] text-primary font-medium">See all</button>
         </div>
         <div className="space-y-1.5">
-          {recentTx.map((tx, i) => (
-            <div key={i} className="flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60">
-              <div className={cn('p-2 rounded-xl',
+          {recentTx.length === 0 ? (
+            <div className="flex flex-col items-center py-6 rounded-2xl bg-card border border-border/60 text-muted-foreground">
+              <Activity className="h-7 w-7 mb-2 opacity-30" />
+              <p className="text-xs">No transactions yet</p>
+              <button onClick={() => go('/transactions')} className="mt-2 text-[10px] text-primary font-medium underline underline-offset-2">Go to Transactions →</button>
+            </div>
+          ) : recentTx.map((tx, i) => (
+            <button
+              key={i}
+              onClick={() => go('/transactions')}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-[0.98] transition-all text-left"
+            >
+              <div className={cn('p-2 rounded-xl shrink-0',
                 tx.type === 'send'    ? 'bg-red-400/10'    :
                 tx.type === 'receive' ? 'bg-green-400/10'  :
                 tx.type === 'swap'    ? 'bg-purple-400/10' : 'bg-cyan-400/10'
@@ -306,19 +345,20 @@ const HomeTab = () => {
                 {tx.type === 'receive' && <ArrowDown      className="h-4 w-4 text-green-400" />}
                 {tx.type === 'swap'    && <ArrowLeftRight className="h-4 w-4 text-purple-400" />}
                 {tx.type === 'stake'   && <TrendingUp     className="h-4 w-4 text-cyan-400" />}
+                {!['send','receive','swap','stake'].includes(tx.type) && <Activity className="h-4 w-4 text-muted-foreground" />}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">{tx.label}</p>
-                <p className="text-[10px] text-muted-foreground font-mono">{tx.hash} · {tx.time}</p>
+                <p className="text-sm font-medium truncate">{tx.label}</p>
+                <p className="text-[10px] text-muted-foreground font-mono truncate">{tx.hash} · {tx.time}</p>
               </div>
-              <div className="text-right">
+              <div className="text-right shrink-0">
                 <p className={cn('text-sm font-semibold',
                   tx.type === 'send' ? 'text-red-400' :
                   tx.type === 'receive' ? 'text-green-400' : 'text-foreground'
                 )}>{tx.amount}</p>
-                <p className="text-[10px] text-muted-foreground">{tx.usd}</p>
+                {tx.usd && <p className="text-[10px] text-muted-foreground">{tx.usd}</p>}
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -485,8 +525,21 @@ const DefiTab = () => {
 // ── Wallet Tab ────────────────────────────────────────────────────────────────
 const WalletTab = () => {
   const go = useMobileNavigate();
+  const { user } = useAuth();
   const { copied, copy } = useCopy();
-  const address = '0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b';
+  const [walletAddr, setWalletAddr] = useState<string>(user?.walletAddress ?? '');
+
+  useEffect(() => {
+    if (!user?.walletAddress) {
+      fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
+        if (ws?.[0]?.address) setWalletAddr(ws[0].address);
+      }).catch(() => {});
+    } else {
+      setWalletAddr(user.walletAddress);
+    }
+  }, [user]);
+
+  const address = walletAddr || '—';
 
   const assets = [
     { symbol: 'GYDS', name: 'GYDSchain', balance: '12,450.00', usd: '$1,054.49', change: '+4.2%', up: true,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10' },
@@ -516,7 +569,9 @@ const WalletTab = () => {
           onClick={() => copy(address)}
           className="w-full flex items-center justify-between bg-background/60 rounded-xl px-3 py-2.5 text-xs font-mono"
         >
-          <span className="text-muted-foreground truncate">{address.slice(0, 20)}…{address.slice(-6)}</span>
+          <span className="text-muted-foreground truncate font-mono">
+            {address.length > 26 ? `${address.slice(0, 20)}…${address.slice(-6)}` : address}
+          </span>
           {copied ? <Check className="h-3.5 w-3.5 text-green-400 shrink-0" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
         </button>
 
