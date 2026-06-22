@@ -49,6 +49,7 @@ import PressKitPage from "./pages/PressKit";
 import BlogPage from "./pages/Blog";
 import TrustPage from "./pages/Trust";
 import PreviewPage from "./pages/Preview";
+import SetupPage from "./pages/Setup";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -141,6 +142,7 @@ const AppContent = () => {
       <Route path="/cli" element={<CliReferencePage />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/profile" element={<ProfilePage />} />
+      <Route path="/setup" element={<SetupPage />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
     </>

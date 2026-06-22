@@ -3278,4 +3278,117 @@ export function registerRoutes(app: Express) {
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+
+  // ─── Setup Wizard ────────────────────────────────────────────────────────────
+
+  function readEnvFile(): Record<string, string> {
+    const envPath = path.resolve('.env');
+    if (!fs.existsSync(envPath)) return {};
+    const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+    const result: Record<string, string> = {};
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const val = trimmed.slice(eqIdx + 1).trim();
+      result[key] = val;
+    }
+    return result;
+  }
+
+  function writeEnvFile(values: Record<string, string>): void {
+    const envPath = path.resolve('.env');
+    const existing = readEnvFile();
+    const merged = { ...existing, ...values };
+    const lines = Object.entries(merged).map(([k, v]) => `${k}=${v}`);
+    fs.writeFileSync(envPath, lines.join('\n') + '\n', 'utf8');
+  }
+
+  const SETUP_READABLE_KEYS = [
+    'APP_URL', 'DOMAIN', 'SUBDOMAIN', 'PORT', 'NODE_ENV',
+    'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_FROM',
+    'TELEGRAM_CHAT_ID',
+    'GITHUB_WEBHOOK_SECRET',
+    'SETUP_COMPLETE',
+  ];
+  const SETUP_SECRET_KEYS = [
+    'DATABASE_URL', 'SESSION_SECRET', 'SMTP_PASS', 'TELEGRAM_BOT_TOKEN',
+    'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY',
+  ];
+
+  app.get('/api/setup/status', requireAdmin, (_req, res) => {
+    try {
+      const env = readEnvFile();
+      const values: Record<string, string> = {};
+      for (const k of SETUP_READABLE_KEYS) {
+        values[k] = process.env[k] ?? env[k] ?? '';
+      }
+      for (const k of SETUP_SECRET_KEYS) {
+        const v = process.env[k] ?? env[k] ?? '';
+        values[k] = v ? '••••••••' : '';
+      }
+      // Always expose DATABASE_URL masked but let frontend know it's set
+      res.json({
+        setupComplete: (process.env.SETUP_COMPLETE ?? env['SETUP_COMPLETE']) === 'true',
+        values,
+        keysSet: {
+          DATABASE_URL: !!(process.env.DATABASE_URL ?? env['DATABASE_URL']),
+          SESSION_SECRET: !!(process.env.SESSION_SECRET ?? env['SESSION_SECRET']),
+          SMTP_PASS: !!(process.env.SMTP_PASS ?? env['SMTP_PASS']),
+          TELEGRAM_BOT_TOKEN: !!(process.env.TELEGRAM_BOT_TOKEN ?? env['TELEGRAM_BOT_TOKEN']),
+        }
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/setup/test-db', requireAdmin, async (req, res) => {
+    const { url } = req.body as { url?: string };
+    if (!url) return res.status(400).json({ ok: false, error: 'No DATABASE_URL provided' });
+    const { Pool: TestPool } = await import('pg');
+    const testPool = new TestPool({ connectionString: url, connectionTimeoutMillis: 5000 });
+    try {
+      const { rows } = await testPool.query('SELECT version()');
+      const version = rows[0]?.version?.split(' ').slice(0, 2).join(' ') ?? 'PostgreSQL';
+      res.json({ ok: true, version });
+    } catch (e: any) {
+      res.json({ ok: false, error: e.message });
+    } finally {
+      await testPool.end().catch(() => {});
+    }
+  });
+
+  app.post('/api/setup/save', requireAdmin, async (req, res) => {
+    try {
+      const allowed = new Set([
+        'APP_URL', 'DOMAIN', 'SUBDOMAIN', 'PORT', 'NODE_ENV',
+        'DATABASE_URL', 'SESSION_SECRET',
+        'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM',
+        'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID',
+        'GITHUB_WEBHOOK_SECRET',
+        'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY',
+        'SETUP_COMPLETE',
+      ]);
+      const toSave: Record<string, string> = {};
+      for (const [k, v] of Object.entries(req.body as Record<string, string>)) {
+        if (!allowed.has(k)) continue;
+        // Skip masked placeholder values — don't overwrite existing secrets
+        if (typeof v === 'string' && v.trim() && !v.startsWith('••')) {
+          toSave[k] = v.trim();
+        }
+      }
+      toSave['SETUP_COMPLETE'] = 'true';
+      writeEnvFile(toSave);
+      // Apply to current process so changes take effect without restart where possible
+      for (const [k, v] of Object.entries(toSave)) {
+        process.env[k] = v;
+      }
+      res.json({ ok: true, saved: Object.keys(toSave) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/setup/generate-secret', requireAdmin, (_req, res) => {
+    res.json({ value: crypto.randomBytes(32).toString('hex') });
+  });
 }

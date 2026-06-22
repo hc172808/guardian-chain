@@ -678,10 +678,16 @@ const AdminContent = () => {
           </h1>
           <p className="text-muted-foreground mt-2">Manage users and approve node installations</p>
         </div>
-        <Button variant="outline" onClick={fetchData} className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => navigate('/setup')} className="gap-2">
+            <TerminalIcon className="h-4 w-4" />
+            Setup Wizard
+          </Button>
+          <Button variant="outline" onClick={fetchData} className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
