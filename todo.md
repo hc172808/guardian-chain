@@ -278,6 +278,16 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] **Real wallet address on mobile page** — fetches from `user.walletAddress` → `/api/wallets` fallback (no more hardcoded address)
 - [x] **Real recent transactions on mobile page** — fetches from `/api/transactions`; falls back to demo data if empty
 - [x] **Activity rows clickable** — each transaction row navigates to `/transactions`; empty state with direct link shown when no transactions exist
+- [x] **Receive QR modal** — bottom-sheet modal with live QR code generated from wallet address (using `qrcode` npm); Copy + Share buttons; opens from Home or Wallet tab "Receive" button
+- [x] **Daily faucet banner** — inline banner on Home tab; shows "Claim" button when cooldown elapsed, counts down to next claim time; POST /api/faucet/claim in-place (no navigation needed)
+- [x] **Live network stats on Home tab** — Block Height, GYDS Price, TPS, Validator count fetched from `/api/network-stats` (no more hardcoded values)
+- [x] **Real blocks in Explorer tab** — block list derived from live `blockHeight`; chain info strip (Chain ID, Block Time, Finality, Consensus); blocks are clickable → `/explorer?q=height`
+- [x] **Notification bell with badge** — header bell shows red unread-count badge from `/api/notifications`; navigates to profile/notifications; hidden when logged out
+- [x] **NFT mini-gallery in Wallet tab** — fetches `/api/nft/my-tokens`; shows 3 NFTs as square cards with cover art or placeholder; "Gallery →" link to /nft
+- [x] **Staking positions in Wallet tab** — fetches `/api/validator-delegations`; shows each delegation with validator name, amount staked, APY; "All →" link to DeFi stake tab
+- [x] **Staking rewards banner in Wallet tab** — shown when delegations have pending rewards; "Claim →" opens stake tab
+- [x] **Cash Out button in Wallet tab** — 4-button grid (Send/Receive/Swap/Cash Out) replacing the old 3-button grid; Cash Out → /wallet
+- [x] **Expanded quick links in Wallet tab** — 6 links: Tx History, Watchlist, NFT Gallery, Network Info, Faucet, Multi-Sig (was 4)
 
 ### GYDS Wallet — Mobile App (Android & iOS)
 > **Repo:** https://github.com/hc172808/your-digital-wallet

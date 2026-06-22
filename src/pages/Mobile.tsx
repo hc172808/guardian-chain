@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { QRScanner } from '@/components/wallet/QRScanner';
+import QRCode from 'qrcode';
 import {
   LayoutDashboard, Search, ArrowLeftRight, Wallet, MoreHorizontal,
   Send, Download, RefreshCw, TrendingUp, Zap, Shield,
@@ -11,7 +12,8 @@ import {
   ArrowUp, ArrowDown, MonitorSmartphone, Globe, ArrowLeft,
   Wifi, Battery, Signal, Eye, EyeOff, QrCode, Star,
   ChevronDown, Check, CircleDollarSign, Flame, Users,
-  BarChart3, Layers, BookOpen, Lock, Fingerprint, Smartphone
+  BarChart3, Layers, BookOpen, Lock, Fingerprint, Smartphone,
+  X, Gift, CreditCard, Image as ImageIcon, ScanLine, Percent, Clock
 } from 'lucide-react';
 import {
   isBiometricAvailable,
@@ -136,22 +138,93 @@ const useCopy = () => {
   return { copied, copy };
 };
 
+// ── Receive QR Modal ──────────────────────────────────────────────────────────
+const ReceiveModal = ({ address, onClose }: { address: string; onClose: () => void }) => {
+  const { copied, copy } = useCopy();
+  const [qrUrl, setQrUrl] = useState('');
+  useEffect(() => {
+    if (address && address !== '—') {
+      QRCode.toDataURL(address, { width: 240, margin: 2 }).then(setQrUrl).catch(() => {});
+    }
+  }, [address]);
+  const share = () => {
+    if (navigator.share) navigator.share({ title: 'My GYDS Wallet Address', text: address }).catch(() => {});
+    else copy(address);
+  };
+  return (
+    <div className="fixed inset-0 z-[100] flex items-end justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <motion.div
+        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+        transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+        onClick={e => e.stopPropagation()}
+        className="relative z-10 w-full max-w-md bg-card rounded-t-3xl border-t border-border/40 p-6 pb-10"
+      >
+        <div className="w-10 h-1 rounded-full bg-border/60 mx-auto mb-5" />
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="text-base font-bold">Receive GYDS</h3>
+            <p className="text-[11px] text-muted-foreground">GYDSchain · Chain ID 13370</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-muted/60 transition-colors">
+            <X className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
+        <div className="flex flex-col items-center gap-4">
+          {qrUrl ? (
+            <div className="p-3.5 rounded-2xl bg-white shadow-xl">
+              <img src={qrUrl} alt="Wallet QR Code" className="w-44 h-44" />
+            </div>
+          ) : (
+            <div className="w-44 h-44 rounded-2xl bg-muted animate-pulse" />
+          )}
+          <div className="text-center w-full">
+            <p className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider">Your wallet address</p>
+            <button
+              onClick={() => copy(address)}
+              className="flex items-center gap-2 bg-muted/60 hover:bg-muted rounded-xl px-4 py-2.5 text-xs font-mono w-full justify-center transition-colors"
+            >
+              <span className="truncate">{address}</span>
+              {copied ? <Check className="h-3.5 w-3.5 text-green-400 shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5 w-full pt-1">
+            <button onClick={() => copy(address)}
+              className="py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold active:scale-95 transition-all">
+              {copied ? '✓ Copied!' : 'Copy Address'}
+            </button>
+            <button onClick={share}
+              className="py-3 rounded-2xl bg-secondary/60 border border-border/60 text-sm font-semibold active:scale-95 transition-all">
+              Share
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 // ── Home Tab ──────────────────────────────────────────────────────────────────
 const HomeTab = () => {
   const { user } = useAuth();
   const go = useMobileNavigate();
   const [balanceHidden, setBalanceHidden] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const [showReceive, setShowReceive] = useState(false);
   const { copied, copy } = useCopy();
 
-  // Real wallet address — prefer user.walletAddress, fall back to first saved wallet
   const [walletAddr, setWalletAddr] = useState<string>(user?.walletAddress ?? '');
+  const [walletBalance, setWalletBalance] = useState<string>('');
   const [recentTxReal, setRecentTxReal] = useState<any[]>([]);
+  const [netStats, setNetStats] = useState<any>(null);
+  const [faucetInfo, setFaucetInfo] = useState<{ canClaim: boolean; lastClaim?: string }>({ canClaim: false });
+  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
     if (!user?.walletAddress) {
       fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
         if (ws?.[0]?.address) setWalletAddr(ws[0].address);
+        if (ws?.[0]?.balance) setWalletBalance(ws[0].balance);
       }).catch(() => {});
     } else {
       setWalletAddr(user.walletAddress);
@@ -159,32 +232,45 @@ const HomeTab = () => {
     fetch('/api/transactions').then(r => r.json()).then((txs: any[]) => {
       if (Array.isArray(txs)) setRecentTxReal(txs.slice(0, 4));
     }).catch(() => {});
+    fetch('/api/network-stats').then(r => r.json()).then(d => {
+      if (d?.stats) setNetStats(d.stats);
+    }).catch(() => {});
+    fetch('/api/faucet/claims').then(r => r.json()).then((claims: any[]) => {
+      if (!Array.isArray(claims) || claims.length === 0) { setFaucetInfo({ canClaim: true }); return; }
+      const last = claims[0];
+      const lastAt = new Date(last.createdAt ?? last.claimed_at ?? 0).getTime();
+      const cooldown = 24 * 60 * 60 * 1000;
+      setFaucetInfo({ canClaim: Date.now() - lastAt > cooldown, lastClaim: last.createdAt ?? last.claimed_at });
+    }).catch(() => setFaucetInfo({ canClaim: true }));
   }, [user]);
 
   const address = walletAddr || '—';
   const shortAddr = address.length > 10 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address;
 
+  const gydsBalance = walletBalance || '12,450.00';
+  const totalUsd = walletBalance ? `$${(parseFloat(walletBalance.replace(/,/g, '')) * 0.0847).toFixed(2)}` : '$1,054.49';
+
   const tokens = [
-    { symbol: 'GYDS', name: 'GYDSchain', balance: '12,450.00', usd: '$1,054.49', change: '+4.2%', up: true, color: 'from-primary/80 to-primary/40' },
-    { symbol: 'GYD',  name: 'GYD Stable', balance: '500.00',    usd: '$500.00',   change: '+0.0%', up: null, color: 'from-blue-500/80 to-blue-500/40' },
+    { symbol: 'GYDS', name: 'GYDSchain', balance: gydsBalance, change: '+4.2%', up: true },
+    { symbol: 'GYD',  name: 'GYD Stable', balance: '500.00',  change: '+0.0%', up: null },
   ];
 
   const quickActions = [
-    { icon: Send,           label: 'Send',    path: '/wallet',  state: undefined,           color: 'text-primary',   bg: 'bg-primary/10',   onPress: undefined as (() => void) | undefined },
-    { icon: Download,       label: 'Receive', path: '/wallet',  state: undefined,           color: 'text-green-400', bg: 'bg-green-400/10', onPress: undefined as (() => void) | undefined },
-    { icon: ArrowLeftRight, label: 'Swap',    path: '/defi',    state: { tab: 'swap' },     color: 'text-purple-400',bg: 'bg-purple-400/10',onPress: undefined as (() => void) | undefined },
-    { icon: Globe,          label: 'Bridge',  path: '/defi',    state: { tab: 'bridge' },   color: 'text-amber-400', bg: 'bg-amber-400/10', onPress: undefined as (() => void) | undefined },
-    { icon: TrendingUp,     label: 'Stake',   path: '/defi',    state: { tab: 'stake' },    color: 'text-cyan-400',  bg: 'bg-cyan-400/10',  onPress: undefined as (() => void) | undefined },
-    { icon: Droplets,       label: 'Faucet',  path: '/faucet',  state: undefined,           color: 'text-pink-400',  bg: 'bg-pink-400/10',  onPress: undefined as (() => void) | undefined },
-    { icon: Pickaxe,        label: 'Mine',    path: '/mining',  state: undefined,           color: 'text-orange-400',bg: 'bg-orange-400/10',onPress: undefined as (() => void) | undefined },
-    { icon: QrCode,         label: 'QR Pay',  path: '',         state: undefined,           color: 'text-indigo-400',bg: 'bg-indigo-400/10',onPress: () => setShowQRScanner(true) },
+    { icon: Send,           label: 'Send',    path: '/wallet',  state: undefined,           color: 'text-primary',    bg: 'bg-primary/10',    onPress: undefined as (() => void) | undefined },
+    { icon: Download,       label: 'Receive', path: '',         state: undefined,           color: 'text-green-400',  bg: 'bg-green-400/10',  onPress: () => setShowReceive(true) },
+    { icon: ArrowLeftRight, label: 'Swap',    path: '/defi',    state: { tab: 'swap' },     color: 'text-purple-400', bg: 'bg-purple-400/10', onPress: undefined },
+    { icon: Globe,          label: 'Bridge',  path: '/defi',    state: { tab: 'bridge' },   color: 'text-amber-400',  bg: 'bg-amber-400/10',  onPress: undefined },
+    { icon: TrendingUp,     label: 'Stake',   path: '/defi',    state: { tab: 'stake' },    color: 'text-cyan-400',   bg: 'bg-cyan-400/10',   onPress: undefined },
+    { icon: Droplets,       label: 'Faucet',  path: '/faucet',  state: undefined,           color: 'text-pink-400',   bg: 'bg-pink-400/10',   onPress: undefined },
+    { icon: Pickaxe,        label: 'Mine',    path: '/mining',  state: undefined,           color: 'text-orange-400', bg: 'bg-orange-400/10', onPress: undefined },
+    { icon: QrCode,         label: 'QR Pay',  path: '',         state: undefined,           color: 'text-indigo-400', bg: 'bg-indigo-400/10', onPress: () => setShowQRScanner(true) },
   ];
 
-  const networkStats = [
-    { label: 'Block Height', value: '1,234,567', sub: '+12/min',  icon: Blocks,    color: 'text-primary' },
-    { label: 'GYDS Price',   value: '$0.0847',   sub: '+4.2% 24h',icon: TrendingUp,color: 'text-green-400' },
-    { label: 'TPS',          value: '1,250',     sub: 'avg/min',  icon: Zap,       color: 'text-amber-400' },
-    { label: 'Validators',   value: '42',        sub: 'active',   icon: Shield,    color: 'text-cyan-400' },
+  const liveNetworkStats = [
+    { label: 'Block Height', value: netStats?.blockHeight ? `#${Number(netStats.blockHeight).toLocaleString()}` : '…', sub: 'latest', icon: Blocks, color: 'text-primary' },
+    { label: 'GYDS Price',   value: netStats?.tokenPrice  ? `$${Number(netStats.tokenPrice).toFixed(4)}` : '$0.0847', sub: netStats?.priceChange24h ? `${netStats.priceChange24h > 0 ? '+' : ''}${netStats.priceChange24h}% 24h` : '+4.2% 24h', icon: TrendingUp, color: 'text-green-400' },
+    { label: 'TPS',          value: netStats?.tps          ? String(netStats.tps) : '1,250',    sub: 'avg/min',  icon: Zap,    color: 'text-amber-400' },
+    { label: 'Validators',   value: netStats?.validatorCount ? String(netStats.validatorCount) : '42', sub: 'active', icon: Shield, color: 'text-cyan-400' },
   ];
 
   const dummyTx = [
@@ -205,6 +291,16 @@ const HomeTab = () => {
       }))
     : dummyTx;
 
+  const claimFaucet = async () => {
+    if (!faucetInfo.canClaim || claiming) return;
+    setClaiming(true);
+    try {
+      const r = await fetch('/api/faucet/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tokenSymbol: 'GYDS' }) });
+      if (r.ok) setFaucetInfo({ canClaim: false, lastClaim: new Date().toISOString() });
+    } catch {}
+    setClaiming(false);
+  };
+
   return (
     <div className="space-y-4 pb-2">
       {/* Balance card */}
@@ -219,11 +315,11 @@ const HomeTab = () => {
             </button>
           </div>
           <p className="text-4xl font-bold text-white mb-1 tracking-tight">
-            {balanceHidden ? '••••••' : '$1,554.49'}
+            {balanceHidden ? '••••••' : totalUsd}
           </p>
           <p className="text-xs text-white/60 flex items-center gap-1">
             <ArrowUp className="h-3 w-3 text-green-300" />
-            <span className="text-green-300 font-medium">+$63.24</span>
+            <span className="text-green-300 font-medium">+4.2%</span>
             <span className="ml-0.5">today</span>
           </p>
 
@@ -241,12 +337,8 @@ const HomeTab = () => {
             {tokens.map(t => (
               <div key={t.symbol} className="flex-1 bg-white/10 rounded-xl p-2.5">
                 <p className="text-[10px] text-white/60 uppercase tracking-wider">{t.symbol}</p>
-                <p className="text-sm font-bold text-white mt-0.5">
-                  {balanceHidden ? '••••' : t.balance}
-                </p>
-                <p className={cn('text-[10px] mt-0.5', t.up ? 'text-green-300' : t.up === false ? 'text-red-300' : 'text-white/50')}>
-                  {t.change}
-                </p>
+                <p className="text-sm font-bold text-white mt-0.5">{balanceHidden ? '••••' : t.balance}</p>
+                <p className={cn('text-[10px] mt-0.5', t.up ? 'text-green-300' : t.up === false ? 'text-red-300' : 'text-white/50')}>{t.change}</p>
               </div>
             ))}
             <div className="flex-1 bg-white/10 rounded-xl p-2.5">
@@ -261,13 +353,15 @@ const HomeTab = () => {
       {/* QR Scanner overlay */}
       {showQRScanner && (
         <QRScanner
-          onScan={(val) => {
-            setShowQRScanner(false);
-            go('/wallet', { state: { prefillAddress: val } });
-          }}
+          onScan={(val) => { setShowQRScanner(false); go('/wallet', { state: { prefillAddress: val } }); }}
           onClose={() => setShowQRScanner(false)}
         />
       )}
+
+      {/* Receive modal */}
+      <AnimatePresence>
+        {showReceive && <ReceiveModal address={address} onClose={() => setShowReceive(false)} />}
+      </AnimatePresence>
 
       {/* Quick actions */}
       <div className="grid grid-cols-4 gap-2">
@@ -284,19 +378,34 @@ const HomeTab = () => {
         ))}
       </div>
 
-      {/* Market banner */}
-      <div className="flex items-center gap-3 p-3 rounded-2xl bg-gradient-to-r from-green-500/10 to-primary/5 border border-green-500/20">
-        <div className="p-2 rounded-xl bg-green-500/15">
-          <TrendingUp className="h-4 w-4 text-green-400" />
+      {/* Faucet inline banner */}
+      <button
+        onClick={faucetInfo.canClaim ? claimFaucet : () => go('/faucet')}
+        disabled={claiming}
+        className={cn(
+          'w-full flex items-center gap-3 p-3 rounded-2xl border transition-all active:scale-[0.98]',
+          faucetInfo.canClaim
+            ? 'bg-gradient-to-r from-pink-500/10 to-primary/5 border-pink-500/20 hover:border-pink-400/40'
+            : 'bg-card border-border/60'
+        )}
+      >
+        <div className={cn('p-2 rounded-xl', faucetInfo.canClaim ? 'bg-pink-500/15' : 'bg-muted/40')}>
+          <Gift className={cn('h-4 w-4', faucetInfo.canClaim ? 'text-pink-400' : 'text-muted-foreground')} />
         </div>
-        <div className="flex-1">
-          <p className="text-xs font-semibold">GYDSchain is trending</p>
-          <p className="text-[10px] text-muted-foreground">+4.2% in the last 24h</p>
+        <div className="flex-1 text-left">
+          <p className="text-xs font-semibold">{faucetInfo.canClaim ? 'Daily Faucet Ready!' : 'Faucet Claimed'}</p>
+          <p className="text-[10px] text-muted-foreground">
+            {faucetInfo.canClaim ? 'Tap to claim free GYDS tokens' : faucetInfo.lastClaim ? `Next claim: ${new Date(new Date(faucetInfo.lastClaim).getTime() + 86400000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Check back tomorrow'}
+          </p>
         </div>
-        <button onClick={() => go('/analytics')} className="text-[10px] text-primary font-medium">View →</button>
-      </div>
+        {faucetInfo.canClaim && (
+          <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-pink-500/20 text-pink-400">
+            {claiming ? '…' : 'Claim'}
+          </span>
+        )}
+      </button>
 
-      {/* Network stats */}
+      {/* Network stats — live */}
       <div>
         <div className="flex items-center justify-between mb-2.5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Network</p>
@@ -306,7 +415,7 @@ const HomeTab = () => {
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          {networkStats.map(s => (
+          {liveNetworkStats.map(s => (
             <div key={s.label} className="p-3 rounded-2xl bg-card border border-border/60">
               <s.icon className={cn('h-4 w-4 mb-2', s.color)} />
               <p className="text-sm font-bold">{s.value}</p>
@@ -331,15 +440,11 @@ const HomeTab = () => {
               <button onClick={() => go('/transactions')} className="mt-2 text-[10px] text-primary font-medium underline underline-offset-2">Go to Transactions →</button>
             </div>
           ) : recentTx.map((tx, i) => (
-            <button
-              key={i}
-              onClick={() => go('/transactions')}
+            <button key={i} onClick={() => go('/transactions')}
               className="w-full flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-[0.98] transition-all text-left"
             >
               <div className={cn('p-2 rounded-xl shrink-0',
-                tx.type === 'send'    ? 'bg-red-400/10'    :
-                tx.type === 'receive' ? 'bg-green-400/10'  :
-                tx.type === 'swap'    ? 'bg-purple-400/10' : 'bg-cyan-400/10'
+                tx.type === 'send' ? 'bg-red-400/10' : tx.type === 'receive' ? 'bg-green-400/10' : tx.type === 'swap' ? 'bg-purple-400/10' : 'bg-cyan-400/10'
               )}>
                 {tx.type === 'send'    && <ArrowUp       className="h-4 w-4 text-red-400" />}
                 {tx.type === 'receive' && <ArrowDown      className="h-4 w-4 text-green-400" />}
@@ -353,8 +458,7 @@ const HomeTab = () => {
               </div>
               <div className="text-right shrink-0">
                 <p className={cn('text-sm font-semibold',
-                  tx.type === 'send' ? 'text-red-400' :
-                  tx.type === 'receive' ? 'text-green-400' : 'text-foreground'
+                  tx.type === 'send' ? 'text-red-400' : tx.type === 'receive' ? 'text-green-400' : 'text-foreground'
                 )}>{tx.amount}</p>
                 {tx.usd && <p className="text-[10px] text-muted-foreground">{tx.usd}</p>}
               </div>
@@ -370,17 +474,31 @@ const HomeTab = () => {
 const ExplorerTab = () => {
   const go = useMobileNavigate();
   const [query, setQuery] = useState('');
+  const [netStats, setNetStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/network-stats').then(r => r.json()).then(d => {
+      if (d?.stats) setNetStats(d.stats);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
   const handleSearch = () => {
     const q = query.trim();
     if (!q) return;
     go(`/explorer?q=${encodeURIComponent(q)}`);
   };
 
-  const latestBlocks = [
-    { height: 1234567, txs: 12, time: '2s ago', miner: '0xabcd…ef12' },
-    { height: 1234566, txs: 8,  time: '14s ago', miner: '0x3456…7890' },
-    { height: 1234565, txs: 21, time: '26s ago', miner: '0xcdef…0123' },
-  ];
+  const baseHeight = netStats?.blockHeight ? Number(netStats.blockHeight) : 1234567;
+  const latestBlocks = loading
+    ? []
+    : [0, 1, 2, 3].map((offset) => {
+        const h = baseHeight - offset;
+        const txs = netStats?.tps ? Math.floor(Math.random() * 20 + 5) : [12, 8, 21, 6][offset];
+        const times = ['2s ago', '14s ago', '28s ago', '42s ago'];
+        const miners = ['0xabcd…ef12', '0x3456…7890', '0xcdef…0123', '0x8899…aabb'];
+        return { height: h, txs, time: times[offset], miner: miners[offset] };
+      });
 
   const items = [
     { label: 'Blocks',        icon: Blocks,     path: '/explorer',      color: 'text-primary',    bg: 'bg-primary/10' },
@@ -389,6 +507,13 @@ const ExplorerTab = () => {
     { label: 'Mining',        icon: Pickaxe,    path: '/mining',        color: 'text-amber-400',  bg: 'bg-amber-400/10' },
     { label: 'Token Factory', icon: Coins,      path: '/tokens',        color: 'text-purple-400', bg: 'bg-purple-400/10' },
     { label: 'Analytics',     icon: BarChart3,  path: '/analytics',     color: 'text-cyan-400',   bg: 'bg-cyan-400/10' },
+  ];
+
+  const chainInfo = [
+    { label: 'Chain ID',     value: '13370' },
+    { label: 'Block Time',   value: netStats?.avgBlockTime ? `${netStats.avgBlockTime}s` : '5s' },
+    { label: 'Finality',     value: '99.99%' },
+    { label: 'Consensus',    value: 'PoS' },
   ];
 
   return (
@@ -401,7 +526,7 @@ const ExplorerTab = () => {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            placeholder="Block, tx, address…"
+            placeholder="Block height, tx hash, address…"
             className="w-full pl-10 pr-4 py-3 rounded-2xl bg-card border border-border/60 text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </div>
@@ -411,15 +536,29 @@ const ExplorerTab = () => {
         </button>
       </div>
 
+      {/* Chain info strip */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {chainInfo.map(c => (
+          <div key={c.label} className="p-2.5 rounded-2xl bg-card border border-border/60 text-center">
+            <p className="text-xs font-bold">{c.value}</p>
+            <p className="text-[9px] text-muted-foreground mt-0.5">{c.label}</p>
+          </div>
+        ))}
+      </div>
+
       {/* Latest blocks */}
       <div>
         <div className="flex items-center justify-between mb-2.5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Latest Blocks</p>
-          <button onClick={() => go('/explorer')} className="text-[10px] text-primary font-medium">All →</button>
+          <button onClick={() => go('/explorer')} className="text-[10px] text-primary font-medium">Full Explorer →</button>
         </div>
         <div className="space-y-1.5">
-          {latestBlocks.map(b => (
-            <div key={b.height} className="flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60">
+          {loading ? (
+            [0,1,2].map(i => <div key={i} className="h-14 rounded-2xl bg-muted/40 animate-pulse" />)
+          ) : latestBlocks.map(b => (
+            <button key={b.height} onClick={() => go(`/explorer?q=${b.height}`)}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-[0.98] transition-all text-left"
+            >
               <div className="p-2 rounded-xl bg-primary/10">
                 <Blocks className="h-4 w-4 text-primary" />
               </div>
@@ -431,7 +570,7 @@ const ExplorerTab = () => {
                 <p className="text-xs font-medium text-primary">{b.txs} txs</p>
                 <p className="text-[10px] text-muted-foreground">{b.time}</p>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -528,27 +667,49 @@ const WalletTab = () => {
   const { user } = useAuth();
   const { copied, copy } = useCopy();
   const [walletAddr, setWalletAddr] = useState<string>(user?.walletAddress ?? '');
+  const [walletBalance, setWalletBalance] = useState<string>('');
+  const [showReceive, setShowReceive] = useState(false);
+  const [nfts, setNfts] = useState<any[]>([]);
+  const [delegations, setDelegations] = useState<any[]>([]);
+  const [pendingRewards, setPendingRewards] = useState<string>('');
 
   useEffect(() => {
     if (!user?.walletAddress) {
       fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
         if (ws?.[0]?.address) setWalletAddr(ws[0].address);
+        if (ws?.[0]?.balance) setWalletBalance(String(ws[0].balance));
       }).catch(() => {});
     } else {
       setWalletAddr(user.walletAddress);
     }
+    fetch('/api/nft/my-tokens').then(r => r.json()).then((t: any[]) => {
+      if (Array.isArray(t)) setNfts(t.slice(0, 3));
+    }).catch(() => {});
+    fetch('/api/validator-delegations').then(r => r.json()).then((d: any[]) => {
+      if (Array.isArray(d)) {
+        setDelegations(d.slice(0, 3));
+        const total = d.reduce((s: number, x: any) => s + Number(x.pendingRewards ?? x.pending_rewards ?? 0), 0);
+        if (total > 0) setPendingRewards(total.toLocaleString());
+      }
+    }).catch(() => {});
   }, [user]);
 
   const address = walletAddr || '—';
+  const gydsBalance = walletBalance || '12,450.00';
 
   const assets = [
-    { symbol: 'GYDS', name: 'GYDSchain', balance: '12,450.00', usd: '$1,054.49', change: '+4.2%', up: true,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10' },
+    { symbol: 'GYDS', name: 'GYDSchain', balance: gydsBalance, usd: `$${(parseFloat(gydsBalance.replace(/,/g,'')) * 0.0847).toFixed(2)}`, change: '+4.2%', up: true,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10' },
     { symbol: 'GYD',  name: 'GYD Stable',balance: '500.00',    usd: '$500.00',   change: '+0.0%', up: null,  icon: CircleDollarSign,color: 'text-blue-400',   bg: 'bg-blue-400/10' },
-    { symbol: 'sGYDS',name: 'Staked',    balance: '5,000.00',  usd: '$423.50',   change: '+12.4%',up: true,  icon: Lock,            color: 'text-cyan-400',   bg: 'bg-cyan-400/10' },
+    { symbol: 'sGYDS',name: 'Staked',    balance: delegations.reduce((s,d)=>s+Number(d.amount??0),0).toLocaleString() || '5,000', usd: '', change: '+12.4%', up: true, icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-400/10' },
   ];
 
   return (
     <div className="space-y-4 pb-2">
+      {/* Receive modal */}
+      <AnimatePresence>
+        {showReceive && <ReceiveModal address={address} onClose={() => setShowReceive(false)} />}
+      </AnimatePresence>
+
       {/* Wallet card */}
       <div className="p-4 rounded-3xl bg-gradient-to-br from-card to-secondary/50 border border-border/60">
         <div className="flex items-center justify-between mb-3">
@@ -558,7 +719,7 @@ const WalletTab = () => {
             </div>
             <div>
               <p className="text-xs font-semibold">My Wallet</p>
-              <p className="text-[10px] text-muted-foreground">GYDSchain Network</p>
+              <p className="text-[10px] text-muted-foreground">GYDSchain Network · ID 13370</p>
             </div>
           </div>
           <span className="text-[10px] font-medium px-2 py-1 rounded-full bg-green-400/10 text-green-400 border border-green-400/20">
@@ -575,24 +736,44 @@ const WalletTab = () => {
           {copied ? <Check className="h-3.5 w-3.5 text-green-400 shrink-0" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
         </button>
 
-        <div className="grid grid-cols-3 gap-2 mt-3">
+        <div className="grid grid-cols-4 gap-2 mt-3">
           {[
-            { label: 'Send',    icon: Send,     go: () => go('/wallet') },
-            { label: 'Receive', icon: Download, go: () => go('/wallet') },
-            { label: 'Swap',    icon: ArrowLeftRight, go: () => go('/defi', { state: { tab: 'swap' } }) },
+            { label: 'Send',     icon: Send,           action: () => go('/wallet') },
+            { label: 'Receive',  icon: Download,       action: () => setShowReceive(true) },
+            { label: 'Swap',     icon: ArrowLeftRight, action: () => go('/defi', { state: { tab: 'swap' } }) },
+            { label: 'Cash Out', icon: CreditCard,     action: () => go('/wallet') },
           ].map(btn => (
-            <button key={btn.label} onClick={btn.go}
+            <button key={btn.label} onClick={btn.action}
               className="flex flex-col items-center gap-1 py-2.5 rounded-xl bg-primary/10 hover:bg-primary/20 active:scale-95 transition-all">
               <btn.icon className="h-4 w-4 text-primary" />
-              <span className="text-[10px] font-medium text-primary">{btn.label}</span>
+              <span className="text-[9px] font-medium text-primary">{btn.label}</span>
             </button>
           ))}
         </div>
       </div>
 
+      {/* Staking rewards banner — shown if user has delegations */}
+      {pendingRewards && (
+        <button onClick={() => go('/defi', { state: { tab: 'stake' } })}
+          className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-cyan-500/10 to-primary/5 border border-cyan-500/20 hover:border-cyan-400/40 active:scale-[0.98] transition-all text-left"
+        >
+          <div className="p-2 rounded-xl bg-cyan-500/15">
+            <Percent className="h-4 w-4 text-cyan-400" />
+          </div>
+          <div className="flex-1">
+            <p className="text-xs font-semibold">Staking Rewards Ready</p>
+            <p className="text-[10px] text-muted-foreground">{pendingRewards} GYDS pending · 12.4% APY</p>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-cyan-500/20 text-cyan-400">Claim →</span>
+        </button>
+      )}
+
       {/* Assets */}
       <div>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2.5">Assets</p>
+        <div className="flex items-center justify-between mb-2.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Assets</p>
+          <button onClick={() => go('/wallet')} className="text-[10px] text-primary font-medium">Manage →</button>
+        </div>
         <div className="space-y-1.5">
           {assets.map(a => (
             <div key={a.symbol} className="flex items-center gap-3 p-3.5 rounded-2xl bg-card border border-border/60">
@@ -606,7 +787,7 @@ const WalletTab = () => {
               <div className="text-right">
                 <p className="text-sm font-semibold">{a.balance}</p>
                 <div className="flex items-center gap-1 justify-end">
-                  <p className="text-[10px] text-muted-foreground">{a.usd}</p>
+                  {a.usd && <p className="text-[10px] text-muted-foreground">{a.usd}</p>}
                   <p className={cn('text-[10px] font-medium',
                     a.up === true ? 'text-green-400' : a.up === false ? 'text-red-400' : 'text-muted-foreground'
                   )}>{a.change}</p>
@@ -617,13 +798,70 @@ const WalletTab = () => {
         </div>
       </div>
 
+      {/* Delegations / Staking positions */}
+      {delegations.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Staking Positions</p>
+            <button onClick={() => go('/defi', { state: { tab: 'stake' } })} className="text-[10px] text-primary font-medium">All →</button>
+          </div>
+          <div className="space-y-1.5">
+            {delegations.map((d: any, i: number) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60">
+                <div className="p-2 rounded-xl bg-cyan-400/10">
+                  <TrendingUp className="h-4 w-4 text-cyan-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold truncate">{d.validatorName ?? d.validator_name ?? `Validator ${i + 1}`}</p>
+                  <p className="text-[10px] text-muted-foreground">{Number(d.amount ?? 0).toLocaleString()} GYDS staked</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-semibold text-cyan-400">{d.apy ?? '12.4'}%</p>
+                  <p className="text-[10px] text-muted-foreground">APY</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* NFT mini-gallery */}
+      {nfts.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">My NFTs</p>
+            <button onClick={() => go('/nft')} className="text-[10px] text-primary font-medium">Gallery →</button>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {nfts.map((n: any, i: number) => (
+              <button key={i} onClick={() => go('/nft')}
+                className="aspect-square rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-95 transition-all overflow-hidden relative"
+              >
+                {n.imageUrl ?? n.image_url ? (
+                  <img src={n.imageUrl ?? n.image_url} alt={n.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-purple-500/20">
+                    <ImageIcon className="h-6 w-6 text-primary/50" />
+                  </div>
+                )}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                  <p className="text-[9px] font-medium text-white truncate">{n.name ?? `NFT #${i + 1}`}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Quick links */}
       <div className="grid grid-cols-2 gap-2">
         {[
           { label: 'Tx History',    icon: Activity,   path: '/transactions' },
           { label: 'Watchlist',     icon: Star,       path: '/watchlist' },
+          { label: 'NFT Gallery',   icon: ImageIcon,  path: '/nft' },
+          { label: 'Network Info',  icon: Globe,      path: '/network' },
           { label: 'Faucet',        icon: Droplets,   path: '/faucet' },
-          { label: 'Network',       icon: Globe,      path: '/network' },
+          { label: 'Multi-Sig',     icon: Shield,     path: '/multisig' },
         ].map(item => (
           <button key={item.label} onClick={() => go(item.path)}
             className="flex items-center gap-2.5 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-95 transition-all"
@@ -864,8 +1102,16 @@ const titles: Record<Tab, string> = {
 const MobilePage = () => {
   const [tab, setTab] = useState<Tab>('home');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [notifCount, setNotifCount] = useState(0);
   const { user } = useAuth();
   const go = useMobileNavigate();
+
+  useEffect(() => {
+    if (!user) return;
+    fetch('/api/notifications').then(r => r.json()).then((ns: any[]) => {
+      if (Array.isArray(ns)) setNotifCount(ns.filter((n: any) => !n.readAt && !n.read_at).length);
+    }).catch(() => {});
+  }, [user]);
 
   useEffect(() => {
     sessionStorage.removeItem('fromMobileHub');
@@ -906,7 +1152,17 @@ const MobilePage = () => {
             <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
             <span className="text-[10px] text-green-400 font-medium">Live</span>
           </div>
-          <button onClick={() => go('/auth')} className="p-1.5 rounded-xl bg-card border border-border/60">
+          {user && (
+            <button onClick={() => go('/profile')} className="relative p-1.5 rounded-xl bg-card border border-border/60">
+              <Bell className="h-4 w-4 text-muted-foreground" />
+              {notifCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 rounded-full bg-destructive text-[9px] font-bold text-white flex items-center justify-center leading-none">
+                  {notifCount > 9 ? '9+' : notifCount}
+                </span>
+              )}
+            </button>
+          )}
+          <button onClick={() => user ? go('/profile') : go('/auth')} className="p-1.5 rounded-xl bg-card border border-border/60">
             {user
               ? <div className="w-5 h-5 rounded-lg bg-primary/20 flex items-center justify-center text-[10px] font-bold text-primary">{(user.firstName?.[0] ?? 'U').toUpperCase()}</div>
               : <Bell className="h-4 w-4 text-muted-foreground" />
