@@ -6,6 +6,7 @@ import { MobileBottomNav } from './MobileBottomNav';
 import { UpgradeBanner } from './UpgradeBanner';
 import { NotificationBell } from './NotificationBell';
 import { InstallPrompt } from './InstallPrompt';
+import { WalletDownloadButton } from './WalletDownloadButton';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useMaintenance } from '@/hooks/useMaintenance';
 
@@ -47,9 +48,10 @@ export const Layout = ({ children }: LayoutProps) => {
       <main className={isMobile ? "min-h-screen pb-20" : "ml-64 min-h-screen"}>
         {enabled && <UpgradeBanner message={message} />}
 
-        {/* Top-right header bar with notification bell (desktop only) */}
+        {/* Top-right header bar with wallet download + notification bell (desktop only) */}
         {!isMobile && (
           <div className="fixed top-4 right-4 z-30 flex items-center gap-2">
+            <WalletDownloadButton />
             <NotificationBell />
           </div>
         )}

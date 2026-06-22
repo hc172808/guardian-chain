@@ -10,6 +10,9 @@ import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallSt
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { sendBuyRequestStatusEmail, sendCashoutStatusEmail } from "./email";
 import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
@@ -3171,6 +3174,74 @@ export function registerRoutes(app: Express) {
       await pgPool.query(`DELETE FROM trust_beneficiaries WHERE trust_id=$1`, [req.params.id]).catch(() => {});
       await pgPool.query(`DELETE FROM trust_conditions WHERE trust_id=$1`, [req.params.id]).catch(() => {});
       await pgPool.query(`DELETE FROM trusts WHERE id=$1 AND user_id=$2`, [req.params.id, user.id]);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Wallet App Releases ────────────────────────────────────────────────────
+  const walletUploadDir = path.join(process.cwd(), "uploads", "wallet");
+  if (!fs.existsSync(walletUploadDir)) fs.mkdirSync(walletUploadDir, { recursive: true });
+
+  const walletStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, walletUploadDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `wallet-${Date.now()}${ext}`);
+    },
+  });
+  const walletUpload = multer({
+    storage: walletStorage,
+    limits: { fileSize: 500 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ['.apk', '.aab', '.ipa', '.exe', '.dmg', '.zip', '.appx'];
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, allowed.includes(ext));
+    },
+  });
+
+  app.get("/api/wallet-releases", async (_req, res) => {
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT id, platform, version, original_name, file_size, notes, download_count, created_at
+         FROM wallet_releases ORDER BY created_at DESC`
+      );
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/admin/wallet-releases/upload", requireAdmin, walletUpload.single("file"), async (req, res) => {
+    const user = req.user as any;
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const { platform, version, notes } = req.body;
+      if (!platform || !version) return res.status(400).json({ error: "platform and version required" });
+      const { rows } = await pgPool.query(
+        `INSERT INTO wallet_releases (platform, version, filename, original_name, file_size, notes, uploaded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [platform, version, req.file.filename, req.file.originalname, req.file.size, notes || '', user.id]
+      );
+      res.json(rows[0]);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/wallet-releases/download/:id", async (req, res) => {
+    try {
+      const { rows } = await pgPool.query(`SELECT * FROM wallet_releases WHERE id=$1`, [req.params.id]);
+      if (!rows[0]) return res.status(404).json({ error: "Release not found" });
+      const filePath = path.join(walletUploadDir, rows[0].filename);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found on disk" });
+      await pgPool.query(`UPDATE wallet_releases SET download_count=download_count+1 WHERE id=$1`, [req.params.id]);
+      res.download(filePath, rows[0].original_name);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/admin/wallet-releases/:id", requireAdmin, async (req, res) => {
+    try {
+      const { rows } = await pgPool.query(`SELECT filename FROM wallet_releases WHERE id=$1`, [req.params.id]);
+      if (!rows[0]) return res.status(404).json({ error: "Release not found" });
+      const filePath = path.join(walletUploadDir, rows[0].filename);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      await pgPool.query(`DELETE FROM wallet_releases WHERE id=$1`, [req.params.id]);
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
