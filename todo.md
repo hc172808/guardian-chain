@@ -95,6 +95,12 @@ Password: GYDSchain2026!
 ```
 Change this after first login! Founder role has full admin access.
 
+### Founder wallet address
+```
+0x6422d12bfaddee5142bfad21b3006a74d0907b1
+```
+Stored in both `users.wallet_address` and `wallets` table.
+
 ### Viewing all pages
 Go to **`/preview`** — the App Preview page shows all 36 pages with descriptions, routes, and live Preview/Open buttons. Also has a mobile phone mockup and wallet app info.
 
@@ -122,7 +128,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 ### Core Platform
 - [x] Vite + React + TypeScript SPA (port 5000)
 - [x] Express.js backend (port 5001) with Passport.js session auth
-- [x] Replit PostgreSQL via Drizzle ORM
+- [x] Replit PostgreSQL via Drizzle ORM (74 tables)
 - [x] Custom username/password login
 - [x] Web3 wallet signature login (EIP-6963 multi-wallet: MetaMask, Trust Wallet, Coinbase, Brave, OKX, Rabby, Phantom)
 - [x] Founder account auto-seeded on first boot
@@ -139,6 +145,8 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] Profile privacy toggle (private by default; user can make public)
 
 ### Dashboard & Explorer
+- [x] **User GYDS balance card** on dashboard — shows total, available, locked, USD value; copy address; Send/Receive/Wallet quick actions; auto-refreshes every 30s
+- [x] **Admin-controlled dashboard visibility** — Admin → Visibility toggles 8 dashboard widgets on/off for non-admin users (balance card, genesis, network stats, consensus, blocks, validators, node monitor, mining)
 - [x] Block explorer (search blocks, transactions, addresses)
 - [x] Validator dashboard with delegation
 - [x] Network config page (add to MetaMask / Trust Wallet etc.)
@@ -170,6 +178,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] QR code support
 - [x] PIN rotation
 - [x] Faucet (testnet GYDS drip)
+- [x] `gyds_balance` + `locked_balance` columns on wallets table
 
 ### Governance
 - [x] Proposal creation and voting
@@ -193,8 +202,9 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] Posts, comments, community votes
 - [x] Community feed
 
-### Identity
+### Identity & KYC
 - [x] DID (Decentralised Identity) management page
+- [x] KYC tier system (Tier 1/2/3 — simulated; real provider at mainnet)
 
 ### Multi-Sig
 - [x] Multi-signature wallet creation + signing UI
@@ -228,7 +238,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] Feature matrix table
 - [x] CLI reference page
 
-### Admin Panel
+### Admin Panel (40+ tabs)
 - [x] User management (ban, role assignment)
 - [x] Node installation management + approval
 - [x] WireGuard peer manager (auto IP assignment, config generation)
@@ -238,11 +248,15 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] GitHub webhook receiver (HMAC-SHA256)
 - [x] Node repo sync checker
 - [x] Payment methods manager (PayPal, MMG, Bank GY, VISA/MC, Crypto)
-- [x] Buy requests (approve / reject)
-- [x] Cashout requests (approve / reject)
+- [x] Buy requests (approve / reject / mark completed)
+- [x] Cashout requests (approve / reject / mark completed)
 - [x] Monitoring tab (RPC health, DB status, memory, uptime)
 - [x] DB pruner cron (auto-prunes logs, snapshots, expired tokens)
 - [x] **Wallet App tab** — upload APK / IPA / EXE / DMG builds (multer, 500 MB max); manage & delete releases
+- [x] **Audit log viewer** — full history of who did what and when (Admin → Audit tab)
+- [x] **Announcement banner** — set/clear site-wide announcement via Admin Console `announce` command
+- [x] **Dashboard visibility controls** — Admin → Visibility: toggle each dashboard widget on/off for non-admins
+- [x] **Download page visibility controls** — Admin → Visibility: toggle each download tab on/off for non-admins
 
 ### Notifications
 - [x] In-app notification bell (faucet, governance, proposals)
@@ -252,6 +266,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] Email notifications (SMTP optional)
 
 ### Node Software
+- [x] Block time: **120 seconds** (all UI, node binaries, and test nodes show 120s)
 - [x] Lite node (Go — install-litenode.sh)
 - [x] Full node (Go — install-fullnode.sh)
 - [x] RPC node, Boost node, Validator node, Genesis node, Boot node, Dev node, Local node
@@ -322,7 +337,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 ### Wallet App Distribution
 - [x] **Header download button** — `WalletDownloadButton` in top-right header for all logged-in users; shows modal with per-platform download cards (Android/iOS/Windows/macOS); only visible when at least one build has been uploaded
 - [x] **Admin → Wallet App tab** — upload APK / IPA / EXE / DMG (multer, 500 MB max); shows version, file size, download count; delete old builds
-- [x] **`wallet_releases` DB table** — stores platform, version, filename, file size, notes, download count, uploaded_by
+- [x] **`wallet_releases` DB table** — stores platform, version, filename, file size, notes, download count, uploaded_by; auto-created at startup
 - [x] **`/api/wallet-releases`** — GET (public, lists all builds); POST upload (admin); GET download/:id (streams file, bumps counter); DELETE (admin)
 - [x] **`uploads/wallet/`** — server-side file storage directory for uploaded builds
 
@@ -332,6 +347,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] Blog
 - [x] Protocol docs
 - [x] Download page
+- [x] **Admin-controlled download page** — 6 tabs (Nodes/Docker/Ecosystem/SDKs/CLI/Scripts) toggled on/off per non-admin user via Admin → Visibility
 - [x] **App Preview page** (`/preview`) — catalog of all 36 pages with category filter, search, status badges, Preview overlay + Open buttons; Mobile tab (phone mockup iframe), Landing tab (desktop browser frame), Wallet App tab (build guide + links)
 
 ---
@@ -366,6 +382,8 @@ bash push-all.sh "your commit message"
 - [~] **SDK — Go** — marked "In Progress" in Developer Portal; code examples stub only
 - [~] **Email SMTP** — verification and reset emails log to console in dev; need SMTP env vars for production delivery
 - [~] **Validator node repo** — Go source in node-fixes/validatornode; needs packaging + GitHub release pipeline
+- [~] **Referral system** — `referrals` + `referral_events` DB tables exist; no UI page yet
+- [~] **Announcement banner** — works via Admin Console `announce` command; no dedicated GUI panel yet
 
 ---
 
@@ -421,8 +439,8 @@ bash push-all.sh "your commit message"
 
 ### Platform
 - [ ] SMTP setup UI (admin panel — configure mail server without env var restart)
-- [ ] KYC / identity verification flow
-- [ ] Referral system (invite links + GYDS rewards)
+- [ ] KYC full integration (Sumsub/Onfido — currently simulated; launches at mainnet)
+- [ ] Referral UI page (invite links + GYDS rewards — DB tables exist)
 - [ ] Multi-language i18n (locale field exists; translations not implemented)
 - [ ] Dark/light theme switcher (currently dark-only)
 - [x] Mobile app — GYDS Wallet PWA (Android + iOS via Capacitor / Bubblewrap / PWABuilder — see GYDS Wallet section above)
@@ -433,9 +451,9 @@ bash push-all.sh "your commit message"
 
 ### Admin
 - [ ] Bulk user actions (export CSV, mass-ban)
-- [ ] Audit log viewer (who changed what, when)
 - [ ] Revenue dashboard (trust fees, token launches, insurance premiums)
-- [ ] Scheduled announcements
+- [ ] Scheduled announcements GUI (currently console command only)
+- [ ] SMTP config UI (set mail server from Admin panel)
 
 ---
 

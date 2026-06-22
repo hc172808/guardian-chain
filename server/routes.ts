@@ -2859,6 +2859,22 @@ export function registerRoutes(app: Express) {
   }
   ensurePaymentTables().catch(console.error);
 
+  // Ensure wallet_releases table exists
+  pgPool.query(`
+    CREATE TABLE IF NOT EXISTS wallet_releases (
+      id SERIAL PRIMARY KEY,
+      platform TEXT NOT NULL CHECK (platform IN ('android','ios','windows','macos')),
+      version TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      file_size BIGINT NOT NULL DEFAULT 0,
+      notes TEXT,
+      download_count INTEGER NOT NULL DEFAULT 0,
+      uploaded_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(console.error);
+
   app.get("/api/payment-methods", async (_req, res) => {
     try {
       const { rows } = await pgPool.query(`SELECT * FROM payment_methods WHERE is_enabled=true ORDER BY id`);
