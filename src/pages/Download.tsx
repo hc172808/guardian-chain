@@ -33,13 +33,15 @@ import { useNavigate } from 'react-router-dom';
 import { NodeConfigManager } from '@/components/node/NodeConfigManager';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { useComponentVisibility } from '@/hooks/useComponentVisibility';
 
 const DownloadPage = () => {
   const { toast } = useToast();
   const { user, isFounder, isAdmin } = useAuth();
   const { downloadAndInstall, installing } = useInstaller();
   const navigate = useNavigate();
-  
+  const { isGloballyHidden } = useComponentVisibility();
+
   const [storageSize, setStorageSize] = useState(10);
   const [rpcEndpoint, setRpcEndpoint] = useState('https://rpc.netlifegy.com');
   const [enableMining, setEnableMining] = useState(false);
@@ -89,6 +91,17 @@ const DownloadPage = () => {
   const liteNodeCommand = `curl -sSL https://netlifegy.com/install-litenode.sh | GYDS_BOOTSTRAP_NODES="${rpcEndpoint}" bash`;
   const fullNodeCommand = `curl -sSL https://netlifegy.com/install-fullnode.sh | sudo bash`;
 
+  const allTabs = [
+    { value: 'nodes',     key: 'download.nodes',     icon: Server,   label: 'Nodes' },
+    { value: 'docker',    key: 'download.docker',    icon: Layers,   label: 'Docker' },
+    { value: 'ecosystem', key: 'download.ecosystem', icon: Globe,    label: 'Ecosystem' },
+    { value: 'sdk',       key: 'download.sdk',       icon: Code2,    label: 'SDKs' },
+    { value: 'cli',       key: 'download.cli',       icon: Terminal, label: 'CLI' },
+    { value: 'scripts',   key: 'download.scripts',   icon: Rocket,   label: 'Scripts' },
+  ];
+  const visibleTabs = allTabs.filter(t => !isGloballyHidden(t.key));
+  const defaultTab = visibleTabs[0]?.value ?? 'nodes';
+
   return (
     <Layout>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8 max-w-6xl mx-auto">
@@ -118,32 +131,19 @@ const DownloadPage = () => {
           ))}
         </div>
 
-        <Tabs defaultValue="nodes" className="space-y-6">
-          <TabsList className="grid grid-cols-3 md:grid-cols-6 w-full">
-            <TabsTrigger value="nodes" className="gap-1.5 text-xs md:text-sm">
-              <Server className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Nodes</span>
-            </TabsTrigger>
-            <TabsTrigger value="docker" className="gap-1.5 text-xs md:text-sm">
-              <Layers className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Docker</span>
-            </TabsTrigger>
-            <TabsTrigger value="ecosystem" className="gap-1.5 text-xs md:text-sm">
-              <Globe className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Ecosystem</span>
-            </TabsTrigger>
-            <TabsTrigger value="sdk" className="gap-1.5 text-xs md:text-sm">
-              <Code2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">SDKs</span>
-            </TabsTrigger>
-            <TabsTrigger value="cli" className="gap-1.5 text-xs md:text-sm">
-              <Terminal className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">CLI</span>
-            </TabsTrigger>
-            <TabsTrigger value="scripts" className="gap-1.5 text-xs md:text-sm">
-              <Rocket className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Scripts</span>
-            </TabsTrigger>
+        {visibleTabs.length === 0 ? (
+          <GlassCard className="p-12 text-center">
+            <p className="text-muted-foreground">No download sections are currently available.</p>
+          </GlassCard>
+        ) : (
+        <Tabs defaultValue={defaultTab} className="space-y-6">
+          <TabsList className={`grid w-full grid-cols-${visibleTabs.length}`}>
+            {visibleTabs.map(tab => (
+              <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5 text-xs md:text-sm">
+                <tab.icon className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{tab.label}</span>
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           {/* ===== NODES TAB ===== */}
@@ -630,6 +630,7 @@ const DownloadPage = () => {
             </GlassCard>
           </TabsContent>
         </Tabs>
+        )}
 
         {/* Source Code - Founder Only */}
         {(isFounder || isAdmin) && (

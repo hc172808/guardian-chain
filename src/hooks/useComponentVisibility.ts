@@ -5,6 +5,23 @@ import { useAuth } from '@/contexts/AuthContext';
 const CONFIG_KEY = 'hidden_components';
 
 export const KNOWN_COMPONENTS: Array<{ key: string; label: string; group: string }> = [
+  // ── Dashboard widgets ─────────────────────────────────────────────────────
+  { key: 'dashboard.balance',      label: 'Dashboard: Balance Card',       group: 'Dashboard' },
+  { key: 'dashboard.genesis',      label: 'Dashboard: Genesis Status',     group: 'Dashboard' },
+  { key: 'dashboard.network_stats',label: 'Dashboard: Live Network Stats', group: 'Dashboard' },
+  { key: 'dashboard.consensus',    label: 'Dashboard: Consensus Flow',     group: 'Dashboard' },
+  { key: 'dashboard.blocks',       label: 'Dashboard: Recent Blocks',      group: 'Dashboard' },
+  { key: 'dashboard.validators',   label: 'Dashboard: Validator Chart',    group: 'Dashboard' },
+  { key: 'dashboard.node_monitor', label: 'Dashboard: Node Monitor',       group: 'Dashboard' },
+  { key: 'dashboard.mining',       label: 'Dashboard: Mining Activity',    group: 'Dashboard' },
+  // ── Download sections ────────────────────────────────────────────────────
+  { key: 'download.nodes',         label: 'Download: Node Binaries',       group: 'Download' },
+  { key: 'download.docker',        label: 'Download: Docker Compose',      group: 'Download' },
+  { key: 'download.ecosystem',     label: 'Download: Ecosystem Apps',      group: 'Download' },
+  { key: 'download.sdk',           label: 'Download: SDKs',                group: 'Download' },
+  { key: 'download.cli',           label: 'Download: CLI Tools',           group: 'Download' },
+  { key: 'download.scripts',       label: 'Download: Deploy Scripts',      group: 'Download' },
+  // ── DeFi ──────────────────────────────────────────────────────────────────
   { key: 'defi.swap',           label: 'DeFi: Swap',                 group: 'DeFi' },
   { key: 'defi.crosschain',     label: 'DeFi: Cross-Chain Bridge',   group: 'DeFi' },
   { key: 'defi.stake',          label: 'DeFi: Staking',              group: 'DeFi' },
@@ -132,6 +149,15 @@ export const useComponentVisibility = () => {
     [hidden, userFeatures, isAdmin]
   );
 
+  // For dashboard/download sections — default visible; only hides when admin explicitly hides it
+  const isGloballyHidden = useCallback(
+    (key: string): boolean => {
+      if (isAdmin) return false;
+      return hidden.includes(key);
+    },
+    [hidden, isAdmin]
+  );
+
   const isGranted = useCallback(
     (key: string): boolean => {
       if (isAdmin) return true;
@@ -154,5 +180,5 @@ export const useComponentVisibility = () => {
     [hidden, setHiddenList]
   );
 
-  return { hidden, isHidden, isGranted, toggle, setHiddenList, loading, isAdmin, user };
+  return { hidden, isHidden, isGloballyHidden, isGranted, toggle, setHiddenList, loading, isAdmin, user };
 };

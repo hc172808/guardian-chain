@@ -182,7 +182,14 @@ export const storage = {
 
   // ── Wallets ───────────────────────────────────────────────────────────────
   async getUserWallets(userId: string) {
-    return db.select().from(wallets).where(eq(wallets.userId, userId));
+    const res = await pgPool.query(
+      `SELECT id, user_id, address, encrypted_seed, pin_hash, created_at,
+              COALESCE(gyds_balance, 0) AS gyds_balance,
+              COALESCE(locked_balance, 0) AS locked_balance
+       FROM wallets WHERE user_id=$1`,
+      [userId]
+    );
+    return res.rows;
   },
 
   async insertWallet(data: typeof wallets.$inferInsert) {

@@ -6,10 +6,16 @@ import { MiningActivity } from '@/components/dashboard/MiningActivity';
 import { ConsensusFlow } from '@/components/dashboard/ConsensusFlow';
 import { NodeMonitor } from '@/components/dashboard/NodeMonitor';
 import { GenesisStatus } from '@/components/dashboard/GenesisStatus';
+import { UserBalanceCard } from '@/components/dashboard/UserBalanceCard';
 import { motion } from 'framer-motion';
 import { RequireAuth } from '@/components/auth/RequireAuth';
+import { useComponentVisibility } from '@/hooks/useComponentVisibility';
 
 const IndexContent = () => {
+  const { isGloballyHidden, isAdmin } = useComponentVisibility();
+
+  const show = (key: string) => !isGloballyHidden(key);
+
   return (
     <Layout>
       <motion.div
@@ -27,26 +33,31 @@ const IndexContent = () => {
           </p>
         </div>
 
+        {/* Balance Card — always visible unless admin hides it */}
+        {show('dashboard.balance') && <UserBalanceCard />}
+
         {/* Genesis Status */}
-        <GenesisStatus />
+        {show('dashboard.genesis') && <GenesisStatus />}
 
         {/* Live Network Stats (WebSocket connected) */}
-        <LiveNetworkStats />
+        {show('dashboard.network_stats') && <LiveNetworkStats />}
 
         {/* Consensus Flow */}
-        <ConsensusFlow />
+        {show('dashboard.consensus') && <ConsensusFlow />}
 
         {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <RecentBlocks />
-          <ValidatorChart />
-        </div>
+        {(show('dashboard.blocks') || show('dashboard.validators')) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {show('dashboard.blocks') && <RecentBlocks />}
+            {show('dashboard.validators') && <ValidatorChart />}
+          </div>
+        )}
 
         {/* Node Monitor */}
-        <NodeMonitor />
+        {show('dashboard.node_monitor') && <NodeMonitor />}
 
         {/* Mining Activity */}
-        <MiningActivity />
+        {show('dashboard.mining') && <MiningActivity />}
       </motion.div>
     </Layout>
   );
