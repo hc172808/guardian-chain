@@ -155,12 +155,42 @@ _Last updated: June 2026_
 - [x] IP blocking / firewall (admin-managed)
 - [x] Security audit page
 
-### PWA / Mobile
+### PWA / Mobile (Dashboard)
 - [x] Progressive Web App (manifest v2, 7 icons, 4 shortcuts)
 - [x] Service worker (stale-while-revalidate + background sync)
 - [x] Install prompt (Android + iOS guide)
 - [x] Mobile bottom nav hub page
 - [x] Edge side panel support
+
+### GYDS Wallet — Mobile App (Android & iOS)
+> **Repo:** https://github.com/hc172808/your-digital-wallet
+> **Setup guide:** `mobile-wallet/SETUP.md`
+> **Git push guide:** `mobile-wallet/git-push-guide.md`
+> **Configure:** `bash mobile-wallet/configure.sh`
+> **Android build:** `bash mobile-wallet/android-build.sh`
+> **iOS build:** `bash mobile-wallet/ios-build.sh` _(macOS + Xcode required)_
+
+- [x] Wallet app repo identified: `hc172808/your-digital-wallet` (Vite + React + TypeScript PWA)
+- [x] GYDS chain 13370 already configured — same RPC endpoints (`rpc.netlifegy.com`)
+- [x] App identity: `io.netlifegy.gyds` (Android + iOS), TWA: `io.netlifegy.gyds.twa`
+- [x] Capacitor config (`mobile/capacitor.config.ts`) — app name "GYDS Wallet", dark theme `#0f1318`
+- [x] Bubblewrap TWA manifest (`mobile/bubblewrap/twa-manifest.json`) — Android native wrapper
+- [x] PWABuilder config (`mobile/pwabuilder.json`) — no-toolchain alternative
+- [x] Configure script written: `mobile-wallet/configure.sh` — clones repo, patches domain, writes `.env.local`
+- [x] Android build script written: `mobile-wallet/android-build.sh` (Capacitor / Bubblewrap / PWABuilder)
+- [x] iOS build script written: `mobile-wallet/ios-build.sh` (Capacitor / PWABuilder)
+- [x] Full SETUP.md guide written: `mobile-wallet/SETUP.md` (step-by-step for all platforms)
+- [x] Wallet features: Send, Receive, Swap, History, NFT Gallery, Earn, Buy, Perps, Prediction, Price Alerts, WalletConnect v2, DApp Browser, Hardware Wallet, Multi-Account, QR Scanner, Import/Export, Admin Panel, Push Notifications, PWA install
+
+**Wallet app next steps (to complete the integration):**
+- [ ] Run `bash mobile-wallet/configure.sh` → enter your domain → builds locally
+- [ ] Set `VITE_API_BASE=https://netlifegy.com` in wallet `.env.local` to link to ChainCore backend
+- [ ] Android: `bash mobile-wallet/android-build.sh` → open in Android Studio → sign → submit to Play Store
+- [ ] iOS: `bash mobile-wallet/ios-build.sh` (needs Mac + Xcode) → Archive → submit to App Store
+- [ ] OR: Deploy wallet to netlifegy.com → use PWABuilder at https://www.pwabuilder.com (no toolchain)
+- [ ] Add `/.well-known/assetlinks.json` to your server for Android TWA (see SETUP.md §5)
+- [ ] Add Play Store / App Store download buttons to the ChainCore dashboard download page
+- [ ] Configure VITE_API_BASE so wallet auth tokens work with ChainCore session API
 
 ### Branding / Marketing
 - [x] Landing page
@@ -168,6 +198,30 @@ _Last updated: June 2026_
 - [x] Blog
 - [x] Protocol docs
 - [x] Download page
+
+---
+
+## 🔁 GitHub — Pushing to Your Repos
+
+> Full guide: `mobile-wallet/git-push-guide.md`
+
+### Push ChainCore dashboard
+```bash
+git remote add origin https://github.com/YOUR-USERNAME/chaincore-dashboard.git
+git add -A && git commit -m "your message" && git push -u origin main
+```
+
+### Push GYDS Wallet changes
+```bash
+cd gyds-wallet
+git add -A && git commit -m "your message" && git push
+```
+
+### Push both at once
+```bash
+# Root of ChainCore project:
+bash push-all.sh "your commit message"
+```
 
 ---
 
@@ -236,7 +290,7 @@ _Last updated: June 2026_
 - [ ] Referral system (invite links + GYDS rewards)
 - [ ] Multi-language i18n (locale field exists; translations not implemented)
 - [ ] Dark/light theme switcher (currently dark-only)
-- [ ] Mobile app (React Native / Expo wrapper)
+- [x] Mobile app — GYDS Wallet PWA (Android + iOS via Capacitor / Bubblewrap / PWABuilder — see GYDS Wallet section above)
 - [ ] SDK — Rust (planned)
 - [ ] SDK — Go (complete examples + npm/crates release)
 - [ ] GraphQL API (currently REST-only)
