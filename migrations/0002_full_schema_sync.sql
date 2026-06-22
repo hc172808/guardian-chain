@@ -527,9 +527,41 @@ CREATE TABLE IF NOT EXISTS public.webhook_deliveries (
 );
 CREATE INDEX IF NOT EXISTS wh_delivery_webhook_idx ON public.webhook_deliveries (webhook_id, attempted_at DESC);
 
--- ── Extra columns added post-migration ───────────────────────
--- totp_backup_codes column on users (added via raw ALTER TABLE)
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS totp_backup_codes TEXT;
+-- ── Runtime-created tables (server creates these on first boot) ─────────────
+-- These are NOT in drizzle schema but are created by server code via
+-- CREATE TABLE IF NOT EXISTS inside auth.ts, routes.ts, webpush.ts.
 
--- cashout_requests.payment_method column
-ALTER TABLE public.cashout_requests ADD COLUMN IF NOT EXISTS payment_method TEXT;
+CREATE TABLE IF NOT EXISTS public.email_verification_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL,
+    token TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours',
+    used_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS public.cashout_requests (
+    id SERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    amount NUMERIC NOT NULL,
+    destination TEXT NOT NULL,
+    note TEXT,
+    reference TEXT UNIQUE NOT NULL,
+    status TEXT DEFAULT 'pending',
+    payment_method TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    processed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    subscription JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, (subscription->>'endpoint'))
+);
+
+-- ── Extra columns added post-migration via ALTER TABLE ───────
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS totp_backup_codes TEXT;
+ALTER TABLE public.cashout_requests ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT '';

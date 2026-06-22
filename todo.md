@@ -309,12 +309,20 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [ ] Add Play Store / App Store download buttons to the ChainCore dashboard download page
 - [ ] Configure VITE_API_BASE so wallet auth tokens work with ChainCore session API
 
+### Wallet App Distribution
+- [x] **Header download button** — `WalletDownloadButton` in top-right header for all logged-in users; shows modal with per-platform download cards (Android/iOS/Windows/macOS); only visible when at least one build has been uploaded
+- [x] **Admin → Wallet App tab** — upload APK / IPA / EXE / DMG (multer, 500 MB max); shows version, file size, download count; delete old builds
+- [x] **`wallet_releases` DB table** — stores platform, version, filename, file size, notes, download count, uploaded_by
+- [x] **`/api/wallet-releases`** — GET (public, lists all builds); POST upload (admin); GET download/:id (streams file, bumps counter); DELETE (admin)
+- [x] **`uploads/wallet/`** — server-side file storage directory for uploaded builds
+
 ### Branding / Marketing
 - [x] Landing page
 - [x] Press kit
 - [x] Blog
 - [x] Protocol docs
 - [x] Download page
+- [x] **App Preview page** (`/preview`) — catalog of all 36 pages with category filter, search, status badges, Preview overlay + Open buttons; Mobile tab (phone mockup iframe), Landing tab (desktop browser frame), Wallet App tab (build guide + links)
 
 ---
 
