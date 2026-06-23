@@ -40,6 +40,13 @@
 #
 set -euo pipefail
 
+# ── Load shared config (written by deploy-dashboard.sh — all values skippable) ─
+# This is sourced BEFORE the config-defaults block so that any var set here
+# wins over the ${VAR:-default} fallbacks below.
+GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
+# shellcheck disable=SC1090
+[[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 log()    { echo -e "${GREEN}[✓]${NC} $*"; }
 warn()   { echo -e "${YELLOW}[!]${NC} $*"; }

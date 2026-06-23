@@ -39,6 +39,82 @@ PORT_API="${PORT_API:-5001}"
 SESSION_SECRET="${SESSION_SECRET:-$(openssl rand -hex 32)}"
 NODE_ENV="${NODE_ENV:-production}"
 
+# ── Optional extras (skippable) ───────────────────────────────────────────────
+ADMIN_WALLET="${ADMIN_WALLET:-}"
+FOUNDER_WALLET="${FOUNDER_WALLET:-}"
+REWARD_ADDRESS="${REWARD_ADDRESS:-}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+HCAPTCHA_SITE_KEY="${HCAPTCHA_SITE_KEY:-}"
+HCAPTCHA_SECRET_KEY="${HCAPTCHA_SECRET_KEY:-}"
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
+SMTP_HOST="${SMTP_HOST:-}"
+SMTP_PORT="${SMTP_PORT:-587}"
+SMTP_USER="${SMTP_USER:-}"
+SMTP_PASS="${SMTP_PASS:-}"
+SMTP_FROM="${SMTP_FROM:-}"
+WA_TOKEN="${WA_TOKEN:-}"
+WA_PHONE_ID="${WA_PHONE_ID:-}"
+GYDS_BOOTSTRAP_NODES="${GYDS_BOOTSTRAP_NODES:-}"
+
+# Helper: prompt with current value shown; Enter = keep/skip
+prompt_opt() {
+  local varname="$1" label="$2"
+  local current; current="${!varname:-}"
+  if [[ -n "$current" ]]; then
+    read -rp "  ${label} [${current}]: " _v
+    [[ -n "$_v" ]] && printf -v "$varname" '%s' "$_v"
+  else
+    read -rp "  ${label} (Enter to skip): " _v
+    [[ -n "$_v" ]] && printf -v "$varname" '%s' "$_v"
+  fi
+}
+
+# Only prompt interactively (skip if NONINTERACTIVE=1 or piped)
+if [[ "${NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
+  echo ""
+  echo -e "${BOLD}${CYAN}━━━ Optional Configuration  (press Enter to skip any) ━━━${NC}"
+
+  echo ""
+  echo -e "${YELLOW}  ▸ Wallets${NC}"
+  prompt_opt ADMIN_WALLET        "Admin wallet address    (0x...)"
+  prompt_opt FOUNDER_WALLET      "Founder wallet address  (0x...)"
+  prompt_opt REWARD_ADDRESS      "Mining/reward wallet    (0x...)"
+
+  echo ""
+  echo -e "${YELLOW}  ▸ Repository access${NC}"
+  prompt_opt GITHUB_TOKEN        "GitHub Personal Access Token"
+
+  echo ""
+  echo -e "${YELLOW}  ▸ hCaptcha (faucet protection)${NC}"
+  prompt_opt HCAPTCHA_SITE_KEY   "hCaptcha site key   (public, sent to browser)"
+  prompt_opt HCAPTCHA_SECRET_KEY "hCaptcha secret key (server-side only)"
+
+  echo ""
+  echo -e "${YELLOW}  ▸ Telegram alerts${NC}"
+  prompt_opt TELEGRAM_BOT_TOKEN  "Telegram bot token"
+  prompt_opt TELEGRAM_CHAT_ID    "Telegram chat ID"
+
+  echo ""
+  echo -e "${YELLOW}  ▸ Email / SMTP${NC}"
+  prompt_opt SMTP_HOST           "SMTP host  (e.g. smtp.gmail.com)"
+  prompt_opt SMTP_PORT           "SMTP port  [587]"
+  prompt_opt SMTP_USER           "SMTP username / email"
+  prompt_opt SMTP_PASS           "SMTP password"
+  prompt_opt SMTP_FROM           "From email address"
+
+  echo ""
+  echo -e "${YELLOW}  ▸ WhatsApp (Meta Business API)${NC}"
+  prompt_opt WA_TOKEN            "WhatsApp API token"
+  prompt_opt WA_PHONE_ID         "WhatsApp phone number ID"
+
+  echo ""
+  echo -e "${YELLOW}  ▸ Network${NC}"
+  prompt_opt GYDS_BOOTSTRAP_NODES "Bootstrap node(s) (comma-separated enode://...)"
+
+  echo ""
+fi
+
 echo -e "${BOLD}${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════════╗"
 echo "║   ChainCore Dashboard Deployment v4.0.0                         ║"
@@ -209,17 +285,68 @@ mkdir -p /var/log/gydschain
 id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" /var/log/gydschain || true
 
 APP_URL="${APP_URL:-https://${FQDN}}"
-cat > "$APP_DIR/.env" <<ENVEOF
-NODE_ENV=${NODE_ENV}
-PORT=${PORT_API}
-DATABASE_URL=${DATABASE_URL}
-SESSION_SECRET=${SESSION_SECRET}
-APP_URL=${APP_URL}
-REPLIT_DOMAINS=${FQDN},${DOMAIN}
-SUBDOMAIN=${SUBDOMAIN}
-ENVEOF
+
+# ── Write .env ────────────────────────────────────────────────────────────────
+{
+  echo "NODE_ENV=${NODE_ENV}"
+  echo "PORT=${PORT_API}"
+  echo "DATABASE_URL=${DATABASE_URL}"
+  echo "SESSION_SECRET=${SESSION_SECRET}"
+  echo "APP_URL=${APP_URL}"
+  echo "REPLIT_DOMAINS=${FQDN},${DOMAIN}"
+  echo "SUBDOMAIN=${SUBDOMAIN}"
+  [[ -n "$ADMIN_WALLET"         ]] && echo "ADMIN_WALLET=${ADMIN_WALLET}"
+  [[ -n "$FOUNDER_WALLET"       ]] && echo "FOUNDER_WALLET=${FOUNDER_WALLET}"
+  [[ -n "$REWARD_ADDRESS"       ]] && echo "REWARD_ADDRESS=${REWARD_ADDRESS}"
+  [[ -n "$GITHUB_TOKEN"         ]] && echo "GITHUB_TOKEN=${GITHUB_TOKEN}"
+  [[ -n "$HCAPTCHA_SITE_KEY"    ]] && echo "VITE_HCAPTCHA_SITE_KEY=${HCAPTCHA_SITE_KEY}"
+  [[ -n "$HCAPTCHA_SECRET_KEY"  ]] && echo "HCAPTCHA_SECRET_KEY=${HCAPTCHA_SECRET_KEY}"
+  [[ -n "$TELEGRAM_BOT_TOKEN"   ]] && echo "TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}"
+  [[ -n "$TELEGRAM_CHAT_ID"     ]] && echo "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}"
+  [[ -n "$SMTP_HOST"            ]] && echo "SMTP_HOST=${SMTP_HOST}"
+  [[ -n "$SMTP_PORT"            ]] && echo "SMTP_PORT=${SMTP_PORT}"
+  [[ -n "$SMTP_USER"            ]] && echo "SMTP_USER=${SMTP_USER}"
+  [[ -n "$SMTP_PASS"            ]] && echo "SMTP_PASS=${SMTP_PASS}"
+  [[ -n "$SMTP_FROM"            ]] && echo "SMTP_FROM=${SMTP_FROM}"
+  [[ -n "$WA_TOKEN"             ]] && echo "WHATSAPP_TOKEN=${WA_TOKEN}"
+  [[ -n "$WA_PHONE_ID"          ]] && echo "WHATSAPP_PHONE_ID=${WA_PHONE_ID}"
+  [[ -n "$GYDS_BOOTSTRAP_NODES" ]] && echo "GYDS_BOOTSTRAP_NODES=${GYDS_BOOTSTRAP_NODES}"
+} > "$APP_DIR/.env"
 chmod 600 "$APP_DIR/.env"
 id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" || true
+
+# ── Write shared gyds-config.env (sourced by node/install scripts) ────────────
+# This file is safe to source from any sibling deploy script.
+# Only non-empty values are written, so sourcing it never clears a variable
+# that was already set in the environment.
+{
+  echo "# GYDSchain shared configuration — auto-generated by deploy-dashboard.sh"
+  echo "# Source this file at the top of any install/deploy script:"
+  echo "#   GYDS_CONF=\"\${GYDS_CONF:-/var/www/gydschain/gyds-config.env}\""
+  echo "#   [[ -f \"\$GYDS_CONF\" ]] && source \"\$GYDS_CONF\""
+  echo ""
+  echo "GYDS_CHAIN_ID=13370"
+  echo "DOMAIN=${DOMAIN}"
+  echo "FQDN=${FQDN}"
+  [[ -n "$ADMIN_WALLET"         ]] && echo "GYDS_ADMIN_WALLET=${ADMIN_WALLET}"
+  [[ -n "$FOUNDER_WALLET"       ]] && echo "GYDS_FOUNDER_WALLET=${FOUNDER_WALLET}"
+  [[ -n "$REWARD_ADDRESS"       ]] && echo "GYDS_REWARD_ADDRESS=${REWARD_ADDRESS}"
+  [[ -n "$REWARD_ADDRESS"       ]] && echo "GYDS_MINING_WALLET=${REWARD_ADDRESS}"
+  [[ -n "$GITHUB_TOKEN"         ]] && echo "GITHUB_TOKEN=${GITHUB_TOKEN}"
+  [[ -n "$TELEGRAM_BOT_TOKEN"   ]] && echo "TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}"
+  [[ -n "$TELEGRAM_CHAT_ID"     ]] && echo "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}"
+  [[ -n "$SMTP_HOST"            ]] && echo "SMTP_HOST=${SMTP_HOST}"
+  [[ -n "$SMTP_PORT"            ]] && echo "SMTP_PORT=${SMTP_PORT}"
+  [[ -n "$SMTP_USER"            ]] && echo "SMTP_USER=${SMTP_USER}"
+  [[ -n "$SMTP_PASS"            ]] && echo "SMTP_PASS=${SMTP_PASS}"
+  [[ -n "$SMTP_FROM"            ]] && echo "SMTP_FROM=${SMTP_FROM}"
+  [[ -n "$WA_TOKEN"             ]] && echo "WHATSAPP_TOKEN=${WA_TOKEN}"
+  [[ -n "$WA_PHONE_ID"          ]] && echo "WHATSAPP_PHONE_ID=${WA_PHONE_ID}"
+  [[ -n "$GYDS_BOOTSTRAP_NODES" ]] && echo "GYDS_BOOTSTRAP_NODES=${GYDS_BOOTSTRAP_NODES}"
+} > "$APP_DIR/gyds-config.env"
+chmod 644 "$APP_DIR/gyds-config.env"
+id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/gyds-config.env" || true
+log "Shared config written → $APP_DIR/gyds-config.env"
 
 cd "$APP_DIR"
 
@@ -268,6 +395,23 @@ module.exports = {
       SESSION_SECRET: '${SESSION_SECRET}',
       APP_URL: '${APP_URL}',
       REPLIT_DOMAINS: '${FQDN},${DOMAIN}',
+$(
+  [[ -n "$ADMIN_WALLET"         ]] && echo "      ADMIN_WALLET: '${ADMIN_WALLET}',"
+  [[ -n "$FOUNDER_WALLET"       ]] && echo "      FOUNDER_WALLET: '${FOUNDER_WALLET}',"
+  [[ -n "$REWARD_ADDRESS"       ]] && echo "      REWARD_ADDRESS: '${REWARD_ADDRESS}',"
+  [[ -n "$TELEGRAM_BOT_TOKEN"   ]] && echo "      TELEGRAM_BOT_TOKEN: '${TELEGRAM_BOT_TOKEN}',"
+  [[ -n "$TELEGRAM_CHAT_ID"     ]] && echo "      TELEGRAM_CHAT_ID: '${TELEGRAM_CHAT_ID}',"
+  [[ -n "$SMTP_HOST"            ]] && echo "      SMTP_HOST: '${SMTP_HOST}',"
+  [[ -n "$SMTP_PORT"            ]] && echo "      SMTP_PORT: '${SMTP_PORT}',"
+  [[ -n "$SMTP_USER"            ]] && echo "      SMTP_USER: '${SMTP_USER}',"
+  [[ -n "$SMTP_PASS"            ]] && echo "      SMTP_PASS: '${SMTP_PASS}',"
+  [[ -n "$SMTP_FROM"            ]] && echo "      SMTP_FROM: '${SMTP_FROM}',"
+  [[ -n "$WA_TOKEN"             ]] && echo "      WHATSAPP_TOKEN: '${WA_TOKEN}',"
+  [[ -n "$WA_PHONE_ID"          ]] && echo "      WHATSAPP_PHONE_ID: '${WA_PHONE_ID}',"
+  [[ -n "$HCAPTCHA_SECRET_KEY"  ]] && echo "      HCAPTCHA_SECRET_KEY: '${HCAPTCHA_SECRET_KEY}',"
+  [[ -n "$GYDS_BOOTSTRAP_NODES" ]] && echo "      GYDS_BOOTSTRAP_NODES: '${GYDS_BOOTSTRAP_NODES}',"
+  true
+)
     },
     watch: false,
     max_memory_restart: '512M',

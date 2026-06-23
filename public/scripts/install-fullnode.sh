@@ -8,6 +8,11 @@
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
+# ── Load shared config (written by deploy-dashboard.sh — all values skippable) ─
+GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
+# shellcheck disable=SC1090
+[[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
+
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
 BINARY="gyds-fullnode"

@@ -17,6 +17,11 @@
 
 set -euo pipefail
 
+# ── Load shared config (written by deploy-dashboard.sh — all values skippable) ─
+GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
+# shellcheck disable=SC1090
+[[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
+
 # ---------------------- Configuration ----------------------
 GYDS_USER="gydschain"
 GYDS_HOME="/var/lib/gydschain"
