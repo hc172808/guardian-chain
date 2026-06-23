@@ -452,7 +452,7 @@ bash push-all.sh "your commit message"
 
 ### Admin
 - [ ] Bulk user actions (export CSV, mass-ban)
-- [ ] Revenue dashboard (trust fees, token launches, insurance premiums)
+- [x] Revenue dashboard (trust fees, stablecoin fees, insurance premiums, bridge fees, buy/cashout orders — charts + totals in Admin → Revenue tab)
 - [ ] Scheduled announcements GUI (currently console command only)
 - [x] SMTP config UI (set mail server from Admin panel) → **Admin → Server Config**
 

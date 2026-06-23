@@ -3392,6 +3392,143 @@ export function registerRoutes(app: Express) {
     res.json({ value: crypto.randomBytes(32).toString('hex') });
   });
 
+  // ── Revenue Dashboard ─────────────────────────────────────────────────────
+  app.get('/api/admin/revenue', requireAdmin, async (_req, res) => {
+    try {
+      // ── All-time totals ────────────────────────────────────────────────────
+      const [trust, stable, insurance, bridge, buys, cashouts] = await Promise.all([
+        pgPool.query(`SELECT COALESCE(SUM(amount),0) AS total FROM trust_payments`),
+        pgPool.query(`SELECT COALESCE(SUM(creation_fee_paid),0) AS total FROM user_stablecoins WHERE creation_fee_paid > 0`),
+        pgPool.query(`SELECT COALESCE(SUM(premium_paid),0) AS total FROM insurance_policies`),
+        pgPool.query(`SELECT COALESCE(SUM(fee),0) AS total FROM bridge_transfers WHERE fee > 0`),
+        pgPool.query(`SELECT COALESCE(SUM(fiat_amount),0) AS total, COUNT(*) AS cnt FROM buy_requests WHERE status='completed'`),
+        pgPool.query(`SELECT COALESCE(SUM(amount),0) AS total, COUNT(*) AS cnt FROM cashout_requests WHERE status='completed'`),
+      ]);
+
+      const trustTotal     = Number(trust.rows[0].total);
+      const stableTotal    = Number(stable.rows[0].total);
+      const insuranceTotal = Number(insurance.rows[0].total);
+      const bridgeTotal    = Number(bridge.rows[0].total);
+      const buyTotal       = Number(buys.rows[0].total);
+      const buyCount       = Number(buys.rows[0].cnt);
+      const cashoutTotal   = Number(cashouts.rows[0].total);
+      const cashoutCount   = Number(cashouts.rows[0].cnt);
+      const grandTotal     = trustTotal + stableTotal + insuranceTotal + bridgeTotal + buyTotal + cashoutTotal;
+
+      // ── 30-day daily breakdown ─────────────────────────────────────────────
+      const dailyQ = await pgPool.query(`
+        WITH days AS (
+          SELECT generate_series(
+            NOW()::date - INTERVAL '29 days',
+            NOW()::date,
+            '1 day'
+          )::date AS day
+        ),
+        trust_daily AS (
+          SELECT DATE_TRUNC('day', created_at)::date AS day, SUM(amount) AS amt
+          FROM trust_payments WHERE created_at > NOW() - INTERVAL '30 days'
+          GROUP BY 1
+        ),
+        stable_daily AS (
+          SELECT DATE_TRUNC('day', created_at)::date AS day, SUM(creation_fee_paid) AS amt
+          FROM user_stablecoins WHERE creation_fee_paid > 0 AND created_at > NOW() - INTERVAL '30 days'
+          GROUP BY 1
+        ),
+        ins_daily AS (
+          SELECT DATE_TRUNC('day', created_at)::date AS day, SUM(premium_paid) AS amt
+          FROM insurance_policies WHERE created_at > NOW() - INTERVAL '30 days'
+          GROUP BY 1
+        ),
+        bridge_daily AS (
+          SELECT DATE_TRUNC('day', created_at)::date AS day, SUM(fee) AS amt
+          FROM bridge_transfers WHERE fee > 0 AND created_at > NOW() - INTERVAL '30 days'
+          GROUP BY 1
+        )
+        SELECT
+          d.day,
+          COALESCE(t.amt, 0) AS trust,
+          COALESCE(s.amt, 0) AS stablecoin,
+          COALESCE(i.amt, 0) AS insurance,
+          COALESCE(b.amt, 0) AS bridge
+        FROM days d
+        LEFT JOIN trust_daily  t ON t.day = d.day
+        LEFT JOIN stable_daily s ON s.day = d.day
+        LEFT JOIN ins_daily    i ON i.day = d.day
+        LEFT JOIN bridge_daily b ON b.day = d.day
+        ORDER BY d.day
+      `);
+
+      // ── 12-month monthly totals ────────────────────────────────────────────
+      const monthlyQ = await pgPool.query(`
+        WITH months AS (
+          SELECT generate_series(
+            DATE_TRUNC('month', NOW()) - INTERVAL '11 months',
+            DATE_TRUNC('month', NOW()),
+            '1 month'
+          ) AS month
+        ),
+        all_rev AS (
+          SELECT created_at, amount FROM trust_payments
+          UNION ALL
+          SELECT created_at, creation_fee_paid FROM user_stablecoins WHERE creation_fee_paid > 0
+          UNION ALL
+          SELECT created_at, premium_paid FROM insurance_policies
+          UNION ALL
+          SELECT created_at, fee FROM bridge_transfers WHERE fee > 0
+          UNION ALL
+          SELECT created_at, fiat_amount FROM buy_requests WHERE status='completed' AND fiat_amount IS NOT NULL
+          UNION ALL
+          SELECT created_at, amount FROM cashout_requests WHERE status='completed'
+        ),
+        monthly_rev AS (
+          SELECT DATE_TRUNC('month', created_at) AS month, SUM(amount) AS total
+          FROM all_rev
+          GROUP BY 1
+        )
+        SELECT m.month, COALESCE(r.total, 0) AS total
+        FROM months m
+        LEFT JOIN monthly_rev r ON r.month = m.month
+        ORDER BY m.month
+      `);
+
+      // ── Recent 25 revenue events ───────────────────────────────────────────
+      const recentQ = await pgPool.query(`
+        SELECT id::text, 'trust' AS type, amount, payment_type AS label, created_at
+        FROM trust_payments
+        UNION ALL
+        SELECT id::text, 'stablecoin', creation_fee_paid, name || ' (' || symbol || ')' AS label, created_at
+        FROM user_stablecoins WHERE creation_fee_paid > 0
+        UNION ALL
+        SELECT id::text, 'insurance', premium_paid, 'Policy premium' AS label, created_at
+        FROM insurance_policies WHERE premium_paid > 0
+        UNION ALL
+        SELECT id::text, 'bridge', fee, from_chain || ' → ' || to_chain AS label, created_at
+        FROM bridge_transfers WHERE fee > 0
+        UNION ALL
+        SELECT id::text, 'buy', COALESCE(fiat_amount, token_amount), token_symbol || ' buy (' || payment_method_name || ')' AS label, created_at
+        FROM buy_requests WHERE status='completed'
+        UNION ALL
+        SELECT id::text, 'cashout', amount, asset || ' cashout' AS label, created_at
+        FROM cashout_requests WHERE status='completed'
+        ORDER BY created_at DESC
+        LIMIT 25
+      `);
+
+      res.json({
+        totals: { trustTotal, stableTotal, insuranceTotal, bridgeTotal, buyTotal, buyCount, cashoutTotal, cashoutCount, grandTotal },
+        daily: dailyQ.rows,
+        monthly: monthlyQ.rows,
+        recent: recentQ.rows.map(r => ({
+          id: r.id,
+          type: r.type,
+          amount: Number(r.amount),
+          label: r.label,
+          createdAt: r.created_at,
+        })),
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Server Config (admin-editable .env vars + gyds-config.env) ────────────
   const SERVER_CONFIG_READABLE: string[] = [
     'ADMIN_WALLET', 'FOUNDER_WALLET', 'REWARD_ADDRESS',

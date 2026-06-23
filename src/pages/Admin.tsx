@@ -59,12 +59,13 @@ import { BridgeNetworkManager } from '@/components/admin/BridgeNetworkManager';
 import { ExplorerConfig } from '@/components/admin/ExplorerConfig';
 import { TestNodeManager } from '@/components/admin/TestNodeManager';
 import { GrantAchievementPanel } from '@/components/admin/GrantAchievementPanel';
-import { FlaskConical, Trophy, Rocket as RocketIcon, ArrowRightLeft, RotateCcw, ExternalLink, ToggleLeft, ToggleRight, Zap, Timer } from 'lucide-react';
+import { FlaskConical, Trophy, Rocket as RocketIcon, ArrowRightLeft, RotateCcw, ExternalLink, ToggleLeft, ToggleRight, Zap, Timer, TrendingUp } from 'lucide-react';
 import { CronJobManager } from '@/components/admin/CronJobManager';
 import { NodeRepoSync } from '@/components/admin/NodeRepoSync';
 import { PaymentMethodsManager } from '@/components/admin/PaymentMethodsManager';
 import { WalletReleaseManager } from '@/components/layout/WalletDownloadButton';
 import { ServerConfigManager } from '@/components/admin/ServerConfigManager';
+import { RevenueDashboard } from '@/components/admin/RevenueDashboard';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -865,6 +866,10 @@ const AdminContent = () => {
             <Settings className="h-4 w-4" />
             <span className="hidden md:inline">Server Config</span>
           </TabsTrigger>
+          <TabsTrigger value="revenue" className="gap-2" data-testid="tab-revenue">
+            <TrendingUp className="h-4 w-4" />
+            <span className="hidden md:inline">Revenue</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="maintenance">
@@ -1131,6 +1136,9 @@ const AdminContent = () => {
         </TabsContent>
         <TabsContent value="server-config">
           <ServerConfigManager />
+        </TabsContent>
+        <TabsContent value="revenue">
+          <RevenueDashboard />
         </TabsContent>
       </Tabs>
     </motion.div>
