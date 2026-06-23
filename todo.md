@@ -1,6 +1,6 @@
 # ChainCore — GYDS Dashboard · Feature Todo
 
-_Last updated: June 22, 2026_
+_Last updated: June 23, 2026_
 
 ---
 
@@ -257,6 +257,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] **Announcement banner** — set/clear site-wide announcement via Admin Console `announce` command
 - [x] **Dashboard visibility controls** — Admin → Visibility: toggle each dashboard widget on/off for non-admins
 - [x] **Download page visibility controls** — Admin → Visibility: toggle each download tab on/off for non-admins
+- [x] **Server Config tab** — Admin → Server Config: live edit wallets, GitHub token, hCaptcha, Telegram, SMTP, WhatsApp, bootstrap nodes; writes to `.env` + `gyds-config.env` and auto-restarts via PM2 on save
 
 ### Notifications
 - [x] In-app notification bell (faucet, governance, proposals)
@@ -438,7 +439,7 @@ bash push-all.sh "your commit message"
 - [ ] Auto-ban on repeated failed login attempts (beyond rate limit)
 
 ### Platform
-- [ ] SMTP setup UI (admin panel — configure mail server without env var restart)
+- [x] SMTP setup UI (admin panel — configure mail server without env var restart) → **Admin → Server Config**
 - [ ] KYC full integration (Sumsub/Onfido — currently simulated; launches at mainnet)
 - [ ] Referral UI page (invite links + GYDS rewards — DB tables exist)
 - [ ] Multi-language i18n (locale field exists; translations not implemented)
@@ -453,7 +454,7 @@ bash push-all.sh "your commit message"
 - [ ] Bulk user actions (export CSV, mass-ban)
 - [ ] Revenue dashboard (trust fees, token launches, insurance premiums)
 - [ ] Scheduled announcements GUI (currently console command only)
-- [ ] SMTP config UI (set mail server from Admin panel)
+- [x] SMTP config UI (set mail server from Admin panel) → **Admin → Server Config**
 
 ---
 

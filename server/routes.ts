@@ -3391,4 +3391,107 @@ export function registerRoutes(app: Express) {
   app.post('/api/setup/generate-secret', requireAdmin, (_req, res) => {
     res.json({ value: crypto.randomBytes(32).toString('hex') });
   });
+
+  // ── Server Config (admin-editable .env vars + gyds-config.env) ────────────
+  const SERVER_CONFIG_READABLE: string[] = [
+    'ADMIN_WALLET', 'FOUNDER_WALLET', 'REWARD_ADDRESS',
+    'VITE_HCAPTCHA_SITE_KEY',
+    'TELEGRAM_CHAT_ID',
+    'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_FROM',
+    'WHATSAPP_PHONE_ID',
+    'GYDS_BOOTSTRAP_NODES',
+  ];
+  const SERVER_CONFIG_SECRET: string[] = [
+    'GITHUB_TOKEN', 'HCAPTCHA_SECRET_KEY',
+    'TELEGRAM_BOT_TOKEN',
+    'SMTP_PASS',
+    'WHATSAPP_TOKEN',
+  ];
+  const SERVER_CONFIG_ALL = [...SERVER_CONFIG_READABLE, ...SERVER_CONFIG_SECRET];
+
+  app.get('/api/admin/server-config', requireAdmin, (_req, res) => {
+    try {
+      const env = readEnvFile();
+      const values: Record<string, string> = {};
+      for (const k of SERVER_CONFIG_READABLE) {
+        values[k] = process.env[k] ?? env[k] ?? '';
+      }
+      for (const k of SERVER_CONFIG_SECRET) {
+        const v = process.env[k] ?? env[k] ?? '';
+        values[k] = v ? '••••••••' : '';
+      }
+      const keysSet: Record<string, boolean> = {};
+      for (const k of SERVER_CONFIG_ALL) {
+        keysSet[k] = !!(process.env[k] ?? env[k]);
+      }
+      res.json({ values, keysSet });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/admin/server-config', requireAdmin, async (req, res) => {
+    try {
+      const allowed = new Set(SERVER_CONFIG_ALL);
+      const toSave: Record<string, string> = {};
+      for (const [k, v] of Object.entries(req.body as Record<string, string>)) {
+        if (!allowed.has(k)) continue;
+        if (typeof v === 'string' && v.trim() && !v.startsWith('••')) {
+          toSave[k] = v.trim();
+        }
+      }
+
+      // Write to .env
+      writeEnvFile(toSave);
+
+      // Apply to current process immediately
+      for (const [k, v] of Object.entries(toSave)) {
+        process.env[k] = v;
+      }
+
+      // Write to gyds-config.env (sourced by node install scripts)
+      const configPath = path.resolve('gyds-config.env');
+      const existing = fs.existsSync(configPath)
+        ? fs.readFileSync(configPath, 'utf8').split('\n').filter(l => l && !l.startsWith('#')).reduce((acc, l) => {
+            const eq = l.indexOf('=');
+            if (eq > 0) acc[l.slice(0, eq).trim()] = l.slice(eq + 1).trim();
+            return acc;
+          }, {} as Record<string, string>)
+        : {};
+      const gydsConf: Record<string, string> = { ...existing };
+      if (toSave['ADMIN_WALLET'])         gydsConf['GYDS_ADMIN_WALLET'] = toSave['ADMIN_WALLET'];
+      if (toSave['FOUNDER_WALLET'])       gydsConf['GYDS_FOUNDER_WALLET'] = toSave['FOUNDER_WALLET'];
+      if (toSave['REWARD_ADDRESS'])       { gydsConf['GYDS_REWARD_ADDRESS'] = toSave['REWARD_ADDRESS']; gydsConf['GYDS_MINING_WALLET'] = toSave['REWARD_ADDRESS']; }
+      if (toSave['GITHUB_TOKEN'])         gydsConf['GITHUB_TOKEN'] = toSave['GITHUB_TOKEN'];
+      if (toSave['TELEGRAM_BOT_TOKEN'])   gydsConf['TELEGRAM_BOT_TOKEN'] = toSave['TELEGRAM_BOT_TOKEN'];
+      if (toSave['TELEGRAM_CHAT_ID'])     gydsConf['TELEGRAM_CHAT_ID'] = toSave['TELEGRAM_CHAT_ID'];
+      if (toSave['SMTP_HOST'])            gydsConf['SMTP_HOST'] = toSave['SMTP_HOST'];
+      if (toSave['SMTP_PORT'])            gydsConf['SMTP_PORT'] = toSave['SMTP_PORT'];
+      if (toSave['SMTP_USER'])            gydsConf['SMTP_USER'] = toSave['SMTP_USER'];
+      if (toSave['SMTP_PASS'])            gydsConf['SMTP_PASS'] = toSave['SMTP_PASS'];
+      if (toSave['SMTP_FROM'])            gydsConf['SMTP_FROM'] = toSave['SMTP_FROM'];
+      if (toSave['WHATSAPP_TOKEN'])       gydsConf['WHATSAPP_TOKEN'] = toSave['WHATSAPP_TOKEN'];
+      if (toSave['WHATSAPP_PHONE_ID'])    gydsConf['WHATSAPP_PHONE_ID'] = toSave['WHATSAPP_PHONE_ID'];
+      if (toSave['GYDS_BOOTSTRAP_NODES']) gydsConf['GYDS_BOOTSTRAP_NODES'] = toSave['GYDS_BOOTSTRAP_NODES'];
+      const gydsLines = [
+        '# GYDSchain shared config — managed via Admin → Server Config',
+        ...Object.entries(gydsConf).map(([k, v]) => `${k}=${v}`),
+      ];
+      fs.writeFileSync(configPath, gydsLines.join('\n') + '\n', 'utf8');
+
+      // Try PM2 restart
+      let restarted = false;
+      try {
+        const { exec } = await import('child_process');
+        await new Promise<void>((resolve, reject) => {
+          exec('pm2 restart gydschain-api --update-env', { timeout: 15000 }, (err) => {
+            if (err) reject(err); else resolve();
+          });
+        });
+        restarted = true;
+      } catch {
+        // PM2 not available (dev mode / Replit) — changes already applied to process.env
+      }
+
+      res.json({ ok: true, saved: Object.keys(toSave), restarted });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 }

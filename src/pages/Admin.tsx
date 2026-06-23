@@ -53,7 +53,7 @@ import { MiningPoolAdmin } from '@/components/admin/MiningPoolAdmin';
 import { NodeVisibilitySettings } from '@/components/admin/NodeVisibilitySettings';
 import { UserManager } from '@/components/admin/UserManager';
 import { FeatureGrantManager } from '@/components/admin/FeatureGrantManager';
-import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe, Wrench, Link2, Search as SearchIcon, Smartphone } from 'lucide-react';
+import { Terminal as TerminalIcon, EyeOff, Rocket, Pickaxe, Wrench, Link2, Search as SearchIcon, Smartphone, Settings } from 'lucide-react';
 import { MaintenanceManager } from '@/components/admin/MaintenanceManager';
 import { BridgeNetworkManager } from '@/components/admin/BridgeNetworkManager';
 import { ExplorerConfig } from '@/components/admin/ExplorerConfig';
@@ -64,6 +64,7 @@ import { CronJobManager } from '@/components/admin/CronJobManager';
 import { NodeRepoSync } from '@/components/admin/NodeRepoSync';
 import { PaymentMethodsManager } from '@/components/admin/PaymentMethodsManager';
 import { WalletReleaseManager } from '@/components/layout/WalletDownloadButton';
+import { ServerConfigManager } from '@/components/admin/ServerConfigManager';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -860,6 +861,10 @@ const AdminContent = () => {
             <Smartphone className="h-4 w-4" />
             <span className="hidden md:inline">Wallet App</span>
           </TabsTrigger>
+          <TabsTrigger value="server-config" className="gap-2" data-testid="tab-server-config">
+            <Settings className="h-4 w-4" />
+            <span className="hidden md:inline">Server Config</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="maintenance">
@@ -1123,6 +1128,9 @@ const AdminContent = () => {
         </TabsContent>
         <TabsContent value="wallet-app">
           <WalletReleaseManager />
+        </TabsContent>
+        <TabsContent value="server-config">
+          <ServerConfigManager />
         </TabsContent>
       </Tabs>
     </motion.div>
