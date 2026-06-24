@@ -11,10 +11,27 @@ import {
 } from 'lucide-react';
 import gydsCoinLogo from '/gyds-coin.jpg';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useComponentVisibility } from '@/hooks/useComponentVisibility';
+
+function useLiveNetworkStats() {
+  const [stats, setStats] = useState<{ validators: number; nodes: number; txs: number } | null>(null);
+  useEffect(() => {
+    const fetch$ = () =>
+      fetch('/api/network-stats', { credentials: 'include' })
+        .then(r => r.json())
+        .then(d => {
+          if (d?.stats) setStats({ validators: d.stats.activeValidators ?? 0, nodes: d.stats.liveNodes ?? 0, txs: d.stats.totalTransactions ?? 0 });
+        })
+        .catch(() => {});
+    fetch$();
+    const id = setInterval(fetch$, 10_000);
+    return () => clearInterval(id);
+  }, []);
+  return stats;
+}
 
 interface NavItem { to: string; icon: any; label: string; featureKey?: string; }
 
@@ -133,6 +150,7 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
   const { user, signOut, isFounder, isAdmin } = useAuth();
   const roles = Array.isArray(user?.roles) ? user!.roles : [];
   const navigate = useNavigate();
+  const netStats = useLiveNetworkStats();
 
   const handleAuthClick = async () => {
     if (user) { await signOut(); } else { navigate('/auth'); }
@@ -222,13 +240,15 @@ export const Sidebar = ({ isOpen, onToggle, isMobile }: SidebarProps) => {
               {/* Network status */}
               <div className="glass-card p-3 rounded-lg">
                 <div className="flex items-center gap-2 mb-1">
-                  <div className="w-2 h-2 rounded-full bg-neon-emerald animate-pulse" />
-                  <span className="text-xs font-medium text-neon-emerald">Network Active</span>
+                  <div className={`w-2 h-2 rounded-full animate-pulse ${netStats ? 'bg-neon-emerald' : 'bg-yellow-500'}`} />
+                  <span className={`text-xs font-medium ${netStats ? 'text-neon-emerald' : 'text-yellow-500'}`}>
+                    {netStats ? 'Network Active' : 'Connecting…'}
+                  </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Block: <span className="font-mono text-foreground">1,234,567</span>
+                  Validators: <span className="font-mono text-foreground">{netStats?.validators ?? '—'}</span>
                   <span className="mx-2 text-border">·</span>
-                  TPS: <span className="font-mono text-foreground">1,250</span>
+                  Nodes: <span className="font-mono text-foreground">{netStats?.nodes ?? '—'}</span>
                 </p>
               </div>
 
