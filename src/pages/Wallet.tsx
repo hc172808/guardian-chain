@@ -327,10 +327,7 @@ const WalletContent = () => {
       if (fc.address) myAddresses.add(fc.address.toLowerCase());
     }
 
-    // Also include the reserved founder address for founder users
-    if (user.email?.toLowerCase() === 'netlifegy@gmail.com') {
-      myAddresses.add('0x0000000000000000000000000000000000000001');
-    }
+    // Actual wallet addresses are loaded from /api/wallets above
 
     // Also check operations created_by this user (for pre-mine tracking)
     const isCreator = (createdBy: string | null) => createdBy === user.id;
@@ -1089,7 +1086,7 @@ const WalletContent = () => {
                         <span className="text-xs text-muted-foreground">{token.name}</span>
                       </div>
                       <p className="text-xs text-muted-foreground font-mono">
-                        ${token.price < 1 ? token.price.toFixed(7) : token.price.toFixed(2)} per token
+                        ${(token.price ?? 0) < 1 ? Number(token.price ?? 0).toFixed(7) : Number(token.price ?? 0).toFixed(2)} per token
                         {token.decimals !== undefined && <span className="ml-2 text-muted-foreground/60">({token.decimals} decimals)</span>}
                       </p>
                     </div>

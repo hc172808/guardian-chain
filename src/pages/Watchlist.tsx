@@ -82,8 +82,11 @@ const WatchlistPage = () => {
   };
 
   const getPrice = (token: WatchlistToken['tokens']) => {
-    if (token.total_supply === 0) return 0;
-    return token.gyds_liquidity / token.total_supply;
+    const supply = Number(token.total_supply) || 0;
+    const liq = Number(token.gyds_liquidity) || 0;
+    if (supply === 0) return 0;
+    const p = liq / supply;
+    return isFinite(p) ? p : 0;
   };
 
   return (

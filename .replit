@@ -83,3 +83,4 @@ externalPort = 3001
 [userenv]
 
 [userenv.shared]
+FOUNDER_WALLET_ADDRESS = "0x6422d12bfaddee5142bfad21b3006a74d09017b1"

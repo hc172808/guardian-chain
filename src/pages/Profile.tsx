@@ -144,6 +144,75 @@ const THEMES = [
   { value: 'neon', label: 'Neon Glow' },
 ];
 
+function ChangePasswordPanel() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      toast({ title: 'Error', description: 'New passwords do not match', variant: 'destructive' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({ title: 'Error', description: 'Password must be at least 6 characters', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to change password');
+      toast({ title: 'Password changed', description: 'Your password has been updated successfully.' });
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setOpen(false);
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between p-3 bg-muted/20 rounded-lg border border-border/30">
+        <div>
+          <p className="text-sm font-medium text-foreground">Password</p>
+          <p className="text-xs text-muted-foreground">Change your login password</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setOpen(!open)}>
+          {open ? 'Cancel' : 'Change'}
+        </Button>
+      </div>
+      {open && (
+        <form onSubmit={handleSubmit} className="p-3 bg-muted/10 rounded-lg border border-border/30 space-y-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Current Password</Label>
+            <Input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="Enter current password" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">New Password</Label>
+            <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="At least 6 characters" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Confirm New Password</Label>
+            <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="Repeat new password" />
+          </div>
+          <Button type="submit" size="sm" disabled={saving} className="w-full">
+            {saving ? <><RefreshCw className="w-3 h-3 animate-spin mr-1" />Saving…</> : <><Lock className="w-3 h-3 mr-1" />Update Password</>}
+          </Button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function WhatsAppTestPanel({ number }: { number: string }) {
   const { toast } = useToast();
   const [testing, setTesting] = useState(false);
@@ -1046,19 +1115,8 @@ const ProfilePage = () => {
               </h2>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-muted/20 rounded-lg border border-border/30">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Password</p>
-                    <p className="text-xs text-muted-foreground">Change your login password</p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => window.location.href = '/reset-password'}
-                  >
-                    Change
-                  </Button>
-                </div>
+                <ChangePasswordPanel />
+
 
                 <div className="flex items-center justify-between p-3 bg-muted/20 rounded-lg border border-border/30">
                   <div>
@@ -1114,7 +1172,7 @@ const ProfilePage = () => {
                   <div>
                     <p className="text-sm font-medium text-foreground">Account Created</p>
                     <p className="text-xs text-muted-foreground">
-                      {user?.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
+                      {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}
                     </p>
                   </div>
                 </div>

@@ -82,6 +82,7 @@ export function registerRoutes(app: Express) {
       roles: user.roles ?? [],
       isAdmin: user._isAdmin ?? false,
       isFounder: user._isFounder ?? false,
+      createdAt: user.createdAt ?? user.created_at ?? null,
     });
   });
 

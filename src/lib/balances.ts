@@ -21,10 +21,6 @@ export const getUserAddresses = async (
     }
   } catch {}
 
-  if (userEmail?.toLowerCase() === 'netlifegy@gmail.com') {
-    myAddresses.add('0x0000000000000000000000000000000000000001');
-  }
-
   return myAddresses;
 };
 
