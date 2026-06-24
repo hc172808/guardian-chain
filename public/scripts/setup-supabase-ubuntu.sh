@@ -39,8 +39,15 @@ apt-get install -y -qq curl wget gnupg2 ca-certificates lsb-release \
 
 # Node.js 22
 if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null
-    apt-get install -y -qq nodejs
+    apt-get remove -y nodejs libnode-dev node-gyp 2>/dev/null || true
+apt-get autoremove -y 2>/dev/null || true
+
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+
+apt-get install -y nodejs
+
+dpkg --configure -a || true
+apt-get --fix-broken install -y || true
 fi
 
 # Deno for Edge Functions
