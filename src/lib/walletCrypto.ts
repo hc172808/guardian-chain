@@ -287,6 +287,20 @@ export async function verifyPinLock(pin: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * Derive a deterministic wallet address from a seed phrase using SHA-256.
+ * The address is the last 20 bytes of SHA-256(seedPhrase), ensuring the same
+ * seed always produces the same address on this network.
+ */
+export async function walletFromSeed(seedPhrase: string): Promise<{ address: string; seedPhrase: string }> {
+  const enc = new TextEncoder();
+  const hashBuf = await crypto.subtle.digest('SHA-256', enc.encode(seedPhrase.trim()));
+  const hashArr = new Uint8Array(hashBuf);
+  const addrBytes = hashArr.slice(12); // last 20 bytes → 40 hex chars
+  const address = '0x' + Array.from(addrBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return { address, seedPhrase: seedPhrase.trim() };
+}
+
 // ─── Legacy compatibility (for existing wallets) ──────
 
 function legacyHashPin(pin: string): string {

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
@@ -20,31 +19,43 @@ export const useWalletConnect = () => {
     isConnecting: false,
   });
 
-  // Load wallet from database on mount
-  useEffect(() => {
+  const loadWallet = useCallback(async () => {
     if (!user) {
       setWallet({ address: null, balance: '0', isConnected: false, isConnecting: false });
       return;
     }
-
-    const loadWallet = async () => {
-      const { data } = await supabase
-        .from('wallets')
-        .select('address')
-        .eq('user_id', user.id)
-        .limit(1);
-
-      if (data && data.length > 0) {
+    try {
+      const res = await fetch('/api/wallets', { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
         setWallet(prev => ({
           ...prev,
           address: data[0].address,
           isConnected: true,
         }));
       }
-    };
-
-    loadWallet();
+    } catch {
+      // silent — no wallet yet
+    }
   }, [user]);
+
+  // Auto-load wallet on mount / user change
+  useEffect(() => {
+    loadWallet();
+  }, [loadWallet]);
+
+  // Listen for wallet-created events dispatched after create / import
+  useEffect(() => {
+    const onWalletCreated = (e: CustomEvent) => {
+      const address = e.detail?.address;
+      if (address) {
+        setWallet({ address, balance: '0', isConnected: true, isConnecting: false });
+      }
+    };
+    window.addEventListener('wallet-created', onWalletCreated as EventListener);
+    return () => window.removeEventListener('wallet-created', onWalletCreated as EventListener);
+  }, []);
 
   const connect = useCallback(async () => {
     if (!user) {
@@ -59,21 +70,17 @@ export const useWalletConnect = () => {
     setWallet(prev => ({ ...prev, isConnecting: true }));
 
     try {
-      // Check if user already has a wallet
-      const { data: existing } = await supabase
-        .from('wallets')
-        .select('address')
-        .eq('user_id', user.id)
-        .limit(1);
+      const res = await fetch('/api/wallets', { credentials: 'include' });
+      const data = res.ok ? await res.json() : [];
 
-      if (existing && existing.length > 0) {
+      if (Array.isArray(data) && data.length > 0) {
         setWallet({
-          address: existing[0].address,
+          address: data[0].address,
           balance: '0',
           isConnected: true,
           isConnecting: false,
         });
-        toast({ title: 'Wallet Connected', description: `Address: ${existing[0].address.slice(0, 8)}...` });
+        toast({ title: 'Wallet Connected', description: `Address: ${data[0].address.slice(0, 8)}...` });
         return;
       }
 

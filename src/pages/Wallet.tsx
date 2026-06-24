@@ -73,6 +73,7 @@ interface TokenBalance {
 
 import {
   generateSecureWallet,
+  walletFromSeed,
   hashPin,
   verifyPin,
   encryptWithPin,
@@ -465,6 +466,8 @@ const WalletContent = () => {
       await api.post('/api/wallets', { address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash });
       setNewWalletData({ address: wallet.address, seedPhrase: wallet.seedPhrase });
       fetchWallets();
+      // Notify DeFi / other components that a wallet is now available
+      window.dispatchEvent(new CustomEvent('wallet-created', { detail: { address: wallet.address } }));
     } catch {
       toast({ title: 'Failed to create wallet', variant: 'destructive' });
     }
@@ -474,14 +477,18 @@ const WalletContent = () => {
     if (pin.length < 4) { toast({ title: 'PIN must be at least 4 digits', variant: 'destructive' }); return; }
     if (pin !== confirmPin) { toast({ title: 'PINs do not match', variant: 'destructive' }); return; }
     if (!importSeed.trim()) { toast({ title: 'Please enter seed phrase', variant: 'destructive' }); return; }
-    const wallet = generateSecureWallet();
-    const encryptedSeed = await encryptWithPin(importSeed.trim(), pin);
+    // Derive a deterministic address from the seed phrase so the same seed always
+    // produces the same address instead of a random one.
+    const { address, seedPhrase: normalizedSeed } = await walletFromSeed(importSeed);
+    const encryptedSeed = await encryptWithPin(normalizedSeed, pin);
     const pinHash = await hashPin(pin);
     try {
-      await api.post('/api/wallets', { address: wallet.address, encrypted_seed: encryptedSeed, pin_hash: pinHash });
-      toast({ title: 'Wallet imported successfully!' });
+      await api.post('/api/wallets', { address, encrypted_seed: encryptedSeed, pin_hash: pinHash });
+      toast({ title: 'Wallet imported successfully!', description: `Address: ${address.slice(0, 8)}...` });
       setImportDialogOpen(false); setPin(''); setConfirmPin(''); setImportSeed('');
       fetchWallets();
+      // Notify DeFi / other components that a wallet is now available
+      window.dispatchEvent(new CustomEvent('wallet-created', { detail: { address } }));
     } catch {
       toast({ title: 'Failed to import wallet', variant: 'destructive' });
     }

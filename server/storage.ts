@@ -183,10 +183,10 @@ export const storage = {
   // ── Wallets ───────────────────────────────────────────────────────────────
   async getUserWallets(userId: string) {
     const res = await pgPool.query(
-      `SELECT id, user_id, address, encrypted_seed, pin_hash, created_at,
-              COALESCE(gyds_balance, 0) AS gyds_balance,
-              COALESCE(locked_balance, 0) AS locked_balance
-       FROM wallets WHERE user_id=$1`,
+      `SELECT id, user_id AS "userId", address, encrypted_seed AS "encryptedSeed",
+              pin_hash AS "pinHash", created_at AS "createdAt"
+       FROM wallets WHERE user_id=$1
+       ORDER BY created_at ASC`,
       [userId]
     );
     return res.rows;

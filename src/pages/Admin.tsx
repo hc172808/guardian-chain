@@ -497,6 +497,107 @@ function ValidatorExplorerMonitor({ toast }: { toast: any }) {
   );
 }
 
+function CacheStatsPanel({ toast }: { toast: any }) {
+  const [stats, setStats] = useState<any>(null);
+  const [clearing, setClearing] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch('/api/admin/cache-stats', { credentials: 'include' });
+      if (r.ok) setStats(await r.json());
+    } catch { }
+    setLoading(false);
+  };
+
+  const clearAll = async () => {
+    setClearing(true);
+    try {
+      const r = await fetch('/api/admin/cache-clear', { method: 'POST', credentials: 'include' });
+      const d = await r.json();
+      toast({ title: 'Cache cleared', description: `${(d.queryEntries ?? 0) + (d.responseEntries ?? 0)} entries evicted` });
+      load();
+    } catch { toast({ title: 'Clear failed', variant: 'destructive' }); }
+    setClearing(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const pct = (n: number, d: number) => d ? Math.round((n / d) * 100) : 0;
+
+  return (
+    <div className="space-y-4 pt-4 border-t border-border/50">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-primary" />
+          <span className="font-medium text-foreground">Query Cache</span>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1 text-xs h-7">
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />Refresh
+          </Button>
+          <Button size="sm" variant="destructive" onClick={clearAll} disabled={clearing} className="gap-1 text-xs h-7">
+            <RotateCcw className={`w-3 h-3 ${clearing ? 'animate-spin' : ''}`} />Clear All
+          </Button>
+        </div>
+      </div>
+
+      {stats ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'SQL Cache', s: stats.query,    color: 'text-blue-400' },
+              { label: 'HTTP Cache', s: stats.response, color: 'text-emerald-400' },
+            ].map(({ label, s, color }) => {
+              const total = s.hits + s.misses;
+              const hitPct = pct(s.hits, total);
+              return (
+                <div key={label} className="bg-secondary/20 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                    <span className={`text-sm font-bold ${color}`}>{s.hitRate}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                    <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${hitPct}%` }} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 text-center">
+                    <div><div className="text-sm font-semibold">{s.liveEntries}</div><div className="text-[10px] text-muted-foreground">Live</div></div>
+                    <div><div className="text-sm font-semibold text-emerald-400">{s.hits}</div><div className="text-[10px] text-muted-foreground">Hits</div></div>
+                    <div><div className="text-sm font-semibold text-amber-400">{s.misses}</div><div className="text-[10px] text-muted-foreground">Misses</div></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {(stats.response?.topKeys?.length > 0) && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-2 font-medium">Top Cached Routes</p>
+              <div className="space-y-1">
+                {stats.response.topKeys.slice(0, 6).map((k: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between bg-secondary/20 rounded px-2 py-1">
+                    <span className="text-xs font-mono text-muted-foreground truncate max-w-[55%]">{k.key}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-emerald-400">{k.hits} hits</span>
+                      <span className="text-[10px] text-muted-foreground">{k.ageSeconds}s ago</span>
+                      <span className="text-[10px] text-muted-foreground">{Math.round(k.sizeBytes / 1024)}KB</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : loading ? (
+        <div className="text-center py-4 text-muted-foreground text-sm">Loading cache stats…</div>
+      ) : (
+        <div className="text-center py-4 text-muted-foreground text-sm">No data. Click Refresh.</div>
+      )}
+    </div>
+  );
+}
+
 function FlashLoanCircuitBreaker({ toast }: { toast: any }) {
   const [enabled, setEnabled] = useState(true);
   const [maxLoan, setMaxLoan] = useState('500000');
@@ -1123,7 +1224,10 @@ const AdminContent = () => {
           <FlashLoanCircuitBreaker toast={toast} />
         </TabsContent>
         <TabsContent value="monitoring">
-          <ValidatorExplorerMonitor toast={toast} />
+          <div className="space-y-6">
+            <ValidatorExplorerMonitor toast={toast} />
+            <CacheStatsPanel toast={toast} />
+          </div>
         </TabsContent>
         <TabsContent value="cron">
           <CronJobManager toast={toast} />

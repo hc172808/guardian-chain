@@ -62,11 +62,11 @@ prompt_opt() {
   local varname="$1" label="$2"
   local current; current="${!varname:-}"
   if [[ -n "$current" ]]; then
-    read -rp "  ${label} [${current}]: " _v
-    [[ -n "$_v" ]] && printf -v "$varname" '%s' "$_v"
+    read -rp "  ${label} [${current}]: " _v || true
+    [[ -n "$_v" ]] && printf -v "$varname" '%s' "$_v" || true
   else
-    read -rp "  ${label} (Enter to skip): " _v
-    [[ -n "$_v" ]] && printf -v "$varname" '%s' "$_v"
+    read -rp "  ${label} (Enter to skip): " _v || true
+    [[ -n "$_v" ]] && printf -v "$varname" '%s' "$_v" || true
   fi
 }
 
