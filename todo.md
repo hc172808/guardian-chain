@@ -242,7 +242,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] User management (ban, role assignment)
 - [x] Node installation management + approval
 - [x] WireGuard peer manager (auto IP assignment, config generation)
-- [x] Test node manager (5 types: rpc, lite, fullnode, boostnode, validator)
+- [x] Test node manager (7 types: rpc, lite, fullnode, boostnode, validator, genesis, bootnode — 21 nodes total across 3 networks)
 - [x] Validator monitor
 - [x] Cron job manager (7 jobs, in-memory registry)
 - [x] GitHub webhook receiver (HMAC-SHA256)
@@ -426,6 +426,9 @@ bash push-all.sh "your commit message"
 - [ ] Termux (Android) installer — script in place, needs testing
 - [ ] Node auto-update mechanism (compare local vs. GitHub release tag)
 - [ ] One-click validator registration from dashboard
+- [x] **PostgreSQL query cache / repeater** — `server/queryCache.ts`; response-level TTL cache on /api/validators (8s), /api/tokens (20s), /api/pools (12s), /api/network-stats (5s); admin cache stats + manual clear at `/api/admin/cache-stats` and `/api/admin/cache-clear`
+- [x] **Genesis node** — port 8590/8605/8655; serves GET /genesis.json (full genesis block config), responds to eth_chainId/eth_blockNumber; no block timer
+- [x] **Boot node** — port 8595/8606/8656; serves GET /peers (peer enode list), responds to net_peerCount/admin_peers; 32 initial peers, no block production
 - [ ] Node health alerts (push/Telegram when node goes offline)
 
 ### Analytics

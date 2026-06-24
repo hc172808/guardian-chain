@@ -6,12 +6,13 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
   Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe,
-  Database, Rocket, Shield, MonitorDot, Link2, ChevronDown, ChevronUp
+  Database, Rocket, Shield, MonitorDot, Link2, ChevronDown, ChevronUp,
+  Anchor, Radio
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Network  = 'mainnet' | 'testnet' | 'devnet';
-type NodeType = 'rpc' | 'lite' | 'fullnode' | 'boostnode' | 'validator';
+type NodeType = 'rpc' | 'lite' | 'fullnode' | 'boostnode' | 'validator' | 'genesis' | 'bootnode';
 
 interface NodeStatus {
   running:     boolean;
@@ -24,7 +25,7 @@ interface NodeStatus {
 
 type FullStatus = Record<Network, Record<NodeType, NodeStatus>>;
 
-const NODE_TYPES: NodeType[] = ['rpc', 'lite', 'fullnode', 'boostnode', 'validator'];
+const NODE_TYPES: NodeType[] = ['rpc', 'lite', 'fullnode', 'boostnode', 'validator', 'genesis', 'bootnode'];
 const NETWORKS:  Network[]   = ['mainnet', 'testnet', 'devnet'];
 
 const NETWORK_CFG = {
@@ -61,6 +62,16 @@ const NODE_META: Record<NodeType, { label: string; description: string; color: s
     label: 'Validator Node',
     description: 'PoS consensus node. Proposes blocks every 120s, runs validator_info, validator_set, validator_getRewards, validator_register.',
     color: 'text-emerald-400', icon: Shield, badge: 'PoS · 120s',
+  },
+  genesis: {
+    label: 'Genesis Node',
+    description: 'Serves the genesis block config (GET /genesis.json). Bootstrap new nodes or verify chain origin. Responds to basic eth_chainId, eth_blockNumber.',
+    color: 'text-teal-400', icon: Anchor, badge: 'Genesis',
+  },
+  bootnode: {
+    label: 'Boot Node',
+    description: 'Peer discovery node. Maintains enode list, serves GET /peers with live peer addresses. Responds to net_peerCount and admin_peers.',
+    color: 'text-slate-300', icon: Radio, badge: 'P2P · Discovery',
   },
 };
 
@@ -276,7 +287,7 @@ function NetworkPanel({
               {anyRunning && (
                 <Badge variant="outline" className="text-xs py-0 text-emerald-400 border-emerald-500/40 bg-emerald-500/10 gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  {runningCount}/5 running
+                  {runningCount}/7 running
                 </Badge>
               )}
             </div>
@@ -356,9 +367,9 @@ function NetworkPanel({
 
 const EMPTY_NODE_STATUS: NodeStatus = { running: false, startedAt: null, port: 0, blockHeight: 1000, peers: 0, txPool: 0 };
 const EMPTY_STATUS: FullStatus = {
-  mainnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8545 }, lite: { ...EMPTY_NODE_STATUS, port: 8555 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8565 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8575 }, validator: { ...EMPTY_NODE_STATUS, port: 8585 } },
-  testnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8600 }, lite: { ...EMPTY_NODE_STATUS, port: 8601 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8602 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8603 }, validator: { ...EMPTY_NODE_STATUS, port: 8604 } },
-  devnet:  { rpc: { ...EMPTY_NODE_STATUS, port: 8650 }, lite: { ...EMPTY_NODE_STATUS, port: 8651 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8652 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8653 }, validator: { ...EMPTY_NODE_STATUS, port: 8654 } },
+  mainnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8545 }, lite: { ...EMPTY_NODE_STATUS, port: 8555 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8565 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8575 }, validator: { ...EMPTY_NODE_STATUS, port: 8585 }, genesis: { ...EMPTY_NODE_STATUS, port: 8590 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8595 } },
+  testnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8600 }, lite: { ...EMPTY_NODE_STATUS, port: 8601 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8602 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8603 }, validator: { ...EMPTY_NODE_STATUS, port: 8604 }, genesis: { ...EMPTY_NODE_STATUS, port: 8605 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8606 } },
+  devnet:  { rpc: { ...EMPTY_NODE_STATUS, port: 8650 }, lite: { ...EMPTY_NODE_STATUS, port: 8651 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8652 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8653 }, validator: { ...EMPTY_NODE_STATUS, port: 8654 }, genesis: { ...EMPTY_NODE_STATUS, port: 8655 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8656 } },
 };
 
 export function TestNodeManager() {
@@ -405,7 +416,7 @@ export function TestNodeManager() {
             <Server className="w-5 h-5 text-primary" /> Network Test Nodes
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            5 node types × 3 networks = 15 live nodes. Each runs the correct chain ID, currency, and RPC endpoints.
+            7 node types × 3 networks = 21 live nodes. Each runs the correct chain ID, currency, and RPC endpoints.
             <span className="text-amber-400 font-medium ml-1">Admin / Founder only.</span>
           </p>
         </div>
@@ -421,7 +432,7 @@ export function TestNodeManager() {
           : <WifiOff className="w-4 h-4 text-muted-foreground shrink-0" />}
         <span className="text-muted-foreground">
           {anyRunningGlobal
-            ? `${totalRunning}/15 nodes running across all networks`
+            ? `${totalRunning}/21 nodes running across all networks`
             : 'No nodes running — select a network tab and click Start All'}
         </span>
         {anyRunningGlobal && <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />}
@@ -448,7 +459,7 @@ export function TestNodeManager() {
               <span>{cfg.label}</span>
               <span className="font-mono text-[10px] opacity-70">{cfg.chainId}</span>
               {running > 0 && (
-                <Badge variant="outline" className="text-[10px] py-0 px-1 border-current text-current h-4">{running}/5</Badge>
+                <Badge variant="outline" className="text-[10px] py-0 px-1 border-current text-current h-4">{running}/7</Badge>
               )}
             </button>
           );

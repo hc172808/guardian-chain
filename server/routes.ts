@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { testNodeManager } from "./testNodes";
+import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser } from "./webpush";
 import { Pool } from "pg";
@@ -388,7 +389,7 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Tokens ─────────────────────────────────────────────────────────────────
-  app.get("/api/tokens", async (_req, res) => {
+  app.get("/api/tokens", withCache(20_000), async (_req, res) => {
     const data = await storage.getActiveTokens();
     res.json(data);
   });
@@ -643,7 +644,7 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Liquidity Pools ────────────────────────────────────────────────────────
-  app.get("/api/pools", async (_req, res) => {
+  app.get("/api/pools", withCache(12_000), async (_req, res) => {
     const data = await storage.getActivePools();
     res.json(data);
   });
@@ -703,7 +704,7 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Network Validators ─────────────────────────────────────────────────────
-  app.get("/api/validators", async (_req, res) => {
+  app.get("/api/validators", withCache(8_000), async (_req, res) => {
     const data = await storage.getValidators();
     res.json(data);
   });
@@ -946,7 +947,7 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Network Stats ──────────────────────────────────────────────────────────
-  app.get("/api/network-stats", async (_req, res) => {
+  app.get("/api/network-stats", withCache(5_000), async (_req, res) => {
     const stats = await storage.getNetworkStats();
     res.json({ ok: true, timestamp: new Date().toISOString(), chainId: 13370, stats: { ...stats, posFinality: 99.99 } });
   });
@@ -1138,13 +1139,14 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Test Nodes — multi-network (admin/founder only) ────────────────────────
-  const VALID_NODE_TYPES  = ["rpc", "lite", "fullnode", "boostnode", "validator"] as const;
+  const VALID_NODE_TYPES  = ["rpc", "lite", "fullnode", "boostnode", "validator", "genesis", "bootnode"] as const;
   const VALID_NETWORKS    = ["mainnet", "testnet", "devnet"] as const;
   type ValidNodeType      = typeof VALID_NODE_TYPES[number];
   type ValidNetwork       = typeof VALID_NETWORKS[number];
 
   const TEST_NODE_TYPE_MAP: Record<string, string> = {
-    rpc: "rpcnode", lite: "litenode", fullnode: "fullnode", boostnode: "boostnode", validator: "validator",
+    rpc: "rpcnode", lite: "litenode", fullnode: "fullnode", boostnode: "boostnode",
+    validator: "validator", genesis: "genesis", bootnode: "bootnode",
   };
 
   // Track DB row IDs keyed by "network:type"
@@ -3390,6 +3392,16 @@ export function registerRoutes(app: Express) {
 
   app.post('/api/setup/generate-secret', requireAdmin, (_req, res) => {
     res.json({ value: crypto.randomBytes(32).toString('hex') });
+  });
+
+  // ── Query Cache — stats & manual clear ────────────────────────────────────
+  app.get('/api/admin/cache-stats', requireAdmin, (_req, res) => {
+    res.json(getCacheStats());
+  });
+
+  app.post('/api/admin/cache-clear', requireAdmin, (_req, res) => {
+    const result = clearCache();
+    res.json({ ok: true, cleared: result });
   });
 
   // ── Revenue Dashboard ─────────────────────────────────────────────────────

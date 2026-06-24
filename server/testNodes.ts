@@ -14,7 +14,7 @@ import { createServer, IncomingMessage, ServerResponse, Server } from "http";
 const MAX_LOGS = 200;
 
 export type Network  = "mainnet" | "testnet" | "devnet";
-export type NodeType = "rpc" | "lite" | "fullnode" | "boostnode" | "validator";
+export type NodeType = "rpc" | "lite" | "fullnode" | "boostnode" | "validator" | "genesis" | "bootnode";
 
 interface NetworkCfg {
   chainId:    number;
@@ -29,22 +29,22 @@ export const NETWORK_CFGS: Record<Network, NetworkCfg> = {
   mainnet: {
     chainId: 13370, chainIdHex: "0x343A", symbol: "GYDS",
     name: "GYDS Network (Mainnet)", label: "mainnet",
-    ports: { rpc: 8545, lite: 8555, fullnode: 8565, boostnode: 8575, validator: 8585 },
+    ports: { rpc: 8545, lite: 8555, fullnode: 8565, boostnode: 8575, validator: 8585, genesis: 8590, bootnode: 8595 },
   },
   testnet: {
     chainId: 13371, chainIdHex: "0x343B", symbol: "tGYDS",
     name: "GYDS Testnet", label: "testnet",
-    ports: { rpc: 8600, lite: 8601, fullnode: 8602, boostnode: 8603, validator: 8604 },
+    ports: { rpc: 8600, lite: 8601, fullnode: 8602, boostnode: 8603, validator: 8604, genesis: 8605, bootnode: 8606 },
   },
   devnet: {
     chainId: 13372, chainIdHex: "0x343C", symbol: "dGYDS",
     name: "GYDS Devnet", label: "devnet",
-    ports: { rpc: 8650, lite: 8651, fullnode: 8652, boostnode: 8653, validator: 8654 },
+    ports: { rpc: 8650, lite: 8651, fullnode: 8652, boostnode: 8653, validator: 8654, genesis: 8655, bootnode: 8656 },
   },
 };
 
 export const ALL_NETWORKS:  Network[]  = ["mainnet", "testnet", "devnet"];
-export const ALL_NODE_TYPES: NodeType[] = ["rpc", "lite", "fullnode", "boostnode", "validator"];
+export const ALL_NODE_TYPES: NodeType[] = ["rpc", "lite", "fullnode", "boostnode", "validator", "genesis", "bootnode"];
 
 interface NodeState {
   running:    boolean;
@@ -60,8 +60,8 @@ interface NodeState {
   blockTimer:  ReturnType<typeof setInterval> | null;
 }
 
-const INITIAL_PEERS: Record<NodeType, number> = { rpc: 4, lite: 2, fullnode: 10, boostnode: 18, validator: 5 };
-const INITIAL_POOL:  Record<NodeType, number> = { rpc: 0, lite: 0, fullnode: 12, boostnode: 40, validator: 3 };
+const INITIAL_PEERS: Record<NodeType, number> = { rpc: 4, lite: 2, fullnode: 10, boostnode: 18, validator: 5, genesis: 0, bootnode: 32 };
+const INITIAL_POOL:  Record<NodeType, number> = { rpc: 0, lite: 0, fullnode: 12, boostnode: 40, validator: 3,  genesis: 0, bootnode: 0  };
 
 const state: Record<Network, Record<NodeType, NodeState>> = {} as any;
 for (const network of ALL_NETWORKS) {
@@ -293,6 +293,113 @@ function makeHandler(network: Network, type: NodeType) {
     if (req.method === "OPTIONS") { res.writeHead(204, cors()); res.end(); return; }
     const url = req.url ?? "/";
 
+    // ── Genesis node ──────────────────────────────────────────────────────────
+    if (type === "genesis") {
+      if (req.method === "GET") {
+        if (url === "/genesis.json" || url === "/genesis") {
+          res.writeHead(200, { "Content-Type": "application/json", ...cors() });
+          res.end(JSON.stringify({
+            config: {
+              chainId: cfg.chainId, homesteadBlock: 0, eip155Block: 0, eip158Block: 0,
+              byzantiumBlock: 0, constantinopleBlock: 0, petersburgBlock: 0,
+              istanbulBlock: 0, berlinBlock: 0, londonBlock: 0,
+            },
+            difficulty: "0x400",
+            gasLimit:   "0x8000000",
+            alloc: {},
+            extraData: "0x" + "47594453" + "0".repeat(56),
+            nonce:      "0x0000000000000042",
+            timestamp:  "0x" + Math.floor(Date.now() / 1000).toString(16),
+            mixHash:    "0x" + "0".repeat(64),
+            parentHash: "0x" + "0".repeat(64),
+            coinbase:   "0x" + "0".repeat(40),
+            network:    cfg.name, symbol: cfg.symbol,
+          }));
+          addLog(network, type, "Genesis config served");
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json", ...cors() });
+        res.end(JSON.stringify({
+          node:       `GYDSchain/${cfg.label}/genesis/v1.0.0`,
+          chainId:    cfg.chainId, chainIdHex: cfg.chainIdHex,
+          chainName:  cfg.name, symbol: cfg.symbol,
+          genesisBlock: 0, mode: "genesis",
+          endpoints: { genesis: `/genesis.json` },
+          uptime: s.startedAt ? Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000) : 0,
+        }));
+        addLog(network, type, "Status poll");
+        return;
+      }
+      if (req.method === "POST") {
+        let body = "";
+        req.on("data", (c: Buffer) => { body += c.toString(); });
+        req.on("end", () => {
+          try {
+            const rpc = JSON.parse(body);
+            const result = rpc.method === "eth_blockNumber" ? "0x0"
+              : rpc.method === "eth_chainId" ? cfg.chainIdHex
+              : rpc.method === "net_version" ? String(cfg.chainId)
+              : rpc.method === "eth_getBlockByNumber" && (rpc.params?.[0] === "0x0" || rpc.params?.[0] === "earliest")
+                ? blockObject(s, cfg, 0)
+              : null;
+            res.writeHead(200, { "Content-Type": "application/json", ...cors() });
+            res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result }));
+          } catch { res.writeHead(400); res.end(JSON.stringify({ error: "Invalid JSON-RPC" })); }
+        });
+        return;
+      }
+      res.writeHead(405); res.end(); return;
+    }
+
+    // ── Boot node ─────────────────────────────────────────────────────────────
+    if (type === "bootnode") {
+      if (req.method === "GET") {
+        if (url === "/peers") {
+          const peers = Array.from({ length: s.peers }, (_, i) => ({
+            id:      "0x" + randHex(128),
+            addr:    `${Math.floor(Math.random()*256)}.${Math.floor(Math.random()*256)}.${Math.floor(Math.random()*256)}.${Math.floor(Math.random()*256)}:30303`,
+            network: cfg.label, chainId: cfg.chainId,
+          }));
+          res.writeHead(200, { "Content-Type": "application/json", ...cors() });
+          res.end(JSON.stringify({ peers, count: peers.length }));
+          addLog(network, type, `Peers list served (${peers.length} peers)`);
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json", ...cors() });
+        res.end(JSON.stringify({
+          node: `GYDSchain/${cfg.label}/bootnode/v1.0.0`,
+          chainId: cfg.chainId, chainIdHex: cfg.chainIdHex,
+          chainName: cfg.name, symbol: cfg.symbol,
+          peers: s.peers, mode: "bootnode",
+          enode: `enode://` + randHex(128) + `@${cfg.label}.netlifegy.com:${s.port}`,
+          uptime: s.startedAt ? Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000) : 0,
+        }));
+        addLog(network, type, `Status poll → ${s.peers} peers known`);
+        return;
+      }
+      if (req.method === "POST") {
+        let body = "";
+        req.on("data", (c: Buffer) => { body += c.toString(); });
+        req.on("end", () => {
+          try {
+            const rpc = JSON.parse(body);
+            const result = rpc.method === "net_peerCount" ? "0x" + s.peers.toString(16)
+              : rpc.method === "net_version"  ? String(cfg.chainId)
+              : rpc.method === "eth_chainId"  ? cfg.chainIdHex
+              : rpc.method === "admin_peers"  ? Array.from({ length: s.peers }, (_, i) => ({
+                  id: "0x" + randHex(64), name: `Geth/peer-${i}/v1.0.0`,
+                  network: { remoteAddress: `${Math.floor(Math.random()*256)}.0.0.${i}:30303` },
+                }))
+              : null;
+            res.writeHead(200, { "Content-Type": "application/json", ...cors() });
+            res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result }));
+          } catch { res.writeHead(400); res.end(JSON.stringify({ error: "Invalid JSON-RPC" })); }
+        });
+        return;
+      }
+      res.writeHead(405); res.end(); return;
+    }
+
     if (req.method === "GET") {
       if (type === "lite") {
         res.writeHead(200, { "Content-Type": "application/json", ...cors() });
@@ -379,11 +486,12 @@ function makeHandler(network: Network, type: NodeType) {
 }
 
 const BLOCK_INTERVALS: Record<NodeType, number> = {
-  rpc: 3000, lite: 3000, fullnode: 2000, boostnode: 1000, validator: 5000,
+  rpc: 3000, lite: 3000, fullnode: 2000, boostnode: 1000, validator: 5000, genesis: 0, bootnode: 0,
 };
 
 const NODE_LABELS: Record<NodeType, string> = {
-  rpc: "RPC Node", lite: "Lite Node", fullnode: "Full Node", boostnode: "Boost Node", validator: "Validator Node",
+  rpc: "RPC Node", lite: "Lite Node", fullnode: "Full Node", boostnode: "Boost Node",
+  validator: "Validator Node", genesis: "Genesis Node", bootnode: "Boot Node",
 };
 
 export const testNodeManager = {
@@ -410,6 +518,11 @@ export const testNodeManager = {
       if (type === "boostnode") addLog(network, type, "MEV bundle endpoint: POST /boost/bundle");
       if (type === "fullnode")  addLog(network, type, "Full-state RPC + txpool_status + debug_traceTransaction enabled");
       if (type === "validator") addLog(network, type, "PoS consensus started | validator_info, validator_set, validator_getRewards, validator_register");
+      if (type === "genesis")   addLog(network, type, `Genesis block served at GET /genesis.json | Chain ID: ${cfg.chainId}`);
+      if (type === "bootnode")  addLog(network, type, `Peer discovery active | ${s.peers} peers known | enode available at GET /`);
+
+      // genesis and bootnode don't produce blocks — skip the block timer
+      if (BLOCK_INTERVALS[type] === 0) return;
 
       s.blockTimer = setInterval(() => {
         s.blockHeight++;
@@ -444,6 +557,7 @@ export const testNodeManager = {
     s.server = srv;
     return { ok: true, message: `Starting ${NODE_LABELS[type]} (${cfg.name}) on port ${s.port}…` };
   },
+
 
   stop(network: Network, type: NodeType): { ok: boolean; message: string } {
     const s = state[network][type];
