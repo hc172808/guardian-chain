@@ -66,6 +66,7 @@ import { PaymentMethodsManager } from '@/components/admin/PaymentMethodsManager'
 import { WalletReleaseManager } from '@/components/layout/WalletDownloadButton';
 import { ServerConfigManager } from '@/components/admin/ServerConfigManager';
 import { RevenueDashboard } from '@/components/admin/RevenueDashboard';
+import { ActivityFeed } from '@/components/admin/ActivityFeed';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -813,8 +814,12 @@ const AdminContent = () => {
         </GlassCard>
       </div>
 
-      <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList className="grid grid-cols-5 md:[grid-template-columns:repeat(16,minmax(0,1fr))] w-full">
+      <Tabs defaultValue="activity" className="space-y-4">
+        <TabsList className="grid grid-cols-5 md:[grid-template-columns:repeat(17,minmax(0,1fr))] w-full">
+          <TabsTrigger value="activity" className="gap-2" data-testid="tab-activity">
+            <Activity className="h-4 w-4" />
+            <span className="hidden md:inline">Activity</span>
+          </TabsTrigger>
           <TabsTrigger value="nodes" className="gap-2">
             <Server className="h-4 w-4" />
             <span className="hidden md:inline">Nodes</span>
@@ -972,6 +977,10 @@ const AdminContent = () => {
             <span className="hidden md:inline">Revenue</span>
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="activity">
+          <ActivityFeed />
+        </TabsContent>
 
         <TabsContent value="maintenance">
           <MaintenanceManager />

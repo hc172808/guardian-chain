@@ -14,6 +14,7 @@ import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhat
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { broadcastActivity, issueWsToken } from "./activityFeed";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
@@ -297,6 +298,7 @@ export function registerRoutes(app: Express) {
     const row = await storage.insertTransaction({ ...req.body, userId: user.id });
     res.json(row);
     storage.awardXpOnce(user.id, 'first_transaction', 50, 'First transaction on GYDSchain! +50 XP').catch(() => {});
+    broadcastActivity({ type: 'transaction', title: 'New Transaction', detail: `${req.body.type ?? 'transfer'} · ${req.body.amount ?? ''} ${req.body.tokenSymbol ?? req.body.token_symbol ?? ''}`.trim(), user: user.username ?? user.walletAddress?.slice(0, 10), ip: req.ip ?? undefined });
   });
 
   // ── Node Installations ─────────────────────────────────────────────────────
@@ -326,6 +328,9 @@ export function registerRoutes(app: Express) {
   app.patch("/api/nodes/:id", requireAdmin, async (req, res) => {
     const row = await storage.updateNode(req.params.id, req.body);
     res.json(row);
+    if (req.body.isApproved === true) {
+      broadcastActivity({ type: 'node_approved', title: 'Node Approved', detail: `Node ${req.params.id.slice(0, 8)}… approved`, user: (req.user as any)?.username });
+    }
   });
 
   app.delete("/api/nodes/:id", requireAuth, async (req, res) => {
@@ -940,6 +945,7 @@ export function registerRoutes(app: Express) {
     await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "faucet_claim", category: "token", targetType: "token", targetId: tokenType, details: { amount, wallet_address: walletAddress, tx_hash: txHash }, ipAddress: req.ip ?? null });
 
     res.json({ ok: true, tx_hash: txHash, amount, token_type: tokenType });
+    broadcastActivity({ type: 'faucet', title: 'Faucet Claim', detail: `${amount} ${tokenType.toUpperCase()} → ${walletAddress.slice(0, 10)}…`, user: user.username ?? user.walletAddress?.slice(0, 10), ip: req.ip ?? undefined });
 
     // Server-side notification: faucet drip
     const notifMsg = `${amount} ${tokenType.toUpperCase()} sent to ${walletAddress.slice(0, 10)}…`;
@@ -1072,6 +1078,7 @@ export function registerRoutes(app: Express) {
     await storage.incrementProposalVotes(id, choice as 'for' | 'against' | 'abstain');
     res.json({ ok: true });
     storage.awardXp(user.id, 'governance_vote', 25, `Voted ${choice} on proposal #${id} +25 XP`).catch(() => {});
+    broadcastActivity({ type: 'governance_vote', title: 'Governance Vote', detail: `Voted ${choice} on proposal #${id}`, user: user.username ?? user.walletAddress?.slice(0, 10) });
     (storage as any).createNotification(user.id.toString(), 'governance', '✅ Vote Recorded', `Your ${choice} vote on proposal #${id} was recorded. +25 XP`, '/governance').catch(() => {});
     // Telegram + WhatsApp alerts on governance vote
     storage.getUserProfile(user.id).then((profile: any) => {
@@ -1337,6 +1344,7 @@ export function registerRoutes(app: Express) {
       const node = await storage.updateNode(id, updates);
       if (!node) return res.status(404).json({ error: 'Node not found' });
       res.json({ ok: true, timestamp: new Date().toISOString() });
+      broadcastActivity({ type: 'node_heartbeat', title: 'Node Heartbeat', detail: `${(node as any).nodeType ?? 'node'} · block ${blockHeight ?? '?'} · ${peers ?? '?'} peers`, meta: { id } });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -3405,6 +3413,13 @@ export function registerRoutes(app: Express) {
   // ── Query Cache — stats & manual clear ────────────────────────────────────
   app.get('/api/admin/cache-stats', requireAdmin, (_req, res) => {
     res.json(getCacheStats());
+  });
+
+  // ── Activity Feed: issue one-time WebSocket auth token ────────────────────
+  app.get('/api/admin/ws-token', requireAdmin, (req, res) => {
+    const user = req.user as any;
+    const token = issueWsToken(user.id, true);
+    res.json({ token });
   });
 
   app.post('/api/admin/cache-clear', requireAdmin, (_req, res) => {

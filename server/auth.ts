@@ -175,12 +175,16 @@ export async function setupAuth(app: Express): Promise<void> {
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) return res.status(500).json({ error: "Login error" });
       if (!user) return res.status(401).json({ error: info?.message ?? "Invalid credentials" });
-      req.login(user, (loginErr) => {
+      req.login(user, async (loginErr) => {
         if (loginErr) return res.status(500).json({ error: "Session error" });
         (req.session as any).ua = req.headers['user-agent']?.slice(0, 200) ?? 'Unknown';
         (req.session as any).ip = req.ip ?? req.socket?.remoteAddress ?? 'Unknown';
         (req.session as any).loginAt = new Date().toISOString();
         res.json({ ok: true });
+        try {
+          const { broadcastActivity } = await import('./activityFeed');
+          broadcastActivity({ type: 'login', title: 'User Login', detail: `${user.username ?? user.email ?? 'unknown'} signed in`, user: user.username ?? user.email, ip: req.ip ?? undefined });
+        } catch {}
       });
     })(req, res, next);
   });
@@ -228,6 +232,11 @@ export async function setupAuth(app: Express): Promise<void> {
       (req.session as any).ip = req.ip ?? req.socket?.remoteAddress ?? 'Unknown';
       (req.session as any).loginAt = new Date().toISOString();
       res.json({ ok: true });
+      try {
+        const { broadcastActivity } = await import('./activityFeed');
+        const shortAddr = `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+        broadcastActivity({ type: 'login', title: 'Web3 Login', detail: `${shortAddr} connected`, user: shortAddr, ip: req.ip ?? undefined });
+      } catch {}
     } catch (err: any) {
       console.error("Web3 auth error:", err.message);
       res.status(500).json({ error: "Web3 authentication failed" });

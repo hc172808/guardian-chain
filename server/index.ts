@@ -8,6 +8,7 @@ import { storage } from "./storage";
 import { initVapid, ensurePushSubscriptionsTable } from "./webpush";
 import { Pool } from "pg";
 import { aiFirewallMiddleware, refreshSecuritySettings } from "./security";
+import { initActivityFeed, handleUpgrade } from "./activityFeed";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -148,7 +149,13 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
+initActivityFeed();
+
 const PORT = parseInt(process.env.PORT ?? "5001", 10);
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`ChainCore server running on port ${PORT}`);
+});
+
+server.on('upgrade', (req, socket, head) => {
+  handleUpgrade(req, socket as any, head);
 });
