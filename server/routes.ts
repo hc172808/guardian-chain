@@ -66,9 +66,16 @@ export function registerRoutes(app: Express) {
   app.use(enrichUserWithRoles);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
-  app.get("/api/me", (req, res) => {
+  app.get("/api/me", async (req, res) => {
     if (!req.isAuthenticated()) return res.json(null);
     const user = req.user as any;
+    // Always fetch live roles from DB — req.user never has them populated
+    const roleRows = await pgPool.query(
+      `SELECT role FROM user_roles WHERE user_id = $1`, [user.id]
+    ).catch(() => ({ rows: [] as any[] }));
+    const roles: string[] = roleRows.rows.map((r: any) => r.role);
+    const isAdmin = roles.includes('admin') || roles.includes('founder');
+    const isFounder = roles.includes('founder');
     res.json({
       id: user.id,
       email: user.email,
@@ -79,9 +86,9 @@ export function registerRoutes(app: Express) {
       walletAddress: user.walletAddress,
       totpEnabled: user.totpEnabled ?? false,
       isBanned: user.isBanned ?? false,
-      roles: user.roles ?? [],
-      isAdmin: user._isAdmin ?? false,
-      isFounder: user._isFounder ?? false,
+      roles,
+      isAdmin,
+      isFounder,
       createdAt: user.createdAt ?? user.created_at ?? null,
     });
   });
