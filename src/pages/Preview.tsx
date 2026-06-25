@@ -10,7 +10,7 @@ import {
   Code2, FileText, Shield, Download, Settings, BookOpen,
   Smartphone, ExternalLink, RefreshCw, Eye, Search, Filter,
   Globe, Github, Zap, MonitorSmartphone, Laptop, Maximize2,
-  ChevronRight, CheckCircle, Clock, AlertCircle, X, Layers
+  ChevronRight, CheckCircle, Clock, AlertCircle, X, Layers, Gift
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,6 +45,7 @@ const PAGES = [
   { route: '/nft',           label: 'NFT Marketplace',   icon: Image,           group: 'ecosystem', desc: 'Browse, list, and buy NFTs on GYDS chain.',                                       status: 'done' },
   { route: '/analytics',     label: 'Analytics',         icon: TrendingUp,      group: 'ecosystem', desc: 'Chain analytics — TPS, volume, active wallets, token charts.',                   status: 'done' },
   { route: '/community',     label: 'Community',         icon: MessageSquare,   group: 'ecosystem', desc: 'Posts, comments, community votes. Social feed for GYDS ecosystem.',               status: 'done' },
+  { route: '/referrals',     label: 'Referrals',         icon: Gift,            group: 'ecosystem', desc: 'Referral program — share invite links, earn 500 GYDS per sign-up, tier rewards.', status: 'done' },
   { route: '/leaderboard',   label: 'Leaderboard',       icon: Trophy,          group: 'ecosystem', desc: 'XP leaderboard, achievements, top token creators.',                              status: 'done' },
   { route: '/multisig',      label: 'Multi-Sig',         icon: ShieldCheck,     group: 'ecosystem', desc: 'Create multi-signature wallets. Propose and sign transactions with N-of-M keys.', status: 'done' },
   { route: '/identity',      label: 'Identity (DID)',     icon: Fingerprint,     group: 'ecosystem', desc: 'Decentralised Identity — manage DIDs, verifiable credentials.',                  status: 'done' },

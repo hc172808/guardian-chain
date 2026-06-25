@@ -7,7 +7,7 @@ import {
   Coins, Star, Terminal, Droplets, UserCircle, Vote, Image,
   TrendingUp, MessageSquare, Code2, Trophy, ShieldCheck,
   Fingerprint, Building2, Lock, ChevronDown, HeartHandshake, BellRing, Webhook, ScrollText,
-  Eye, Smartphone
+  Eye, Smartphone, Gift
 } from 'lucide-react';
 import gydsCoinLogo from '/gyds-coin.jpg';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -57,6 +57,7 @@ const ecosystemNav: NavItem[] = [
   { to: '/nft',        icon: Image,         label: 'NFT Marketplace',   featureKey: 'nft.market' },
   { to: '/analytics',  icon: TrendingUp,    label: 'Analytics',         featureKey: 'analytics.view' },
   { to: '/community',  icon: MessageSquare, label: 'Community',         featureKey: 'community.post' },
+  { to: '/referrals',  icon: Gift,          label: 'Referrals',         featureKey: 'referrals.view' },
   { to: '/leaderboard',icon: Trophy,        label: 'Leaderboard',       featureKey: 'leaderboard.view' },
   { to: '/multisig',   icon: ShieldCheck,   label: 'Multi-Sig',         featureKey: 'multisig.create' },
   { to: '/identity',   icon: Fingerprint,   label: 'Identity',          featureKey: 'identity.did' },

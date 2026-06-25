@@ -48,6 +48,7 @@ import LandingPage from "./pages/Landing";
 import PressKitPage from "./pages/PressKit";
 import BlogPage from "./pages/Blog";
 import TrustPage from "./pages/Trust";
+import ReferralsPage from "./pages/Referrals";
 import PreviewPage from "./pages/Preview";
 import SetupPage from "./pages/Setup";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
@@ -123,6 +124,7 @@ const AppContent = () => {
       <Route path="/nft" element={<NFTPage />} />
       <Route path="/analytics" element={<AnalyticsPage />} />
       <Route path="/community" element={<CommunityPage />} />
+      <Route path="/referrals" element={<ReferralsPage />} />
       <Route path="/developer" element={<DeveloperPage />} />
       <Route path="/leaderboard" element={<LeaderboardPage />} />
       <Route path="/multisig" element={<MultisigPage />} />

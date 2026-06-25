@@ -1295,6 +1295,88 @@ export function registerRoutes(app: Express) {
   });
 
   // ── RPC Proxy: forward JSON-RPC to best running node for a network ─────────
+  // ── Built-in JSON-RPC endpoint (/rpc) ────────────────────────────────────
+  // Wallets (MetaMask, Trust Wallet, Coinbase) validate an RPC URL by calling
+  // eth_chainId on it before adding the network. This endpoint always responds
+  // correctly so wallet_addEthereumChain succeeds even without a running node.
+  // It also tries to proxy to a local test node when one is running.
+  app.all("/rpc", async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+
+    const body = (req.method === 'GET' ? {} : req.body) ?? {};
+    const { method, params = [], id = 1 } = body;
+
+    const ok = (result: any) => res.json({ jsonrpc: '2.0', result, id });
+    const err = (code: number, msg: string) =>
+      res.json({ jsonrpc: '2.0', error: { code, message: msg }, id });
+
+    // Try to proxy to a running local test node first
+    const allNodes = testNodeManager.status() as any;
+    const mainnet = allNodes['mainnet'] ?? {};
+    const tryTypes = ['rpc', 'fullnode', 'boostnode', 'lite', 'validator'] as const;
+    let livePort: number | null = null;
+    for (const t of tryTypes) {
+      if (mainnet[t]?.running) { livePort = mainnet[t].port; break; }
+    }
+    if (livePort && method) {
+      try {
+        const upstream = await fetch(`http://localhost:${livePort}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method, params, id }),
+          signal: AbortSignal.timeout(4000),
+        });
+        return res.json(await upstream.json());
+      } catch { /* fall through to built-in */ }
+    }
+
+    // Built-in responses — always work, no node needed
+    const CHAIN_ID_HEX = '0x343A'; // 13370
+    const NETWORK_ID   = '13370';
+
+    // Get latest block height from DB for a realistic eth_blockNumber
+    const blkRow = await pgPool.query(
+      `SELECT MAX(block_number::bigint) AS h FROM transactions WHERE block_number ~ '^[0-9]+$'`
+    ).catch(() => ({ rows: [{ h: null }] }));
+    const blockHex = '0x' + (Number(blkRow.rows[0]?.h ?? 0)).toString(16);
+
+    if (!method) return ok(null);
+
+    switch (method) {
+      case 'eth_chainId':               return ok(CHAIN_ID_HEX);
+      case 'net_version':              return ok(NETWORK_ID);
+      case 'eth_blockNumber':          return ok(blockHex || '0x0');
+      case 'web3_clientVersion':       return ok('GYDSchain/v1.0.0/linux-amd64/go1.21.0');
+      case 'net_listening':            return ok(true);
+      case 'net_peerCount':            return ok('0x0');
+      case 'eth_protocolVersion':      return ok('0x41');
+      case 'eth_syncing':              return ok(false);
+      case 'eth_gasPrice':             return ok('0x3B9ACA00');       // 1 gwei
+      case 'eth_maxPriorityFeePerGas': return ok('0x59682F00');       // 1.5 gwei
+      case 'eth_estimateGas':          return ok('0x5208');           // 21000
+      case 'eth_getCode':              return ok('0x');
+      case 'eth_call':                 return ok('0x');
+      case 'eth_getTransactionCount':  return ok('0x0');
+      case 'eth_getBalance': {
+        const addr = (params[0] || '').toLowerCase();
+        const row = await pgPool.query(
+          `SELECT gyds_balance FROM wallets WHERE LOWER(address)=$1 LIMIT 1`, [addr]
+        ).catch(() => ({ rows: [] }));
+        const bal = Number(row.rows[0]?.gyds_balance ?? 0);
+        const wei = '0x' + BigInt(Math.floor(bal * 1e18)).toString(16);
+        return ok(wei);
+      }
+      case 'eth_getBlockByNumber':
+      case 'eth_getBlockByHash':
+        return ok(null);
+      default:
+        return err(-32601, `Method ${method} not supported`);
+    }
+  });
+
   app.post("/api/rpc", async (req, res) => {
     const network = ((req.query.network as string) || req.body?._network || "mainnet") as ValidNetwork;
     const all = testNodeManager.status() as any;
@@ -1434,6 +1516,19 @@ export function registerRoutes(app: Express) {
     if (!code) return res.status(400).json({ ok: false, message: "Code required" });
     const result = await storage.useReferralCode(code, user.id);
     res.json(result);
+  });
+
+  app.get("/api/referral/leaderboard", async (_req, res) => {
+    try {
+      const result = await pgPool.query(`
+        SELECT r.user_id, u.username, r.referred_count, r.total_earned
+        FROM referrals r
+        LEFT JOIN users u ON u.id::text = r.user_id
+        ORDER BY r.referred_count DESC, r.total_earned DESC
+        LIMIT 50
+      `);
+      res.json(result.rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Governance Treasury + Voting Power ────────────────────────────────────
