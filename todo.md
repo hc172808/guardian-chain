@@ -1,6 +1,6 @@
 # ChainCore — GYDS Dashboard · Feature Todo
 
-_Last updated: June 23, 2026_
+_Last updated: June 25, 2026_
 
 ---
 
@@ -179,6 +179,9 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] PIN rotation
 - [x] Faucet (testnet GYDS drip)
 - [x] `gyds_balance` + `locked_balance` columns on wallets table
+- [x] **Wallet import date fix** — "Created Invalid Date" resolved; shows "recently" when timestamp is missing/malformed
+- [x] **Founder wallet status fix** — GenesisStatus component now fetches founder wallet via `/api/config/founder_wallet` (was broken Supabase shim `.eq()` call)
+- [x] **Burn/Mint to wallet fix** — POST /api/token-operations now correctly maps snake_case request fields (`operation_type`, `wallet_address`, `tx_hash`, `usdt_amount`) to camelCase for Drizzle ORM
 
 ### Governance
 - [x] Proposal creation and voting
@@ -197,6 +200,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 ### Mining
 - [x] Mining dashboard
 - [x] Hashrate stats
+- [x] **Mining pool live data** — MiningPoolInterface now fetches node data from `/api/nodes` with 15s polling (was broken Supabase shim query; was showing "no nodes" even when nodes were running)
 
 ### Community
 - [x] Posts, comments, community votes
@@ -239,6 +243,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] CLI reference page
 
 ### Admin Panel (40+ tabs)
+- [x] **Categorized jump-to dropdown nav** — replaced 37-button overflowing flat tab grid with a Select dropdown grouped into 6 sections (Overview, Infrastructure, Tokens & Finance, Users & Payments, Content, System)
 - [x] User management (ban, role assignment)
 - [x] Node installation management + approval
 - [x] WireGuard peer manager (auto IP assignment, config generation)
@@ -284,6 +289,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] Rate limiting (auth, faucet, general API)
 - [x] IP blocking / firewall (admin-managed)
 - [x] Security audit page
+- [x] **CORS headers for RPC** — `Access-Control-Allow-Origin: *` on RPC endpoints + OPTIONS preflight support so Trust Wallet, MetaMask, and Coinbase Wallet can connect to `rpc.netlifegy.com`
 
 ### PWA / Mobile (Dashboard)
 - [x] Progressive Web App (manifest v2, 7 icons, 4 shortcuts)
@@ -292,6 +298,7 @@ Already configured for GYDS chain 13370. See `mobile-wallet/SETUP.md` for build 
 - [x] Mobile bottom nav hub page (`/mobile`) with 5 tabs: Home, Explorer, DeFi, Wallet, More
 - [x] Edge side panel support
 - [x] **Real wallet address on mobile page** — fetches from `user.walletAddress` → `/api/wallets` fallback (no more hardcoded address)
+- [x] **Real balances on mobile page** — removed all hardcoded demo balances (12,450 GYDS / $1,054.49 / 500 GYD); shows 0.00 when no real balance loaded
 - [x] **Real recent transactions on mobile page** — fetches from `/api/transactions`; falls back to demo data if empty
 - [x] **Activity rows clickable** — each transaction row navigates to `/transactions`; empty state with direct link shown when no transactions exist
 - [x] **Receive QR modal** — bottom-sheet modal with live QR code generated from wallet address (using `qrcode` npm); Copy + Share buttons; opens from Home or Wallet tab "Receive" button

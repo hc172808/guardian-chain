@@ -258,31 +258,75 @@ const NetworkPage = () => {
           </GlassCard>
         )}
 
-        {/* Quick Add Section */}
-        <GlassCard className="p-6 bg-gradient-to-r from-primary/10 to-transparent border-primary/30">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-xl bg-primary/20">
-                <Zap className="h-8 w-8 text-primary" />
-              </div>
+        {/* One-Click Add to Wallet — wallet-specific branded buttons */}
+        <GlassCard className="p-6 bg-gradient-to-br from-primary/10 via-transparent to-transparent border-primary/30">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="p-3 rounded-xl bg-primary/20">
+              <Zap className="h-7 w-7 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold">Add GYDS Network to Your Wallet</h2>
+              <p className="text-sm text-muted-foreground">One click — no manual entry needed. Works with any EVM wallet.</p>
+            </div>
+          </div>
+
+          {/* Wallet brand buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+            {/* Trust Wallet */}
+            <button
+              onClick={() => handleAddNetwork('mainnet')}
+              disabled={isAdding}
+              className="flex items-center gap-3 p-4 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 transition-colors text-left disabled:opacity-50"
+              data-testid="button-add-trust-wallet"
+            >
+              <img src="https://trustwallet.com/assets/images/media/assets/trust_platform.svg" alt="Trust Wallet" className="h-9 w-9 rounded-xl" onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
               <div>
-                <h2 className="text-xl font-bold">Quick Add to Wallet</h2>
-                <p className="text-muted-foreground text-sm">
-                  Add Mainnet, Testnet, or Devnet to your wallet with one click.
-                </p>
+                <p className="font-semibold text-sm">Trust Wallet</p>
+                <p className="text-xs text-muted-foreground">Add GYDS Mainnet</p>
               </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="lg" onClick={() => handleAddNetwork('mainnet')} disabled={isAdding} className="gap-2" data-testid="button-quick-add-mainnet">
-                <Wallet className="h-5 w-5" /> Add Mainnet
-              </Button>
-              <Button size="lg" variant="outline" onClick={() => handleAddNetwork('testnet')} disabled={isAdding} className="gap-2" data-testid="button-quick-add-testnet">
-                <Wallet className="h-5 w-5" /> Add Testnet
-              </Button>
-              <Button size="lg" variant="outline" onClick={() => handleAddNetwork('devnet')} disabled={isAdding} className="gap-2 border-violet-500/40 text-violet-300 hover:bg-violet-500/10" data-testid="button-quick-add-devnet">
-                <Wallet className="h-5 w-5" /> Add Devnet
-              </Button>
-            </div>
+            </button>
+
+            {/* MetaMask */}
+            <button
+              onClick={() => handleAddNetwork('mainnet')}
+              disabled={isAdding}
+              className="flex items-center gap-3 p-4 rounded-xl border border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20 transition-colors text-left disabled:opacity-50"
+              data-testid="button-add-metamask"
+            >
+              <img src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg" alt="MetaMask" className="h-9 w-9" onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+              <div>
+                <p className="font-semibold text-sm">MetaMask</p>
+                <p className="text-xs text-muted-foreground">Add GYDS Mainnet</p>
+              </div>
+            </button>
+
+            {/* Coinbase Wallet */}
+            <button
+              onClick={() => handleAddNetwork('mainnet')}
+              disabled={isAdding}
+              className="flex items-center gap-3 p-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 transition-colors text-left disabled:opacity-50"
+              data-testid="button-add-coinbase"
+            >
+              <img src="https://www.coinbase.com/img/favicon/favicon.ico" alt="Coinbase" className="h-9 w-9 rounded-xl" onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+              <div>
+                <p className="font-semibold text-sm">Coinbase Wallet</p>
+                <p className="text-xs text-muted-foreground">Add GYDS Mainnet</p>
+              </div>
+            </button>
+          </div>
+
+          {/* Network selector row */}
+          <div className="flex flex-wrap gap-2 pt-4 border-t border-border/40">
+            <span className="text-xs text-muted-foreground self-center mr-1">Also add:</span>
+            <Button size="sm" onClick={() => handleAddNetwork('mainnet')} disabled={isAdding} className="gap-2 h-8" data-testid="button-quick-add-mainnet">
+              <Wallet className="h-3.5 w-3.5" /> Mainnet
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => handleAddNetwork('testnet')} disabled={isAdding} className="gap-2 h-8" data-testid="button-quick-add-testnet">
+              <Wallet className="h-3.5 w-3.5" /> Testnet
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => handleAddNetwork('devnet')} disabled={isAdding} className="gap-2 h-8 border-violet-500/40 text-violet-300 hover:bg-violet-500/10" data-testid="button-quick-add-devnet">
+              <Wallet className="h-3.5 w-3.5" /> Devnet
+            </Button>
           </div>
         </GlassCard>
 
