@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   Wallet, 
@@ -42,27 +42,17 @@ export const GenesisStatus = () => {
 
   const fetchGenesisStatus = async () => {
     try {
-      // Fetch founder wallet config
-      const { data: walletConfig } = await supabase
-        .from('admin_config')
-        .select('config_value')
-        .eq('config_key', 'founder_wallet')
-        .single();
+      const [walletConfig, priceData] = await Promise.all([
+        api.get('/api/config/founder_wallet').catch(() => null),
+        api.get('/api/token-price').catch(() => null),
+      ]);
 
-      // Fetch token price data
-      const { data: priceData } = await supabase
-        .from('token_price')
-        .select('*')
-        .limit(1)
-        .single();
-
-      const config = walletConfig?.config_value as { address?: string } | null;
-      
+      const address = walletConfig?.config_value?.address || null;
       setState({
-        founderAddress: config?.address || null,
-        genesisCreated: !!config?.address,
+        founderAddress: address,
+        genesisCreated: !!address,
         genesisTimestamp: GENESIS_CONFIG.timestamp,
-        initialSupply: priceData?.total_supply || GENESIS_CONFIG.initialSupply,
+        initialSupply: priceData?.totalSupply || priceData?.total_supply || GENESIS_CONFIG.initialSupply,
         currentPrice: priceData?.price || GENESIS_CONFIG.initialPrice,
       });
     } catch (error) {

@@ -3,6 +3,7 @@ import { Layout } from '@/components/layout/Layout';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { motion } from 'framer-motion';
 import { 
   Users, 
@@ -715,10 +716,66 @@ function LeaderboardReset({ toast }: { toast: any }) {
   );
 }
 
+const ADMIN_TABS = [
+  { group: 'Overview', tabs: [
+    { value: 'activity', label: 'Activity Feed' },
+    { value: 'monitoring', label: 'Monitoring' },
+    { value: 'health', label: 'Health' },
+    { value: 'revenue', label: 'Revenue' },
+  ]},
+  { group: 'Infrastructure', tabs: [
+    { value: 'nodes', label: 'Nodes' },
+    { value: 'validators', label: 'Validators' },
+    { value: 'test-nodes', label: 'Test Nodes' },
+    { value: 'node-types', label: 'Node Types' },
+    { value: 'installer', label: 'Installer' },
+    { value: 'github', label: 'GitHub' },
+  ]},
+  { group: 'Tokens & Finance', tabs: [
+    { value: 'tokens', label: 'Burn / Mint' },
+    { value: 'stablecoin', label: 'GYD / GYDS' },
+    { value: 'token-pricing', label: 'Token Pricing' },
+    { value: 'token-mgmt', label: 'Token Mgmt' },
+    { value: 'launches', label: 'Launches' },
+    { value: 'bridge-networks', label: 'Bridge Networks' },
+    { value: 'bridge-fee', label: 'Bridge Fee' },
+    { value: 'flash-loan', label: 'Flash Loan' },
+    { value: 'oracle', label: 'Oracle' },
+    { value: 'pools', label: 'Pools' },
+  ]},
+  { group: 'Users & Payments', tabs: [
+    { value: 'users', label: 'Users' },
+    { value: 'payments', label: 'Payments' },
+    { value: 'grant-achievement', label: 'Grant Badge' },
+    { value: 'leaderboard-reset', label: 'XP Reset' },
+  ]},
+  { group: 'Content', tabs: [
+    { value: 'sponsors', label: 'Sponsors' },
+    { value: 'premine', label: 'Pre-mine' },
+    { value: 'logos', label: 'Logos' },
+    { value: 'promotion', label: 'Promotion' },
+  ]},
+  { group: 'System', tabs: [
+    { value: 'server-config', label: 'Server Config' },
+    { value: 'database', label: 'Database' },
+    { value: 'cron', label: 'Cron Jobs' },
+    { value: 'console', label: 'Console' },
+    { value: 'audit', label: 'Audit Log' },
+    { value: 'firewall', label: 'Firewall' },
+    { value: 'maintenance', label: 'Maintenance' },
+    { value: 'visibility', label: 'Visibility' },
+    { value: 'features', label: 'Features' },
+    { value: 'explorer-config', label: 'Explorer Config' },
+    { value: 'whatsapp', label: 'WhatsApp' },
+    { value: 'wallet-app', label: 'Wallet App' },
+  ]},
+];
+
 const AdminContent = () => {
   const { user, isFounder, isAdmin } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('activity');
   const [nodes, setNodes] = useState<NodeInstallation[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -814,169 +871,28 @@ const AdminContent = () => {
         </GlassCard>
       </div>
 
-      <Tabs defaultValue="activity" className="space-y-4">
-        <TabsList className="grid grid-cols-5 md:[grid-template-columns:repeat(17,minmax(0,1fr))] w-full">
-          <TabsTrigger value="activity" className="gap-2" data-testid="tab-activity">
-            <Activity className="h-4 w-4" />
-            <span className="hidden md:inline">Activity</span>
-          </TabsTrigger>
-          <TabsTrigger value="nodes" className="gap-2">
-            <Server className="h-4 w-4" />
-            <span className="hidden md:inline">Nodes</span>
-          </TabsTrigger>
-          <TabsTrigger value="validators" className="gap-2">
-            <Shield className="h-4 w-4" />
-            <span className="hidden md:inline">Validators</span>
-          </TabsTrigger>
-          <TabsTrigger value="users" className="gap-2">
-            <Users className="h-4 w-4" />
-            <span className="hidden md:inline">Users</span>
-          </TabsTrigger>
-          <TabsTrigger value="tokens" className="gap-2">
-            <Flame className="h-4 w-4" />
-            <span className="hidden md:inline">Burn/Mint</span>
-          </TabsTrigger>
-          <TabsTrigger value="stablecoin" className="gap-2">
-            <Coins className="h-4 w-4" />
-            <span className="hidden md:inline">GYD/GYDS</span>
-          </TabsTrigger>
-          <TabsTrigger value="sponsors" className="gap-2">
-            <Building2 className="h-4 w-4" />
-            <span className="hidden md:inline">Sponsors</span>
-          </TabsTrigger>
-          <TabsTrigger value="premine" className="gap-2">
-            <Coins className="h-4 w-4" />
-            <span className="hidden md:inline">Pre-mine</span>
-          </TabsTrigger>
-          <TabsTrigger value="logos" className="gap-2">
-            <Coins className="h-4 w-4" />
-            <span className="hidden md:inline">Logos</span>
-          </TabsTrigger>
-          <TabsTrigger value="database" className="gap-2">
-            <Key className="h-4 w-4" />
-            <span className="hidden md:inline">Database</span>
-          </TabsTrigger>
-          <TabsTrigger value="whatsapp" className="gap-2">
-            <MessageCircle className="h-4 w-4" />
-            <span className="hidden md:inline">WhatsApp</span>
-          </TabsTrigger>
-          <TabsTrigger value="github" className="gap-2">
-            <GitBranch className="h-4 w-4" />
-            <span className="hidden md:inline">GitHub</span>
-          </TabsTrigger>
-          <TabsTrigger value="firewall" className="gap-2">
-            <Shield className="h-4 w-4" />
-            <span className="hidden md:inline">Firewall</span>
-          </TabsTrigger>
-          <TabsTrigger value="audit" className="gap-2">
-            <ScrollText className="h-4 w-4" />
-            <span className="hidden md:inline">Audit Log</span>
-          </TabsTrigger>
-          <TabsTrigger value="health" className="gap-2">
-            <Activity className="h-4 w-4" />
-            <span className="hidden md:inline">Health</span>
-          </TabsTrigger>
-          <TabsTrigger value="token-pricing" className="gap-2">
-            <Coins className="h-4 w-4" />
-            <span className="hidden md:inline">Pricing</span>
-          </TabsTrigger>
-          <TabsTrigger value="token-mgmt" className="gap-2">
-            <Coins className="h-4 w-4" />
-            <span className="hidden md:inline">Tokens</span>
-          </TabsTrigger>
-          <TabsTrigger value="installer" className="gap-2" data-testid="tab-installer">
-            <Server className="h-4 w-4" />
-            <span className="hidden md:inline">Install</span>
-          </TabsTrigger>
-          <TabsTrigger value="console" className="gap-2" data-testid="tab-console">
-            <TerminalIcon className="h-4 w-4" />
-            <span className="hidden md:inline">Console</span>
-          </TabsTrigger>
-          <TabsTrigger value="visibility" className="gap-2" data-testid="tab-visibility">
-            <EyeOff className="h-4 w-4" />
-            <span className="hidden md:inline">Visibility</span>
-          </TabsTrigger>
-          <TabsTrigger value="features" className="gap-2" data-testid="tab-features">
-            <Key className="h-4 w-4" />
-            <span className="hidden md:inline">Features</span>
-          </TabsTrigger>
-          <TabsTrigger value="promotion" className="gap-2" data-testid="tab-promotion">
-            <Rocket className="h-4 w-4" />
-            <span className="hidden md:inline">Promotion</span>
-          </TabsTrigger>
-          <TabsTrigger value="pools" className="gap-2" data-testid="tab-pools">
-            <Pickaxe className="h-4 w-4" />
-            <span className="hidden md:inline">Pools</span>
-          </TabsTrigger>
-          <TabsTrigger value="maintenance" className="gap-2" data-testid="tab-maintenance">
-            <Wrench className="h-4 w-4" />
-            <span className="hidden md:inline">Maintenance</span>
-          </TabsTrigger>
-          <TabsTrigger value="bridge-networks" className="gap-2" data-testid="tab-bridge-networks">
-            <Link2 className="h-4 w-4" />
-            <span className="hidden md:inline">Bridge</span>
-          </TabsTrigger>
-          <TabsTrigger value="explorer-config" className="gap-2" data-testid="tab-explorer-config">
-            <SearchIcon className="h-4 w-4" />
-            <span className="hidden md:inline">Explorer</span>
-          </TabsTrigger>
-          <TabsTrigger value="node-types" className="gap-2" data-testid="tab-node-types">
-            <Eye className="h-4 w-4" />
-            <span className="hidden md:inline">Node Types</span>
-          </TabsTrigger>
-          <TabsTrigger value="test-nodes" className="gap-2" data-testid="tab-test-nodes">
-            <FlaskConical className="h-4 w-4" />
-            <span className="hidden md:inline">Test Nodes</span>
-          </TabsTrigger>
-          <TabsTrigger value="grant-achievement" className="gap-2">
-            <Trophy className="h-4 w-4" />
-            <span className="hidden md:inline">Grant Badge</span>
-          </TabsTrigger>
-          <TabsTrigger value="launches" className="gap-2">
-            <RocketIcon className="h-4 w-4" />
-            <span className="hidden md:inline">Launches</span>
-          </TabsTrigger>
-          <TabsTrigger value="bridge-fee" className="gap-2">
-            <ArrowRightLeft className="h-4 w-4" />
-            <span className="hidden md:inline">Bridge Fee</span>
-          </TabsTrigger>
-          <TabsTrigger value="leaderboard-reset" className="gap-2">
-            <RotateCcw className="h-4 w-4" />
-            <span className="hidden md:inline">XP Reset</span>
-          </TabsTrigger>
-          <TabsTrigger value="oracle" className="gap-2">
-            <Activity className="h-4 w-4" />
-            <span className="hidden md:inline">Oracle</span>
-          </TabsTrigger>
-          <TabsTrigger value="flash-loan" className="gap-2">
-            <Zap className="h-4 w-4" />
-            <span className="hidden md:inline">Flash Loan</span>
-          </TabsTrigger>
-          <TabsTrigger value="monitoring" className="gap-2" data-testid="tab-monitoring">
-            <Activity className="h-4 w-4" />
-            <span className="hidden md:inline">Monitoring</span>
-          </TabsTrigger>
-          <TabsTrigger value="cron" className="gap-2" data-testid="tab-cron">
-            <Timer className="h-4 w-4" />
-            <span className="hidden md:inline">Cron Jobs</span>
-          </TabsTrigger>
-          <TabsTrigger value="payments" className="gap-2" data-testid="tab-payments">
-            <Coins className="h-4 w-4" />
-            <span className="hidden md:inline">Payments</span>
-          </TabsTrigger>
-          <TabsTrigger value="wallet-app" className="gap-2" data-testid="tab-wallet-app">
-            <Smartphone className="h-4 w-4" />
-            <span className="hidden md:inline">Wallet App</span>
-          </TabsTrigger>
-          <TabsTrigger value="server-config" className="gap-2" data-testid="tab-server-config">
-            <Settings className="h-4 w-4" />
-            <span className="hidden md:inline">Server Config</span>
-          </TabsTrigger>
-          <TabsTrigger value="revenue" className="gap-2" data-testid="tab-revenue">
-            <TrendingUp className="h-4 w-4" />
-            <span className="hidden md:inline">Revenue</span>
-          </TabsTrigger>
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        {/* Categorized jump-to dropdown — replaces the overflowing flat tab bar */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger className="w-60 bg-card border-border/60">
+              <SelectValue placeholder="Jump to section…" />
+            </SelectTrigger>
+            <SelectContent className="max-h-[70vh]">
+              {ADMIN_TABS.map(({ group, tabs }) => (
+                <SelectGroup key={group}>
+                  <SelectLabel className="text-xs text-muted-foreground font-semibold uppercase tracking-wide px-2 py-1">{group}</SelectLabel>
+                  {tabs.map(({ value, label }) => (
+                    <SelectItem key={value} value={value} className="cursor-pointer">{label}</SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
+          <Badge variant="secondary" className="text-sm px-3 py-1 font-medium">
+            {ADMIN_TABS.flatMap(g => g.tabs).find(t => t.value === activeTab)?.label ?? 'Admin'}
+          </Badge>
+        </div>
 
         <TabsContent value="activity">
           <ActivityFeed />

@@ -386,7 +386,15 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/token-operations", requireAdmin, async (req, res) => {
     const user = req.user as any;
-    const row = await storage.insertTokenOperation({ ...req.body, createdBy: user.id });
+    const { operation_type, usdt_amount, wallet_address, tx_hash, ...rest } = req.body;
+    const row = await storage.insertTokenOperation({
+      ...rest,
+      operationType: operation_type ?? rest.operationType,
+      usdtAmount: usdt_amount ?? rest.usdtAmount ?? 0,
+      walletAddress: wallet_address ?? rest.walletAddress,
+      txHash: tx_hash ?? rest.txHash,
+      createdBy: user.id,
+    });
     res.json(row);
   });
 

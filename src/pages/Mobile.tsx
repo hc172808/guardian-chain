@@ -247,12 +247,14 @@ const HomeTab = () => {
   const address = walletAddr || '—';
   const shortAddr = address.length > 10 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address;
 
-  const gydsBalance = walletBalance || '12,450.00';
-  const totalUsd = walletBalance ? `$${(parseFloat(walletBalance.replace(/,/g, '')) * 0.0847).toFixed(2)}` : '$1,054.49';
+  const gydsBalance = walletBalance || '0.00';
+  const totalUsd = walletBalance && parseFloat(walletBalance.replace(/,/g, '')) > 0
+    ? `$${(parseFloat(walletBalance.replace(/,/g, '')) * 0.0847).toFixed(2)}`
+    : '$0.00';
 
   const tokens = [
-    { symbol: 'GYDS', name: 'GYDSchain', balance: gydsBalance, change: '+4.2%', up: true },
-    { symbol: 'GYD',  name: 'GYD Stable', balance: '500.00',  change: '+0.0%', up: null },
+    { symbol: 'GYDS', name: 'GYDSchain', balance: gydsBalance, change: '', up: null },
+    { symbol: 'GYD',  name: 'GYD Stable', balance: '0.00',  change: '', up: null },
   ];
 
   const quickActions = [
@@ -817,13 +819,14 @@ const WalletTab = () => {
   }, [user]);
 
   const address = walletAddr || '—';
-  const gydsBalance = walletBalance || '12,450.00';
+  const gydsBalance = walletBalance || '0.00';
 
   const stakedBal = delegations.reduce((s,d)=>s+Number(d.amount??0),0);
+  const gydsNum = parseFloat(gydsBalance.replace(/,/g, '')) || 0;
   const assets = [
-    { symbol: 'GYDS', name: 'GYDSchain',  balance: gydsBalance, usd: `$${(parseFloat(gydsBalance.replace(/,/g,'')) * 0.0847).toFixed(2)}`, change: '+4.2%',  up: true,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10',    path: '/wallet',                         state: undefined },
-    { symbol: 'GYD',  name: 'GYD Stable', balance: '500.00',    usd: '$500.00',  change: '+0.0%',  up: null,  icon: CircleDollarSign, color: 'text-blue-400',  bg: 'bg-blue-400/10',   path: '/defi',                           state: { tab: 'stablecoin' } },
-    { symbol: 'sGYDS',name: 'Staked GYDS',balance: stakedBal > 0 ? stakedBal.toLocaleString() : '5,000', usd: '', change: '+12.4%', up: true, icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-400/10', path: '/defi', state: { tab: 'stake' } },
+    { symbol: 'GYDS', name: 'GYDSchain',  balance: gydsBalance, usd: gydsNum > 0 ? `$${(gydsNum * 0.0847).toFixed(2)}` : '$0.00', change: '',  up: null,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10',    path: '/wallet',                         state: undefined },
+    { symbol: 'GYD',  name: 'GYD Stable', balance: '0.00',      usd: '$0.00',    change: '',  up: null,  icon: CircleDollarSign, color: 'text-blue-400',  bg: 'bg-blue-400/10',   path: '/defi',                           state: { tab: 'stablecoin' } },
+    { symbol: 'sGYDS',name: 'Staked GYDS',balance: stakedBal > 0 ? stakedBal.toLocaleString() : '0', usd: '', change: '', up: null, icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-400/10', path: '/defi', state: { tab: 'stake' } },
   ];
 
   return (

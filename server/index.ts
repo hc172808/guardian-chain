@@ -16,6 +16,22 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// CORS — open for RPC/JSON-RPC endpoints so Trust Wallet, MetaMask, etc. can connect
+app.use((req, res, next) => {
+  const origin = req.headers.origin || '*';
+  // Allow all origins for RPC paths; restrict to same-origin for everything else
+  if (req.path === '/rpc' || req.path === '/api/rpc' || req.path === '/') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
+  next();
+});
+
 // Security headers (CSP hardening)
 app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');

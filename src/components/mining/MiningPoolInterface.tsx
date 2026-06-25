@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { TOKENOMICS } from '@/config/wallets';
 import { formatHashRate } from '@/lib/blockchain';
-import { supabase } from '@/integrations/supabase/client';
 import { 
   Users, 
   Zap, 
@@ -83,42 +82,43 @@ export const MiningPoolInterface = () => {
   useEffect(() => {
     const fetchPoolData = async () => {
       try {
-        // Fetch active mining nodes
-        const { data: nodes } = await supabase
-          .from('node_installations')
-          .select('*')
-          .eq('is_online', true)
-          .eq('is_approved', true);
+        const res = await fetch('/api/nodes', { credentials: 'include' });
+        const allNodes = res.ok ? await res.json() : [];
+        const nodes = Array.isArray(allNodes)
+          ? allNodes.filter((n: any) => n.isOnline || n.is_online)
+          : [];
 
-        if (nodes && nodes.length > 0) {
-          const totalHashRate = nodes.reduce((sum, n) => sum + (n.hash_rate || 0), 0);
-          const totalRewards = nodes.reduce((sum, n) => sum + (n.total_rewards || 0), 0);
-          const totalShares = nodes.reduce((sum, n) => sum + (n.valid_shares || 0), 0);
+        if (nodes.length > 0) {
+          const totalHashRate = nodes.reduce((sum: number, n: any) => sum + (n.hashRate || n.hash_rate || 0), 0);
+          const totalRewards = nodes.reduce((sum: number, n: any) => sum + (n.totalRewards || n.total_rewards || 0), 0);
+          const totalShares = nodes.reduce((sum: number, n: any) => sum + Number(n.validShares || n.valid_shares || 0), 0);
 
           setPoolStats(prev => ({
             ...prev,
             totalHashRate,
             activeMiners: nodes.length,
-            pendingRewards: totalRewards * 0.1, // 10% pending
+            pendingRewards: totalRewards * 0.1,
             totalPaid: totalRewards * 0.9,
             blocksFound: Math.floor(totalShares / 100),
           }));
 
-          // Map nodes to miners
-          const miners: ConnectedMiner[] = nodes.map(node => ({
-            address: node.wireguard_public_key?.slice(0, 20) || `miner_${node.id.slice(0, 8)}`,
-            hashRate: node.hash_rate || 0,
-            validShares: Number(node.valid_shares || 0),
-            rejectedShares: Math.floor((node.error_count || 0) / 10),
-            pendingReward: node.total_rewards || 0,
-            lastSeen: node.last_heartbeat || new Date().toISOString(),
-            algorithm: (node.hash_rate || 0) > 1000000 ? 'kheavyhash' : 'randomx',
-            isOnline: node.is_online || false,
-            humanScore: Math.max(70, 100 - (node.error_count || 0)),
+          const miners: ConnectedMiner[] = nodes.map((node: any) => ({
+            address: (node.wireguardPublicKey || node.wireguard_public_key)?.slice(0, 20) || `miner_${node.id.slice(0, 8)}`,
+            hashRate: node.hashRate || node.hash_rate || 0,
+            validShares: Number(node.validShares || node.valid_shares || 0),
+            rejectedShares: Math.floor((node.errorCount || node.error_count || 0) / 10),
+            pendingReward: node.totalRewards || node.total_rewards || 0,
+            lastSeen: node.lastHeartbeat || node.last_heartbeat || new Date().toISOString(),
+            algorithm: (node.hashRate || node.hash_rate || 0) > 1000000 ? 'kheavyhash' : 'randomx',
+            isOnline: node.isOnline || node.is_online || false,
+            humanScore: Math.max(70, 100 - (node.errorCount || node.error_count || 0)),
           }));
 
           setConnectedMiners(miners);
           setPoolConnected(true);
+        } else {
+          setPoolConnected(false);
+          setConnectedMiners([]);
         }
 
         setLoading(false);
@@ -129,20 +129,8 @@ export const MiningPoolInterface = () => {
     };
 
     fetchPoolData();
-
-    // Set up realtime subscription
-    const channel = supabase
-      .channel('pool_stats')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'node_installations' },
-        () => fetchPoolData()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const interval = setInterval(fetchPoolData, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const formatTimeAgo = (isoString: string) => {

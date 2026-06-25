@@ -1173,7 +1173,7 @@ const WalletContent = () => {
                     <div>
                       <p className="font-mono text-sm">{wallet.address}</p>
                       <p className="text-xs text-muted-foreground">
-                        Created {new Date(wallet.created_at).toLocaleDateString()}
+                        Created {wallet.created_at && !isNaN(new Date(wallet.created_at).getTime()) ? new Date(wallet.created_at).toLocaleDateString() : 'recently'}
                       </p>
                     </div>
                   </div>
