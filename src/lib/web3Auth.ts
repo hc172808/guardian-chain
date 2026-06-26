@@ -1,5 +1,4 @@
-// Web3 wallet detection and connection utilities.
-// Auth is now handled by Replit Auth — wallet signing is kept for address verification only.
+// Web3 wallet authentication — nonce-based ECDSA signing against the Express backend.
 
 const isMobile = (): boolean =>
   typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
@@ -24,16 +23,16 @@ export const detectProviders = (): WalletProvider[] => {
   if (eth) {
     if (Array.isArray(eth.providers)) {
       for (const p of eth.providers) {
-        if (p.isMetaMask)       providers.push({ name: 'MetaMask',       isInstalled: true, getProvider: () => p });
-        else if (p.isTrust)     providers.push({ name: 'Trust Wallet',   isInstalled: true, getProvider: () => p });
+        if (p.isMetaMask)            providers.push({ name: 'MetaMask',        isInstalled: true, getProvider: () => p });
+        else if (p.isTrust)          providers.push({ name: 'Trust Wallet',    isInstalled: true, getProvider: () => p });
         else if (p.isCoinbaseWallet) providers.push({ name: 'Coinbase Wallet', isInstalled: true, getProvider: () => p });
-        else                    providers.push({ name: 'Wallet',         isInstalled: true, getProvider: () => p });
+        else                         providers.push({ name: 'Wallet',          isInstalled: true, getProvider: () => p });
       }
     } else {
-      if (eth.isMetaMask)            providers.push({ name: 'MetaMask',       isInstalled: true, getProvider: () => eth });
-      else if (eth.isTrust)          providers.push({ name: 'Trust Wallet',   isInstalled: true, getProvider: () => eth });
-      else if (eth.isCoinbaseWallet) providers.push({ name: 'Coinbase Wallet',isInstalled: true, getProvider: () => eth });
-      else                           providers.push({ name: 'Wallet',         isInstalled: true, getProvider: () => eth });
+      if (eth.isMetaMask)            providers.push({ name: 'MetaMask',        isInstalled: true, getProvider: () => eth });
+      else if (eth.isTrust)          providers.push({ name: 'Trust Wallet',    isInstalled: true, getProvider: () => eth });
+      else if (eth.isCoinbaseWallet) providers.push({ name: 'Coinbase Wallet', isInstalled: true, getProvider: () => eth });
+      else                           providers.push({ name: 'Wallet',          isInstalled: true, getProvider: () => eth });
     }
   }
   const phantom = (window as any).phantom?.ethereum;
@@ -61,43 +60,36 @@ export const connectWallet = async (): Promise<{ address: string; provider: any 
   return { address: accounts[0].toLowerCase(), provider };
 };
 
-const authMessage = (address: string): string =>
-  `ChainCore Authentication\n\nWallet: ${address.toLowerCase()}\nApp: chaincore.gyds\n\nSigning this message proves you own this wallet.\nNo transaction will be submitted.`;
-
-const derivePassword = async (signature: string): Promise<string> => {
-  if (typeof crypto !== 'undefined' && crypto.subtle) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(signature + ':chaincore'));
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-  const s = signature + ':chaincore';
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
-  return h.toString(16).padStart(8, '0').repeat(8);
-};
-
 export const signAuthMessage = async (address: string, provider: any): Promise<string> => {
-  const msg = authMessage(address);
-  return await provider.request({ method: 'personal_sign', params: [msg, address] });
+  const nonceRes = await fetch(`/api/auth/nonce?address=${encodeURIComponent(address)}`, {
+    credentials: 'include',
+  });
+  if (!nonceRes.ok) throw new Error('Failed to fetch auth nonce from server');
+  const { message } = await nonceRes.json();
+  return await provider.request({ method: 'personal_sign', params: [message, address] });
 };
 
 export const signLoginMessage = signAuthMessage;
 
-// These now just link a wallet address to the authenticated user account
+// Authenticate with the server using the signed nonce.
+// mode is ignored — both signup and login use the same Web3 endpoint (creates user if needed).
 export const signUpWithWallet = async (
   address: string,
-  _signature: string,
+  signature: string,
 ): Promise<{ user: any; error: Error | null }> => {
   try {
-    const res = await fetch('/api/wallets', {
+    const res = await fetch('/api/auth/web3', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address, encrypted_seed: '', pin_hash: '' }),
+      body: JSON.stringify({ address, signature }),
     });
-    if (!res.ok) return { user: null, error: new Error('Failed to link wallet') };
-    // Direct to login
-    window.location.href = '/api/auth/login';
-    return { user: null, error: null };
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      return { user: null, error: new Error(err.error ?? 'Wallet authentication failed') };
+    }
+    const data = await res.json();
+    return { user: data, error: null };
   } catch (e: any) {
     return { user: null, error: e };
   }
@@ -110,12 +102,16 @@ export const linkWalletToUser = async (
   address: string,
 ): Promise<{ error: Error | null }> => {
   try {
-    await fetch('/api/wallets', {
+    const res = await fetch('/api/wallets', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ address, encrypted_seed: '', pin_hash: '' }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      return { error: new Error(err.error ?? 'Failed to link wallet') };
+    }
     return { error: null };
   } catch (e: any) {
     return { error: e };

@@ -1,0 +1,95 @@
+The application is deployed on my own Linux server, not hosted by Replit. The scheduled jobs only execute when I click "Run Now". They never execute automatically according to their cron expressions.
+
+This indicates the scheduler service is not actually running.
+
+Please perform a complete audit of the scheduling system.
+
+Check the following:
+
+1. Verify SchedulerService.start() is called exactly once during server startup.
+
+2. Verify every cron.schedule() call is executed.
+
+3. Verify scheduled jobs are actually started and not just stored in the database.
+
+4. Check for any condition such as:
+
+   * if (NODE_ENV === "development")
+   * if (process.env.DISABLE_SCHEDULER)
+   * feature flags
+   * startup conditions
+     that prevent the scheduler from starting.
+
+5. Verify the scheduler starts after the database connection is established.
+
+6. Verify the scheduler remains alive for the entire lifetime of the Node.js process.
+
+7. Check whether the scheduler is accidentally recreated or destroyed.
+
+8. Verify no exceptions occur during scheduler initialization.
+
+9. Add startup logging similar to:
+
+====================================
+GYDS Scheduler Starting...
+==========================
+
+Loaded Jobs: X
+Scheduler Running: YES
+
+Job:
+
+* DB Pruner
+  Cron: 0 3 * * *
+  Registered: YES
+  Next Run: ...
+
+Job:
+
+* Session Cleanup
+  Registered: YES
+
+Job:
+
+* Network Snapshot
+  Registered: YES
+
+...
+
+# Scheduler Ready
+
+10. Add logging every time the scheduler fires automatically:
+
+[Scheduler]
+Current Time:
+Job:
+Scheduled Time:
+Started:
+Finished:
+Duration:
+Status:
+
+11. If a cron job cannot be registered, log the exact reason.
+
+12. Verify server timezone handling and ensure cron uses the configured timezone.
+
+13. Confirm that manual execution ("Run Now") and automatic execution both call the exact same execute() function.
+
+14. Search the entire codebase for:
+
+* cron.schedule
+* node-cron
+* SchedulerService
+* startScheduler
+* scheduler.start
+* registerJobs
+* setInterval
+* Agenda
+* Bree
+* Bull
+* Queue
+  and verify there is only one scheduler implementation.
+
+15. Produce a report explaining exactly why automatic scheduling is failing and implement the necessary fixes.
+
+Do not stop after making assumptions. Trace the scheduler from application startup until the first scheduled execution and verify every step.
