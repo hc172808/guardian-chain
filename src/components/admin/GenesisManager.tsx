@@ -4,10 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import {
   Blocks, Plus, Trash2, Copy, Check, RefreshCw, AlertTriangle,
-  Server, Network, Shield, CheckCircle2, Terminal
+  Server, Network, Shield, CheckCircle2, Terminal, Download, Loader2
 } from 'lucide-react';
 
 interface GenesisValidator {
@@ -50,6 +51,8 @@ export function GenesisManager() {
 
   const [newPeerEnode, setNewPeerEnode] = useState('');
   const [newPeerLabel, setNewPeerLabel] = useState('');
+  const [fetchingEnode, setFetchingEnode] = useState(false);
+  const [enodeNetwork, setEnodeNetwork] = useState<'mainnet' | 'testnet' | 'devnet'>('mainnet');
 
   useEffect(() => { loadConfig(); }, []);
 
@@ -153,6 +156,29 @@ export function GenesisManager() {
     toast({ title: 'Copied!' });
   };
 
+  const fetchLocalEnode = async () => {
+    setFetchingEnode(true);
+    try {
+      const res = await fetch(`/api/admin/genesis-enode/${enodeNetwork}`, { credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        toast({ title: 'Failed to fetch enode', description: data.error ?? `HTTP ${res.status}`, variant: 'destructive' });
+        return;
+      }
+      setConfig(c => ({ ...c, genesisNodeEnode: data.enode }));
+      toast({
+        title: data.running ? '✅ Genesis enode fetched' : '⚠️ Genesis test node not running',
+        description: data.running
+          ? `Enode loaded from local ${enodeNetwork} genesis node (port ${data.port})`
+          : `Enode generated for ${enodeNetwork} — start the genesis test node to use it live`,
+      });
+    } catch (e: any) {
+      toast({ title: 'Network error', description: e.message, variant: 'destructive' });
+    } finally {
+      setFetchingEnode(false);
+    }
+  };
+
   const buildBootstrapEnv = () =>
     [...config.peers, ...(config.genesisNodeEnode ? [{ enode: config.genesisNodeEnode }] : [])]
       .map(p => p.enode).join(',');
@@ -202,9 +228,31 @@ export function GenesisManager() {
           <h4 className="font-medium">Genesis Node Enode Address</h4>
         </div>
         <p className="text-xs text-muted-foreground">
-          After starting the genesis node, run this command to get its enode, then paste it here:
+          If running a local test genesis node, click <strong>Fetch from local node</strong> to auto-fill. For a real external server, run the command below and paste the result.
         </p>
-        <pre className="text-xs bg-black/40 p-3 rounded font-mono">
+
+        {/* Quick-fetch from local test genesis node */}
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30">
+          <Download className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-xs text-muted-foreground flex-1">Fetch enode from local test genesis node:</span>
+          <Select value={enodeNetwork} onValueChange={v => setEnodeNetwork(v as any)}>
+            <SelectTrigger className="h-8 w-28 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="mainnet">Mainnet</SelectItem>
+              <SelectItem value="testnet">Testnet</SelectItem>
+              <SelectItem value="devnet">Devnet</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" onClick={fetchLocalEnode} disabled={fetchingEnode} className="gap-1.5 shrink-0">
+            {fetchingEnode ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Fetch
+          </Button>
+        </div>
+
+        <p className="text-xs text-muted-foreground">Or run this on your external genesis server and paste the result below:</p>
+        <pre className="text-xs bg-black/40 p-3 rounded font-mono overflow-x-auto">
           {`curl -s http://GENESIS_SERVER_IP:8544 \\
   -H 'Content-Type: application/json' \\
   -d '{"jsonrpc":"2.0","method":"net_enode","params":[],"id":1}' \\

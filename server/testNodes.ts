@@ -103,6 +103,18 @@ function randHex(len: number) {
   return Array.from({ length: len }, () => Math.floor(Math.random() * 16).toString(16)).join("");
 }
 
+// Stable per-network genesis enode public keys (generated once on module load, constant per process)
+const GENESIS_ENODE_KEYS: Record<Network, string> = {
+  mainnet: randHex(128),
+  testnet: randHex(128),
+  devnet:  randHex(128),
+};
+
+export function getGenesisEnode(network: Network): string {
+  const cfg = NETWORK_CFGS[network];
+  return `enode://${GENESIS_ENODE_KEYS[network]}@127.0.0.1:${cfg.ports.genesis}`;
+}
+
 function blockObject(s: NodeState, cfg: NetworkCfg, extraTxCount = 0) {
   return {
     number: "0x" + s.blockHeight.toString(16),
@@ -339,6 +351,7 @@ function makeHandler(network: Network, type: NodeType) {
             const result = rpc.method === "eth_blockNumber" ? "0x0"
               : rpc.method === "eth_chainId" ? cfg.chainIdHex
               : rpc.method === "net_version" ? String(cfg.chainId)
+              : rpc.method === "net_enode" ? getGenesisEnode(network)
               : rpc.method === "eth_getBlockByNumber" && (rpc.params?.[0] === "0x0" || rpc.params?.[0] === "earliest")
                 ? blockObject(s, cfg, 0)
               : null;

@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager } from "./testNodes";
+import { testNodeManager, getGenesisEnode, NETWORK_CFGS } from "./testNodes";
 import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
@@ -1225,6 +1225,19 @@ export function registerRoutes(app: Express) {
       }
     }
     res.json(statuses);
+  });
+
+  // GET genesis enode — /api/admin/genesis-enode/:network
+  app.get("/api/admin/genesis-enode/:network", requireAdmin, (req, res) => {
+    const network = req.params.network as "mainnet" | "testnet" | "devnet";
+    if (!["mainnet", "testnet", "devnet"].includes(network)) {
+      res.status(400).json({ ok: false, error: "Invalid network. Use mainnet, testnet, or devnet." });
+      return;
+    }
+    const statuses = testNodeManager.status() as any;
+    const running = statuses[network]?.genesis?.running === true;
+    const enode = getGenesisEnode(network);
+    res.json({ ok: true, enode, running, network, port: NETWORK_CFGS[network].ports.genesis });
   });
 
   // POST start — /api/admin/test-nodes/:network/:type/start
