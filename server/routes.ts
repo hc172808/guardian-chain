@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { testNodeManager } from "./testNodes";
 import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
-import { getVapidPublicKey, sendPushToUser } from "./webpush";
+import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { Pool } from "pg";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
@@ -2718,6 +2718,82 @@ export function registerRoutes(app: Express) {
     fn: async () => {
       const r = await pgPool.query(`DELETE FROM email_verification_tokens WHERE expires_at < NOW()`).catch(() => ({ rowCount: 0 }));
       return `Removed ${r.rowCount ?? 0} expired tokens`;
+    }
+  });
+
+  defineJob({ id: 'node-autopinger', name: 'Node Auto-Pinger', description: 'Pings all approved remote nodes every 5 minutes, sends push alert + in-app notification when a node goes offline or recovers', schedule: '*/5 * * * *', intervalMs: 300_000, enabled: true,
+    fn: async () => {
+      const { rows: nodes } = await pgPool.query(
+        `SELECT id, node_type, ip_address, hostname, rpc_port, is_online FROM node_installations WHERE is_approved=true AND (ip_address IS NOT NULL OR hostname IS NOT NULL)`
+      ).catch(() => ({ rows: [] as any[] }));
+      if (!nodes.length) return 'No approved remote nodes to ping';
+
+      const results: string[] = [];
+      const alertLines: string[] = [];
+
+      await Promise.all(nodes.map(async (node: any) => {
+        const host = node.ip_address || node.hostname;
+        const port = node.rpc_port || 8545;
+        const rpcUrl = `http://${host}:${port}`;
+        const wasOnline = Boolean(node.is_online);
+        let nowOnline = false;
+        let blockHeight: number | undefined;
+
+        try {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 5000);
+          const rpcRes = await fetch(rpcUrl, {
+            method: 'POST', signal: ctrl.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
+          });
+          clearTimeout(timer);
+          const rpcData = await rpcRes.json().catch(() => ({}));
+          const bh = rpcData?.result ? parseInt(rpcData.result, 16) : undefined;
+          blockHeight = bh;
+          nowOnline = true;
+          const upd: Record<string, any> = { isOnline: true, lastHeartbeat: new Date() };
+          if (bh !== undefined) { upd.lastBlockHeight = bh; upd.isSynced = true; upd.syncProgress = 100; }
+          await storage.updateNode(String(node.id), upd).catch(() => {});
+        } catch {
+          nowOnline = false;
+          await storage.updateNode(String(node.id), { isOnline: false }).catch(() => {});
+        }
+
+        const label = `${node.node_type} @ ${host}`;
+        results.push(`${label}: ${nowOnline ? `✓ block #${blockHeight ?? '?'}` : '✗ unreachable'}`);
+
+        // Alert on status change
+        if (wasOnline && !nowOnline) {
+          alertLines.push(label);
+          const msg = `🔴 Node offline: ${label}`;
+          // in-app notifications for all admins/founders
+          const { rows: admins } = await pgPool.query(
+            `SELECT id FROM users WHERE role IN ('admin','founder')`
+          ).catch(() => ({ rows: [] as any[] }));
+          await Promise.all(admins.map((u: any) =>
+            pgPool.query(
+              `INSERT INTO user_notifications (user_id, type, title, message, created_at) VALUES ($1,'node_alert','Node Offline',$2,NOW())`,
+              [u.id, `${label} has gone offline.`]
+            ).catch(() => {})
+          ));
+          await broadcastPush({ title: '🔴 Node Offline', body: `${label} is not responding`, url: '/admin' });
+        } else if (!wasOnline && nowOnline) {
+          const msg = `🟢 Node recovered: ${label}`;
+          const { rows: admins } = await pgPool.query(
+            `SELECT id FROM users WHERE role IN ('admin','founder')`
+          ).catch(() => ({ rows: [] as any[] }));
+          await Promise.all(admins.map((u: any) =>
+            pgPool.query(
+              `INSERT INTO user_notifications (user_id, type, title, message, created_at) VALUES ($1,'node_alert','Node Recovered',$2,NOW())`,
+              [u.id, `${label} is back online at block #${blockHeight ?? '?'}.`]
+            ).catch(() => {})
+          ));
+          await broadcastPush({ title: '🟢 Node Recovered', body: `${label} is back online`, url: '/admin' });
+        }
+      }));
+
+      return results.join('\n') + (alertLines.length ? `\n⚠ Alerts sent for: ${alertLines.join(', ')}` : '');
     }
   });
 
