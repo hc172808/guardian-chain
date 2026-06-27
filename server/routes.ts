@@ -1407,6 +1407,46 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // ── Node Ping: admin manually tests a node's RPC via its VPN IP ──────────
+  app.post("/api/nodes/:id/ping", requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+      const rows = await pgPool.query(
+        `SELECT id, ip_address, hostname, rpc_port, node_type FROM node_installations WHERE id=$1`, [id]
+      );
+      if (!rows.rows.length) return res.status(404).json({ error: 'Node not found' });
+      const node = rows.rows[0];
+      const host = node.ip_address || node.hostname;
+      if (!host) return res.status(400).json({ error: 'Node has no IP address or hostname configured' });
+      const port = node.rpc_port || 8545;
+      const rpcUrl = `http://${host}:${port}`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        const rpcRes = await fetch(rpcUrl, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
+        });
+        clearTimeout(timer);
+        const rpcData = await rpcRes.json().catch(() => ({}));
+        const blockHex = rpcData?.result;
+        const blockHeight = blockHex ? parseInt(blockHex, 16) : undefined;
+        const updates: Record<string, any> = { isOnline: true, lastHeartbeat: new Date() };
+        if (blockHeight !== undefined) { updates.lastBlockHeight = blockHeight; updates.syncProgress = 100; updates.isSynced = true; }
+        await storage.updateNode(id, updates);
+        res.json({ ok: true, online: true, blockHeight, rpcUrl });
+      } catch (fetchErr: any) {
+        clearTimeout(timer);
+        await storage.updateNode(id, { isOnline: false });
+        res.json({ ok: false, online: false, error: fetchErr.name === 'AbortError' ? 'Timeout (5s)' : fetchErr.message, rpcUrl });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Node Heartbeat: deployed nodes call this to stay online ───────────────
   // Auth: admin/founder session OR derived token (SHA-256 of nodeId + secret)
   app.post("/api/nodes/:id/heartbeat", async (req, res) => {

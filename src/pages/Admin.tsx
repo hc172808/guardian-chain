@@ -26,7 +26,9 @@ import {
   WifiOff,
   MonitorDot,
   MessageCircle,
-  Trash2
+  Trash2,
+  Network,
+  Loader2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -156,9 +158,16 @@ interface NodeInstallation {
   id: string;
   userId: string;
   nodeType: string;
+  ipAddress: string | null;
+  hostname: string | null;
+  rpcPort: number | null;
   wireguardPublicKey: string | null;
   isSynced: boolean;
   isApproved: boolean;
+  isOnline: boolean;
+  lastBlockHeight: number | null;
+  peerCount: number | null;
+  lastHeartbeat: string | null;
   createdAt: string;
   profiles?: { email: string | null };
 }
@@ -780,6 +789,8 @@ const AdminContent = () => {
   const [activeTab, setActiveTab] = useState('activity');
   const [nodes, setNodes] = useState<NodeInstallation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mainNodeId, setMainNodeId] = useState<string | null>(null);
+  const [pingingNodes, setPingingNodes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!isFounder && !isAdmin) {
@@ -792,8 +803,15 @@ const AdminContent = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const nodesRes = await fetch('/api/nodes', { credentials: 'include' }).then(r => r.ok ? r.json() : []);
+      const [nodesRes, mainCfgRes] = await Promise.all([
+        fetch('/api/nodes', { credentials: 'include' }).then(r => r.ok ? r.json() : []),
+        fetch('/api/config/main_fullnode_id', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+      ]);
       if (nodesRes) setNodes(Array.isArray(nodesRes) ? nodesRes : []);
+      if (mainCfgRes) {
+        const v = mainCfgRes.configValue ?? mainCfgRes;
+        setMainNodeId(typeof v === 'string' ? v : null);
+      }
     } catch (e) {
       toast({ title: 'Failed to load admin data', variant: 'destructive' });
     } finally {
@@ -829,6 +847,43 @@ const AdminContent = () => {
       fetchData();
     } catch (e: any) {
       toast({ title: 'Failed to remove node', description: e.message, variant: 'destructive' });
+    }
+  };
+
+  const handlePingNode = async (nodeId: string) => {
+    setPingingNodes(prev => new Set(prev).add(nodeId));
+    try {
+      const res = await fetch(`/api/nodes/${nodeId}/ping`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (data.online) {
+        toast({ title: '🟢 Node is online', description: `Block #${data.blockHeight?.toLocaleString() ?? '?'} · ${data.rpcUrl}` });
+      } else {
+        toast({ title: '🔴 Node unreachable', description: data.error ?? 'No response', variant: 'destructive' });
+      }
+      fetchData();
+    } catch (e: any) {
+      toast({ title: 'Ping failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setPingingNodes(prev => { const s = new Set(prev); s.delete(nodeId); return s; });
+    }
+  };
+
+  const handleSetMainNode = async (nodeId: string) => {
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'main_fullnode_id', value: nodeId }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setMainNodeId(nodeId);
+      toast({ title: '⭐ Main fullnode set', description: 'This node is now the primary fullnode for the network.' });
+    } catch (e: any) {
+      toast({ title: 'Failed to set main node', description: e.message, variant: 'destructive' });
     }
   };
 
@@ -1036,26 +1091,41 @@ const AdminContent = () => {
               <p className="text-muted-foreground">No node installations yet</p>
             </GlassCard>
           ) : (
-            nodes.map((node) => {
+            nodes.map((node, nodeIndex) => {
               const isLocalNode = node.wireguardPublicKey?.startsWith('LOCAL:');
               const localPort = isLocalNode ? node.wireguardPublicKey!.split(':')[1] : null;
               const localRpcUrl = localPort ? `http://${window.location.hostname}:${localPort}` : null;
+              const isMain = node.id === mainNodeId;
+              const isPinging = pingingNodes.has(node.id);
+              // VPN tunnel IP assigned in order (matches WireGuardPeerManager: 10.8.0.2, .3, …)
+              const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
+              const vpnIndex = approvedNonLocal.findIndex(n => n.id === node.id);
+              const vpnTunnelIp = !isLocalNode && node.isApproved && vpnIndex >= 0
+                ? `10.8.0.${vpnIndex + 2}`
+                : null;
+              const displayHost = node.ipAddress || node.hostname;
+              const rpcPort = node.rpcPort || 8545;
               return (
-              <GlassCard key={node.id} className={`p-4 ${isLocalNode ? 'border-primary/40' : !node.isApproved ? 'border-yellow-500/30' : ''}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-lg relative ${isLocalNode ? 'bg-primary/20' : node.nodeType === 'fullnode' ? 'bg-yellow-500/20' : 'bg-primary/20'}`}>
+              <GlassCard key={node.id} className={`p-4 ${isMain ? 'border-yellow-400/50 bg-yellow-400/5' : isLocalNode ? 'border-primary/40' : !node.isApproved ? 'border-yellow-500/30' : ''}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-4 min-w-0">
+                    <div className={`p-3 rounded-lg relative shrink-0 ${isMain ? 'bg-yellow-400/20' : isLocalNode ? 'bg-primary/20' : node.nodeType === 'fullnode' ? 'bg-yellow-500/20' : 'bg-primary/20'}`}>
                       {isLocalNode
                         ? <MonitorDot className="h-5 w-5 text-primary" />
-                        : <Server className={`h-5 w-5 ${node.nodeType === 'fullnode' ? 'text-yellow-500' : 'text-primary'}`} />
+                        : <Server className={`h-5 w-5 ${isMain ? 'text-yellow-400' : node.nodeType === 'fullnode' ? 'text-yellow-500' : 'text-primary'}`} />
                       }
                       {node.isOnline && (
                         <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-background animate-pulse" />
                       )}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium capitalize">{node.nodeType.replace('node', ' Node')}</p>
+                        {isMain && (
+                          <Badge className="text-xs bg-yellow-400/20 text-yellow-400 border-yellow-400/40 gap-1">
+                            ⭐ Main Fullnode
+                          </Badge>
+                        )}
                         {isLocalNode && (
                           <Badge variant="outline" className="text-primary border-primary/60 bg-primary/10 text-xs gap-1">
                             <MonitorDot className="h-3 w-3" /> Local Test Node
@@ -1079,9 +1149,25 @@ const AdminContent = () => {
                           <Badge variant="outline" className="text-primary border-primary text-xs">Synced</Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-muted-foreground mt-0.5">
                         {isLocalNode ? 'Local server process' : `User: ${node.profiles?.email || node.userId?.slice(0, 12) || 'Unknown'}`}
                       </p>
+                      {/* Public IP / hostname + VPN tunnel IP */}
+                      {!isLocalNode && (
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
+                          {displayHost && (
+                            <span className="text-xs font-mono text-muted-foreground">
+                              {displayHost}:{rpcPort}
+                            </span>
+                          )}
+                          {vpnTunnelIp && (
+                            <span className="text-xs font-mono text-primary/70 flex items-center gap-1">
+                              <Network className="h-3 w-3" />
+                              VPN {vpnTunnelIp}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {/* Live stats for online nodes */}
                       {node.isOnline && (
                         <p className="text-xs text-muted-foreground font-mono mt-0.5">
@@ -1091,10 +1177,7 @@ const AdminContent = () => {
                       )}
                       {/* RPC URL for local nodes */}
                       {isLocalNode && localRpcUrl && node.isOnline && (
-                        <a
-                          href={localRpcUrl}
-                          target="_blank"
-                          rel="noreferrer"
+                        <a href={localRpcUrl} target="_blank" rel="noreferrer"
                           className="flex items-center gap-1 text-xs text-primary hover:underline font-mono mt-1"
                         >
                           <ExternalLink className="h-3 w-3" />
@@ -1116,10 +1199,39 @@ const AdminContent = () => {
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                         <Clock className="h-3 w-3" />
                         {new Date(node.createdAt).toLocaleString()}
+                        {node.lastHeartbeat && (
+                          <span className="ml-2">· last seen {new Date(node.lastHeartbeat).toLocaleTimeString()}</span>
+                        )}
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-2 flex-wrap justify-end">
+                  <div className="flex gap-2 flex-wrap justify-end shrink-0">
+                    {/* Ping button — only for remote nodes with an IP/hostname */}
+                    {!isLocalNode && displayHost && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1"
+                        onClick={() => handlePingNode(node.id)}
+                        disabled={isPinging}
+                      >
+                        {isPinging
+                          ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Pinging…</>
+                          : <><Activity className="h-3.5 w-3.5" /> Ping</>
+                        }
+                      </Button>
+                    )}
+                    {/* Set as Main Fullnode */}
+                    {!isLocalNode && node.nodeType === 'fullnode' && !isMain && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 text-yellow-400 border-yellow-400/40 hover:bg-yellow-400/10"
+                        onClick={() => handleSetMainNode(node.id)}
+                      >
+                        ⭐ Set Main
+                      </Button>
+                    )}
                     {!isLocalNode && !node.isApproved && (
                       <>
                         <Button size="sm" onClick={() => handleApproveNode(node.id, true)} className="gap-1">
