@@ -478,6 +478,7 @@ export const storage = {
   async updateDdosProtection(id: string, data: any) {
     const [row] = await db.update(ddosProtection).set(data).where(eq(ddosProtection.id, id)).returning(); return row;
   },
+  async deleteDdosProtection(id: string) { await db.delete(ddosProtection).where(eq(ddosProtection.id, id)); },
 
   // ── Audit Logs ────────────────────────────────────────────────────────────
   async getAuditLogs(userId?: string) {

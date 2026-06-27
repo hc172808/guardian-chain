@@ -770,28 +770,151 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Firewall / Security ────────────────────────────────────────────────────
-  app.get("/api/firewall/rules", requireAdmin, async (_req, res) => res.json(await storage.getFirewallRules()));
-  app.post("/api/firewall/rules", requireAdmin, async (req, res) => res.json(await storage.insertFirewallRule(req.body)));
-  app.patch("/api/firewall/rules/:id", requireAdmin, async (req, res) => res.json(await storage.updateFirewallRule(req.params.id, req.body)));
-  app.delete("/api/firewall/rules/:id", requireAdmin, async (req, res) => { await storage.deleteFirewallRule(req.params.id); res.json({ ok: true }); });
+  // Serializers: Drizzle returns camelCase → frontend expects snake_case
+  const serFwRule = (r: any) => ({
+    id: r.id, rule_type: r.ruleType ?? r.rule_type, action: r.action,
+    protocol: r.protocol, port: r.port, ip_address: r.ipAddress ?? r.ip_address,
+    direction: r.direction, description: r.description,
+    is_active: r.isActive ?? r.is_active ?? true,
+    created_at: r.createdAt ?? r.created_at,
+  });
+  const serJail = (r: any) => ({
+    id: r.id, jail_name: r.jailName ?? r.jail_name,
+    is_enabled: r.isEnabled ?? r.is_enabled ?? true,
+    max_retries: r.maxRetries ?? r.max_retries ?? 5,
+    ban_time: r.banTime ?? r.ban_time ?? 3600,
+    find_time: r.findTime ?? r.find_time ?? 600,
+    log_path: r.logPath ?? r.log_path, filter_name: r.filterName ?? r.filter_name,
+    action: r.action, description: r.description,
+    banned_ips: r.bannedIps ?? r.banned_ips ?? [],
+    created_at: r.createdAt ?? r.created_at,
+  });
+  const serIp = (r: any) => ({
+    id: r.id, ip_address: r.ipAddress ?? r.ip_address,
+    list_type: r.listType ?? r.list_type, reason: r.reason,
+    expires_at: r.expiresAt ?? r.expires_at, created_at: r.createdAt ?? r.created_at,
+  });
+  const serRateLimit = (r: any) => ({
+    id: r.id, name: r.name, endpoint: r.endpoint,
+    requests_per_window: r.requestsPerWindow ?? r.requests_per_window ?? 100,
+    window_seconds: r.windowSeconds ?? r.window_seconds ?? 60,
+    burst_limit: r.burstLimit ?? r.burst_limit ?? 20,
+    action: r.action, is_enabled: r.isEnabled ?? r.is_enabled ?? true,
+    description: r.description, created_at: r.createdAt ?? r.created_at,
+  });
+  const serDdos = (r: any) => ({
+    id: r.id, name: r.name, protection_type: r.protectionType ?? r.protection_type,
+    threshold: r.threshold, action: r.action,
+    is_enabled: r.isEnabled ?? r.is_enabled ?? true,
+    description: r.description, created_at: r.createdAt ?? r.created_at,
+  });
+  // Input mappers: frontend snake_case → Drizzle camelCase
+  const mapFwRule = (b: any) => ({
+    ...(b.rule_type   !== undefined && { ruleType:    b.rule_type }),
+    ...(b.action      !== undefined && { action:      b.action }),
+    ...(b.protocol    !== undefined && { protocol:    b.protocol }),
+    ...(b.port        !== undefined && { port:        b.port }),
+    ...(b.ip_address  !== undefined && { ipAddress:   b.ip_address }),
+    ...(b.direction   !== undefined && { direction:   b.direction }),
+    ...(b.description !== undefined && { description: b.description }),
+    ...(b.is_active   !== undefined && { isActive:    b.is_active }),
+  });
+  const mapJail = (b: any) => ({
+    ...(b.jail_name   !== undefined && { jailName:    b.jail_name }),
+    ...(b.is_enabled  !== undefined && { isEnabled:   b.is_enabled }),
+    ...(b.max_retries !== undefined && { maxRetries:  b.max_retries }),
+    ...(b.ban_time    !== undefined && { banTime:     b.ban_time }),
+    ...(b.find_time   !== undefined && { findTime:    b.find_time }),
+    ...(b.log_path    !== undefined && { logPath:     b.log_path }),
+    ...(b.filter_name !== undefined && { filterName:  b.filter_name }),
+    ...(b.action      !== undefined && { action:      b.action }),
+    ...(b.description !== undefined && { description: b.description }),
+  });
+  const mapIp = (b: any) => ({
+    ...(b.ip_address !== undefined && { ipAddress: b.ip_address }),
+    ...(b.list_type  !== undefined && { listType:  b.list_type }),
+    ...(b.reason     !== undefined && { reason:    b.reason }),
+  });
+  const mapRateLimit = (b: any) => ({
+    ...(b.name                !== undefined && { name:              b.name }),
+    ...(b.endpoint            !== undefined && { endpoint:          b.endpoint }),
+    ...(b.requests_per_window !== undefined && { requestsPerWindow: b.requests_per_window }),
+    ...(b.window_seconds      !== undefined && { windowSeconds:     b.window_seconds }),
+    ...(b.burst_limit         !== undefined && { burstLimit:        b.burst_limit }),
+    ...(b.action              !== undefined && { action:            b.action }),
+    ...(b.is_enabled          !== undefined && { isEnabled:         b.is_enabled }),
+    ...(b.description         !== undefined && { description:       b.description }),
+  });
+  const mapDdos = (b: any) => ({
+    ...(b.name            !== undefined && { name:           b.name }),
+    ...(b.protection_type !== undefined && { protectionType: b.protection_type }),
+    ...(b.threshold       !== undefined && { threshold:      b.threshold }),
+    ...(b.action          !== undefined && { action:         b.action }),
+    ...(b.is_enabled      !== undefined && { isEnabled:      b.is_enabled }),
+    ...(b.description     !== undefined && { description:    b.description }),
+  });
 
-  app.get("/api/firewall/jails", requireAdmin, async (_req, res) => res.json(await storage.getFail2banJails()));
-  app.post("/api/firewall/jails", requireAdmin, async (req, res) => res.json(await storage.insertFail2banJail(req.body)));
-  app.patch("/api/firewall/jails/:id", requireAdmin, async (req, res) => res.json(await storage.updateFail2banJail(req.params.id, req.body)));
-  app.delete("/api/firewall/jails/:id", requireAdmin, async (req, res) => { await storage.deleteFail2banJail(req.params.id); res.json({ ok: true }); });
+  app.get("/api/firewall/rules", requireAdmin, async (_req, res) => {
+    const rows = await storage.getFirewallRules(); res.json(rows.map(serFwRule));
+  });
+  app.post("/api/firewall/rules", requireAdmin, async (req, res) => {
+    const row = await storage.insertFirewallRule(mapFwRule(req.body) as any); res.json(serFwRule(row));
+  });
+  app.patch("/api/firewall/rules/:id", requireAdmin, async (req, res) => {
+    const row = await storage.updateFirewallRule(req.params.id, mapFwRule(req.body)); res.json(serFwRule(row));
+  });
+  app.delete("/api/firewall/rules/:id", requireAdmin, async (req, res) => {
+    await storage.deleteFirewallRule(req.params.id); res.json({ ok: true });
+  });
 
-  app.get("/api/firewall/ip-list", requireAdmin, async (_req, res) => res.json(await storage.getIpAccessList()));
-  app.post("/api/firewall/ip-list", requireAdmin, async (req, res) => res.json(await storage.insertIpAccess(req.body)));
-  app.delete("/api/firewall/ip-list/:id", requireAdmin, async (req, res) => { await storage.deleteIpAccess(req.params.id); res.json({ ok: true }); });
+  app.get("/api/firewall/jails", requireAdmin, async (_req, res) => {
+    const rows = await storage.getFail2banJails(); res.json(rows.map(serJail));
+  });
+  app.post("/api/firewall/jails", requireAdmin, async (req, res) => {
+    const row = await storage.insertFail2banJail(mapJail(req.body) as any); res.json(serJail(row));
+  });
+  app.patch("/api/firewall/jails/:id", requireAdmin, async (req, res) => {
+    const row = await storage.updateFail2banJail(req.params.id, mapJail(req.body)); res.json(serJail(row));
+  });
+  app.delete("/api/firewall/jails/:id", requireAdmin, async (req, res) => {
+    await storage.deleteFail2banJail(req.params.id); res.json({ ok: true });
+  });
 
-  app.get("/api/firewall/rate-limits", requireAdmin, async (_req, res) => res.json(await storage.getRateLimitRules()));
-  app.post("/api/firewall/rate-limits", requireAdmin, async (req, res) => res.json(await storage.insertRateLimitRule(req.body)));
-  app.patch("/api/firewall/rate-limits/:id", requireAdmin, async (req, res) => res.json(await storage.updateRateLimitRule(req.params.id, req.body)));
-  app.delete("/api/firewall/rate-limits/:id", requireAdmin, async (req, res) => { await storage.deleteRateLimitRule(req.params.id); res.json({ ok: true }); });
+  app.get("/api/firewall/ip-list", requireAdmin, async (_req, res) => {
+    const rows = await storage.getIpAccessList(); res.json(rows.map(serIp));
+  });
+  app.post("/api/firewall/ip-list", requireAdmin, async (req, res) => {
+    const row = await storage.insertIpAccess(mapIp(req.body) as any); res.json(serIp(row));
+  });
+  app.delete("/api/firewall/ip-list/:id", requireAdmin, async (req, res) => {
+    await storage.deleteIpAccess(req.params.id); res.json({ ok: true });
+  });
 
-  app.get("/api/firewall/ddos", requireAdmin, async (_req, res) => res.json(await storage.getDdosProtection()));
-  app.post("/api/firewall/ddos", requireAdmin, async (req, res) => res.json(await storage.insertDdosProtection(req.body)));
-  app.patch("/api/firewall/ddos/:id", requireAdmin, async (req, res) => res.json(await storage.updateDdosProtection(req.params.id, req.body)));
+  app.get("/api/firewall/rate-limits", requireAdmin, async (_req, res) => {
+    const rows = await storage.getRateLimitRules(); res.json(rows.map(serRateLimit));
+  });
+  app.post("/api/firewall/rate-limits", requireAdmin, async (req, res) => {
+    const row = await storage.insertRateLimitRule(mapRateLimit(req.body) as any); res.json(serRateLimit(row));
+  });
+  app.patch("/api/firewall/rate-limits/:id", requireAdmin, async (req, res) => {
+    const row = await storage.updateRateLimitRule(req.params.id, mapRateLimit(req.body)); res.json(serRateLimit(row));
+  });
+  app.delete("/api/firewall/rate-limits/:id", requireAdmin, async (req, res) => {
+    await storage.deleteRateLimitRule(req.params.id); res.json({ ok: true });
+  });
+
+  app.get("/api/firewall/ddos", requireAdmin, async (_req, res) => {
+    const rows = await storage.getDdosProtection(); res.json(rows.map(serDdos));
+  });
+  app.post("/api/firewall/ddos", requireAdmin, async (req, res) => {
+    const row = await storage.insertDdosProtection(mapDdos(req.body) as any); res.json(serDdos(row));
+  });
+  app.patch("/api/firewall/ddos/:id", requireAdmin, async (req, res) => {
+    const row = await storage.updateDdosProtection(req.params.id, mapDdos(req.body)); res.json(serDdos(row));
+  });
+  app.delete("/api/firewall/ddos/:id", requireAdmin, async (req, res) => {
+    await storage.deleteDdosProtection(req.params.id); res.json({ ok: true });
+  });
 
   // ── AI Firewall / Security enforcement routes ──────────────────────────────
   // Status

@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { users, userRoles, profiles } from "../shared/schema";
+import { users, userRoles, profiles, firewallRules, fail2banJails, rateLimitRules, ddosProtection } from "../shared/schema";
 import { eq, or } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
