@@ -25,7 +25,8 @@ import {
   Wifi,
   WifiOff,
   MonitorDot,
-  MessageCircle
+  MessageCircle,
+  Trash2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -68,6 +69,7 @@ import { WalletReleaseManager } from '@/components/layout/WalletDownloadButton';
 import { ServerConfigManager } from '@/components/admin/ServerConfigManager';
 import { RevenueDashboard } from '@/components/admin/RevenueDashboard';
 import { ActivityFeed } from '@/components/admin/ActivityFeed';
+import { GenesisManager } from '@/components/admin/GenesisManager';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -803,6 +805,7 @@ const AdminContent = () => {
     try {
       const res = await fetch(`/api/nodes/${nodeId}`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isApproved: approve, approvedBy: user?.id, approvedAt: approve ? new Date().toISOString() : null }),
       });
@@ -811,6 +814,21 @@ const AdminContent = () => {
       fetchData();
     } catch (e: any) {
       toast({ title: 'Failed to update node', description: e.message, variant: 'destructive' });
+    }
+  };
+
+  const handleDeleteNode = async (nodeId: string) => {
+    if (!confirm('Remove this node registration? This cannot be undone.')) return;
+    try {
+      const res = await fetch(`/api/nodes/${nodeId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast({ title: 'Node removed' });
+      fetchData();
+    } catch (e: any) {
+      toast({ title: 'Failed to remove node', description: e.message, variant: 'destructive' });
     }
   };
 
@@ -998,6 +1016,9 @@ const AdminContent = () => {
         </TabsContent>
 
         <TabsContent value="nodes" className="space-y-6">
+          {/* Genesis Network Manager */}
+          <GenesisManager />
+
           {/* WireGuard Peer Manager */}
           <WireGuardPeerManager />
 
@@ -1098,7 +1119,7 @@ const AdminContent = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap justify-end">
                     {!isLocalNode && !node.isApproved && (
                       <>
                         <Button size="sm" onClick={() => handleApproveNode(node.id, true)} className="gap-1">
@@ -1116,6 +1137,15 @@ const AdminContent = () => {
                         Revoke
                       </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => handleDeleteNode(node.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remove
+                    </Button>
                   </div>
                 </div>
               </GlassCard>
