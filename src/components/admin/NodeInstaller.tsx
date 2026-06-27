@@ -7,9 +7,9 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Server, Globe, Smartphone, Network, Copy, Check, Terminal, Container, Download, Zap, CheckCircle2, Loader2, PlusCircle } from 'lucide-react';
+import { Server, Globe, Smartphone, Network, Copy, Check, Terminal, Container, Download, Zap, CheckCircle2, Loader2, PlusCircle, Blocks, Shield, AlertTriangle } from 'lucide-react';
 
-type NodeType = 'bootnode' | 'fullnode' | 'litenode' | 'rpcnode' | 'boostnode' | 'termux';
+type NodeType = 'genesis' | 'bootnode' | 'fullnode' | 'litenode' | 'rpcnode' | 'boostnode' | 'validatornode' | 'termux';
 
 interface NodeOption {
   id: NodeType;
@@ -20,9 +20,21 @@ interface NodeOption {
   needsRoot: boolean;
   repo: string;
   portainerStack: string;
+  founderOnly?: boolean;
 }
 
 const NODE_OPTIONS: NodeOption[] = [
+  {
+    id: 'genesis',
+    label: 'Genesis Node',
+    desc: 'FOUNDER ONLY — creates the blockchain from block 0. Run this ONCE on your primary server.',
+    icon: Blocks,
+    ports: '8544 (rpc), 30300 (p2p)',
+    needsRoot: true,
+    repo: 'https://github.com/hc172808/genesis.git',
+    portainerStack: 'portainer-genesis.yml',
+    founderOnly: true,
+  },
   {
     id: 'bootnode',
     label: 'Boot Node',
@@ -30,13 +42,13 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Network,
     ports: '30303 tcp+udp',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/fullnode.git',
+    repo: 'https://github.com/hc172808/bootnode.git',
     portainerStack: 'portainer-fullnode.yml',
   },
   {
     id: 'fullnode',
     label: 'Full Node',
-    desc: 'Founder full node with PoS consensus, mining and RPC. High storage required.',
+    desc: 'Full node with PoS consensus, mining and RPC. High storage required.',
     icon: Server,
     ports: '8546, 30303',
     needsRoot: true,
@@ -50,8 +62,18 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Globe,
     ports: '8545, 8546, 8080',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/fullnode.git',
+    repo: 'https://github.com/hc172808/rpcnode.git',
     portainerStack: 'portainer-rpcnode.yml',
+  },
+  {
+    id: 'validatornode',
+    label: 'Validator Node',
+    desc: 'PoS validator — requires 10,000 GYDS staked. Earns block rewards.',
+    icon: Shield,
+    ports: '8547, 8548, 30306',
+    needsRoot: true,
+    repo: 'https://github.com/hc172808/validatornode.git',
+    portainerStack: 'portainer-validatornode.yml',
   },
   {
     id: 'litenode',
@@ -60,7 +82,7 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Server,
     ports: '3030 (api)',
     needsRoot: false,
-    repo: 'https://github.com/hc172808/fullnode.git',
+    repo: 'https://github.com/hc172808/litenode.git',
     portainerStack: 'portainer-litenode.yml',
   },
   {
@@ -70,7 +92,7 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Zap,
     ports: '8547, 30304',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/fullnode.git',
+    repo: 'https://github.com/hc172808/boostnode.git',
     portainerStack: 'portainer-boostnode.yml',
   },
   {
@@ -80,30 +102,34 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Smartphone,
     ports: 'n/a',
     needsRoot: false,
-    repo: 'https://github.com/hc172808/fullnode.git',
+    repo: 'https://github.com/hc172808/litenode.git',
     portainerStack: '',
   },
 ];
 
 const INSTALL_SCRIPTS: Record<NodeType, string> = {
-  bootnode:  'install-fullnode.sh',
-  fullnode:  'install-fullnode.sh',
-  rpcnode:   'install-rpcnode.sh',
-  litenode:  'install-litenode.sh',
-  boostnode: 'install-boostnode.sh',
-  termux:    'install-termux.sh',
+  genesis:       'install-genesis.sh',
+  bootnode:      'install-bootnode.sh',
+  fullnode:      'install-fullnode.sh',
+  rpcnode:       'install-rpcnode.sh',
+  validatornode: 'install-validatornode.sh',
+  litenode:      'install-litenode.sh',
+  boostnode:     'install-boostnode.sh',
+  termux:        'install-termux.sh',
 };
 
 type InstallMode = 'bash' | 'docker' | 'portainer';
 
 export function NodeInstaller() {
   const [selected, setSelected] = useState<Record<NodeType, boolean>>({
-    bootnode: false, fullnode: false, litenode: false, rpcnode: false, boostnode: false, termux: false,
+    genesis: false, bootnode: false, fullnode: false, litenode: false,
+    rpcnode: false, boostnode: false, validatornode: false, termux: false,
   });
   const [mode, setMode] = useState<InstallMode>('bash');
   const [enableMining, setEnableMining]   = useState(true);
   const [blockTime, setBlockTime]         = useState('120');
   const [wgEndpoint, setWgEndpoint]       = useState('vpn.netlifegy.com:51820');
+  const [genesisBootstrap, setGenesisBootstrap] = useState('');
   const [copied, setCopied]               = useState<string | null>(null);
   // Registration form state
   const [nodeIp, setNodeIp]               = useState('');
@@ -120,17 +146,33 @@ export function NodeInstaller() {
   const toggle = (id: NodeType) =>
     setSelected((s) => ({ ...s, [id]: !s[id] }));
 
-  const scriptBaseUrl = 'https://raw.githubusercontent.com/hc172808/guardian-chain/main/public/scripts/';
+  // Scripts are served directly from the dashboard at /scripts/
+  // Also available from GitHub raw if you push the repo
+  const dashboardOrigin = window.location.origin;
+  const scriptBaseUrl = `${dashboardOrigin}/scripts/`;
+  const githubRawBase = 'https://raw.githubusercontent.com/hc172808/netlifegy.com/main/public/scripts/';
 
   const buildBashCommand = (): string => {
     const lines: string[] = ['# GYDSchain Node Installer — paste this on your Ubuntu 22.04 server', 'set -euo pipefail', ''];
     selectedNodes.forEach(n => {
       if (n.id === 'termux') return;
-      lines.push(`# ── Install ${n.label} (${n.repo})`);
+      lines.push(`# ── Install ${n.label}`);
+      lines.push(`# Option A (from this dashboard):`);
       lines.push(`curl -fsSL ${scriptBaseUrl}${INSTALL_SCRIPTS[n.id]} | \\`);
-      lines.push(`  BLOCK_TIME=${blockTime} ENABLE_MINING=${enableMining} \\`);
-      lines.push(`  WG_SERVER_ENDPOINT=${wgEndpoint} \\`);
+      if (n.id === 'genesis') {
+        lines.push(`  CHAIN_ID=13370 STORAGE_SIZE=500 \\`);
+        if (genesisBootstrap) lines.push(`  BOOTSTRAP_PEERS="${genesisBootstrap}" \\`);
+      } else {
+        lines.push(`  BLOCK_TIME=${blockTime} ENABLE_MINING=${enableMining} \\`);
+        lines.push(`  WG_SERVER_ENDPOINT=${wgEndpoint} \\`);
+        if (genesisBootstrap && (n.id === 'fullnode' || n.id === 'validatornode' || n.id === 'bootnode')) {
+          lines.push(`  GYDS_BOOTSTRAP_NODES="${genesisBootstrap}" \\`);
+        }
+      }
       lines.push(`  ${n.needsRoot ? 'sudo ' : ''}bash`);
+      lines.push('');
+      lines.push(`# Option B (from GitHub raw):`);
+      lines.push(`curl -fsSL ${githubRawBase}${INSTALL_SCRIPTS[n.id]} | ${n.needsRoot ? 'sudo ' : ''}bash`);
       lines.push('');
     });
     if (selected.termux) {
@@ -152,17 +194,18 @@ export function NodeInstaller() {
         `docker run -d --name gyds-${n.id} \\`,
         `  --cap-add NET_ADMIN \\`,
         `  -e WG_SERVER_ENDPOINT=${wgEndpoint} \\`,
+        n.id !== 'genesis' && genesisBootstrap ? `  -e GYDS_BOOTSTRAP_NODES="${genesisBootstrap}" \\` : '',
         `  -v gyds-${n.id}-data:/var/lib/gydschain \\`,
         `  --restart unless-stopped \\`,
         `  gyds-${n.id}:latest`,
         '',
-      ].join('\n'))
+      ].filter(Boolean).join('\n'))
       .join('\n');
   };
 
   const getPortainerStackUrl = (): string => {
     const stacks = [...new Set(selectedNodes.filter(n => n.portainerStack).map(n => n.portainerStack))];
-    const base = 'https://raw.githubusercontent.com/hc172808/guardian-chain/main/public/docker/';
+    const base = `${dashboardOrigin}/docker/`;
     return stacks.map(s => `${base}${s}`).join('\n');
   };
 
@@ -273,18 +316,19 @@ PersistentKeepalive = 25`;
                 onClick={() => toggle(opt.id)}
                 data-testid={`button-toggle-${opt.id}`}
                 className={`text-left p-4 rounded-lg border-2 transition-all ${
-                  on
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border bg-secondary/30 hover:border-primary/40'
+                  opt.founderOnly
+                    ? on ? 'border-yellow-500 bg-yellow-500/10' : 'border-yellow-500/40 bg-secondary/30 hover:border-yellow-500/70'
+                    : on ? 'border-primary bg-primary/10' : 'border-border bg-secondary/30 hover:border-primary/40'
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <Icon className={`h-5 w-5 mt-0.5 ${on ? 'text-primary' : 'text-muted-foreground'}`} />
+                  <Icon className={`h-5 w-5 mt-0.5 ${on ? (opt.founderOnly ? 'text-yellow-400' : 'text-primary') : 'text-muted-foreground'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium" data-testid={`label-${opt.id}`}>{opt.label}</span>
                       {on && <Badge variant="default" className="text-xs">selected</Badge>}
                       {opt.needsRoot && <Badge variant="outline" className="text-xs">root</Badge>}
+                      {opt.founderOnly && <Badge className="text-xs bg-yellow-500/20 text-yellow-400 border-yellow-500/30">founder only</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">{opt.desc}</p>
                     <p className="text-xs text-muted-foreground mt-1">Ports: {opt.ports}</p>
@@ -323,6 +367,18 @@ PersistentKeepalive = 25`;
           ))}
         </div>
 
+        {/* Genesis warning */}
+        {selected.genesis && (
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+            <AlertTriangle className="h-5 w-5 text-yellow-400 shrink-0 mt-0.5" />
+            <div className="text-sm text-yellow-300 space-y-1">
+              <p className="font-semibold">Genesis node — run this ONCE on your primary server.</p>
+              <p className="text-xs text-yellow-400/80">It creates block 0 of the GYDSchain (Chain ID 13370). All other nodes must connect to the genesis node's enode address as their bootstrap peer.</p>
+              <p className="text-xs text-yellow-400/80">After the genesis node starts, get its enode with: <code className="bg-black/30 px-1 rounded">curl http://localhost:8544 -d '&#123;"method":"net_enode","id":1&#125;'</code></p>
+            </div>
+          </div>
+        )}
+
         {/* Common config */}
         <div className="grid md:grid-cols-3 gap-4 pt-2">
           <div className="space-y-2">
@@ -355,6 +411,23 @@ PersistentKeepalive = 25`;
               </span>
             </div>
           </div>
+        </div>
+
+        {/* Bootstrap peers field — shown when any non-genesis node is selected, or when genesis+others */}
+        <div className="space-y-2 pt-1">
+          <Label className="flex items-center gap-1.5">
+            Bootstrap peers / genesis enode
+            <span className="text-xs text-muted-foreground font-normal">(paste after genesis node is running)</span>
+          </Label>
+          <Input
+            value={genesisBootstrap}
+            onChange={e => setGenesisBootstrap(e.target.value)}
+            placeholder="enode://abc123...@203.0.113.10:30300"
+            className="font-mono text-xs"
+          />
+          <p className="text-xs text-muted-foreground">
+            This enode address is injected as <code className="bg-black/30 px-1 rounded">GYDS_BOOTSTRAP_NODES</code> for fullnode/validator/bootnode, and as <code className="bg-black/30 px-1 rounded">BOOTSTRAP_PEERS</code> for genesis. Leave blank if the genesis node hasn't started yet — you can re-copy the command after.
+          </p>
         </div>
       </GlassCard>
 
@@ -421,7 +494,7 @@ PersistentKeepalive = 25`;
                             size="sm"
                             variant="outline"
                             className="gap-2"
-                            onClick={() => copy(`https://raw.githubusercontent.com/hc172808/guardian-chain/main/public/docker/${stack}`, `URL ${stack}`)}
+                            onClick={() => copy(`${dashboardOrigin}/docker/${stack}`, `URL ${stack}`)}
                           >
                             <Copy className="h-3 w-3" /> URL
                           </Button>
@@ -430,8 +503,8 @@ PersistentKeepalive = 25`;
                             variant="outline"
                             className="gap-2"
                             onClick={async () => {
-                              const res = await fetch(`/public/docker/${stack}`).catch(() => null);
-                              const text = res?.ok ? await res.text() : `# Download from:\nhttps://raw.githubusercontent.com/hc172808/guardian-chain/main/public/docker/${stack}`;
+                              const res = await fetch(`/docker/${stack}`).catch(() => null);
+                              const text = res?.ok ? await res.text() : `# Download from:\n${dashboardOrigin}/docker/${stack}`;
                               downloadFile(text, stack);
                             }}
                           >

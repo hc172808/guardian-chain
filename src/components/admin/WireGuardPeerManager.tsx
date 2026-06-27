@@ -123,25 +123,37 @@ export const WireGuardPeerManager = () => {
     try {
       const res = await fetch('/api/config/wireguard_server', { credentials: 'include' });
       if (res.ok) {
-        const data = await res.json();
+        const row = await res.json();
+        if (!row) return;
+        // Drizzle returns camelCase: { configKey, configValue: {...}, ... }
+        const data = (row.configValue ?? row) as Record<string, any>;
         setServerPrivKey(data.private_key ?? '');
         setServerPubKey(data.public_key ?? '');
         setServerEndpoint(data.endpoint ?? window.location.hostname);
-        setServerPort(data.port ?? 51820);
+        setServerPort(Number(data.port) || 51820);
       }
     } catch { /* not critical */ }
   };
 
   const saveServerConfig = async () => {
-    await fetch('/api/config', {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        key: 'wireguard_server',
-        value: { private_key: serverPrivKey, public_key: serverPubKey, endpoint: serverEndpoint, port: serverPort },
-      }),
-    });
-    toast({ title: '✅ WireGuard server config saved' });
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'wireguard_server',
+          value: { private_key: serverPrivKey, public_key: serverPubKey, endpoint: serverEndpoint, port: serverPort },
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: '❌ Save failed', description: err.error ?? `HTTP ${res.status}`, variant: 'destructive' });
+        return;
+      }
+      toast({ title: '✅ WireGuard server config saved' });
+    } catch (e: any) {
+      toast({ title: '❌ Save failed', description: e.message, variant: 'destructive' });
+    }
   };
 
   const approvedPeers = peers.filter(p => p.is_approved);
