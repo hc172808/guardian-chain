@@ -327,12 +327,46 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Node Installations ─────────────────────────────────────────────────────
+  // In-memory ping history ring buffer (max 40 entries per node)
+  const PING_HISTORY_MAX = 40;
+  const pingHistory = new Map<string, Array<{ ts: number; online: boolean; latencyMs: number | null; blockHeight: number | null; peerCount: number | null }>>();
+  const pushPingHistory = (nodeId: string, entry: { online: boolean; latencyMs: number | null; blockHeight: number | null; peerCount: number | null }) => {
+    const buf = pingHistory.get(nodeId) ?? [];
+    buf.push({ ...entry, ts: Date.now() });
+    if (buf.length > PING_HISTORY_MAX) buf.splice(0, buf.length - PING_HISTORY_MAX);
+    pingHistory.set(nodeId, buf);
+  };
+
   app.get("/api/nodes", requireAuth, async (req, res) => {
     const user = req.user as any;
     const data = user._isAdmin
       ? await storage.getAllNodes()
       : await storage.getUserNodes(user.id);
     res.json(data);
+  });
+
+  app.get("/api/nodes/:id", requireAuth, async (req, res) => {
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT ni.*, u.email FROM node_installations ni LEFT JOIN users u ON u.id=ni.user_id WHERE ni.id=$1`,
+        [req.params.id]
+      );
+      if (!rows.length) return res.status(404).json({ error: 'Not found' });
+      const r = rows[0];
+      res.json({
+        id: r.id, userId: r.user_id, nodeType: r.node_type,
+        ipAddress: r.ip_address, hostname: r.hostname, rpcPort: r.rpc_port,
+        wireguardPublicKey: r.wireguard_public_key,
+        isOnline: r.is_online, isApproved: r.is_approved, isSynced: r.is_synced,
+        lastBlockHeight: r.last_block_height, peerCount: r.peer_count,
+        lastHeartbeat: r.last_heartbeat, createdAt: r.created_at,
+        profiles: { email: r.email },
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/nodes/:id/ping-history", requireAdmin, async (req, res) => {
+    res.json(pingHistory.get(req.params.id) ?? []);
   });
 
   app.post("/api/nodes", requireAuth, async (req, res) => {
