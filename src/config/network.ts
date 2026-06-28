@@ -185,21 +185,13 @@ export const addNetworkToWallet = async (kind: NetworkKind = 'mainnet'): Promise
   const provider = getEthereumProvider();
   if (!provider) throw noWalletError();
 
-  // Use this app's own /rpc endpoint as the first RPC URL so wallet validation
-  // always succeeds — even if rpc.netlifegy.com hasn't been deployed yet.
-  const appRpc = (typeof window !== 'undefined' ? window.location.origin : '') + '/rpc';
-  const base = getNetworkParams(kind);
-  const params = {
-    ...base,
-    rpcUrls: [appRpc, ...base.rpcUrls.filter((u: string) => u !== appRpc)],
-  };
+  const params = getNetworkParams(kind);
 
   try {
     await provider.request({ method: 'wallet_addEthereumChain', params: [params] });
     return true;
   } catch (error: any) {
     if (error?.code === 4001) throw new Error('You rejected the request in your wallet.');
-    // Some wallets pass a user-friendly message in error.data.message
     const msg = (error as any)?.data?.message || error?.message || 'Failed to add network';
     throw new Error(msg);
   }
