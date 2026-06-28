@@ -248,13 +248,16 @@ export async function setupAuth(app: Express): Promise<void> {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const user = req.user as any;
     const { currentPassword, newPassword } = req.body ?? {};
-    if (!currentPassword || !newPassword) return res.status(400).json({ error: "currentPassword and newPassword required" });
+    if (!newPassword) return res.status(400).json({ error: "newPassword required" });
     if (String(newPassword).length < 6) return res.status(400).json({ error: "New password must be at least 6 characters" });
     try {
       const dbUser = await storage.getUser(user.id);
-      if (!dbUser?.passwordHash) return res.status(400).json({ error: "Account has no password set" });
-      const ok = await bcrypt.compare(currentPassword, dbUser.passwordHash);
-      if (!ok) return res.status(401).json({ error: "Current password is incorrect" });
+      // Wallet-only users have no existing password — skip the current-password check
+      if (dbUser?.passwordHash) {
+        if (!currentPassword) return res.status(400).json({ error: "currentPassword required" });
+        const ok = await bcrypt.compare(currentPassword, dbUser.passwordHash);
+        if (!ok) return res.status(401).json({ error: "Current password is incorrect" });
+      }
       const hash = await bcrypt.hash(newPassword, 12);
       await storage.updateUserPassword(user.id, hash);
       res.json({ ok: true });

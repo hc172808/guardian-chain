@@ -18,6 +18,9 @@ const ResetPassword = () => {
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
 
+  // Wallet-only users have no existing password — skip the current-password field
+  const needsCurrentPassword = !!(user as any)?.hasPassword;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
@@ -34,7 +37,10 @@ const ResetPassword = () => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({
+          currentPassword: needsCurrentPassword ? currentPassword : undefined,
+          newPassword,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to change password');
@@ -56,8 +62,14 @@ const ResetPassword = () => {
               <Cpu className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-xl font-bold">Change Password</h1>
-              <p className="text-xs text-muted-foreground">Update your ChainCore login password</p>
+              <h1 className="text-xl font-bold">
+                {needsCurrentPassword ? 'Change Password' : 'Set Password'}
+              </h1>
+              <p className="text-xs text-muted-foreground">
+                {needsCurrentPassword
+                  ? 'Update your ChainCore login password'
+                  : 'Create a password for your wallet account'}
+              </p>
             </div>
           </div>
 
@@ -80,17 +92,19 @@ const ResetPassword = () => {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="current">Current Password</Label>
-                <Input
-                  id="current"
-                  type="password"
-                  value={currentPassword}
-                  onChange={e => setCurrentPassword(e.target.value)}
-                  required
-                  placeholder="Enter your current password"
-                />
-              </div>
+              {needsCurrentPassword && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="current">Current Password</Label>
+                  <Input
+                    id="current"
+                    type="password"
+                    value={currentPassword}
+                    onChange={e => setCurrentPassword(e.target.value)}
+                    required
+                    placeholder="Enter your current password"
+                  />
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="new">New Password</Label>
                 <Input

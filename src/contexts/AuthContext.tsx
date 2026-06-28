@@ -11,6 +11,7 @@ interface AuthUser {
   lastName?: string | null;
   profileImageUrl?: string | null;
   walletAddress?: string | null;
+  hasPassword?: boolean;
   totpEnabled?: boolean;
   isBanned?: boolean;
   roles: AppRole[];

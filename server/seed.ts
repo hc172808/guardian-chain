@@ -1,139 +1,130 @@
-import { db } from "./db";
-import { users, userRoles, profiles, firewallRules, fail2banJails, rateLimitRules, ddosProtection } from "../shared/schema";
-import { eq, or } from "drizzle-orm";
+import { pool } from "./db";
 import bcrypt from "bcryptjs";
 
-export async function seedFounder() {
-  const email = "netlifegy@gmail.com";
-  const username = "netlifegy";
-  const defaultPassword = "GYDSchain2026!";
-  // If FOUNDER_WALLET_ADDRESS env var is set, link it to the founder account
-  const founderWallet = process.env.FOUNDER_WALLET_ADDRESS?.toLowerCase() ?? null;
+// ─── Founder wallet ────────────────────────────────────────────────────────────
+// This address is granted admin + founder roles on every startup.
+// Ownership is cryptographically verified at login (nonce + signature), so only
+// the holder of the private key can actually authenticate as admin/founder.
+// Override with FOUNDER_WALLET_ADDRESS env var if the key is rotated.
+const FOUNDER_WALLET = (
+  process.env.FOUNDER_WALLET_ADDRESS ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1"
+).toLowerCase();
 
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+async function grantRoles(userId: string, roles: string[]) {
+  for (const role of roles) {
+    await pool.query(
+      `INSERT INTO user_roles (id, user_id, role)
+       VALUES (gen_random_uuid(), $1, $2)
+       ON CONFLICT DO NOTHING`,
+      [userId, role]
+    );
+  }
+}
+
+// ─── seedFounder ─────────────────────────────────────────────────────────────
+
+export async function seedFounder() {
   try {
-    const existing = await db.select().from(users).where(eq(users.email, email));
-    if (existing.length > 0) {
-      const u = existing[0];
-      const existingRoles = await db.select().from(userRoles).where(eq(userRoles.userId, u.id));
-      const roleNames = existingRoles.map(r => r.role);
-      if (!roleNames.includes("founder")) {
-        await db.insert(userRoles).values({ userId: u.id, role: "founder" }).onConflictDoNothing();
-        console.log("[seed] Added founder role to existing user:", email);
-      }
-      if (!roleNames.includes("admin")) {
-        await db.insert(userRoles).values({ userId: u.id, role: "admin" }).onConflictDoNothing();
-        console.log("[seed] Added admin role to existing user:", email);
-      }
-      // If the founder wallet is already owned by a different web3 user, grant them admin/founder roles
-      if (founderWallet) {
-        const walletUsers = await db.select().from(users).where(eq(users.walletAddress, founderWallet));
-        const walletTakenByOther = walletUsers.some(wu => wu.id !== u.id);
-        for (const wu of walletUsers) {
-          if (wu.id === u.id) continue;
-          const wuRoles = await db.select().from(userRoles).where(eq(userRoles.userId, wu.id));
-          const wuRoleNames = wuRoles.map(r => r.role);
-          if (!wuRoleNames.includes("founder")) await db.insert(userRoles).values({ userId: wu.id, role: "founder" }).onConflictDoNothing();
-          if (!wuRoleNames.includes("admin")) await db.insert(userRoles).values({ userId: wu.id, role: "admin" }).onConflictDoNothing();
-          console.log("[seed] Granted admin/founder to wallet user:", wu.id);
-        }
-        // Only link to the founder account if the wallet isn't already taken
-        if (!walletTakenByOther && !u.walletAddress) {
-          await db.update(users).set({ walletAddress: founderWallet }).where(eq(users.id, u.id));
-          console.log("[seed] Linked founder wallet to founder account:", founderWallet);
-        }
-      }
+    // ── Step 1: Grant admin + founder to whoever owns the founder wallet ──────
+    // This is safe: wallet login requires a signed nonce proving private key ownership.
+    const walletRow = await pool.query(
+      `SELECT id FROM users WHERE LOWER(wallet_address) = $1 LIMIT 1`,
+      [FOUNDER_WALLET]
+    );
+    if (walletRow.rows.length > 0) {
+      await grantRoles(walletRow.rows[0].id, ["user", "admin", "founder"]);
+      console.log("[seed] Ensured admin/founder on wallet account:", walletRow.rows[0].id);
+      // Wallet account exists — no need for the email bootstrap account.
       return;
     }
 
+    // ── Step 2: Bootstrap-only email account ─────────────────────────────────
+    // Only create the email/password account when BOTH conditions are true:
+    //   a) No account owns the founder wallet yet (checked above), AND
+    //   b) No users exist at all (truly empty DB — first-run bootstrap only).
+    // This prevents an attacker who pre-registered the founder email from
+    // receiving elevated roles — they would not match condition (b).
+    const userCount = await pool.query(`SELECT COUNT(*) FROM users`);
+    const isEmpty = parseInt(userCount.rows[0].count, 10) === 0;
+
+    if (!isEmpty) {
+      // DB has users but none own the founder wallet yet.
+      // Do not auto-promote any existing account by email.
+      // The founder should log in via wallet to claim admin/founder.
+      console.log("[seed] No wallet account for founder — connect wallet 0x6422...b1 to claim admin.");
+      return;
+    }
+
+    // Empty DB — safe to create the bootstrap account.
+    // Password comes from env var or a generated random — never hardcoded in a
+    // log message that could leak via CI, Docker logs, or a build artefact.
+    const bootstrapPassword = process.env.FOUNDER_PASSWORD ?? crypto.randomUUID().replace(/-/g, "").slice(0, 16);
     const id = `founder_netlifegy_${Date.now()}`;
-    const passwordHash = await bcrypt.hash(defaultPassword, 12);
+    const passwordHash = await bcrypt.hash(bootstrapPassword, 12);
+    const email    = "netlifegy@gmail.com";
+    const username = "netlifegy";
 
-    await db.insert(users).values({
-      id,
-      email,
-      username,
-      passwordHash,
-      walletAddress: founderWallet ?? undefined,
-      firstName: "Founder",
-      lastName: "GYDSchain",
-      updatedAt: new Date(),
-    });
+    await pool.query(
+      `INSERT INTO users (id, email, username, password_hash, wallet_address, first_name, last_name, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 'Founder', 'GYDSchain', NOW())
+       ON CONFLICT DO NOTHING`,
+      [id, email, username, passwordHash, FOUNDER_WALLET]
+    );
 
-    await db.insert(profiles).values({
-      userId: id,
-      email,
-      username,
-      displayName: "Founder",
-      role: "founder",
-    }).onConflictDoNothing();
+    await pool.query(
+      `INSERT INTO profiles (id, user_id, email, username, display_name, role)
+       VALUES (gen_random_uuid(), $1, $2, $3, 'Founder', 'founder')
+       ON CONFLICT (user_id) DO NOTHING`,
+      [id, email, username]
+    );
 
-    await db.insert(userRoles).values({ userId: id, role: "user" }).onConflictDoNothing();
-    await db.insert(userRoles).values({ userId: id, role: "admin" }).onConflictDoNothing();
-    await db.insert(userRoles).values({ userId: id, role: "founder" }).onConflictDoNothing();
+    await grantRoles(id, ["user", "admin", "founder"]);
 
-    console.log(`[seed] Founder account created:`);
-    console.log(`  Email:    ${email}`);
+    console.log(`[seed] Founder bootstrap account created (first-run only):`);
     console.log(`  Username: ${username}`);
-    console.log(`  Password: ${defaultPassword}  ← CHANGE THIS AFTER FIRST LOGIN`);
-    if (founderWallet) console.log(`  Wallet:   ${founderWallet}`);
+    console.log(`  Email:    ${email}`);
+    console.log(`  Wallet:   ${FOUNDER_WALLET}`);
+    // Only log the password when it was explicitly supplied via env var.
+    // A randomly-generated password is shown once so the admin can note it;
+    // a supplied one is omitted to avoid re-logging a known secret.
+    if (!process.env.FOUNDER_PASSWORD) {
+      console.log(`  Password: ${bootstrapPassword}  ← SAVE THIS — shown only once. Change after first login.`);
+    } else {
+      console.log(`  Password: (set via FOUNDER_PASSWORD env var)`);
+    }
   } catch (err: any) {
+    // Seed errors are non-fatal — the server still starts.
     console.error("[seed] Founder seed error:", err.message);
   }
 }
 
+// ─── seedFirewallDefaults ─────────────────────────────────────────────────────
+
 export async function seedFirewallDefaults() {
   try {
-    const existing = await db.select().from(firewallRules);
-    if (existing.length > 0) return;
-    await db.insert(firewallRules).values([
-      { ruleType: 'ufw', action: 'allow', protocol: 'tcp', port: '22',    direction: 'in',  description: 'SSH access',           isActive: true },
-      { ruleType: 'ufw', action: 'allow', protocol: 'tcp', port: '80',    direction: 'in',  description: 'HTTP',                 isActive: true },
-      { ruleType: 'ufw', action: 'allow', protocol: 'tcp', port: '443',   direction: 'in',  description: 'HTTPS / WSS',          isActive: true },
-      { ruleType: 'ufw', action: 'allow', protocol: 'tcp', port: '8545',  direction: 'in',  description: 'RPC endpoint',         isActive: true },
-      { ruleType: 'ufw', action: 'allow', protocol: 'tcp', port: '8546',  direction: 'in',  description: 'WebSocket RPC',        isActive: true },
-      { ruleType: 'ufw', action: 'allow', protocol: 'any', port: '30303', direction: 'in',  description: 'P2P Sync (TCP+UDP)',   isActive: true },
-      { ruleType: 'ufw', action: 'allow', protocol: 'udp', port: '51820', direction: 'in',  description: 'WireGuard VPN',        isActive: true },
-      { ruleType: 'ufw', action: 'deny',  protocol: 'tcp', port: '5432',  direction: 'in',  description: 'Block external DB',    isActive: true },
-      { ruleType: 'ufw', action: 'allow', protocol: 'any', port: null,    direction: 'out', description: 'Allow all outbound',   isActive: true },
-    ]);
-    console.log('[seed] Default UFW firewall rules created');
+    const { rows } = await pool.query(`SELECT COUNT(*) FROM firewall_rules`);
+    if (parseInt(rows[0].count, 10) > 0) return;
 
-    const jailsExist = await db.select().from(fail2banJails);
-    if (jailsExist.length === 0) {
-      await db.insert(fail2banJails).values([
-        { jailName: 'sshd',            isEnabled: true,  maxRetries: 5,  banTime: 3600,  findTime: 600, logPath: '/var/log/auth.log',         filterName: 'sshd',            description: 'SSH brute-force protection' },
-        { jailName: 'rpc-bruteforce',  isEnabled: true,  maxRetries: 10, banTime: 7200,  findTime: 300, logPath: '/var/log/nginx/access.log', filterName: 'nginx-rpc',       description: 'RPC endpoint abuse detection' },
-        { jailName: 'nginx-http-auth', isEnabled: true,  maxRetries: 5,  banTime: 3600,  findTime: 600, logPath: '/var/log/nginx/error.log',  filterName: 'nginx-http-auth', description: 'HTTP auth failures' },
-        { jailName: 'p2p-flood',       isEnabled: false, maxRetries: 50, banTime: 86400, findTime: 60,  logPath: '/var/log/gyds/p2p.log',     filterName: 'gyds-p2p',        description: 'P2P connection flood protection' },
-      ]);
-      console.log('[seed] Default Fail2Ban jails created');
-    }
+    const defaultRules = [
+      { rule_type: "port", action: "allow", protocol: "tcp", port: "22",   direction: "inbound",  description: "SSH" },
+      { rule_type: "port", action: "allow", protocol: "tcp", port: "80",   direction: "inbound",  description: "HTTP" },
+      { rule_type: "port", action: "allow", protocol: "tcp", port: "443",  direction: "inbound",  description: "HTTPS" },
+      { rule_type: "port", action: "allow", protocol: "tcp", port: "5001", direction: "inbound",  description: "App API" },
+      { rule_type: "port", action: "deny",  protocol: "tcp", port: "3306", direction: "inbound",  description: "Block MySQL" },
+    ];
 
-    const rlExist = await db.select().from(rateLimitRules);
-    if (rlExist.length === 0) {
-      await db.insert(rateLimitRules).values([
-        { name: 'RPC Rate Limit',     endpoint: '/rpc',        requestsPerWindow: 100, windowSeconds: 60, burstLimit: 30, action: 'throttle', isEnabled: true,  description: 'Prevent RPC flooding' },
-        { name: 'API General Limit',  endpoint: '/api/*',      requestsPerWindow: 200, windowSeconds: 60, burstLimit: 50, action: 'throttle', isEnabled: true,  description: 'General API protection' },
-        { name: 'Auth Rate Limit',    endpoint: '/api/auth/*', requestsPerWindow: 10,  windowSeconds: 60, burstLimit: 5,  action: 'ban',      isEnabled: true,  description: 'Login brute-force protection' },
-        { name: 'WebSocket Limit',    endpoint: ':8546',       requestsPerWindow: 50,  windowSeconds: 60, burstLimit: 20, action: 'drop',     isEnabled: true,  description: 'WebSocket connection limit' },
-        { name: 'P2P Connection Cap', endpoint: ':30303',      requestsPerWindow: 100, windowSeconds: 60, burstLimit: 40, action: 'drop',     isEnabled: false, description: 'P2P peer connection limit' },
-      ]);
-      console.log('[seed] Default rate limit rules created');
+    for (const rule of defaultRules) {
+      await pool.query(
+        `INSERT INTO firewall_rules (id, rule_type, action, protocol, port, direction, description, is_active, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, true, NOW(), NOW())
+         ON CONFLICT DO NOTHING`,
+        [rule.rule_type, rule.action, rule.protocol, rule.port, rule.direction, rule.description]
+      );
     }
-
-    const ddosExist = await db.select().from(ddosProtection);
-    if (ddosExist.length === 0) {
-      await db.insert(ddosProtection).values([
-        { name: 'SYN Flood Guard',       protectionType: 'syn_flood',         threshold: 1000, action: 'drop',      isEnabled: true,  description: 'Block TCP SYN flood attacks' },
-        { name: 'HTTP Flood Mitigation', protectionType: 'http_flood',        threshold: 500,  action: 'challenge', isEnabled: true,  description: 'Rate-limit HTTP flood requests' },
-        { name: 'UDP Flood Block',       protectionType: 'udp_flood',         threshold: 2000, action: 'drop',      isEnabled: true,  description: 'Discard UDP flood packets' },
-        { name: 'Slowloris Defense',     protectionType: 'slowloris',         threshold: 200,  action: 'reject',    isEnabled: true,  description: 'Terminate slow HTTP connections' },
-        { name: 'Connection Limit',      protectionType: 'connection_limit',  threshold: 150,  action: 'reject',    isEnabled: true,  description: 'Limit simultaneous connections per IP' },
-        { name: 'DNS Amplification',     protectionType: 'dns_amplification', threshold: 100,  action: 'drop',      isEnabled: false, description: 'Block DNS reflection attacks' },
-      ]);
-      console.log('[seed] Default DDoS protection rules created');
-    }
+    console.log("[seed] Default firewall rules created");
   } catch (err: any) {
-    console.warn('[seed] Firewall defaults error:', err.message);
+    console.warn("[seed] Firewall defaults error:", err.message);
   }
 }

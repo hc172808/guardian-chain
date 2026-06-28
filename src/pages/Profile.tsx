@@ -146,11 +146,15 @@ const THEMES = [
 
 function ChangePasswordPanel() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Wallet-only users have no existing password — skip the current-password field
+  const needsCurrentPassword = !!(user as any)?.hasPassword;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,7 +172,7 @@ function ChangePasswordPanel() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({ currentPassword: needsCurrentPassword ? currentPassword : undefined, newPassword }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to change password');
@@ -184,18 +188,22 @@ function ChangePasswordPanel() {
       <div className="flex items-center justify-between p-3 bg-muted/20 rounded-lg border border-border/30">
         <div>
           <p className="text-sm font-medium text-foreground">Password</p>
-          <p className="text-xs text-muted-foreground">Change your login password</p>
+          <p className="text-xs text-muted-foreground">
+            {needsCurrentPassword ? 'Change your login password' : 'Set a password for your wallet account'}
+          </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => setOpen(!open)}>
-          {open ? 'Cancel' : 'Change'}
+          {open ? 'Cancel' : needsCurrentPassword ? 'Change' : 'Set Password'}
         </Button>
       </div>
       {open && (
         <form onSubmit={handleSubmit} className="p-3 bg-muted/10 rounded-lg border border-border/30 space-y-3">
-          <div className="space-y-1">
-            <Label className="text-xs">Current Password</Label>
-            <Input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="Enter current password" />
-          </div>
+          {needsCurrentPassword && (
+            <div className="space-y-1">
+              <Label className="text-xs">Current Password</Label>
+              <Input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="Enter current password" />
+            </div>
+          )}
           <div className="space-y-1">
             <Label className="text-xs">New Password</Label>
             <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="At least 6 characters" />

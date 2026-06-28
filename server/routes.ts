@@ -87,6 +87,7 @@ export function registerRoutes(app: Express) {
       walletAddress: user.walletAddress,
       totpEnabled: user.totpEnabled ?? false,
       isBanned: user.isBanned ?? false,
+      hasPassword: !!(user.passwordHash ?? user.password_hash),
       roles,
       isAdmin,
       isFounder,
