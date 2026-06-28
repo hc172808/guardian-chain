@@ -560,21 +560,116 @@ fi
 # Install redeploy helper
 cat > /usr/local/bin/gyds-redeploy <<RDEPLOY
 #!/usr/bin/env bash
+# GYDSchain Redeploy Helper — installed by deploy-dashboard.sh
+# Usage: gyds-redeploy [--skip-db] [--skip-build]
 set -euo pipefail
+
 APP_DIR="${APP_DIR}"
-source "\$APP_DIR/.env" 2>/dev/null || true
-echo "[redeploy] Pulling latest..."
+SKIP_DB=0
+SKIP_BUILD=0
+for arg in "\$@"; do
+  case "\$arg" in
+    --skip-db)    SKIP_DB=1 ;;
+    --skip-build) SKIP_BUILD=1 ;;
+  esac
+done
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+log()  { echo -e "\${GREEN}[✓]\${NC} \$*"; }
+warn() { echo -e "\${YELLOW}[!]\${NC} \$*"; }
+info() { echo -e "\${CYAN}[→]\${NC} \$*"; }
+
+# Load env
+set -a; source "\$APP_DIR/.env" 2>/dev/null || true; set +a
+
+echo ""
+echo -e "\${CYAN}━━━ GYDSchain Redeploy — \$(date '+%Y-%m-%d %H:%M:%S') ━━━\${NC}"
+echo ""
+
+# ── 1. Pull latest code ────────────────────────────────────────────────────
+info "Pulling latest code..."
+BRANCH=\$(git -C "\$APP_DIR" branch --show-current 2>/dev/null || echo main)
 git -C "\$APP_DIR" fetch origin
-git -C "\$APP_DIR" pull --ff-only origin "\$(git -C \"\$APP_DIR\" branch --show-current)"
-echo "[redeploy] Installing deps..."
-cd "\$APP_DIR" && npm ci --prefer-offline 2>/dev/null || npm install --legacy-peer-deps
-echo "[redeploy] Building..."
-npm run build
-echo "[redeploy] Reloading PM2..."
+CURRENT=\$(git -C "\$APP_DIR" rev-parse HEAD)
+REMOTE=\$(git -C "\$APP_DIR" rev-parse "origin/\$BRANCH" 2>/dev/null || echo "")
+
+if [[ "\$CURRENT" == "\$REMOTE" ]]; then
+    warn "Already up-to-date — will still run migrations and reload PM2"
+else
+    git -C "\$APP_DIR" pull --ff-only origin "\$BRANCH"
+    log "Updated to: \$(git -C \"\$APP_DIR\" log -1 --format='%h %s')"
+fi
+
+# ── 2. Install deps if package.json changed ────────────────────────────────
+PKG_CHANGED=\$(git -C "\$APP_DIR" diff "\$CURRENT" HEAD -- package.json 2>/dev/null | wc -l || echo 1)
+if [[ "\$PKG_CHANGED" -gt 0 ]]; then
+    info "package.json changed — installing dependencies..."
+    cd "\$APP_DIR"
+    npm config set registry https://registry.npmjs.org/
+    rm -f package-lock.json
+    npm install --legacy-peer-deps 2>&1 | tail -5
+    log "Dependencies updated"
+fi
+
+# ── 3. Schema migration (always runs — idempotent IF NOT EXISTS) ───────────
+if [[ "\$SKIP_DB" == "0" ]]; then
+    DB_URL="\${DATABASE_URL:-}"
+    if [[ -z "\$DB_URL" ]]; then
+        warn "DATABASE_URL not set — skipping schema migration"
+    else
+        info "Running schema migration..."
+        migrated=0
+
+        # Numbered migration files
+        if [[ -d "\${APP_DIR}/migrations" ]]; then
+            for f in \$(ls "\${APP_DIR}/migrations/"*.sql 2>/dev/null | sort); do
+                [[ -f "\$f" ]] || continue
+                info "  Applying: \$(basename \"\$f\")"
+                psql "\$DB_URL" -v ON_ERROR_STOP=0 -f "\$f" 2>&1 | grep -i "error\|warning" || true
+                log "  ✓ \$(basename \"\$f\")"
+                (( migrated++ )) || true
+            done
+        fi
+
+        # Full schema (safe to replay — all CREATE TABLE IF NOT EXISTS)
+        for schema in "\${APP_DIR}/public/scripts/gydschain-schema.sql" "\${APP_DIR}/public/scripts/gydschain-complete-schema.sql"; do
+            if [[ -f "\$schema" ]]; then
+                info "  Full schema: \$(basename \"\$schema\")"
+                psql "\$DB_URL" -v ON_ERROR_STOP=0 -f "\$schema" 2>&1 | grep -i "error\|warning" || true
+                log "  ✓ \$(basename \"\$schema\")"
+                break
+            fi
+        done
+
+        TABLE_COUNT=\$(psql "\$DB_URL" -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' ' || echo "?")
+        log "Schema migration complete — \${TABLE_COUNT} tables in database"
+    fi
+else
+    warn "--skip-db passed — skipping schema migration"
+fi
+
+# ── 4. Build (skip with --skip-build for config-only changes) ─────────────
+if [[ "\$SKIP_BUILD" == "0" ]]; then
+    info "Building frontend..."
+    cd "\$APP_DIR"
+    npm run build 2>&1 | tail -10
+    log "Build complete"
+else
+    warn "--skip-build passed — skipping Vite build"
+fi
+
+# ── 5. Reload PM2 (zero-downtime) ─────────────────────────────────────────
+info "Reloading PM2..."
 pm2 reload gydschain-api --update-env
-echo "[redeploy] Reloading Nginx..."
-nginx -s reload 2>/dev/null || systemctl reload nginx
-echo "[redeploy] Done \$(date)"
+pm2 save --force 2>/dev/null || true
+log "PM2 reloaded"
+
+# ── 6. Reload Nginx ───────────────────────────────────────────────────────
+nginx -t 2>/dev/null && { nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || true; log "Nginx reloaded"; }
+
+echo ""
+log "Redeploy complete! \$(date '+%Y-%m-%d %H:%M:%S')"
+echo -e "\${CYAN}Logs:\${NC} pm2 logs gydschain-api --lines 30"
 RDEPLOY
 chmod +x /usr/local/bin/gyds-redeploy
 
