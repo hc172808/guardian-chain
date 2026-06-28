@@ -301,6 +301,30 @@ export function registerRoutes(app: Express) {
     broadcastActivity({ type: 'transaction', title: 'New Transaction', detail: `${req.body.type ?? 'transfer'} · ${req.body.amount ?? ''} ${req.body.tokenSymbol ?? req.body.token_symbol ?? ''}`.trim(), user: user.username ?? user.walletAddress?.slice(0, 10), ip: req.ip ?? undefined });
   });
 
+  // ── RPC URL env config (admin) ─────────────────────────────────────────────
+  app.get("/api/admin/rpc-url", requireAdmin, (_req, res) => {
+    res.json({ rpcUrl: process.env.GYDS_RPC_URL ?? '' });
+  });
+  app.post("/api/admin/rpc-url", requireAdmin, async (req, res) => {
+    const { rpcUrl } = req.body ?? {};
+    if (!rpcUrl || typeof rpcUrl !== 'string') {
+      res.status(400).json({ ok: false, error: 'rpcUrl required' }); return;
+    }
+    const trimmed = rpcUrl.trim();
+    process.env.GYDS_RPC_URL = trimmed;
+    try {
+      const envPath = path.resolve('.env');
+      let content = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+      if (/^GYDS_RPC_URL=.*/m.test(content)) {
+        content = content.replace(/^GYDS_RPC_URL=.*/m, `GYDS_RPC_URL=${trimmed}`);
+      } else {
+        content += `\nGYDS_RPC_URL=${trimmed}\n`;
+      }
+      fs.writeFileSync(envPath, content, 'utf8');
+    } catch {}
+    res.json({ ok: true, rpcUrl: trimmed });
+  });
+
   // ── Node Installations ─────────────────────────────────────────────────────
   app.get("/api/nodes", requireAuth, async (req, res) => {
     const user = req.user as any;
@@ -312,17 +336,50 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/nodes", requireAuth, async (req, res) => {
     const user = req.user as any;
-    // Admin/Founder nodes are auto-approved; user nodes need approval
     const isPrivileged = user._isAdmin || user._isFounder;
+    const b = req.body ?? {};
+    // Accept both camelCase (from NodeConfigManager) and snake_case
     const row = await storage.insertNode({
-      ...req.body,
+      nodeType:   b.nodeType   ?? b.node_type   ?? 'litenode',
+      hostname:   b.hostname   ?? b.ip_address  ?? null,
+      ipAddress:  b.ipAddress  ?? b.ip_address  ?? null,
+      rpcPort:    b.rpcPort    ?? b.rpc_port    ?? 8545,
+      wireguardPublicKey: b.wireguardPublicKey ?? b.wireguard_public_key ?? null,
       userId: user.id,
-      isApproved: isPrivileged ? true : (req.body.isApproved ?? false),
+      isApproved: isPrivileged ? true : (b.isApproved ?? b.is_approved ?? false),
       approvedBy: isPrivileged ? user.id : null,
       approvedAt: isPrivileged ? new Date() : null,
     });
     res.json(row);
     storage.awardXpOnce(user.id, 'first_node', 200, 'First node installed on GYDSchain! +200 XP').catch(() => {});
+  });
+
+  // ── /api/node-installations aliases (legacy compat) ────────────────────────
+  app.get("/api/node-installations", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const data = user._isAdmin ? await storage.getAllNodes() : await storage.getUserNodes(user.id);
+    res.json(data);
+  });
+  app.post("/api/node-installations", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const isPrivileged = user._isAdmin || user._isFounder;
+    const b = req.body ?? {};
+    const row = await storage.insertNode({
+      nodeType:   b.nodeType   ?? b.node_type   ?? 'litenode',
+      hostname:   b.hostname   ?? b.ip_address  ?? null,
+      ipAddress:  b.ipAddress  ?? b.ip_address  ?? null,
+      rpcPort:    b.rpcPort    ?? b.rpc_port    ?? 8545,
+      wireguardPublicKey: b.wireguardPublicKey ?? b.wireguard_public_key ?? null,
+      userId: user.id,
+      isApproved: isPrivileged ? true : (b.isApproved ?? b.is_approved ?? false),
+      approvedBy: isPrivileged ? user.id : null,
+      approvedAt: isPrivileged ? new Date() : null,
+    });
+    res.json(row);
+    storage.awardXpOnce(user.id, 'first_node', 200, 'First node installed on GYDSchain! +200 XP').catch(() => {});
+  });
+  app.delete("/api/node-installations/:id", requireAuth, async (req, res) => {
+    await storage.deleteNode(req.params.id); res.json({ ok: true });
   });
 
   app.patch("/api/nodes/:id", requireAdmin, async (req, res) => {

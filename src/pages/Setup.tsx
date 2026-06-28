@@ -192,7 +192,8 @@ export default function SetupPage() {
     }
   };
 
-  if (!user || !['admin', 'founder'].includes((user as any).role)) {
+  const { isAdmin, isFounder } = useAuth();
+  if (!user || (!isAdmin && !isFounder)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <GlassCard className="p-8 text-center max-w-md">
