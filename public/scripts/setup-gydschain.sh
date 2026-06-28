@@ -13,7 +13,8 @@
 #   - curl (for connectivity checks)
 #
 # Environment variables (for non-interactive mode):
-#   SUPABASE_DB_URL  — PostgreSQL connection string
+#   DATABASE_URL  — PostgreSQL connection string
+#                   Format: postgresql://user:password@host:5432/dbname
 # ============================================================
 
 set -euo pipefail
@@ -72,7 +73,7 @@ echo "  ██║  ███╗ ╚████╔╝ ██║  ██║██
 echo "  ██║   ██║  ╚██╔╝  ██║  ██║╚════██║"
 echo "  ╚██████╔╝   ██║   ██████╔╝███████║"
 echo "   ╚═════╝    ╚═╝   ╚═════╝ ╚══════╝"
-echo -e "  ${CYAN}Self-Hosting Setup v2.1.0${NC}"
+echo -e "  ${CYAN}Self-Hosting Setup v2.1.0 — PostgreSQL Edition${NC}"
 echo ""
 
 # ─── Preflight Checks ────────────────────────────────────
@@ -127,63 +128,61 @@ if [ "$DB_ONLY" = false ]; then
 
     if [ "$NON_INTERACTIVE" = false ]; then
       echo ""
-      info "Let's configure your essential credentials."
+      info "Let's configure your PostgreSQL database and essential credentials."
       echo ""
 
-      # Supabase URL
-      read -rp "  Supabase Project URL (https://xxx.supabase.co): " INPUT_SUPA_URL
-      if [ -n "$INPUT_SUPA_URL" ]; then
-        sed -i.bak "s|VITE_SUPABASE_URL=.*|VITE_SUPABASE_URL=${INPUT_SUPA_URL}|" "$ENV_OUTPUT"
-        # Extract project ID from URL
-        PROJECT_ID=$(echo "$INPUT_SUPA_URL" | sed -n 's|https://\([^.]*\)\.supabase\.co|\1|p')
-        if [ -n "$PROJECT_ID" ]; then
-          sed -i.bak "s|VITE_SUPABASE_PROJECT_ID=.*|VITE_SUPABASE_PROJECT_ID=${PROJECT_ID}|" "$ENV_OUTPUT"
-        fi
-      fi
-
-      # Anon Key
-      read -rp "  Supabase Anon Key: " INPUT_ANON_KEY
-      if [ -n "$INPUT_ANON_KEY" ]; then
-        sed -i.bak "s|VITE_SUPABASE_PUBLISHABLE_KEY=.*|VITE_SUPABASE_PUBLISHABLE_KEY=${INPUT_ANON_KEY}|" "$ENV_OUTPUT"
-      fi
-
-      # Service Role Key
-      read -rsp "  Supabase Service Role Key (hidden): " INPUT_SERVICE_KEY
+      # ── PostgreSQL Connection ──────────────────────────────
+      echo "  PostgreSQL can be configured two ways:"
+      echo "  [1] Enter a connection URL  (postgresql://user:pass@host:port/dbname)"
+      echo "  [2] Enter details manually  (host / port / user / password / database)"
       echo ""
-      if [ -n "$INPUT_SERVICE_KEY" ]; then
-        sed -i.bak "s|SUPABASE_SERVICE_ROLE_KEY=.*|SUPABASE_SERVICE_ROLE_KEY=${INPUT_SERVICE_KEY}|" "$ENV_OUTPUT"
+      read -rp "  Choice [1/2]: " -n 1 _pg_choice; echo
+
+      if [ "$_pg_choice" = "2" ]; then
+        read -rp "  Host     [localhost]: " _h; _h="${_h:-localhost}"
+        read -rp "  Port     [5432]:      " _pt; _pt="${_pt:-5432}"
+        read -rp "  Database [gydschain]: " _db; _db="${_db:-gydschain}"
+        read -rp "  Username [gyds]:      " _u; _u="${_u:-gyds}"
+        read -rsp "  Password:            " _pw; echo
+        [ -z "$_pw" ] && { error "Password is required."; exit 1; }
+        INPUT_DB_URL="postgresql://${_u}:${_pw}@${_h}:${_pt}/${_db}"
+      else
+        echo ""
+        info "Format: postgresql://user:password@host:5432/dbname"
+        read -rsp "  Database URL (hidden): " INPUT_DB_URL; echo
       fi
 
-      # Database URL
-      read -rsp "  Database URL (postgresql://...): " INPUT_DB_URL
-      echo ""
       if [ -n "$INPUT_DB_URL" ]; then
-        sed -i.bak "s|SUPABASE_DB_URL=.*|SUPABASE_DB_URL=${INPUT_DB_URL}|" "$ENV_OUTPUT"
+        sed -i.bak "s|DATABASE_URL=.*|DATABASE_URL=${INPUT_DB_URL}|" "$ENV_OUTPUT"
+        log "Database URL saved"
       fi
 
-      # Domain
-      read -rp "  Your domain (default: netlifegy.com): " INPUT_DOMAIN
-      if [ -n "$INPUT_DOMAIN" ]; then
-        sed -i.bak "s|GYDS_DOMAIN=.*|GYDS_DOMAIN=${INPUT_DOMAIN}|" "$ENV_OUTPUT"
-      fi
+      # ── Session Secret ─────────────────────────────────────
+      SESSION_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | od -An -tx1 | tr -d ' \n')
+      sed -i.bak "s|SESSION_SECRET=.*|SESSION_SECRET=${SESSION_SECRET}|" "$ENV_OUTPUT"
+      log "Generated session secret"
 
-      # SSL Email
-      read -rp "  SSL certificate email (default: admin@netlifegy.com): " INPUT_SSL_EMAIL
-      if [ -n "$INPUT_SSL_EMAIL" ]; then
-        sed -i.bak "s|GYDS_SSL_EMAIL=.*|GYDS_SSL_EMAIL=${INPUT_SSL_EMAIL}|" "$ENV_OUTPUT"
-      fi
+      # ── Domain ────────────────────────────────────────────
+      read -rp "  Your domain [netlifegy.com]: " INPUT_DOMAIN
+      INPUT_DOMAIN="${INPUT_DOMAIN:-netlifegy.com}"
+      sed -i.bak "s|GYDS_DOMAIN=.*|GYDS_DOMAIN=${INPUT_DOMAIN}|" "$ENV_OUTPUT"
 
-      # API Key
+      # ── SSL Email ─────────────────────────────────────────
+      read -rp "  SSL certificate email [admin@netlifegy.com]: " INPUT_SSL_EMAIL
+      INPUT_SSL_EMAIL="${INPUT_SSL_EMAIL:-admin@netlifegy.com}"
+      sed -i.bak "s|GYDS_SSL_EMAIL=.*|GYDS_SSL_EMAIL=${INPUT_SSL_EMAIL}|" "$ENV_OUTPUT"
+
+      # ── API Key ───────────────────────────────────────────
       API_KEY=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | od -An -tx1 | tr -d ' \n')
       sed -i.bak "s|GYDS_API_KEY=.*|GYDS_API_KEY=${API_KEY}|" "$ENV_OUTPUT"
       log "Generated random API key"
 
-      # Postgres password
+      # ── Postgres password (for Docker Compose) ────────────
       PG_PASS=$(openssl rand -base64 24 2>/dev/null || head -c 24 /dev/urandom | base64)
       sed -i.bak "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${PG_PASS}|" "$ENV_OUTPUT"
-      log "Generated random Postgres password"
+      log "Generated PostgreSQL password"
 
-      # Cleanup sed backups
+      # ── Cleanup sed backups ────────────────────────────────
       rm -f "${ENV_OUTPUT}.bak"
 
       log "Credentials saved to .env.production"
@@ -201,17 +200,16 @@ fi
 if [ "$ENV_ONLY" = false ]; then
   header "Step 2: Import Database Schema"
 
-  # Get DB URL — prefer DATABASE_URL env var, then prompt
-  DB_URL="${DATABASE_URL:-${SUPABASE_DB_URL:-}}"
+  # Get DB URL — prefer DATABASE_URL env var, then read from .env file
+  DB_URL="${DATABASE_URL:-}"
 
   if [ -z "$DB_URL" ] && [ -f "$ENV_OUTPUT" ]; then
-    DB_URL=$(grep '^DATABASE_URL=' "$ENV_OUTPUT" 2>/dev/null | cut -d'=' -f2- || \
-             grep '^SUPABASE_DB_URL=' "$ENV_OUTPUT" 2>/dev/null | cut -d'=' -f2- || true)
+    DB_URL=$(grep '^DATABASE_URL=' "$ENV_OUTPUT" 2>/dev/null | cut -d'=' -f2- || true)
   fi
 
   # Strip placeholder values
   case "$DB_URL" in
-    *supabase.co*|*your-password*|*your-project*) DB_URL="" ;;
+    *your-password*|*your-project*|*change-me*|"") DB_URL="" ;;
   esac
 
   if [ -z "$DB_URL" ]; then
@@ -225,10 +223,10 @@ if [ "$ENV_ONLY" = false ]; then
       if [ "$_pg_choice" = "2" ]; then
         read -rp "  Host     [localhost]: " _h; _h="${_h:-localhost}"
         read -rp "  Port     [5432]:      " _pt; _pt="${_pt:-5432}"
-        read -rp "  Database name:        " _db
-        read -rp "  Username:             " _u
+        read -rp "  Database [gydschain]: " _db; _db="${_db:-gydschain}"
+        read -rp "  Username [gyds]:      " _u; _u="${_u:-gyds}"
         read -rsp "  Password:            " _pw; echo
-        [ -z "$_db" ] || [ -z "$_u" ] && { echo "Database name and username are required." >&2; exit 1; }
+        [ -z "$_pw" ] && { error "Password is required."; exit 1; }
         DB_URL="postgresql://${_u}:${_pw}@${_h}:${_pt}/${_db}"
       else
         echo ""
@@ -323,7 +321,7 @@ fi
 # ─── Summary ─────────────────────────────────────────────
 header "Setup Complete"
 
-echo -e "  ${GREEN}✓${NC} Schema: 22 tables, 4 functions, RLS policies, triggers"
+echo -e "  ${GREEN}✓${NC} Schema imported — tables, functions, RLS policies, triggers"
 echo -e "  ${GREEN}✓${NC} Config: .env.production with all credentials"
 echo ""
 echo -e "  ${BOLD}Next Steps:${NC}"

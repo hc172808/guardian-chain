@@ -1,0 +1,168 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# GYDSchain — PostgreSQL Stack (Portainer / Docker Compose v3.8)
+# Chain: GYDS | Domain: netlifegy.com
+# Run this on a fresh Ubuntu server with Portainer installed.
+# Minimum requirements: 2GB RAM, 2 CPU cores, 20GB SSD
+# ═══════════════════════════════════════════════════════════════════════════
+version: "3.8"
+
+services:
+  # ── PostgreSQL Database ───────────────────────────────────────────────────
+  db:
+    container_name: gydschain-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gyds}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-postgres-password}
+      POSTGRES_DB: ${POSTGRES_DB:-gydschain}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - gydschain-db-data:/var/lib/postgresql/data
+      - ./init-indexer.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    # Postgres is NOT published externally — only accessible inside the stack.
+    # To allow host access for migrations, set POSTGRES_EXPOSE=true and
+    # bind to 127.0.0.1 manually: "127.0.0.1:5432:5432"
+    expose:
+      - "5432"
+    networks:
+      - gydschain-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gyds} -d ${POSTGRES_DB:-gydschain}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── GYDSchain API (Node.js / Express) ─────────────────────────────────────
+  api:
+    container_name: gydschain-api
+    build:
+      context: /opt/gydschain/app
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: production
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "dist/server/index.js"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3030
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gyds}:${POSTGRES_PASSWORD:-change-me-postgres-password}@db:5432/${POSTGRES_DB:-gydschain}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-random-64-char-string}
+      GYDS_CHAIN_ID: ${GYDS_CHAIN_ID:-13370}
+      GYDS_FOUNDER_WALLET: ${GYDS_FOUNDER_WALLET:-0x0000000000000000000000000000000000000001}
+      GYDS_ADMIN_WALLET: ${GYDS_ADMIN_WALLET:-}
+      GYDS_API_KEY: ${GYDS_API_KEY:-}
+      GYDS_DOMAIN: ${GYDS_DOMAIN:-netlifegy.com}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+    volumes:
+      - gydschain-uploads:/app/uploads
+    # Port is NOT published externally — Nginx proxies to this container
+    expose:
+      - "3030"
+    networks:
+      - gydschain-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3030/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ── Block Explorer ────────────────────────────────────────────────────────
+  explorer:
+    container_name: gydschain-explorer
+    build:
+      context: .
+      dockerfile: Dockerfile.explorer
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      API_URL: http://api:3030
+      GYDS_CHAIN_ID: ${GYDS_CHAIN_ID:-13370}
+      GYDS_RPC_ENDPOINT: ${GYDS_RPC_ENDPOINT:-https://rpc.netlifegy.com}
+    ports:
+      - "${EXPLORER_PORT:-3000}:3000"
+    networks:
+      - gydschain-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Redis (session cache) ─────────────────────────────────────────────────
+  redis:
+    container_name: gydschain-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save ""
+    volumes:
+      - gydschain-redis-data:/data
+    networks:
+      - gydschain-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ── Nginx Reverse Proxy ───────────────────────────────────────────────────
+  nginx:
+    container_name: gydschain-nginx
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+      - explorer
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - gydschain-nginx-logs:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - gydschain-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  gydschain-db-data:
+    driver: local
+  gydschain-uploads:
+    driver: local
+  gydschain-redis-data:
+    driver: local
+  gydschain-nginx-logs:
+    driver: local
+
+networks:
+  gydschain-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
