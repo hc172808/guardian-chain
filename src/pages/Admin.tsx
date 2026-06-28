@@ -72,6 +72,8 @@ import { ServerConfigManager } from '@/components/admin/ServerConfigManager';
 import { RevenueDashboard } from '@/components/admin/RevenueDashboard';
 import { ActivityFeed } from '@/components/admin/ActivityFeed';
 import { GenesisManager } from '@/components/admin/GenesisManager';
+import { NodeDetailsDrawer } from '@/components/admin/NodeDetailsDrawer';
+import { Download } from 'lucide-react';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
@@ -791,6 +793,7 @@ const AdminContent = () => {
   const [loading, setLoading] = useState(true);
   const [mainNodeId, setMainNodeId] = useState<string | null>(null);
   const [pingingNodes, setPingingNodes] = useState<Set<string>>(new Set());
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isFounder && !isAdmin) {
@@ -1078,9 +1081,21 @@ const AdminContent = () => {
           <WireGuardPeerManager />
 
           <div className="border-t border-border/30 pt-4">
-            <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
-              <Server className="h-4 w-4" /> Node Registrations ({nodes.length})
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Server className="h-4 w-4" /> Node Registrations ({nodes.length})
+              </h3>
+              {(isFounder || isAdmin) && (
+                <a
+                  href="/scripts/update-chaincore.sh"
+                  download="update-chaincore.sh"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border border-primary/40 text-primary hover:bg-primary/10 transition-colors"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Update Script
+                </a>
+              )}
+            </div>
           </div>
 
           {loading ? (
@@ -1106,7 +1121,11 @@ const AdminContent = () => {
               const displayHost = node.ipAddress || node.hostname;
               const rpcPort = node.rpcPort || 8545;
               return (
-              <GlassCard key={node.id} className={`p-4 ${isMain ? 'border-yellow-400/50 bg-yellow-400/5' : isLocalNode ? 'border-primary/40' : !node.isApproved ? 'border-yellow-500/30' : ''}`}>
+              <GlassCard
+                key={node.id}
+                className={`p-4 cursor-pointer hover:border-primary/50 transition-colors ${isMain ? 'border-yellow-400/50 bg-yellow-400/5' : isLocalNode ? 'border-primary/40' : !node.isApproved ? 'border-yellow-500/30' : ''}`}
+                onClick={() => setSelectedNodeId(node.id)}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-4 min-w-0">
                     <div className={`p-3 rounded-lg relative shrink-0 ${isMain ? 'bg-yellow-400/20' : isLocalNode ? 'bg-primary/20' : node.nodeType === 'fullnode' ? 'bg-yellow-500/20' : 'bg-primary/20'}`}>
@@ -1205,7 +1224,7 @@ const AdminContent = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-2 flex-wrap justify-end shrink-0">
+                  <div className="flex gap-2 flex-wrap justify-end shrink-0" onClick={e => e.stopPropagation()}>
                     {/* Ping button — only for remote nodes with an IP/hostname */}
                     {!isLocalNode && displayHost && (
                       <Button
@@ -1263,6 +1282,18 @@ const AdminContent = () => {
               </GlassCard>
             ); })
           )}
+
+          {/* Node Details Drawer */}
+          <NodeDetailsDrawer
+            nodeId={selectedNodeId}
+            vpnTunnelIp={(() => {
+              const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
+              const idx = approvedNonLocal.findIndex(n => n.id === selectedNodeId);
+              return idx >= 0 ? `10.8.0.${idx + 2}` : null;
+            })()}
+            isMain={selectedNodeId === mainNodeId}
+            onClose={() => setSelectedNodeId(null)}
+          />
         </TabsContent>
 
         <TabsContent value="users">
