@@ -47,7 +47,7 @@ export const GenesisStatus = () => {
         api.get('/api/token-price').catch(() => null),
       ]);
 
-      const address = walletConfig?.config_value?.address || null;
+      const address = walletConfig?.configValue?.address || walletConfig?.config_value?.address || null;
       setState({
         founderAddress: address,
         genesisCreated: !!address,

@@ -1635,6 +1635,77 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // ── Live Explorer: fetch real blocks from a running test node ────────────
+  app.get("/api/explorer/live-blocks", async (req, res) => {
+    const count = Math.min(parseInt((req.query.count as string) || "20", 10), 50);
+    const all = testNodeManager.status() as any;
+    // Try each network for any running node
+    let targetPort: number | null = null;
+    const networksToTry = ["mainnet", "testnet", "devnet"];
+    const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"] as const;
+    outer: for (const net of networksToTry) {
+      const netStatus = all[net] ?? {};
+      for (const t of prioritized) {
+        if (netStatus[t]?.running) { targetPort = netStatus[t].port; break outer; }
+      }
+    }
+    if (!targetPort) {
+      return res.json({ ok: false, error: "No test nodes running", blocks: [], blockHeight: 0, online: false });
+    }
+    try {
+      const rpcBase = `http://localhost:${targetPort}`;
+      const rpc = async (method: string, params: any[]) => {
+        const r = await fetch(rpcBase, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
+          signal: AbortSignal.timeout(5000),
+        });
+        const j = await r.json();
+        if (j.error) throw new Error(j.error.message);
+        return j.result;
+      };
+
+      const latestHex: string = await rpc("eth_blockNumber", []);
+      const latest = parseInt(latestHex, 16);
+
+      // Fetch last `count` blocks in parallel (batched)
+      const heights = Array.from({ length: Math.min(count, latest + 1) }, (_, i) => latest - i);
+      const blockResults = await Promise.all(
+        heights.map(h => rpc("eth_getBlockByNumber", [`0x${h.toString(16)}`, true]).catch(() => null))
+      );
+
+      const blocks = blockResults
+        .filter(Boolean)
+        .map((b: any) => ({
+          height: parseInt(b.number, 16),
+          hash: b.hash,
+          previousHash: b.parentHash,
+          timestamp: parseInt(b.timestamp, 16) * 1000,
+          miner: b.miner,
+          gasUsed: parseInt(b.gasUsed, 16),
+          gasLimit: parseInt(b.gasLimit, 16),
+          txCount: Array.isArray(b.transactions) ? b.transactions.length : 0,
+          transactions: (Array.isArray(b.transactions) ? b.transactions : []).map((tx: any) =>
+            typeof tx === "string"
+              ? { id: tx, from: "", to: "", amount: 0, fee: 0, nonce: 0, timestamp: parseInt(b.timestamp, 16) * 1000, status: "confirmed" }
+              : { id: tx.hash, from: tx.from || "", to: tx.to || "", amount: Number(BigInt(tx.value || "0x0")) / 1e18, fee: 0, nonce: parseInt(tx.nonce || "0x0", 16), timestamp: parseInt(b.timestamp, 16) * 1000, status: "confirmed" }
+          ),
+          validator: b.miner || "0x0000000000000000000000000000000000000000",
+          validatorStake: 100000,
+          miningRewards: [],
+          signature: b.extraData || "0x",
+          finalized: true,
+          size: parseInt(b.size || "0x0", 16),
+          difficulty: b.difficulty,
+          extraData: b.extraData,
+        }));
+
+      res.json({ ok: true, online: true, blockHeight: latest, blocks, rpcPort: targetPort });
+    } catch (e: any) {
+      res.json({ ok: false, error: e.message, blocks: [], blockHeight: 0, online: false });
+    }
+  });
+
   // ── Node Ping: admin manually tests a node's RPC via its VPN IP ──────────
   app.post("/api/nodes/:id/ping", requireAdmin, async (req, res) => {
     const { id } = req.params;
