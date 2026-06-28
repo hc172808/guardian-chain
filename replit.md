@@ -33,10 +33,13 @@ Set automatically by Replit:
 - **Build:** `npm run build`
 - **DB Schema:** `npm run db:push` (apply schema changes)
 
-## Default Founder Account
-Created automatically on first boot:
-- **Username:** `netlifegy`
-- **Password:** `GYDSchain2026!` ← Change after first login
+## Default Accounts
+Created automatically on first boot (override with env vars `FOUNDER_PASSWORD` / `ADMIN_PASSWORD`):
+
+| Role | Username | Password |
+|------|----------|----------|
+| Founder | `founder` | `password` |
+| Admin | `admin` | `password` |
 
 ## User Roles
 Three roles in `user_roles` table: `user`, `admin`, `founder`

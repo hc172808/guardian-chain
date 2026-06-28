@@ -57,43 +57,49 @@ export async function seedFounder() {
       return;
     }
 
-    // Empty DB — safe to create the bootstrap account.
-    // Password comes from env var or a generated random — never hardcoded in a
-    // log message that could leak via CI, Docker logs, or a build artefact.
-    const bootstrapPassword = process.env.FOUNDER_PASSWORD ?? crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-    const id = `founder_netlifegy_${Date.now()}`;
-    const passwordHash = await bcrypt.hash(bootstrapPassword, 12);
-    const email    = "netlifegy@gmail.com";
-    const username = "netlifegy";
+    // Empty DB — create bootstrap accounts.
+    const founderPassword = process.env.FOUNDER_PASSWORD ?? "password";
+    const adminPassword   = process.env.ADMIN_PASSWORD   ?? "password";
+
+    // ── Founder account ──────────────────────────────────────────────────────
+    const founderId   = `founder_bootstrap_${Date.now()}`;
+    const founderHash = await bcrypt.hash(founderPassword, 12);
 
     await pool.query(
       `INSERT INTO users (id, email, username, password_hash, wallet_address, first_name, last_name, updated_at)
        VALUES ($1, $2, $3, $4, $5, 'Founder', 'GYDSchain', NOW())
        ON CONFLICT DO NOTHING`,
-      [id, email, username, passwordHash, FOUNDER_WALLET]
+      [founderId, "founder@gydschain.local", "founder", founderHash, FOUNDER_WALLET]
     );
-
     await pool.query(
       `INSERT INTO profiles (id, user_id, email, username, display_name, role)
        VALUES (gen_random_uuid(), $1, $2, $3, 'Founder', 'founder')
        ON CONFLICT (user_id) DO NOTHING`,
-      [id, email, username]
+      [founderId, "founder@gydschain.local", "founder"]
     );
+    await grantRoles(founderId, ["user", "admin", "founder"]);
 
-    await grantRoles(id, ["user", "admin", "founder"]);
+    // ── Admin account ────────────────────────────────────────────────────────
+    const adminId   = "admin_bootstrap_001";
+    const adminHash = await bcrypt.hash(adminPassword, 12);
 
-    console.log(`[seed] Founder bootstrap account created (first-run only):`);
-    console.log(`  Username: ${username}`);
-    console.log(`  Email:    ${email}`);
-    console.log(`  Wallet:   ${FOUNDER_WALLET}`);
-    // Only log the password when it was explicitly supplied via env var.
-    // A randomly-generated password is shown once so the admin can note it;
-    // a supplied one is omitted to avoid re-logging a known secret.
-    if (!process.env.FOUNDER_PASSWORD) {
-      console.log(`  Password: ${bootstrapPassword}  ← SAVE THIS — shown only once. Change after first login.`);
-    } else {
-      console.log(`  Password: (set via FOUNDER_PASSWORD env var)`);
-    }
+    await pool.query(
+      `INSERT INTO users (id, email, username, password_hash, first_name, last_name, updated_at)
+       VALUES ($1, $2, $3, $4, 'Admin', 'User', NOW())
+       ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()`,
+      [adminId, "admin@gydschain.local", "admin", adminHash]
+    );
+    await pool.query(
+      `INSERT INTO profiles (id, user_id, email, username, display_name, role)
+       VALUES (gen_random_uuid(), $1, $2, $3, 'Admin', 'admin')
+       ON CONFLICT (user_id) DO UPDATE SET username=$3, display_name='Admin', role='admin'`,
+      [adminId, "admin@gydschain.local", "admin"]
+    );
+    await grantRoles(adminId, ["user", "admin"]);
+
+    console.log(`[seed] Bootstrap accounts created (first-run only):`);
+    console.log(`  Founder — username: founder  password: ${founderPassword}`);
+    console.log(`  Admin   — username: admin    password: ${adminPassword}`);
   } catch (err: any) {
     // Seed errors are non-fatal — the server still starts.
     console.error("[seed] Founder seed error:", err.message);
