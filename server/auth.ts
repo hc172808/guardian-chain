@@ -372,7 +372,7 @@ export async function setupAuth(app: Express): Promise<void> {
       // Find account linked to this wallet
       const user = await storage.getUserByWallet(addr);
       if (!user) return res.status(404).json({ error: "No account is linked to this wallet address. Connect the wallet to an account first, or use username reset." });
-      if (!user.passwordHash) return res.status(400).json({ error: "This account was created with wallet-only auth — no password to reset. You can already sign in using your wallet." });
+      // Wallet-only accounts (no passwordHash) are allowed through — they use this flow to SET a password for the first time.
 
       // Generate reset token (same flow as username reset)
       const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
