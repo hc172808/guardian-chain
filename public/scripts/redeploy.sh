@@ -91,19 +91,15 @@ _run_migrations() {
         done
     fi
 
-    # 2. Full schema (IF NOT EXISTS — safe to replay on every deploy)
-    local schema_candidates=(
-        "${dir}/public/scripts/gydschain-schema.sql"
-        "${dir}/public/scripts/gydschain-complete-schema.sql"
-    )
-    for schema in "${schema_candidates[@]}"; do
-        if [[ -f "$schema" ]]; then
-            info "  Applying full schema: $(basename "$schema")"
-            psql "$db_url" -v ON_ERROR_STOP=0 -f "$schema" >> "$DEPLOY_LOG" 2>&1 || true
-            log "  ✓ $(basename "$schema")"
-            break
-        fi
-    done
+    # 2. Full schema — ONLY use the idempotent complete schema (IF NOT EXISTS everywhere).
+    #    Do NOT apply gydschain-schema.sql here — it has DROP TABLE CASCADE which
+    #    would wipe all user data on every redeploy.
+    local safe_schema="${dir}/public/scripts/gydschain-complete-schema.sql"
+    if [[ -f "$safe_schema" ]]; then
+        info "  Applying full schema: $(basename "$safe_schema")"
+        psql "$db_url" -v ON_ERROR_STOP=0 -f "$safe_schema" >> "$DEPLOY_LOG" 2>&1 || true
+        log "  ✓ $(basename "$safe_schema")"
+    fi
 
     # 3. Report table count
     local table_count

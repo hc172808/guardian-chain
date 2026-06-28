@@ -95,16 +95,15 @@ export const storage = {
   },
 
   async setUserNonce(walletAddress: string, nonce: string) {
-    // Upsert: update nonce if wallet user exists, otherwise just store in a temp record
-    const existing = await db.select().from(users).where(eq(users.walletAddress, walletAddress));
-    if (existing.length > 0) {
-      await db.update(users).set({ authNonce: nonce }).where(eq(users.walletAddress, walletAddress));
-    } else {
-      // Pre-create a placeholder so nonce can be stored before first login
-      const id = `web3_pending_${walletAddress.slice(2, 10)}_${Date.now()}`;
-      await db.insert(users).values({ id, walletAddress, authNonce: nonce, updatedAt: new Date() })
-        .onConflictDoUpdate({ target: users.walletAddress, set: { authNonce: nonce } });
-    }
+    // Use raw SQL upsert — avoids db.select() which would SELECT all schema columns and
+    // fail if the deployed DB is missing any column (e.g. totp_secret, is_banned).
+    const id = `web3_pending_${walletAddress.slice(2, 10)}_${Date.now()}`;
+    await pgPool.query(
+      `INSERT INTO users (id, wallet_address, auth_nonce, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (wallet_address) DO UPDATE SET auth_nonce = EXCLUDED.auth_nonce`,
+      [id, walletAddress, nonce]
+    );
   },
 
   async getUserNonce(walletAddress: string) {

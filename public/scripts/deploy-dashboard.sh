@@ -631,15 +631,14 @@ if [[ "\$SKIP_DB" == "0" ]]; then
             done
         fi
 
-        # Full schema (safe to replay — all CREATE TABLE IF NOT EXISTS)
-        for schema in "\${APP_DIR}/public/scripts/gydschain-schema.sql" "\${APP_DIR}/public/scripts/gydschain-complete-schema.sql"; do
-            if [[ -f "\$schema" ]]; then
-                info "  Full schema: \$(basename \"\$schema\")"
-                psql "\$DB_URL" -v ON_ERROR_STOP=0 -f "\$schema" 2>&1 | grep -i "error\|warning" || true
-                log "  ✓ \$(basename \"\$schema\")"
-                break
-            fi
-        done
+        # Full schema — ONLY use the idempotent complete schema (IF NOT EXISTS everywhere).
+        # Do NOT apply gydschain-schema.sql — it has DROP TABLE CASCADE which wipes data.
+        safe_schema="\${APP_DIR}/public/scripts/gydschain-complete-schema.sql"
+        if [[ -f "\$safe_schema" ]]; then
+            info "  Full schema: \$(basename \"\$safe_schema\")"
+            psql "\$DB_URL" -v ON_ERROR_STOP=0 -f "\$safe_schema" 2>&1 | grep -i "error\|warning" || true
+            log "  ✓ \$(basename \"\$safe_schema\")"
+        fi
 
         TABLE_COUNT=\$(psql "\$DB_URL" -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' ' || echo "?")
         log "Schema migration complete — \${TABLE_COUNT} tables in database"
