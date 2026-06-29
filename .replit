@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "bash", "go-1.21"]
+modules = ["nodejs-20", "go-1.21", "bash"]
 [agent]
 expertMode = true
 integrations = ["javascript_database:1.0.0"]
@@ -77,31 +77,8 @@ localPort = 8575
 externalPort = 4200
 
 [[ports]]
-<<<<<<< HEAD
-localPort = 8590
-externalPort = 9000
-
-[[ports]]
-=======
-localPort = 8585
-externalPort = 9000
-
-[[ports]]
-localPort = 8590
-externalPort = 8081
-
-[[ports]]
->>>>>>> 3236b49bcb51a083f429b32ef5c0434f43f9b9c6
-localPort = 8595
-externalPort = 8099
-
-[[ports]]
 localPort = 8600
 externalPort = 8080
-
-[[ports]]
-localPort = 8602
-externalPort = 8081
 
 [[ports]]
 localPort = 8650
