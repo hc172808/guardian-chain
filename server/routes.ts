@@ -295,11 +295,16 @@ export function registerRoutes(app: Express) {
   });
 
   app.post("/api/transactions", requireAuth, async (req, res) => {
-    const user = req.user as any;
-    const row = await storage.insertTransaction({ ...req.body, userId: user.id });
-    res.json(row);
-    storage.awardXpOnce(user.id, 'first_transaction', 50, 'First transaction on GYDSchain! +50 XP').catch(() => {});
-    broadcastActivity({ type: 'transaction', title: 'New Transaction', detail: `${req.body.type ?? 'transfer'} · ${req.body.amount ?? ''} ${req.body.tokenSymbol ?? req.body.token_symbol ?? ''}`.trim(), user: user.username ?? user.walletAddress?.slice(0, 10), ip: req.ip ?? undefined });
+    try {
+      const user = req.user as any;
+      const row = await storage.insertTransaction({ ...req.body, userId: user.id });
+      res.json(row);
+      storage.awardXpOnce(user.id, 'first_transaction', 50, 'First transaction on GYDSchain! +50 XP').catch(() => {});
+      broadcastActivity({ type: 'transaction', title: 'New Transaction', detail: `${req.body.type ?? 'transfer'} · ${req.body.amount ?? ''} ${req.body.tokenSymbol ?? req.body.token_symbol ?? ''}`.trim(), user: user.username ?? (user.walletAddress ?? '').slice(0, 10), ip: req.ip ?? undefined });
+    } catch (err: any) {
+      console.error('[transactions] insert error:', err.message);
+      res.status(500).json({ error: err.message ?? 'Failed to submit transaction' });
+    }
   });
 
   // ── RPC URL env config (admin) ─────────────────────────────────────────────

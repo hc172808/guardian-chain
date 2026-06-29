@@ -12,6 +12,20 @@ import { Pool } from "pg";
 
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+// ── In-memory nonce store ─────────────────────────────────────────────────────
+// Nonces are short-lived (used within one login/reset cycle). Using an in-memory
+// Map avoids Drizzle SELECT * failures when the deployed DB has schema drift.
+// Each entry expires after 10 minutes.
+const _nonceStore = new Map<string, { nonce: string; expiresAt: number }>();
+const NONCE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function _cleanNonces() {
+  const now = Date.now();
+  for (const [k, v] of _nonceStore) {
+    if (v.expiresAt < now) _nonceStore.delete(k);
+  }
+}
+
 export const storage = {
   // ── Users ────────────────────────────────────────────────────────────────
   async getUser(id: string) {
@@ -95,28 +109,77 @@ export const storage = {
   },
 
   async setUserNonce(walletAddress: string, nonce: string) {
-    // Use raw SQL upsert — avoids db.select() which would SELECT all schema columns and
-    // fail if the deployed DB is missing any column (e.g. totp_secret, is_banned).
-    const id = `web3_pending_${walletAddress.slice(2, 10)}_${Date.now()}`;
-    await pgPool.query(
-      `INSERT INTO users (id, wallet_address, auth_nonce, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (wallet_address) DO UPDATE SET auth_nonce = EXCLUDED.auth_nonce`,
-      [id, walletAddress, nonce]
-    );
+    const addr = walletAddress.toLowerCase();
+    _cleanNonces();
+    // In-memory is authoritative for single-process PM2 deployments (fast, no schema drift)
+    _nonceStore.set(addr, { nonce, expiresAt: Date.now() + NONCE_TTL_MS });
+    // Best-effort DB write — UPDATE existing user row; INSERT placeholder only if no row found.
+    // This handles both existing users (regular flow) and first-time wallet connects.
+    try {
+      const { rowCount } = await pgPool.query(
+        `UPDATE users SET auth_nonce = $1, updated_at = NOW() WHERE LOWER(wallet_address) = $2`,
+        [nonce, addr]
+      );
+      if ((rowCount ?? 0) === 0) {
+        // No user row yet — insert a minimal placeholder so DB fallback also works.
+        // username is set to the address to satisfy any NOT NULL constraint.
+        const placeholderId = `web3_pending_${addr.slice(2, 10)}_${Date.now()}`;
+        await pgPool.query(
+          `INSERT INTO users (id, wallet_address, auth_nonce, username, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (wallet_address) DO UPDATE SET auth_nonce = EXCLUDED.auth_nonce, updated_at = NOW()`,
+          [placeholderId, addr, nonce, addr]
+        ).catch(() => {
+          // If insert also fails (e.g. username UNIQUE conflict), in-memory store is still valid
+          console.warn(`[nonce] DB insert fallback failed for ${addr} — in-memory nonce still valid`);
+        });
+      }
+    } catch (e: any) {
+      console.warn(`[nonce] DB write failed for ${addr}: ${e.message} — in-memory nonce still valid`);
+    }
   },
 
   async getUserNonce(walletAddress: string) {
-    const [user] = await db.select({ authNonce: users.authNonce }).from(users).where(eq(users.walletAddress, walletAddress));
-    return user?.authNonce ?? null;
+    const addr = walletAddress.toLowerCase();
+    _cleanNonces();
+    // In-memory check first — authoritative for current process session
+    const mem = _nonceStore.get(addr);
+    if (mem && mem.expiresAt > Date.now()) return mem.nonce;
+    // DB fallback (e.g. after server restart within the 10-minute window)
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT auth_nonce FROM users WHERE LOWER(wallet_address) = $1 LIMIT 1`,
+        [addr]
+      );
+      const dbNonce = rows[0]?.auth_nonce ?? null;
+      // Re-populate memory if DB has it (survivor of a recent restart)
+      if (dbNonce) _nonceStore.set(addr, { nonce: dbNonce, expiresAt: Date.now() + NONCE_TTL_MS });
+      return dbNonce;
+    } catch (e: any) {
+      console.warn(`[nonce] DB read failed for ${addr}: ${e.message}`);
+      return null;
+    }
   },
 
   async clearUserNonce(walletAddress: string) {
-    await db.update(users).set({ authNonce: null }).where(eq(users.walletAddress, walletAddress));
+    const addr = walletAddress.toLowerCase();
+    _nonceStore.delete(addr);
+    try {
+      await pgPool.query(
+        `UPDATE users SET auth_nonce = NULL, updated_at = NOW() WHERE LOWER(wallet_address) = $1`,
+        [addr]
+      );
+    } catch (e: any) {
+      console.warn(`[nonce] DB clear failed for ${addr}: ${e.message}`);
+    }
   },
 
   async updateUserPassword(userId: string, passwordHash: string) {
-    await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
+    // Use raw SQL — Drizzle UPDATE silently fails on deployed DB with schema drift
+    await pgPool.query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [passwordHash, userId]
+    );
   },
 
   async getUserRoles(userId: string) {
@@ -210,16 +273,57 @@ export const storage = {
 
   // ── Transactions ──────────────────────────────────────────────────────────
   async getUserTransactions(userId: string) {
-    return db.select().from(transactions).where(eq(transactions.userId, userId)).orderBy(desc(transactions.createdAt));
+    // Raw SQL — avoids Drizzle SELECT * failures when deployed DB has schema drift
+    const { rows } = await pgPool.query(
+      `SELECT id, from_address AS "fromAddress", to_address AS "toAddress",
+              amount, fee, tx_hash AS "txHash", status,
+              block_height AS "blockHeight", wallet_id AS "walletId",
+              user_id AS "userId", created_at AS "createdAt", confirmed_at AS "confirmedAt"
+       FROM transactions WHERE user_id = $1 ORDER BY created_at DESC`,
+      [userId]
+    );
+    return rows;
   },
 
   async getAllTransactions() {
-    return db.select().from(transactions).orderBy(desc(transactions.createdAt)).limit(200);
+    const { rows } = await pgPool.query(
+      `SELECT id, from_address AS "fromAddress", to_address AS "toAddress",
+              amount, fee, tx_hash AS "txHash", status,
+              block_height AS "blockHeight", wallet_id AS "walletId",
+              user_id AS "userId", created_at AS "createdAt", confirmed_at AS "confirmedAt"
+       FROM transactions ORDER BY created_at DESC LIMIT 200`
+    );
+    return rows;
   },
 
-  async insertTransaction(data: typeof transactions.$inferInsert) {
-    const [row] = await db.insert(transactions).values(data).returning();
-    return row;
+  async insertTransaction(data: Record<string, any>) {
+    // Accept both camelCase and snake_case field names from callers (frontend sends snake_case)
+    // Use ?? not || so empty-string addresses are preserved rather than falling through
+    const fromAddress = (data.fromAddress !== undefined ? data.fromAddress : data.from_address) ?? '';
+    const toAddress   = (data.toAddress   !== undefined ? data.toAddress   : data.to_address)   ?? '';
+    const walletId    = (data.walletId    !== undefined ? data.walletId    : data.wallet_id)    ?? null;
+    const userId      = (data.userId      !== undefined ? data.userId      : data.user_id)      ?? null;
+    const txHash      = (data.txHash      !== undefined ? data.txHash      : data.tx_hash)      ?? null;
+    const amount      = String(data.amount ?? '0');
+    const fee         = String(data.fee    ?? '0.001');
+    const status      = data.status ?? 'pending';
+    const confirmedAt = (data.confirmedAt !== undefined ? data.confirmedAt : data.confirmed_at) ?? null;
+
+    if (!fromAddress) throw new Error('from_address is required');
+    if (!toAddress)   throw new Error('to_address is required');
+    if (!userId)      throw new Error('user_id is required');
+
+    const { rows } = await pgPool.query(
+      `INSERT INTO transactions
+         (from_address, to_address, amount, fee, tx_hash, status, wallet_id, user_id, confirmed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id, from_address AS "fromAddress", to_address AS "toAddress",
+                 amount, fee, tx_hash AS "txHash", status,
+                 wallet_id AS "walletId", user_id AS "userId",
+                 created_at AS "createdAt", confirmed_at AS "confirmedAt"`,
+      [fromAddress, toAddress, amount, fee, txHash, status, walletId, userId, confirmedAt]
+    );
+    return rows[0];
   },
 
   async countTransactions() {
@@ -280,19 +384,44 @@ export const storage = {
 
   // ── Admin Config ──────────────────────────────────────────────────────────
   async getConfig(key: string) {
-    const [row] = await db.select().from(adminConfig).where(eq(adminConfig.configKey, key));
-    return row ?? null;
+    // Raw SQL — avoids Drizzle SELECT * failing on deployed DB schema drift
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT id, config_key AS "configKey", config_value AS "configValue",
+                updated_by AS "updatedBy", updated_at AS "updatedAt"
+         FROM admin_config WHERE config_key=$1 LIMIT 1`,
+        [key]
+      );
+      return rows[0] ?? null;
+    } catch {
+      return null;
+    }
   },
 
   async getAllConfigs() {
-    return db.select().from(adminConfig);
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT id, config_key AS "configKey", config_value AS "configValue",
+                updated_by AS "updatedBy", updated_at AS "updatedAt"
+         FROM admin_config ORDER BY config_key`
+      );
+      return rows;
+    } catch {
+      return [];
+    }
   },
 
   async upsertConfig(key: string, value: unknown, updatedBy?: string) {
-    const [row] = await db.insert(adminConfig).values({ configKey: key, configValue: value as any, updatedBy: updatedBy ?? null })
-      .onConflictDoUpdate({ target: adminConfig.configKey, set: { configValue: value as any, updatedBy: updatedBy ?? null, updatedAt: new Date() } })
-      .returning();
-    return row;
+    const { rows } = await pgPool.query(
+      `INSERT INTO admin_config (config_key, config_value, updated_by, updated_at)
+       VALUES ($1, $2::jsonb, $3, NOW())
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value=$2::jsonb, updated_by=$3, updated_at=NOW()
+       RETURNING id, config_key AS "configKey", config_value AS "configValue",
+                 updated_by AS "updatedBy", updated_at AS "updatedAt"`,
+      [key, JSON.stringify(value), updatedBy ?? null]
+    );
+    return rows[0];
   },
 
   // ── Token Operations ──────────────────────────────────────────────────────
@@ -806,9 +935,12 @@ export const storage = {
       { id: 'legend',              title: 'Legend',               description: 'Reached Level 8 (Legend) — the highest XP tier',       xpReward: 2000, icon: '👑', category: 'special' },
     ];
     for (const b of badges) {
+      // Use 'key' column (text) for ON CONFLICT — the id is a UUID generated by the DB.
+      // This avoids "invalid input syntax for type uuid" when b.id is a text slug.
       await pgPool.query(
-        `INSERT INTO achievements (id, title, description, xp_reward, icon, category)
-         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING`,
+        `INSERT INTO achievements (key, title, description, xp_reward, icon, category)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (key) DO UPDATE
+           SET title=$2, description=$3, xp_reward=$4, icon=$5, category=$6`,
         [b.id, b.title, b.description, b.xpReward, b.icon, b.category]
       );
     }
