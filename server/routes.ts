@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS } from "./testNodes";
+import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState } from "./testNodes";
 import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
@@ -1509,6 +1509,8 @@ export function registerRoutes(app: Express) {
     if (!VALID_NODE_TYPES.includes(type))    { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     const result = testNodeManager.start(network, type);
     if (result.ok) {
+      // Persist "should run" so this node survives server restarts
+      saveTestNodeState(network, type, true).catch(() => {});
       const userId = (req.user as any)?.id;
       if (userId) {
         const s = (testNodeManager.status() as any)[network]?.[type] ?? {};
@@ -1527,6 +1529,8 @@ export function registerRoutes(app: Express) {
     if (!VALID_NODE_TYPES.includes(type))    { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     const result = testNodeManager.stop(network, type);
     if (result.ok) {
+      // Persist "should NOT run" so it stays stopped across restarts
+      saveTestNodeState(network, type, false).catch(() => {});
       const id = testNodeDbIds.get(`${network}:${type}`);
       if (id) storage.updateNode(id, { isOnline: false, lastHeartbeat: new Date() }).catch(() => {});
     }

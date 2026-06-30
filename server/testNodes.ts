@@ -1,15 +1,51 @@
 /**
- * Multi-network test node manager
+ * Multi-network test node manager — localhost "real" nodes
  * Supports: mainnet (13370), testnet (13371), devnet (13372)
- * Each network × 5 node types = 15 total node instances, all running simultaneously
+ * 7 node types × 3 networks = 21 total node instances
  *
  * Port allocation:
- *   Mainnet: rpc=8545, lite=8555, fullnode=8565, boostnode=8575, validator=8585
- *   Testnet: rpc=8600, lite=8601, fullnode=8602, boostnode=8603, validator=8604
- *   Devnet:  rpc=8650, lite=8651, fullnode=8652, boostnode=8653, validator=8654
+ *   Mainnet: rpc=8545, lite=8555, fullnode=8565, boostnode=8575, validator=8585, genesis=8590, bootnode=8595
+ *   Testnet: rpc=8600, lite=8601, fullnode=8602, boostnode=8603, validator=8604, genesis=8605, bootnode=8606
+ *   Devnet:  rpc=8650, lite=8651, fullnode=8652, boostnode=8653, validator=8654, genesis=8655, bootnode=8656
+ *
+ * Nodes persist across server restarts — desired state is stored in the test_node_state DB table.
+ * A node runs UNTIL the admin explicitly clicks Stop. Server restarts auto-resume all running nodes.
  */
 
 import { createServer, IncomingMessage, ServerResponse, Server } from "http";
+import { Pool } from "pg";
+
+const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// ── Persist desired state to DB ──────────────────────────────────────────────
+export async function saveTestNodeState(network: string, type: string, shouldRun: boolean) {
+  const key = `${network}:${type}`;
+  try {
+    await pgPool.query(
+      `INSERT INTO test_node_state (id, should_run, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (id) DO UPDATE SET should_run=$2, updated_at=NOW()`,
+      [key, shouldRun]
+    );
+  } catch (e: any) {
+    console.warn(`[test-node] persist state failed for ${key}:`, e.message);
+  }
+}
+
+export async function loadPersistedTestNodeState(): Promise<Array<{ network: string; type: string }>> {
+  try {
+    const { rows } = await pgPool.query(
+      `SELECT id FROM test_node_state WHERE should_run = true`
+    );
+    return rows.map((r: any) => {
+      const [network, type] = r.id.split(":");
+      return { network, type };
+    });
+  } catch (e: any) {
+    console.warn("[test-node] failed to load persisted state:", e.message);
+    return [];
+  }
+}
 
 const MAX_LOGS = 200;
 

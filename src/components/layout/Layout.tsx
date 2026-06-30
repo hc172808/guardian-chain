@@ -9,9 +9,36 @@ import { InstallPrompt } from './InstallPrompt';
 import { WalletDownloadButton } from './WalletDownloadButton';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useMaintenance } from '@/hooks/useMaintenance';
+import { useCurrency, CURRENCIES } from '@/contexts/CurrencyContext';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface LayoutProps {
   children: ReactNode;
+}
+
+function NavCurrencySelector() {
+  const { currency, setCurrency } = useCurrency();
+  const { user } = useAuth();
+
+  // Only show when logged in
+  if (!user) return null;
+
+  return (
+    <Select value={currency} onValueChange={setCurrency}>
+      <SelectTrigger className="h-8 w-20 text-xs border-border/50 bg-background/80 backdrop-blur-sm px-2">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        {CURRENCIES.map((c) => (
+          <SelectItem key={c.code} value={c.code} className="text-xs">
+            <span className="mr-1">{c.symbol}</span>
+            {c.code}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 export const Layout = ({ children }: LayoutProps) => {
@@ -48,9 +75,10 @@ export const Layout = ({ children }: LayoutProps) => {
       <main className={isMobile ? "min-h-screen pb-20" : "ml-64 min-h-screen"}>
         {enabled && <UpgradeBanner message={message} />}
 
-        {/* Top-right header bar with wallet download + notification bell (desktop only) */}
+        {/* Top-right header bar with currency selector + wallet download + notification bell (desktop only) */}
         {!isMobile && (
           <div className="fixed top-4 right-4 z-30 flex items-center gap-2">
+            <NavCurrencySelector />
             <WalletDownloadButton />
             <NotificationBell />
           </div>

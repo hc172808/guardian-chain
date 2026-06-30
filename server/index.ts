@@ -10,6 +10,7 @@ import { Pool } from "pg";
 import { aiFirewallMiddleware, refreshSecuritySettings } from "./security";
 import { initActivityFeed, handleUpgrade } from "./activityFeed";
 import { ensurePreferredCurrencyColumn } from "./exchangeRates";
+import { testNodeManager, loadPersistedTestNodeState } from "./testNodes";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -124,6 +125,30 @@ setInterval(runDbPruner, 24 * 60 * 60 * 1000);
 initVapid().catch(e => console.warn("webpush init:", e.message));
 ensurePushSubscriptionsTable().catch(e => console.warn("push_subscriptions table:", e.message));
 ensurePreferredCurrencyColumn().catch(e => console.warn("currency column:", e.message));
+
+// Auto-restart any test nodes that were running before this server restart
+async function autoRestartPersistedNodes() {
+  const toRestart = await loadPersistedTestNodeState();
+  if (toRestart.length === 0) {
+    console.log("[test-nodes] No persisted nodes to restart");
+    return;
+  }
+  console.log(`[test-nodes] Auto-restarting ${toRestart.length} node(s) from persisted state…`);
+  for (const { network, type } of toRestart) {
+    try {
+      const result = testNodeManager.start(network as any, type as any);
+      if (result.ok) {
+        console.log(`[test-nodes] ✓ Restarted ${type} (${network})`);
+      } else {
+        console.log(`[test-nodes] ⚠ ${type} (${network}): ${result.message}`);
+      }
+    } catch (e: any) {
+      console.warn(`[test-nodes] Failed to restart ${type} (${network}):`, e.message);
+    }
+  }
+}
+// Delay 2s to let DB connections settle, then restore node state
+setTimeout(() => autoRestartPersistedNodes().catch(e => console.warn("[test-nodes] auto-restart error:", e.message)), 2000);
 
 // Price Alert LISTEN/NOTIFY via Postgres
 async function startPriceAlertListener() {
