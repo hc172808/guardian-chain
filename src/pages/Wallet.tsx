@@ -44,6 +44,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FounderWalletConfig } from '@/components/wallet/FounderWalletConfig';
@@ -648,6 +649,7 @@ const WalletContent = () => {
   };
 
   const MAX_PIN_ATTEMPTS_DISPLAY = 5;
+  const { fmt, symbol: currencySymbol, ratesUnavailable } = useCurrency();
 
   const handleSendTransaction = async () => {
     if (!user || !sendTo.trim() || !sendAmount || wallets.length === 0) {
@@ -1057,17 +1059,20 @@ const WalletContent = () => {
           <h2 className="text-xl font-bold">Assets & Balances</h2>
         </div>
         <div className="mb-4 space-y-2">
+          {ratesUnavailable && (
+            <div className="text-xs text-amber-400/80 bg-amber-400/5 border border-amber-400/20 rounded px-2 py-1">
+              Using estimated rates — live exchange data unavailable
+            </div>
+          )}
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <p className="text-sm text-muted-foreground">Total Portfolio Value</p>
+              <p className="text-sm text-muted-foreground">Total Portfolio Value ({currencySymbol})</p>
               <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${NETWORK_COLORS[selectedNetwork]}`}>
                 {selectedNetwork} · Chain 13370
               </span>
             </div>
             <p className="text-3xl font-bold text-foreground">
-              ${totalPortfolioValue < 0.01 && totalPortfolioValue > 0
-                ? totalPortfolioValue.toFixed(7)
-                : totalPortfolioValue.toFixed(2)}
+              {fmt(totalPortfolioValue)}
             </p>
           </div>
           {/* On-chain RPC balance */}
@@ -1127,7 +1132,7 @@ const WalletContent = () => {
                         <span className="text-xs text-muted-foreground">{token.name}</span>
                       </div>
                       <p className="text-xs text-muted-foreground font-mono">
-                        ${(token.price ?? 0) < 1 ? Number(token.price ?? 0).toFixed(7) : Number(token.price ?? 0).toFixed(2)} per token
+                        {fmt(token.price ?? 0)} per token
                         {token.decimals !== undefined && <span className="ml-2 text-muted-foreground/60">({token.decimals} decimals)</span>}
                       </p>
                     </div>
@@ -1139,9 +1144,7 @@ const WalletContent = () => {
                         : token.balance.toFixed(4)}
                     </p>
                     <p className="text-xs text-muted-foreground font-mono">
-                      ${token.value < 0.01 && token.value > 0
-                        ? token.value.toFixed(7)
-                        : token.value.toFixed(2)}
+                      {fmt(token.value)}
                     </p>
                   </div>
                 </div>

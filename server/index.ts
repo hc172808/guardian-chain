@@ -9,6 +9,7 @@ import { initVapid, ensurePushSubscriptionsTable } from "./webpush";
 import { Pool } from "pg";
 import { aiFirewallMiddleware, refreshSecuritySettings } from "./security";
 import { initActivityFeed, handleUpgrade } from "./activityFeed";
+import { ensurePreferredCurrencyColumn } from "./exchangeRates";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -122,6 +123,7 @@ setInterval(runDbPruner, 24 * 60 * 60 * 1000);
 // Init Web Push VAPID keys + push_subscriptions table
 initVapid().catch(e => console.warn("webpush init:", e.message));
 ensurePushSubscriptionsTable().catch(e => console.warn("push_subscriptions table:", e.message));
+ensurePreferredCurrencyColumn().catch(e => console.warn("currency column:", e.message));
 
 // Price Alert LISTEN/NOTIFY via Postgres
 async function startPriceAlertListener() {

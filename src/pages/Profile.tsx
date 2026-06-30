@@ -22,7 +22,7 @@ import {
   Shield, Lock, Save, RefreshCw, CheckCircle2,
   Phone, FileText, Palette, Eye, EyeOff, Trophy,
   Fingerprint, Smartphone, Send as SendIcon,
-  Key, Download, Copy, AlertTriangle
+  Key, Download, Copy, AlertTriangle, DollarSign
 } from 'lucide-react';
 import {
   isBiometricAvailable,
@@ -32,6 +32,7 @@ import {
 } from '@/lib/biometric';
 import { useNavigate } from 'react-router-dom';
 import { AchievementBadges } from '@/components/profile/AchievementBadges';
+import { useCurrency, CURRENCIES } from '@/contexts/CurrencyContext';
 
 interface ProfileData {
   display_name: string;
@@ -675,6 +676,8 @@ const ProfilePage = () => {
   const set = (key: keyof ProfileData, val: any) =>
     setProfile(p => ({ ...p, [key]: val }));
 
+  const { currency: activeCurrency, setCurrency } = useCurrency();
+
   const setMeta = (key: keyof ProfileData['metadata'], val: string) =>
     setProfile(p => ({ ...p, metadata: { ...p.metadata, [key]: val } }));
 
@@ -1019,6 +1022,26 @@ const ProfilePage = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                {/* Display Currency */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                    <DollarSign className="w-3 h-3" /> Display Currency
+                  </Label>
+                  <Select value={activeCurrency} onValueChange={v => setCurrency(v as any)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCIES.map(c => (
+                        <SelectItem key={c.code} value={c.code}>
+                          {c.symbol} — {c.label} ({c.code})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">All monetary values display in this currency.</p>
                 </div>
               </div>
             </GlassCard>

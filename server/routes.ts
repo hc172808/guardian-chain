@@ -99,6 +99,11 @@ export function registerRoutes(app: Express) {
   app.get("/api/profile", requireAuth, async (req, res) => {
     const user = req.user as any;
     const profile = await storage.getUserProfile(user.id);
+    // Attach preferred_currency from DB
+    try {
+      const { rows } = await pgPool.query(`SELECT preferred_currency FROM profiles WHERE user_id=$1`, [user.id]);
+      if (rows[0]) (profile as any).preferred_currency = rows[0].preferred_currency ?? 'USD';
+    } catch {}
     res.json(profile);
   });
 
@@ -106,6 +111,29 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const profile = await storage.updateUserProfile(user.id, req.body);
     res.json(profile);
+  });
+
+  // ── Currency preference ────────────────────────────────────────────────────
+  app.patch("/api/profile/currency", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const VALID = ['USD','EUR','GBP','CAD','AUD','GYD','JMD'];
+    const { preferred_currency } = req.body;
+    if (!VALID.includes(preferred_currency)) return res.status(400).json({ error: "Invalid currency" });
+    try {
+      await pgPool.query(`UPDATE profiles SET preferred_currency=$1, updated_at=NOW() WHERE user_id=$2`, [preferred_currency, user.id]);
+      res.json({ ok: true, preferred_currency });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Exchange Rates ─────────────────────────────────────────────────────────
+  app.get("/api/exchange-rates", async (_req, res) => {
+    try {
+      const { getExchangeRates } = await import("./exchangeRates");
+      const data = await getExchangeRates();
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // ── Profile privacy ────────────────────────────────────────────────────────

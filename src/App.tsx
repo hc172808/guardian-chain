@@ -53,6 +53,7 @@ import PreviewPage from "./pages/Preview";
 import SetupPage from "./pages/Setup";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { CurrencyProvider } from "@/contexts/CurrencyContext";
 
 const queryClient = new QueryClient();
 
@@ -154,15 +155,17 @@ const AppContent = () => {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <ErrorBoundary>
-            <AppContent />
-          </ErrorBoundary>
-        </BrowserRouter>
-      </TooltipProvider>
+      <CurrencyProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <ErrorBoundary>
+              <AppContent />
+            </ErrorBoundary>
+          </BrowserRouter>
+        </TooltipProvider>
+      </CurrencyProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

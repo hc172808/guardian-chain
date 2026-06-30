@@ -3,12 +3,13 @@ import { api } from '@/lib/api';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Wallet, TrendingUp, Lock, Copy, ArrowUpRight, ArrowDownLeft, RefreshCw } from 'lucide-react';
+import { Wallet, TrendingUp, Copy, ArrowUpRight, ArrowDownLeft, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { getUserAddresses, computeUserBalances } from '@/lib/balances';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 const NETWORKS = ['Testnet', 'Mainnet', 'Devnet'] as const;
 type Network = typeof NETWORKS[number];
@@ -19,16 +20,14 @@ const NETWORK_COLORS: Record<Network, string> = {
   Devnet:  'text-blue-400 border-blue-400/30 bg-blue-400/10',
 };
 
-const fmt = (n: number) =>
+const fmtQty = (n: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(n);
-
-const fmtUsd = (n: number) =>
-  new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 export const UserBalanceCard = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { fmt, symbol, ratesUnavailable } = useCurrency();
 
   const [gydsBalance, setGydsBalance]   = useState(0);
   const [gydBalance,  setGydBalance]    = useState(0);
@@ -97,8 +96,8 @@ export const UserBalanceCard = () => {
     );
   }
 
-  const usdGyds = gydsBalance * gydsPrice;
-  const usdGyd  = gydBalance  * 1.00;
+  const usdGyds  = gydsBalance * gydsPrice;
+  const usdGyd   = gydBalance  * 1.00;
   const totalUsd = usdGyds + usdGyd;
 
   return (
@@ -124,7 +123,6 @@ export const UserBalanceCard = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Network selector */}
             {NETWORKS.map(n => (
               <button
                 key={n}
@@ -143,25 +141,31 @@ export const UserBalanceCard = () => {
           </div>
         </div>
 
+        {ratesUnavailable && (
+          <div className="mb-3 text-xs text-amber-400/80 bg-amber-400/5 border border-amber-400/20 rounded px-2 py-1">
+            Using estimated rates — live exchange data unavailable
+          </div>
+        )}
+
         {/* Balance Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
           <div>
             <p className="text-xs text-muted-foreground mb-1">GYDS</p>
-            <p className="text-xl font-bold text-primary">{fmt(gydsBalance)}</p>
-            <p className="text-xs text-muted-foreground">${fmtUsd(usdGyds)}</p>
+            <p className="text-xl font-bold text-primary">{fmtQty(gydsBalance)}</p>
+            <p className="text-xs text-muted-foreground">{fmt(usdGyds)}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground mb-1">GYD</p>
-            <p className="text-xl font-bold text-emerald-400">{fmt(gydBalance)}</p>
-            <p className="text-xs text-muted-foreground">${fmtUsd(usdGyd)}</p>
+            <p className="text-xl font-bold text-emerald-400">{fmtQty(gydBalance)}</p>
+            <p className="text-xs text-muted-foreground">{fmt(usdGyd)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Total USD</p>
+            <p className="text-xs text-muted-foreground mb-1">Total ({symbol})</p>
             <p className="text-xl font-semibold flex items-center gap-1">
               <TrendingUp className="h-4 w-4 text-emerald-400" />
-              ${fmtUsd(totalUsd)}
+              {fmt(totalUsd)}
             </p>
-            <p className="text-xs text-muted-foreground">@ ${gydsPrice.toFixed(7)}/GYDS</p>
+            <p className="text-xs text-muted-foreground">@ {fmt(gydsPrice)}/GYDS</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground mb-1">Network</p>
