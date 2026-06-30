@@ -273,13 +273,21 @@ export const storage = {
 
   // ── Transactions ──────────────────────────────────────────────────────────
   async getUserTransactions(userId: string) {
-    // Raw SQL — avoids Drizzle SELECT * failures when deployed DB has schema drift
+    // Return transactions sent by this user OR received by any of their wallet addresses
     const { rows } = await pgPool.query(
-      `SELECT id, from_address AS "fromAddress", to_address AS "toAddress",
-              amount, fee, tx_hash AS "txHash", status,
-              block_height AS "blockHeight", wallet_id AS "walletId",
-              user_id AS "userId", created_at AS "createdAt", confirmed_at AS "confirmedAt"
-       FROM transactions WHERE user_id = $1 ORDER BY created_at DESC`,
+      `SELECT DISTINCT t.id,
+              t.from_address AS "fromAddress", t.to_address AS "toAddress",
+              t.amount, t.fee, t.tx_hash AS "txHash", t.status,
+              t.block_height AS "blockHeight", t.wallet_id AS "walletId",
+              t.user_id AS "userId",
+              COALESCE(t.token_symbol, 'GYD') AS "tokenSymbol",
+              t.created_at AS "createdAt", t.confirmed_at AS "confirmedAt"
+       FROM transactions t
+       WHERE t.user_id = $1
+          OR LOWER(t.to_address) IN (
+               SELECT LOWER(address) FROM wallets WHERE user_id = $1
+             )
+       ORDER BY t.created_at DESC`,
       [userId]
     );
     return rows;
@@ -308,6 +316,7 @@ export const storage = {
     const fee         = String(data.fee    ?? '0.001');
     const status      = data.status ?? 'pending';
     const confirmedAt = (data.confirmedAt !== undefined ? data.confirmedAt : data.confirmed_at) ?? null;
+    const tokenSymbol = (data.tokenSymbol !== undefined ? data.tokenSymbol : data.token_symbol) ?? 'GYD';
 
     if (!fromAddress) throw new Error('from_address is required');
     if (!toAddress)   throw new Error('to_address is required');
@@ -315,13 +324,14 @@ export const storage = {
 
     const { rows } = await pgPool.query(
       `INSERT INTO transactions
-         (from_address, to_address, amount, fee, tx_hash, status, wallet_id, user_id, confirmed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         (from_address, to_address, amount, fee, tx_hash, status, wallet_id, user_id, token_symbol, confirmed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING id, from_address AS "fromAddress", to_address AS "toAddress",
                  amount, fee, tx_hash AS "txHash", status,
                  wallet_id AS "walletId", user_id AS "userId",
+                 COALESCE(token_symbol, 'GYD') AS "tokenSymbol",
                  created_at AS "createdAt", confirmed_at AS "confirmedAt"`,
-      [fromAddress, toAddress, amount, fee, txHash, status, walletId, userId, confirmedAt]
+      [fromAddress, toAddress, amount, fee, txHash, status, walletId, userId, tokenSymbol, confirmedAt]
     );
     return rows[0];
   },

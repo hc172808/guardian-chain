@@ -92,6 +92,7 @@ export const transactions = pgTable("transactions", {
   blockHeight: bigint("block_height", { mode: "number" }),
   walletId: uuid("wallet_id"),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenSymbol: text("token_symbol").notNull().default("GYD"),
   createdAt: timestamp("created_at").defaultNow(),
   confirmedAt: timestamp("confirmed_at"),
 });

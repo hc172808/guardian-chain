@@ -332,10 +332,8 @@ const WalletContent = () => {
     // Also check operations created_by this user (for pre-mine tracking)
     const isCreator = (createdBy: string | null) => createdBy === user.id;
 
-    // Get all confirmed transactions involving user's addresses
-    const txData = (allTx || []).filter((tx: any) =>
-      (tx.user_id === user.id || tx.userId === user.id) && tx.status === 'confirmed'
-    );
+    // Get all confirmed transactions involving user's addresses (sent OR received)
+    const txData = (allTx || []).filter((tx: any) => tx.status === 'confirmed');
 
     // Get token operations (pre-mine / mint) for the user
     const opsData = (opsRaw || []).filter((op: any) => op.status === 'confirmed');
@@ -386,17 +384,20 @@ const WalletContent = () => {
       });
     }
 
-    // Net from transactions (sent = debit, received = credit)
+    // Net from transactions (sent = debit, received = credit), respecting token type
     if (txData) {
       txData.forEach(tx => {
-        const fromMe = myAddresses.has(tx.from_address.toLowerCase());
-        const toMe = myAddresses.has(tx.to_address.toLowerCase());
-        // For now, assume GYD for user transactions
-        if (fromMe) {
-          gydBalance -= tx.amount + tx.fee;
-        }
-        if (toMe) {
-          gydBalance += tx.amount;
+        const fromMe = myAddresses.has((tx.from_address ?? tx.fromAddress ?? '').toLowerCase());
+        const toMe   = myAddresses.has((tx.to_address   ?? tx.toAddress   ?? '').toLowerCase());
+        const symbol = (tx.token_symbol ?? tx.tokenSymbol ?? 'GYD').toUpperCase();
+        const amt    = Number(tx.amount ?? 0);
+        const fee    = Number(tx.fee ?? 0);
+        if (symbol === 'GYDS') {
+          if (fromMe) gydsBalance -= amt + fee;
+          if (toMe)   gydsBalance += amt;
+        } else {
+          if (fromMe) gydBalance -= amt + fee;
+          if (toMe)   gydBalance += amt;
         }
       });
     }
@@ -666,6 +667,7 @@ const WalletContent = () => {
         status: 'confirmed',
         confirmed_at: new Date().toISOString(),
         wallet_id: wallets[0].id,
+        token_symbol: sendAsset,
       });
       toast({ title: `Sent ${amount} ${sendAsset}`, description: `Fee: ${fee.toFixed(6)} ${sendAsset}` });
       setSendDialogOpen(false);
