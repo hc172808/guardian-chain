@@ -1170,6 +1170,19 @@ export function registerRoutes(app: Express) {
     const txHash = `0xfaucet-${tokenType}-${Date.now().toString(16)}-${crypto.randomUUID().slice(0, 8)}`;
     await storage.insertFaucetClaim({ userId: user.id, walletAddress, tokenType, amount: String(amount), txHash, ipAddress: req.ip ?? null });
     await storage.insertTokenOperation({ operationType: tokenType === "gyd" ? "mint_gyd" : "mint_gyds", amount: String(amount), walletAddress, txHash, status: "confirmed", createdBy: user.id });
+    // Also insert a transaction record so the balance shows regardless of which address was claimed to
+    await storage.insertTransaction({
+      from_address: '0x000000000000000000000000000000000000fac3',
+      to_address: walletAddress,
+      amount: String(amount),
+      fee: '0',
+      tx_hash: txHash + '-tx',
+      status: 'confirmed',
+      wallet_id: null,
+      user_id: user.id,
+      token_symbol: tokenType.toUpperCase(),
+      confirmed_at: new Date().toISOString(),
+    });
     await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "faucet_claim", category: "token", targetType: "token", targetId: tokenType, details: { amount, wallet_address: walletAddress, tx_hash: txHash }, ipAddress: req.ip ?? null });
 
     res.json({ ok: true, tx_hash: txHash, amount, token_type: tokenType });
