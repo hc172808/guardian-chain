@@ -1,6 +1,6 @@
 # ChainCore — GYDS Dashboard · Feature Todo
 
-_Last updated: June 27, 2026_
+_Last updated: June 30, 2026_
 
 ---
 

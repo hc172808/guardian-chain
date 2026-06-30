@@ -180,17 +180,18 @@ export const SwapInterface = () => {
         .eq('is_active', true)
         .order('symbol');
 
-      // Get coin logos
-      const { data: logoData } = await supabase
-        .from('admin_config')
-        .select('config_key, config_value')
-        .in('config_key', ['gyds_logo', 'gyd_logo']);
-
+      // Get coin logos via direct API (supabase shim can't filter admin_config reliably)
       const logos: Record<string, string> = {};
-      (logoData || []).forEach(c => {
-        const val = c.config_value as Record<string, string>;
-        if (val?.url) logos[c.config_key] = val.url;
-      });
+      try {
+        const [gydsLogoRes, gydLogoRes] = await Promise.all([
+          fetch('/api/config/gyds_logo', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+          fetch('/api/config/gyd_logo',  { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+        ]);
+        const gVal = gydsLogoRes?.configValue ?? gydsLogoRes?.config_value;
+        const dVal = gydLogoRes?.configValue  ?? gydLogoRes?.config_value;
+        if (gVal?.url) logos['gyds_logo'] = gVal.url;
+        if (dVal?.url) logos['gyd_logo']  = dVal.url;
+      } catch {}
 
       // Get GYDS price
       const { data: priceData } = await supabase

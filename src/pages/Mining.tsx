@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
@@ -22,17 +22,38 @@ import { BookOpen } from 'lucide-react';
 const MiningContent = () => {
   const { user } = useAuth();
   const [isVpnConnected, setIsVpnConnected] = useState(false);
+  const [hasApprovedNode, setHasApprovedNode] = useState(false);
   const [selectedAlgorithm, setSelectedAlgorithm] = useState<MiningAlgorithm>('randomx');
   const [isMining, setIsMining] = useState(false);
   const [miningClient, setMiningClient] = useState<MiningEngine | null>(null);
   const [activeTab, setActiveTab] = useState('pools');
 
+  // Auto-detect approved nodes — if any exist, allow mining without real WireGuard
+  useEffect(() => {
+    const checkNodes = async () => {
+      try {
+        const nodes = await fetch('/api/nodes', { credentials: 'include' }).then(r => r.ok ? r.json() : []);
+        const approved = (nodes || []).some(
+          (n: any) => (n.isApproved ?? n.is_approved) && (n.isOnline ?? n.is_online)
+        );
+        setHasApprovedNode(approved);
+        if (approved) setIsVpnConnected(true);
+      } catch {}
+    };
+    checkNodes();
+    const iv = setInterval(checkNodes, 15000);
+    return () => clearInterval(iv);
+  }, [user]);
+
   const handleVpnConnection = useCallback((connected: boolean) => {
-    setIsVpnConnected(connected);
-    if (!connected && isMining) {
-      stopMining();
+    // Only disconnect if no approved node exists either
+    if (connected) {
+      setIsVpnConnected(true);
+    } else if (!hasApprovedNode) {
+      setIsVpnConnected(false);
+      if (isMining) stopMining();
     }
-  }, [isMining]);
+  }, [isMining, hasApprovedNode]);
 
   const startMining = async () => {
     if (!isVpnConnected || !user) return;
