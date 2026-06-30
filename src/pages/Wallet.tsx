@@ -366,20 +366,25 @@ const WalletContent = () => {
     let gydsBalance = 0;
     let gydBalance = 0;
 
-    // Credits from token operations (pre-mine, mint)
+    // Credits from token operations (pre-mine, mint, faucet)
+    // API returns camelCase from Drizzle — handle both camelCase and snake_case defensively
     if (opsData) {
       opsData.forEach(op => {
-        const addressMatch = myAddresses.has(op.wallet_address.toLowerCase());
-        const creatorMatch = isCreator(op.created_by);
+        const walletAddr    = (op.walletAddress ?? op.wallet_address ?? '').toLowerCase();
+        const opType        = op.operationType ?? op.operation_type ?? '';
+        const opCreatedBy   = op.createdBy ?? op.created_by ?? null;
+        const amt           = Number(op.amount ?? 0);
+        const addressMatch  = walletAddr ? myAddresses.has(walletAddr) : false;
+        const creatorMatch  = isCreator(opCreatedBy);
         if (!addressMatch && !creatorMatch) return;
-        if (op.operation_type === 'mint_gyds' || op.operation_type === 'premine_gyds' || op.operation_type === 'mint') {
-          gydsBalance += op.amount;
-        } else if (op.operation_type === 'mint_gyd' || op.operation_type === 'premine_gyd') {
-          gydBalance += op.amount;
-        } else if (op.operation_type === 'burn_gyds' || op.operation_type === 'burn') {
-          gydsBalance -= op.amount;
-        } else if (op.operation_type === 'burn_gyd') {
-          gydBalance -= op.amount;
+        if (opType === 'mint_gyds' || opType === 'premine_gyds' || opType === 'mint') {
+          gydsBalance += amt;
+        } else if (opType === 'mint_gyd' || opType === 'premine_gyd') {
+          gydBalance += amt;
+        } else if (opType === 'burn_gyds' || opType === 'burn') {
+          gydsBalance -= amt;
+        } else if (opType === 'burn_gyd') {
+          gydBalance -= amt;
         }
       });
     }
