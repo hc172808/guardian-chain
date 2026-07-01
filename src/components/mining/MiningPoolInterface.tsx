@@ -235,7 +235,7 @@ export const MiningPoolInterface = () => {
         <GlassCard>
           <h4 className="text-sm font-medium text-muted-foreground mb-3">Pending Rewards</h4>
           <p className="text-2xl font-bold font-mono text-neon-emerald">
-            {poolStats.pendingRewards.toFixed(8)}
+            {Number(poolStats.pendingRewards || 0).toFixed(8)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">{TOKENOMICS.symbol}</p>
         </GlassCard>
@@ -243,7 +243,7 @@ export const MiningPoolInterface = () => {
         <GlassCard>
           <h4 className="text-sm font-medium text-muted-foreground mb-3">Total Paid</h4>
           <p className="text-2xl font-bold font-mono">
-            {poolStats.totalPaid.toFixed(6)}
+            {Number(poolStats.totalPaid || 0).toFixed(6)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">{TOKENOMICS.symbol}</p>
         </GlassCard>
@@ -291,9 +291,9 @@ export const MiningPoolInterface = () => {
                       </Badge>
                     </TableCell>
                     <TableCell className="font-mono">
-                      {miner.algorithm === 'randomx' 
-                        ? `${miner.hashRate.toFixed(0)} H/s`
-                        : `${(miner.hashRate / 1e9).toFixed(2)} GH/s`
+                      {miner.algorithm === 'randomx'
+                        ? `${Number(miner.hashRate || 0).toFixed(0)} H/s`
+                        : `${(Number(miner.hashRate || 0) / 1e9).toFixed(2)} GH/s`
                       }
                     </TableCell>
                     <TableCell className="font-mono">
@@ -311,7 +311,7 @@ export const MiningPoolInterface = () => {
                       </div>
                     </TableCell>
                     <TableCell className="font-mono text-neon-emerald">
-                      {miner.pendingReward.toFixed(8)}
+                      {Number(miner.pendingReward || 0).toFixed(8)}
                     </TableCell>
                     <TableCell>
                       <Badge 
@@ -362,7 +362,7 @@ export const MiningPoolInterface = () => {
                 </div>
                 <div className="text-right">
                   <p className="font-mono font-bold text-neon-emerald">
-                    +{reward.totalReward.toFixed(8)} {TOKENOMICS.symbol}
+                    +{Number(reward.totalReward || 0).toFixed(8)} {TOKENOMICS.symbol}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {reward.minerRewards.length} miners
