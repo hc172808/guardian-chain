@@ -39,6 +39,7 @@ export const profiles = pgTable("profiles", {
   timezone: text("timezone").default("UTC"),
   notificationPrefs: jsonb("notification_prefs"),
   metadata: jsonb("metadata"),
+  preferredCurrency: text("preferred_currency").default("USD"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -524,4 +525,433 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   expiresAt: timestamp("expires_at").notNull(),
   usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const paymentMethods = pgTable("payment_methods", {
+  id: integer("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  description: text("description"),
+  instructions: text("instructions"),
+  icon: text("icon"),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  configJson: text("config_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const governanceTreasury = pgTable("governance_treasury", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  coin: text("coin").notNull(),
+  balance: numeric("balance").notNull().default("0"),
+  usdValue: numeric("usd_value").notNull().default("0"),
+  address: text("address"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const nftCollections = pgTable("nft_collections", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  symbol: text("symbol").notNull(),
+  description: text("description"),
+  floorPrice: numeric("floor_price").notNull().default("0"),
+  volume24h: numeric("volume_24h").notNull().default("0"),
+  change24h: numeric("change_24h").notNull().default("0"),
+  totalItems: integer("total_items").notNull().default(0),
+  imageEmoji: text("image_emoji"),
+  creatorAddress: text("creator_address"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const nftTokens = pgTable("nft_tokens", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  collectionId: uuid("collection_id").references(() => nftCollections.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  tokenId: integer("token_id").notNull(),
+  ownerAddress: text("owner_address"),
+  price: numeric("price").notNull().default("0"),
+  lastSale: numeric("last_sale"),
+  rarity: text("rarity"),
+  imageEmoji: text("image_emoji"),
+  listed: boolean("listed").notNull().default(false),
+  metadata: jsonb("metadata"),
+  mintedAt: timestamp("minted_at").defaultNow(),
+});
+
+export const insurancePools = pgTable("insurance_pools", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  coverageType: text("coverage_type").notNull(),
+  description: text("description"),
+  totalCoverage: numeric("total_coverage").notNull().default("0"),
+  totalStaked: numeric("total_staked").notNull().default("0"),
+  premiumRate: numeric("premium_rate").notNull().default("0"),
+  claimPeriod: integer("claim_period").notNull().default(30),
+  minCoverage: numeric("min_coverage").notNull().default("0"),
+  maxCoverage: numeric("max_coverage").notNull().default("0"),
+  imageEmoji: text("image_emoji"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insurancePolicies = pgTable("insurance_policies", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  poolId: uuid("pool_id").references(() => insurancePools.id),
+  holderId: integer("holder_id").notNull(),
+  coverageAmount: numeric("coverage_amount").notNull(),
+  premiumPaid: numeric("premium_paid").notNull().default("0"),
+  startsAt: timestamp("starts_at"),
+  endsAt: timestamp("ends_at"),
+  status: text("status").notNull().default("active"),
+  claimReason: text("claim_reason"),
+  claimSubmittedAt: timestamp("claim_submitted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const priceHistory = pgTable("price_history", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  coin: text("coin").notNull(),
+  open: numeric("open").notNull(),
+  close: numeric("close").notNull(),
+  high: numeric("high").notNull(),
+  low: numeric("low").notNull(),
+  volume: bigint("volume", { mode: "number" }).notNull().default(0),
+  timestamp: timestamp("timestamp").defaultNow(),
+});
+
+export const rwaAssets = pgTable("rwa_assets", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  description: text("description"),
+  totalValue: numeric("total_value").notNull().default("0"),
+  tokenPrice: numeric("token_price").notNull().default("1"),
+  tokensAvailable: integer("tokens_available").notNull().default(0),
+  totalTokens: integer("total_tokens").notNull().default(0),
+  apy: numeric("apy").notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  jurisdiction: text("jurisdiction"),
+  audited: boolean("audited").notNull().default(false),
+  maturity: text("maturity"),
+  docCid: text("doc_cid"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const rwaHoldings = pgTable("rwa_holdings", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  assetId: uuid("asset_id").references(() => rwaAssets.id),
+  tokensHeld: numeric("tokens_held").notNull().default("0"),
+  investedAmount: numeric("invested_amount").notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const networkSnapshots = pgTable("network_snapshots", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  activeValidators: integer("active_validators").notNull().default(0),
+  activeNodes: integer("active_nodes").notNull().default(0),
+  totalTransactions: bigint("total_transactions", { mode: "number" }).notNull().default(0),
+  totalTokens: integer("total_tokens").notNull().default(0),
+  tps: numeric("tps").notNull().default("0"),
+  capturedAt: timestamp("captured_at").defaultNow(),
+});
+
+export const tradeHistory = pgTable("trade_history", {
+  id: integer("id").primaryKey(),
+  pair: text("pair").notNull(),
+  price: numeric("price").notNull(),
+  amount: numeric("amount").notNull(),
+  side: text("side").notNull(),
+  takerId: text("taker_id"),
+  makerId: text("maker_id"),
+  executedAt: timestamp("executed_at").defaultNow(),
+});
+
+export const oracleFeeds = pgTable("oracle_feeds", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  feedId: text("feed_id").notNull(),
+  description: text("description"),
+  value: numeric("value").notNull().default("0"),
+  decimals: integer("decimals").notNull().default(8),
+  provider: text("provider"),
+  active: boolean("active").notNull().default(true),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+});
+
+export const oracleSubmissions = pgTable("oracle_submissions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  feedId: text("feed_id").notNull(),
+  submitter: text("submitter").notNull(),
+  value: numeric("value").notNull(),
+  blockHeight: bigint("block_height", { mode: "number" }),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+});
+
+export const apiKeys = pgTable("api_keys", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  name: text("name").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  keyHash: text("key_hash").notNull(),
+  scopes: text("scopes").array().default(sql`'{}'`),
+  requestCount: integer("request_count").notNull().default(0),
+  requestLimit: integer("request_limit").notNull().default(10000),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  revoked: boolean("revoked").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const apiUsageLogs = pgTable("api_usage_logs", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  keyId: uuid("key_id"),
+  userId: text("user_id"),
+  endpoint: text("endpoint"),
+  method: text("method"),
+  statusCode: integer("status_code"),
+  latencyMs: integer("latency_ms"),
+  loggedAt: timestamp("logged_at").defaultNow(),
+});
+
+export const bridgeTransfers = pgTable("bridge_transfers", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: integer("user_id"),
+  fromChain: text("from_chain").notNull(),
+  toChain: text("to_chain").notNull(),
+  fromToken: text("from_token").notNull(),
+  toToken: text("to_token").notNull(),
+  amount: numeric("amount").notNull(),
+  received: numeric("received"),
+  fee: numeric("fee").notNull().default("0"),
+  status: text("status").notNull().default("pending"),
+  txHash: text("tx_hash"),
+  destTxHash: text("dest_tx_hash"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const referrals = pgTable("referrals", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  code: text("code").notNull(),
+  referredCount: integer("referred_count").notNull().default(0),
+  totalEarned: numeric("total_earned").notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const referralEvents = pgTable("referral_events", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  referrerId: text("referrer_id").notNull(),
+  refereeId: text("referee_id").notNull(),
+  rewardAmount: numeric("reward_amount").notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const kycRecords = pgTable("kyc_records", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  tier: integer("tier").notNull().default(0),
+  status: text("status").notNull().default("unverified"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const didDocuments = pgTable("did_documents", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  did: text("did").notNull(),
+  document: jsonb("document"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const socialVerifications = pgTable("social_verifications", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: integer("user_id").notNull(),
+  platform: text("platform").notNull(),
+  handle: text("handle"),
+  challengeCode: text("challenge_code"),
+  verified: boolean("verified").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  verifiedAt: timestamp("verified_at"),
+});
+
+export const trusts = pgTable("trusts", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("draft"),
+  feePaid: boolean("fee_paid").notNull().default(false),
+  setupFeeTx: text("setup_fee_tx"),
+  trusteeAddress: text("trustee_address"),
+  successorTrustee: text("successor_trustee"),
+  vaultBalance: numeric("vault_balance").notNull().default("0"),
+  expiresAt: timestamp("expires_at"),
+  activatedAt: timestamp("activated_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const trustBeneficiaries = pgTable("trust_beneficiaries", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  trustId: uuid("trust_id").references(() => trusts.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  walletAddress: text("wallet_address"),
+  percentage: numeric("percentage").notNull().default("0"),
+  relationship: text("relationship"),
+  conditionNote: text("condition_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const trustConditions = pgTable("trust_conditions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  trustId: uuid("trust_id").references(() => trusts.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  description: text("description"),
+  triggerDate: timestamp("trigger_date"),
+  triggered: boolean("triggered").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const trustPayments = pgTable("trust_payments", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  trustId: uuid("trust_id").references(() => trusts.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  amount: numeric("amount").notNull(),
+  paymentType: text("payment_type").notNull(),
+  txHash: text("tx_hash"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const multisigWallets = pgTable("multisig_wallets", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  address: text("address").notNull(),
+  threshold: integer("threshold").notNull().default(2),
+  creatorId: text("creator_id").notNull(),
+  balance: numeric("balance").notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const multisigSigners = pgTable("multisig_signers", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  walletId: uuid("wallet_id").references(() => multisigWallets.id, { onDelete: "cascade" }),
+  address: text("address").notNull(),
+  name: text("name"),
+  userId: text("user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const multisigTransactions = pgTable("multisig_transactions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  walletId: uuid("wallet_id").references(() => multisigWallets.id, { onDelete: "cascade" }),
+  proposerId: text("proposer_id").notNull(),
+  toAddress: text("to_address").notNull(),
+  amount: numeric("amount").notNull(),
+  symbol: text("symbol").notNull().default("GYD"),
+  description: text("description"),
+  approvals: integer("approvals").notNull().default(0),
+  rejections: integer("rejections").notNull().default(0),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const multisigSignatures = pgTable("multisig_signatures", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  txId: uuid("tx_id").references(() => multisigTransactions.id, { onDelete: "cascade" }),
+  signerId: text("signer_id").notNull(),
+  action: text("action").notNull().default("approve"),
+  signedAt: timestamp("signed_at").defaultNow(),
+});
+
+export const votingDelegations = pgTable("voting_delegations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  delegatorId: integer("delegator_id").notNull(),
+  delegateAddress: text("delegate_address").notNull(),
+  delegateUsername: text("delegate_username"),
+  powerDelegated: integer("power_delegated").notNull().default(1),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  revokedAt: timestamp("revoked_at"),
+});
+
+export const webhookEndpoints = pgTable("webhook_endpoints", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  url: text("url").notNull(),
+  secret: text("secret"),
+  events: text("events").array().default(sql`'{}'`),
+  active: boolean("active").notNull().default(true),
+  deliveryCount: integer("delivery_count").notNull().default(0),
+  lastDeliveredAt: timestamp("last_delivered_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  webhookId: uuid("webhook_id").references(() => webhookEndpoints.id, { onDelete: "cascade" }),
+  event: text("event").notNull(),
+  payload: jsonb("payload"),
+  responseStatus: integer("response_status"),
+  responseBody: text("response_body"),
+  durationMs: integer("duration_ms"),
+  success: boolean("success").notNull().default(false),
+  attemptedAt: timestamp("attempted_at").defaultNow(),
+});
+
+export const userNotifications = pgTable("user_notifications", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  read: boolean("read").notNull().default(false),
+  dismissed: boolean("dismissed").notNull().default(false),
+  link: text("link"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const walletReleases = pgTable("wallet_releases", {
+  id: integer("id").primaryKey(),
+  platform: text("platform").notNull(),
+  version: text("version").notNull(),
+  filename: text("filename").notNull(),
+  originalName: text("original_name"),
+  fileSize: bigint("file_size", { mode: "number" }),
+  notes: text("notes"),
+  downloadCount: integer("download_count").notNull().default(0),
+  uploadedBy: text("uploaded_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const buyRequests = pgTable("buy_requests", {
+  id: integer("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  paymentMethodId: integer("payment_method_id"),
+  paymentMethodName: text("payment_method_name"),
+  tokenSymbol: text("token_symbol").notNull(),
+  tokenAmount: numeric("token_amount").notNull(),
+  fiatAmount: numeric("fiat_amount"),
+  fiatCurrency: text("fiat_currency").notNull().default("USD"),
+  status: text("status").notNull().default("pending"),
+  reference: text("reference"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  processedAt: timestamp("processed_at"),
+});
+
+export const cashoutRequests = pgTable("cashout_requests", {
+  id: integer("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  asset: text("asset").notNull(),
+  amount: numeric("amount").notNull(),
+  destination: text("destination"),
+  note: text("note"),
+  reference: text("reference"),
+  paymentMethod: text("payment_method"),
+  status: text("status").notNull().default("pending"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  processedAt: timestamp("processed_at"),
 });
