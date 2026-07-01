@@ -8,7 +8,7 @@ import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
   Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe,
   Database, Rocket, Shield, MonitorDot, Link2, ChevronDown, ChevronUp,
-  Anchor, Radio
+  Anchor, Radio, FileText, Download, Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -379,6 +379,111 @@ function NetworkPanel({
   );
 }
 
+// ── Combined log file viewer ───────────────────────────────────────────────────
+function NodeLogFilePanel() {
+  const { toast } = useToast();
+  const [open, setOpen]     = useState(false);
+  const [lines, setLines]   = useState<string[]>([]);
+  const [meta, setMeta]     = useState<{ total: number; size: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  const fetchLog = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/test-nodes/logfile', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setLines(data.lines ?? []);
+        setMeta({ total: data.total ?? data.lines?.length ?? 0, size: data.size ?? 0 });
+        setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, 50);
+      }
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    fetchLog();
+    const id = setInterval(fetchLog, 5000);
+    return () => clearInterval(id);
+  }, [open, fetchLog]);
+
+  const clearLog = async () => {
+    if (!confirm('Clear the entire log file? This cannot be undone.')) return;
+    const res = await fetch('/api/admin/test-nodes/logfile', { method: 'DELETE', credentials: 'include' });
+    if (res.ok) { setLines([]); setMeta(null); toast({ title: 'Log file cleared' }); }
+  };
+
+  const downloadLog = () => {
+    window.open('/api/admin/test-nodes/logfile/download', '_blank');
+  };
+
+  return (
+    <GlassCard className="p-3 border border-border/30">
+      <button
+        className="w-full flex items-center justify-between gap-2 text-sm"
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-primary" />
+          <span className="font-semibold">Node Log File</span>
+          <Badge variant="outline" className="text-xs py-0 text-muted-foreground border-border/40">
+            logs/test-nodes.log
+          </Badge>
+          {meta && (
+            <Badge variant="outline" className="text-xs py-0 text-amber-400 border-amber-500/40 bg-amber-500/10">
+              {meta.total.toLocaleString()} lines · {(meta.size / 1024).toFixed(1)} KB
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {open && (
+            <>
+              <Button variant="outline" size="sm" className="h-6 px-2 text-xs gap-1" onClick={(e) => { e.stopPropagation(); fetchLog(); }}>
+                <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
+              </Button>
+              <Button variant="outline" size="sm" className="h-6 px-2 text-xs gap-1 text-blue-400 border-blue-500/40 hover:bg-blue-500/10" onClick={(e) => { e.stopPropagation(); downloadLog(); }}>
+                <Download className="w-3 h-3" /> Download
+              </Button>
+              <Button variant="outline" size="sm" className="h-6 px-2 text-xs gap-1 text-red-400 border-red-500/40 hover:bg-red-500/10" onClick={(e) => { e.stopPropagation(); clearLog(); }}>
+                <Trash2 className="w-3 h-3" /> Clear
+              </Button>
+            </>
+          )}
+          {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            All logs from every node across all networks are written here in real time. Showing last 2,000 lines.
+          </p>
+          <div
+            ref={logRef}
+            className="h-80 overflow-y-auto rounded-lg bg-black/60 border border-border/20 p-2 font-mono text-xs space-y-0.5"
+          >
+            {lines.length === 0
+              ? <p className="text-muted-foreground italic">No logs yet — start a node to begin logging.</p>
+              : lines.map((line, i) => (
+                <p key={i} className={cn('leading-relaxed whitespace-pre-wrap break-all',
+                  line.includes('ERROR') ? 'text-red-400'
+                  : line.includes('Block #') || line.includes('Header #') ? 'text-emerald-400'
+                  : line.includes('MEV') ? 'text-amber-400'
+                  : line.includes('started') ? 'text-yellow-300'
+                  : line.includes('stopped') ? 'text-orange-400'
+                  : line.includes('peers') ? 'text-cyan-300/80'
+                  : 'text-green-300/70'
+                )}>{line}</p>
+              ))
+            }
+          </div>
+        </div>
+      )}
+    </GlassCard>
+  );
+}
+
 const EMPTY_NODE_STATUS: NodeStatus = { running: false, startedAt: null, port: 0, blockHeight: 1000, peers: 0, txPool: 0 };
 const EMPTY_STATUS: FullStatus = {
   mainnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8545 }, lite: { ...EMPTY_NODE_STATUS, port: 8555 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8565 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8575 }, validator: { ...EMPTY_NODE_STATUS, port: 8585 }, genesis: { ...EMPTY_NODE_STATUS, port: 8590 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8595 } },
@@ -475,6 +580,9 @@ export function TestNodeManager() {
         </span>
         {anyRunningGlobal && <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />}
       </div>
+
+      {/* Combined log file viewer */}
+      <NodeLogFilePanel />
 
       {/* Network selector tabs */}
       <div className="flex gap-1 p-1 rounded-xl bg-muted/20 border border-border/20">

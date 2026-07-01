@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState } from "./testNodes";
+import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile } from "./testNodes";
 import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
@@ -1578,6 +1578,54 @@ export function registerRoutes(app: Express) {
     if (!VALID_NETWORKS.includes(network))   { res.status(400).json({ ok: false, message: "Invalid network" }); return; }
     if (!VALID_NODE_TYPES.includes(type))    { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     res.json(testNodeManager.getLogs(network, type));
+  });
+
+  // ── Node log file routes ───────────────────────────────────────────────────
+  // GET /api/admin/test-nodes/logfile — returns last N lines from the combined log file
+  app.get("/api/admin/test-nodes/logfile", requireAdmin, (_req, res) => {
+    const { fs: fsModule } = (() => { try { return { fs: require("fs") }; } catch { return { fs: null }; } })();
+    const fsMod = require("fs") as typeof import("fs");
+    const filePath = getNodeLogFilePath();
+    try {
+      if (!fsMod.existsSync(filePath)) {
+        res.json({ ok: true, lines: [], size: 0, path: filePath });
+        return;
+      }
+      const raw = fsMod.readFileSync(filePath, "utf8");
+      const lines = raw.split("\n").filter(Boolean);
+      const tail = lines.slice(-2000);
+      const stat = fsMod.statSync(filePath);
+      res.json({ ok: true, lines: tail, total: lines.length, size: stat.size, path: filePath });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // GET /api/admin/test-nodes/logfile/download — streams the raw log file as a download
+  app.get("/api/admin/test-nodes/logfile/download", requireAdmin, (_req, res) => {
+    const fsMod = require("fs") as typeof import("fs");
+    const filePath = getNodeLogFilePath();
+    try {
+      if (!fsMod.existsSync(filePath)) {
+        res.status(404).json({ ok: false, error: "Log file not found — start a node first." });
+        return;
+      }
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", "attachment; filename=\"test-nodes.log\"");
+      fsMod.createReadStream(filePath).pipe(res);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // DELETE /api/admin/test-nodes/logfile — clears the log file
+  app.delete("/api/admin/test-nodes/logfile", requireAdmin, (_req, res) => {
+    try {
+      clearNodeLogFile();
+      res.json({ ok: true, message: "Log file cleared" });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
   });
 
   // ── Bootup toggle — GET all states, PATCH one ─────────────────────────────

@@ -10,10 +10,38 @@
  *
  * Nodes persist across server restarts — desired state is stored in the test_node_state DB table.
  * A node runs UNTIL the admin explicitly clicks Stop. Server restarts auto-resume all running nodes.
+ *
+ * All node logs are written to: logs/test-nodes.log (relative to project root)
  */
 
 import { createServer, IncomingMessage, ServerResponse, Server } from "http";
 import { Pool } from "pg";
+import * as fs from "fs";
+import * as path from "path";
+
+// ── File logger setup ─────────────────────────────────────────────────────────
+const LOG_DIR  = path.resolve(process.cwd(), "logs");
+const LOG_FILE = path.join(LOG_DIR, "test-nodes.log");
+
+try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch {}
+
+let _logStream: fs.WriteStream | null = null;
+function getLogStream(): fs.WriteStream {
+  if (!_logStream || (_logStream as any).destroyed) {
+    _logStream = fs.createWriteStream(LOG_FILE, { flags: "a" });
+    _logStream.on("error", (e) => console.warn("[test-node-log] write error:", e.message));
+  }
+  return _logStream;
+}
+
+function writeToFile(line: string) {
+  try { getLogStream().write(line + "\n"); } catch {}
+}
+
+export function getNodeLogFilePath() { return LOG_FILE; }
+export function clearNodeLogFile() {
+  try { fs.writeFileSync(LOG_FILE, ""); } catch {}
+}
 
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -131,8 +159,10 @@ const MOCK_VALIDATORS: Record<Network, Array<{ address: string; staked: number; 
 function addLog(network: Network, type: NodeType, msg: string) {
   const s = state[network][type];
   const ts = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const line = `[${ts}] [${network}/${type}] ${msg}`;
   s.logs.push(`[${ts}] ${msg}`);
   if (s.logs.length > MAX_LOGS) s.logs.shift();
+  writeToFile(line);
 }
 
 function randHex(len: number) {
