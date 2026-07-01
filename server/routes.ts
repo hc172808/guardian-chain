@@ -288,12 +288,16 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/wallets", requireAuth, async (req, res) => {
     const user = req.user as any;
-    const { address, encrypted_seed = "", pin_hash = "" } = req.body;
-    if (!address) return res.status(400).json({ error: "address required" });
-    // Encrypt seed at rest using AES-256-GCM if WALLET_ENCRYPTION_KEY is set
-    const seedToStore = encryptSeed(encrypted_seed);
-    const row = await storage.insertWallet({ userId: user.id, address, encryptedSeed: seedToStore, pinHash: pin_hash });
-    res.json(row);
+    try {
+      const { address, encrypted_seed = "", pin_hash = "" } = req.body;
+      if (!address) return res.status(400).json({ error: "address required" });
+      const seedToStore = encryptSeed(encrypted_seed);
+      const row = await storage.insertWallet({ userId: user.id, address, encryptedSeed: seedToStore, pinHash: pin_hash });
+      res.json(row);
+    } catch (err: any) {
+      console.error("[wallets] create error:", err.message);
+      res.status(500).json({ error: err.message ?? "Failed to create wallet" });
+    }
   });
 
   app.delete("/api/wallets/:id", requireAuth, async (req, res) => {
@@ -3618,11 +3622,11 @@ export function registerRoutes(app: Express) {
   }
   ensurePaymentTables().catch(console.error);
 
-  // Ensure wallet_releases table exists
+  // Ensure wallet_releases table exists (platform: android/ios/windows/mac)
   pgPool.query(`
     CREATE TABLE IF NOT EXISTS wallet_releases (
       id SERIAL PRIMARY KEY,
-      platform TEXT NOT NULL CHECK (platform IN ('android','ios','windows','macos')),
+      platform TEXT NOT NULL,
       version TEXT NOT NULL,
       filename TEXT NOT NULL,
       original_name TEXT NOT NULL,
@@ -3632,7 +3636,13 @@ export function registerRoutes(app: Express) {
       uploaded_by TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
-  `).catch(console.error);
+  `).then(() =>
+    // Drop any legacy CHECK constraint that used 'macos' instead of 'mac'
+    pgPool.query(`
+      ALTER TABLE wallet_releases
+        DROP CONSTRAINT IF EXISTS wallet_releases_platform_check
+    `)
+  ).catch(console.error);
 
   app.get("/api/payment-methods", async (_req, res) => {
     try {

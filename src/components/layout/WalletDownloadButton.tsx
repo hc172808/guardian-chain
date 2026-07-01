@@ -31,11 +31,17 @@ export function WalletDownloadButton() {
   const [open, setOpen] = useState(false);
   const [downloading, setDownloading] = useState<number | null>(null);
 
-  const { data: releases = [] } = useQuery<WalletRelease[]>({
+  const { data: _releases } = useQuery<WalletRelease[]>({
     queryKey: ['wallet-releases'],
-    queryFn: () => fetch('/api/wallet-releases').then(r => r.json()),
+    queryFn: async () => {
+      const res = await fetch('/api/wallet-releases');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'Failed to load releases');
+      return Array.isArray(data) ? data : [];
+    },
     staleTime: 60_000,
   });
+  const releases: WalletRelease[] = Array.isArray(_releases) ? _releases : [];
 
   if (!user) return null;
   if (releases.length === 0) return null;
@@ -150,10 +156,16 @@ export function WalletReleaseManager() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const { data: releases = [], isLoading } = useQuery<WalletRelease[]>({
+  const { data: _releasesAll, isLoading } = useQuery<WalletRelease[]>({
     queryKey: ['wallet-releases'],
-    queryFn: () => fetch('/api/wallet-releases').then(r => r.json()),
+    queryFn: async () => {
+      const res = await fetch('/api/wallet-releases');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'Failed to load releases');
+      return Array.isArray(data) ? data : [];
+    },
   });
+  const releases: WalletRelease[] = Array.isArray(_releasesAll) ? _releasesAll : [];
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>

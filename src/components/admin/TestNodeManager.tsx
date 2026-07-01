@@ -8,7 +8,7 @@ import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
   Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe,
   Database, Rocket, Shield, MonitorDot, Link2, ChevronDown, ChevronUp,
-  Anchor, Radio, FileText, Download, Trash2
+  Anchor, Radio, FileText, Download, Trash2, Search, X as XIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -380,13 +380,27 @@ function NetworkPanel({
 }
 
 // ── Combined log file viewer ───────────────────────────────────────────────────
+const LOG_FILTER_PRESETS = [
+  { label: 'All',      value: '' },
+  { label: 'Errors',   value: 'ERROR' },
+  { label: 'Blocks',   value: 'Block #' },
+  { label: 'Mainnet',  value: '[mainnet/' },
+  { label: 'Testnet',  value: '[testnet/' },
+  { label: 'Devnet',   value: '[devnet/' },
+  { label: 'RPC',      value: '/rpc]' },
+  { label: 'Validator',value: '/validator]' },
+];
+
 function NodeLogFilePanel() {
   const { toast } = useToast();
-  const [open, setOpen]     = useState(false);
-  const [lines, setLines]   = useState<string[]>([]);
-  const [meta, setMeta]     = useState<{ total: number; size: number } | null>(null);
+  const [open, setOpen]       = useState(false);
+  const [lines, setLines]     = useState<string[]>([]);
+  const [meta, setMeta]       = useState<{ total: number; size: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [search, setSearch]   = useState('');
+  const [preset, setPreset]   = useState('');
   const logRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const fetchLog = useCallback(async () => {
     setLoading(true);
@@ -414,8 +428,16 @@ function NodeLogFilePanel() {
     if (res.ok) { setLines([]); setMeta(null); toast({ title: 'Log file cleared' }); }
   };
 
-  const downloadLog = () => {
-    window.open('/api/admin/test-nodes/logfile/download', '_blank');
+  const downloadLog = () => { window.open('/api/admin/test-nodes/logfile/download', '_blank'); };
+
+  const filterText = search.trim() || preset;
+  const filtered = filterText
+    ? lines.filter(l => l.toLowerCase().includes(filterText.toLowerCase()))
+    : lines;
+
+  const applyPreset = (val: string) => {
+    setPreset(val);
+    setSearch('');
   };
 
   return (
@@ -424,8 +446,8 @@ function NodeLogFilePanel() {
         className="w-full flex items-center justify-between gap-2 text-sm"
         onClick={() => setOpen(o => !o)}
       >
-        <div className="flex items-center gap-2">
-          <FileText className="w-4 h-4 text-primary" />
+        <div className="flex items-center gap-2 flex-wrap">
+          <FileText className="w-4 h-4 text-primary shrink-0" />
           <span className="font-semibold">Node Log File</span>
           <Badge variant="outline" className="text-xs py-0 text-muted-foreground border-border/40">
             logs/test-nodes.log
@@ -436,7 +458,7 @@ function NodeLogFilePanel() {
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {open && (
             <>
               <Button variant="outline" size="sm" className="h-6 px-2 text-xs gap-1" onClick={(e) => { e.stopPropagation(); fetchLog(); }}>
@@ -456,26 +478,92 @@ function NodeLogFilePanel() {
 
       {open && (
         <div className="mt-3 space-y-2">
+          {/* Search bar */}
+          <div className="flex gap-2 items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <input
+                ref={searchRef}
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPreset(''); }}
+                placeholder="Search logs… (node name, block #, error text)"
+                className="w-full pl-7 pr-7 py-1.5 rounded-lg bg-black/40 border border-border/30 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+              />
+              {search && (
+                <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setSearch('')}>
+                  <XIcon className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            {filterText && (
+              <Badge variant="outline" className="text-xs py-0.5 text-emerald-400 border-emerald-500/40 bg-emerald-500/10 shrink-0">
+                {filtered.length} match{filtered.length !== 1 ? 'es' : ''}
+              </Badge>
+            )}
+          </div>
+
+          {/* Quick-filter preset buttons */}
+          <div className="flex flex-wrap gap-1">
+            {LOG_FILTER_PRESETS.map(p => (
+              <button
+                key={p.value}
+                onClick={() => applyPreset(p.value)}
+                className={cn(
+                  'text-[10px] px-2 py-0.5 rounded border transition-all',
+                  (preset === p.value && !search)
+                    ? 'bg-primary/20 border-primary/50 text-primary'
+                    : 'border-border/30 text-muted-foreground hover:border-border/60 hover:text-foreground'
+                )}
+              >
+                {p.label}
+                {p.value === 'ERROR' && lines.filter(l => l.includes('ERROR')).length > 0 && (
+                  <span className="ml-1 text-red-400">
+                    ({lines.filter(l => l.includes('ERROR')).length})
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
           <p className="text-xs text-muted-foreground">
-            All logs from every node across all networks are written here in real time. Showing last 2,000 lines.
+            {filterText
+              ? `Showing ${filtered.length} of ${lines.length} lines matching "${filterText}"`
+              : `All logs from every node across all networks. Showing last ${lines.length.toLocaleString()} of ${meta?.total.toLocaleString() ?? '?'} lines.`
+            }
           </p>
+
           <div
             ref={logRef}
             className="h-80 overflow-y-auto rounded-lg bg-black/60 border border-border/20 p-2 font-mono text-xs space-y-0.5"
           >
-            {lines.length === 0
-              ? <p className="text-muted-foreground italic">No logs yet — start a node to begin logging.</p>
-              : lines.map((line, i) => (
-                <p key={i} className={cn('leading-relaxed whitespace-pre-wrap break-all',
-                  line.includes('ERROR') ? 'text-red-400'
-                  : line.includes('Block #') || line.includes('Header #') ? 'text-emerald-400'
-                  : line.includes('MEV') ? 'text-amber-400'
-                  : line.includes('started') ? 'text-yellow-300'
-                  : line.includes('stopped') ? 'text-orange-400'
-                  : line.includes('peers') ? 'text-cyan-300/80'
-                  : 'text-green-300/70'
-                )}>{line}</p>
-              ))
+            {filtered.length === 0
+              ? <p className="text-muted-foreground italic">
+                  {lines.length === 0 ? 'No logs yet — start a node to begin logging.' : `No lines match "${filterText}"`}
+                </p>
+              : filtered.map((line, i) => {
+                  const lo = line.toLowerCase();
+                  const matchIdx = filterText ? lo.indexOf(filterText.toLowerCase()) : -1;
+                  return (
+                    <p key={i} className={cn('leading-relaxed whitespace-pre-wrap break-all',
+                      line.includes('ERROR') ? 'text-red-400'
+                      : line.includes('Block #') || line.includes('Header #') ? 'text-emerald-400'
+                      : line.includes('MEV') ? 'text-amber-400'
+                      : line.includes('started') ? 'text-yellow-300'
+                      : line.includes('stopped') ? 'text-orange-400'
+                      : line.includes('peers') ? 'text-cyan-300/80'
+                      : 'text-green-300/70'
+                    )}>
+                      {matchIdx >= 0 && filterText
+                        ? <>
+                            {line.slice(0, matchIdx)}
+                            <mark className="bg-yellow-400/30 text-yellow-200 rounded-sm px-0.5">{line.slice(matchIdx, matchIdx + filterText.length)}</mark>
+                            {line.slice(matchIdx + filterText.length)}
+                          </>
+                        : line
+                      }
+                    </p>
+                  );
+                })
             }
           </div>
         </div>
