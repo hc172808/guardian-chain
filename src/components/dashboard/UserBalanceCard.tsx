@@ -41,17 +41,23 @@ export const UserBalanceCard = () => {
   const loadBalances = useCallback(async () => {
     if (!user) { setLoading(false); return; }
     try {
-      const [wallets, priceData] = await Promise.all([
+      const [wallets, priceData, serverBalance] = await Promise.all([
         api.get('/api/wallets').catch(() => []),
         api.get('/api/token-price').catch(() => null),
+        api.get('/api/user/balance').catch(() => null),
       ]);
       if (wallets?.length) setAddress(wallets[0].address);
       if (priceData?.price) setGydsPrice(Number(priceData.price));
 
-      const myAddresses = await getUserAddresses(user.id);
-      const balances = await computeUserBalances(user.id, myAddresses);
-      setGydsBalance(balances.gydsBalance);
-      setGydBalance(balances.gydBalance);
+      if (serverBalance && (serverBalance.gyds !== undefined || serverBalance.gyd !== undefined)) {
+        setGydsBalance(Number(serverBalance.gyds ?? 0));
+        setGydBalance(Number(serverBalance.gyd ?? 0));
+      } else {
+        const myAddresses = await getUserAddresses(user.id);
+        const balances = await computeUserBalances(user.id, myAddresses);
+        setGydsBalance(balances.gydsBalance);
+        setGydBalance(balances.gydBalance);
+      }
     } catch {}
     setLoading(false);
   }, [user]);

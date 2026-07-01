@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
@@ -111,10 +112,11 @@ function formatUptime(startedAt: string | null): string {
 }
 
 function NodeCard({
-  network, type, status, onStart, onStop, loading,
+  network, type, status, onStart, onStop, loading, bootup, onBootupToggle,
 }: {
   network: Network; type: NodeType; status: NodeStatus;
   onStart: () => void; onStop: () => void; loading: boolean;
+  bootup: boolean; onBootupToggle: (v: boolean) => void;
 }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -183,7 +185,15 @@ function NodeCard({
             <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{meta.description}</p>
           </div>
         </div>
-        <div className="flex gap-1.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col items-center gap-0.5" title={bootup ? 'Auto-starts at server boot' : 'Will not auto-start at boot'}>
+            <Switch
+              checked={bootup}
+              onCheckedChange={onBootupToggle}
+              className="scale-75 origin-center"
+            />
+            <span className="text-[9px] text-muted-foreground leading-none">{bootup ? 'Auto' : 'Manual'}</span>
+          </div>
           {status.running
             ? <Button variant="destructive" size="sm" onClick={onStop} disabled={loading} className="gap-1 h-7 px-2 text-xs"><Square className="w-3 h-3" /> Stop</Button>
             : <Button variant="default"     size="sm" onClick={onStart} disabled={loading} className="gap-1 h-7 px-2 text-xs"><Play className="w-3 h-3" /> Start</Button>
@@ -249,12 +259,14 @@ function NodeCard({
 }
 
 function NetworkPanel({
-  network, status, loading, onAction,
+  network, status, loading, onAction, bootup, onBootupToggle,
 }: {
   network: Network;
   status: Record<NodeType, NodeStatus>;
   loading: Record<string, boolean>;
   onAction: (network: Network, type: NodeType, act: 'start' | 'stop') => void;
+  bootup: Record<string, boolean>;
+  onBootupToggle: (network: Network, type: NodeType, v: boolean) => void;
 }) {
   const netCfg = NETWORK_CFG[network];
   const runningTypes = NODE_TYPES.filter(t => status[t]?.running);
@@ -342,6 +354,8 @@ function NetworkPanel({
             onStart={() => onAction(network, type, 'start')}
             onStop={() => onAction(network, type, 'stop')}
             loading={loading[`${network}:${type}`] ?? false}
+            bootup={bootup[`${network}:${type}`] ?? false}
+            onBootupToggle={(v) => onBootupToggle(network, type, v)}
           />
         ))}
       </div>
@@ -377,17 +391,24 @@ export function TestNodeManager() {
   const [status, setStatus]               = useState<FullStatus>(EMPTY_STATUS);
   const [loading, setLoading]             = useState<Record<string, boolean>>({});
   const [selectedNetwork, setSelectedNet] = useState<Network>('mainnet');
+  const [bootup, setBootup]               = useState<Record<string, boolean>>({});
 
   const fetchStatus = useCallback(async () => {
     const res = await fetch('/api/admin/test-nodes/status', { credentials: 'include' });
     if (res.ok) setStatus(await res.json());
   }, []);
 
+  const fetchBootup = useCallback(async () => {
+    const res = await fetch('/api/admin/test-nodes/bootup', { credentials: 'include' });
+    if (res.ok) setBootup(await res.json());
+  }, []);
+
   useEffect(() => {
     fetchStatus();
+    fetchBootup();
     const id = setInterval(fetchStatus, 5000);
     return () => clearInterval(id);
-  }, [fetchStatus]);
+  }, [fetchStatus, fetchBootup]);
 
   const onAction = async (network: Network, type: NodeType, act: 'start' | 'stop') => {
     const key = `${network}:${type}`;
@@ -401,6 +422,23 @@ export function TestNodeManager() {
       toast({ title: 'Request failed', variant: 'destructive' });
     } finally {
       setLoading(l => ({ ...l, [key]: false }));
+    }
+  };
+
+  const onBootupToggle = async (network: Network, type: NodeType, shouldRun: boolean) => {
+    const key = `${network}:${type}`;
+    setBootup(b => ({ ...b, [key]: shouldRun }));
+    try {
+      await fetch(`/api/admin/test-nodes/${network}/${type}/bootup`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shouldRun }),
+      });
+      toast({ title: shouldRun ? `${type} (${network}) will auto-start at boot` : `${type} (${network}) set to manual start`, variant: 'default' });
+    } catch {
+      setBootup(b => ({ ...b, [key]: !shouldRun }));
+      toast({ title: 'Failed to save bootup setting', variant: 'destructive' });
     }
   };
 
@@ -473,6 +511,8 @@ export function TestNodeManager() {
           status={status[selectedNetwork]}
           loading={loading}
           onAction={onAction}
+          bootup={bootup}
+          onBootupToggle={onBootupToggle}
         />
       )}
     </div>

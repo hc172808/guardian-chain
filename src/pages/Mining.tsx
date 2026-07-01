@@ -28,16 +28,21 @@ const MiningContent = () => {
   const [miningClient, setMiningClient] = useState<MiningEngine | null>(null);
   const [activeTab, setActiveTab] = useState('pools');
 
-  // Auto-detect approved nodes — if any exist, allow mining without real WireGuard
+  // Auto-detect approved nodes or running test nodes — allow mining without real WireGuard
   useEffect(() => {
     const checkNodes = async () => {
       try {
-        const nodes = await fetch('/api/nodes', { credentials: 'include' }).then(r => r.ok ? r.json() : []);
+        const [nodes, stats] = await Promise.all([
+          fetch('/api/nodes', { credentials: 'include' }).then(r => r.ok ? r.json() : []),
+          fetch('/api/network-stats').then(r => r.ok ? r.json() : null),
+        ]);
         const approved = (nodes || []).some(
           (n: any) => (n.isApproved ?? n.is_approved) && (n.isOnline ?? n.is_online)
         );
-        setHasApprovedNode(approved);
-        if (approved) setIsVpnConnected(true);
+        const liveNodes = Number(stats?.stats?.liveNodes ?? 0);
+        const hasNodes = approved || liveNodes > 0;
+        setHasApprovedNode(hasNodes);
+        if (hasNodes) setIsVpnConnected(true);
       } catch {}
     };
     checkNodes();

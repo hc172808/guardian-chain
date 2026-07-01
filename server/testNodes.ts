@@ -318,9 +318,16 @@ function jsonRpcDispatch(rpc: any, s: NodeState, cfg: NetworkCfg, opts: { booste
     case "eth_submitHashrate": return true;
     case "eth_protocolVersion": return "0x41";
     case "eth_coinbase":      return "0x" + "0".repeat(40);
-    case "eth_mining":        return false;
-    case "eth_hashrate":      return "0x0";
+    case "eth_mining":        return true;
+    case "eth_hashrate":      return "0x" + Math.floor(Math.random() * 1e9).toString(16);
     case "eth_accounts":      return [];
+    case "mining_connect":    return { sessionId: randHex(32), poolName: "GYDS-" + cfg.label + "-Pool", difficulty: "0000ffff", blockHeight: s.blockHeight, chainId: cfg.chainId };
+    case "mining_disconnect": return { ok: true };
+    case "mining_getWork":    return { jobId: randHex(16), target: "0000ffff" + "f".repeat(56), difficulty: "0000ffff", blockHeight: s.blockHeight, prevBlockHash: "0x" + randHex(64), timestamp: Math.floor(Date.now() / 1000), algorithm: "randomx" };
+    case "mining_submitShare":
+    case "mining_submitWork": return { accepted: true, reward: 0.01, message: "Share accepted!", newDifficulty: "0000ffff" };
+    case "mining_getStats":   return { hashRate: Math.floor(Math.random() * 5e6), validShares: Math.floor(Math.random() * 100), rejectedShares: Math.floor(Math.random() * 3), totalReward: Math.random() * 10, currentDifficulty: "0000ffff", humanScore: Math.random(), sessionId: randHex(16), uptime: Math.floor(Math.random() * 3600) };
+    case "mining_getPoolInfo": return { name: "GYDS-" + cfg.label + "-Pool", totalHashRate: Math.floor(Math.random() * 1e9), activeMiners: Math.floor(Math.random() * 50) + 1, blocksFound: Math.floor(Math.random() * 1000), poolFee: 1.0, minPayout: 0.1, difficulty: "0000ffff" };
     default:                          return null;
   }
 }
@@ -562,6 +569,7 @@ export const testNodeManager = {
       s.running = true;
       s.startedAt = new Date().toISOString();
       addLog(network, type, `${NODE_LABELS[type]} started on port ${s.port}`);
+
       addLog(network, type, `Network: ${cfg.name} | Chain ID: ${cfg.chainId} | Symbol: ${cfg.symbol}`);
       addLog(network, type, `Endpoint: http://0.0.0.0:${s.port}`);
       if (type === "boostnode") addLog(network, type, "MEV bundle endpoint: POST /boost/bundle");
@@ -642,5 +650,16 @@ export const testNodeManager = {
         if (state[network][type].running) this.stop(network, type);
       }
     }
+  },
+
+  getRunningNodes(): Array<{ network: Network; type: NodeType; port: number }> {
+    const result: Array<{ network: Network; type: NodeType; port: number }> = [];
+    for (const network of ALL_NETWORKS) {
+      for (const type of ALL_NODE_TYPES) {
+        const s = state[network][type];
+        if (s.running) result.push({ network, type, port: s.port });
+      }
+    }
+    return result;
   },
 };

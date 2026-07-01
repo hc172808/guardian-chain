@@ -171,7 +171,7 @@ const Explorer = () => {
           <LiveStatCard label="Validators" value={(networkStats?.activeValidators ?? '—').toString()} icon={<Users className="w-4 h-4" />} />
           <LiveStatCard label="Total Txs" value={totalTxCount} icon={<CheckCircle className="w-4 h-4" />} />
           <LiveStatCard label="Tokens" value={(networkStats?.totalTokens ?? tokens.length).toString()} icon={<Coins className="w-4 h-4" />} />
-          <LiveStatCard label="Status" value={isConnected ? 'Live' : gaveUp ? 'DB Mode' : 'Offline'} icon={isConnected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />} highlight={isConnected ? 'emerald' : gaveUp ? 'amber' : 'destructive'} />
+          <LiveStatCard label="Status" value={isConnected ? 'Live' : (networkStats?.liveNodes ?? 0) > 0 ? 'Nodes Active' : gaveUp ? 'DB Mode' : 'Offline'} icon={isConnected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />} highlight={isConnected ? 'emerald' : (networkStats?.liveNodes ?? 0) > 0 ? 'emerald' : gaveUp ? 'amber' : 'destructive'} />
         </div>
 
         {/* DB mode banner */}

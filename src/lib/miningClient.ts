@@ -319,11 +319,9 @@ export class MiningEngine {
   }
 }
 
-// Get the RPC endpoint from environment or config
+// Get the RPC endpoint — routes through the Express proxy so test nodes are reachable from the browser
 export const getRPCEndpoint = (): string => {
-  // In production, this would come from the admin config
-  // For now, use a default that points to the full node
-  return import.meta.env.VITE_MINING_RPC_ENDPOINT || 'http://localhost:8545';
+  return import.meta.env.VITE_MINING_RPC_ENDPOINT || '/api/mining/rpc';
 };
 
 // Create a mining client instance

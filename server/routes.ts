@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState } from "./testNodes";
+import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState } from "./testNodes";
 import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
@@ -1436,6 +1436,40 @@ export function registerRoutes(app: Express) {
   // Track DB row IDs keyed by "network:type"
   const testNodeDbIds = new Map<string, string>();
 
+  // Background heartbeat — runs every 30 s regardless of who's looking at the admin panel.
+  // Ensures getLiveNodes() always counts auto-restarted test nodes.
+  const TEST_NODE_TYPE_MAP_HB: Record<string, string> = {
+    rpc: "rpcnode", lite: "litenode", fullnode: "fullnode",
+    boostnode: "boostnode", validator: "validatornode", genesis: "genesis", bootnode: "bootnode",
+  };
+  async function refreshTestNodeHeartbeats() {
+    const running = testNodeManager.getRunningNodes();
+    for (const { network, type } of running) {
+      const key = `${network}:${type}`;
+      let id = testNodeDbIds.get(key);
+      if (!id) {
+        // Not cached yet — look it up by wireguard_public_key pattern (same as upsertTestNodeInstallation)
+        try {
+          const nodeType = TEST_NODE_TYPE_MAP_HB[type] ?? type;
+          const rows = await pgPool.query(
+            `SELECT id FROM node_installations WHERE node_type=$1 AND wireguard_public_key LIKE $2 LIMIT 1`,
+            [nodeType, `LOCAL:%:${network}`]
+          );
+          if (rows.rows.length > 0) {
+            id = rows.rows[0].id as string;
+            testNodeDbIds.set(key, id);
+          }
+        } catch {}
+      }
+      if (id) {
+        storage.updateNode(id, { lastHeartbeat: new Date(), isOnline: true }).catch(() => {});
+      }
+    }
+  }
+  // Run once shortly after startup so auto-restarted nodes are immediately counted
+  setTimeout(refreshTestNodeHeartbeats, 5_000);
+  setInterval(refreshTestNodeHeartbeats, 30_000);
+
   async function upsertTestNodeInstallation(
     userId: string, network: string, type: string,
     statObj: { peers?: number; blockHeight?: number; port?: number }
@@ -1544,6 +1578,97 @@ export function registerRoutes(app: Express) {
     if (!VALID_NETWORKS.includes(network))   { res.status(400).json({ ok: false, message: "Invalid network" }); return; }
     if (!VALID_NODE_TYPES.includes(type))    { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
     res.json(testNodeManager.getLogs(network, type));
+  });
+
+  // ── Bootup toggle — GET all states, PATCH one ─────────────────────────────
+  app.get("/api/admin/test-nodes/bootup", requireAdmin, async (_req, res) => {
+    try {
+      const { pool: pgPool } = await import("./db");
+      const rows = await pgPool.query(`SELECT id, should_run FROM test_node_state`).catch(() => ({ rows: [] }));
+      const result: Record<string, boolean> = {};
+      for (const row of rows.rows) result[row.id] = Boolean(row.should_run);
+      res.json(result);
+    } catch { res.json({}); }
+  });
+
+  app.patch("/api/admin/test-nodes/:network/:type/bootup", requireAdmin, async (req, res) => {
+    const network = req.params.network as ValidNetwork;
+    const type    = req.params.type    as ValidNodeType;
+    if (!VALID_NETWORKS.includes(network)) return res.status(400).json({ error: "Invalid network" });
+    if (!VALID_NODE_TYPES.includes(type))  return res.status(400).json({ error: "Invalid node type" });
+    const { shouldRun } = req.body;
+    if (typeof shouldRun !== "boolean") return res.status(400).json({ error: "shouldRun (boolean) required" });
+    await saveTestNodeState(network, type, shouldRun);
+    res.json({ ok: true, network, type, shouldRun });
+  });
+
+  // ── Mining RPC proxy — proxies to best running test node ──────────────────
+  app.post("/api/mining/rpc", requireAuth, async (req, res) => {
+    const running = testNodeManager.getRunningNodes();
+    if (!running.length) {
+      return res.json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32000, message: "No test nodes are running. Start a node in the Admin panel first." } });
+    }
+    const preferred = running.find(n => n.type === "rpc" || n.type === "fullnode") ?? running[0];
+    try {
+      const resp = await fetch(`http://localhost:${preferred.port}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req.body),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const data = await resp.json();
+      res.json(data);
+    } catch (err: any) {
+      res.json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32001, message: "Node unreachable: " + (err?.message ?? "unknown") } });
+    }
+  });
+
+  // ── Server-side balance endpoint ──────────────────────────────────────────
+  app.get("/api/user/balance", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { pool: pgPool } = await import("./db");
+    try {
+      const walletsRes = await pgPool.query(`SELECT address FROM wallets WHERE user_id=$1`, [user.id]).catch(() => ({ rows: [] }));
+      const addresses: string[] = walletsRes.rows.map((r: any) => r.address.toLowerCase());
+
+      let gyds = 0, gyd = 0;
+
+      if (addresses.length > 0) {
+        const addrList = addresses.map((_: any, i: number) => `$${i + 1}`).join(",");
+        const ops = await pgPool.query(
+          `SELECT operation_type, amount, wallet_address FROM token_operations WHERE status='confirmed' AND LOWER(wallet_address) = ANY(ARRAY[${addrList}])`,
+          addresses
+        ).catch(() => ({ rows: [] }));
+
+        for (const op of ops.rows) {
+          const amt = Number(op.amount ?? 0);
+          const t = op.operation_type ?? "";
+          if (t === "mint_gyds" || t === "premine_gyds") gyds += amt;
+          else if (t === "mint_gyd" || t === "premine_gyd") gyd += amt;
+          else if (t === "burn_gyds" || t === "burn") gyds -= amt;
+          else if (t === "burn_gyd") gyd -= amt;
+        }
+
+        const txRes = await pgPool.query(
+          `SELECT from_address, to_address, token_symbol, amount, fee FROM transactions WHERE status='confirmed' AND (LOWER(from_address) = ANY(ARRAY[${addrList}]) OR LOWER(to_address) = ANY(ARRAY[${addrList}]))`,
+          addresses
+        ).catch(() => ({ rows: [] }));
+
+        for (const tx of txRes.rows) {
+          const amt = Number(tx.amount ?? 0);
+          const fee = Number(tx.fee ?? 0);
+          const sym = (tx.token_symbol ?? "GYDS").toUpperCase();
+          const fromMe = addresses.includes((tx.from_address ?? "").toLowerCase());
+          const toMe   = addresses.includes((tx.to_address   ?? "").toLowerCase());
+          if (sym === "GYDS") { if (fromMe) gyds -= amt + fee; if (toMe) gyds += amt; }
+          else if (sym === "GYD") { if (fromMe) gyd -= amt + fee; if (toMe) gyd += amt; }
+        }
+      }
+
+      res.json({ gyds: Math.max(0, gyds), gyd: Math.max(0, gyd), addresses });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // ── RPC Status: per-network running nodes ──────────────────────────────────
