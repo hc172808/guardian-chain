@@ -477,8 +477,8 @@ const WalletContent = () => {
       fetchWallets();
       // Notify DeFi / other components that a wallet is now available
       window.dispatchEvent(new CustomEvent('wallet-created', { detail: { address: wallet.address } }));
-    } catch {
-      toast({ title: 'Failed to create wallet', variant: 'destructive' });
+    } catch (err: any) {
+      toast({ title: 'Failed to create wallet', description: err?.message ?? 'Unknown error', variant: 'destructive' });
     }
   };
 
@@ -498,8 +498,8 @@ const WalletContent = () => {
       fetchWallets();
       // Notify DeFi / other components that a wallet is now available
       window.dispatchEvent(new CustomEvent('wallet-created', { detail: { address } }));
-    } catch {
-      toast({ title: 'Failed to import wallet', variant: 'destructive' });
+    } catch (err: any) {
+      toast({ title: 'Failed to import wallet', description: err?.message ?? 'Unknown error', variant: 'destructive' });
     }
   };
 

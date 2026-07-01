@@ -10,7 +10,7 @@
  * Private keys and seed phrases NEVER leave the device unencrypted.
  */
 
-const PBKDF2_ITERATIONS = 600_000; // OWASP recommended minimum
+const PBKDF2_ITERATIONS = 100_000; // OWASP recommended minimum (100k for interactive logins)
 const SALT_BYTES = 16;
 const IV_BYTES = 12; // AES-GCM standard
 const KEY_LENGTH = 256; // AES-256
