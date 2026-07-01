@@ -1688,6 +1688,97 @@ export function registerRoutes(app: Express) {
     } catch { res.json({}); }
   });
 
+  // POST start-all — starts all 7 node types for a given network (or all 3 networks)
+  app.post("/api/admin/test-nodes/:network/start-all", requireAdmin, async (req, res) => {
+    const network = req.params.network as ValidNetwork | "all";
+    const networks: ValidNetwork[] = network === "all" ? ["mainnet", "testnet", "devnet"] : [network as ValidNetwork];
+    if (!["mainnet", "testnet", "devnet", "all"].includes(network)) {
+      return res.status(400).json({ ok: false, message: "Invalid network" });
+    }
+    const results: any[] = [];
+    const userId = (req.user as any)?.id;
+    for (const net of networks) {
+      for (const type of VALID_NODE_TYPES) {
+        const result = testNodeManager.start(net, type);
+        saveTestNodeState(net, type, true).catch(() => {});
+        if (result.ok && userId) {
+          const s = (testNodeManager.status() as any)[net]?.[type] ?? {};
+          upsertTestNodeInstallation(userId, net, type, { peers: s.peers, blockHeight: s.blockHeight, port: s.port })
+            .catch((e: any) => console.error(`[test-node] upsert ${net}/${type} failed:`, e.message));
+        }
+        results.push({ network: net, type, ...result });
+      }
+    }
+    res.json({ ok: true, results });
+  });
+
+  // POST stop-all — stops all 7 node types for a given network (or all 3 networks)
+  app.post("/api/admin/test-nodes/:network/stop-all", requireAdmin, async (req, res) => {
+    const network = req.params.network as ValidNetwork | "all";
+    const networks: ValidNetwork[] = network === "all" ? ["mainnet", "testnet", "devnet"] : [network as ValidNetwork];
+    if (!["mainnet", "testnet", "devnet", "all"].includes(network)) {
+      return res.status(400).json({ ok: false, message: "Invalid network" });
+    }
+    const results: any[] = [];
+    for (const net of networks) {
+      for (const type of VALID_NODE_TYPES) {
+        const result = testNodeManager.stop(net, type);
+        saveTestNodeState(net, type, false).catch(() => {});
+        const id = testNodeDbIds.get(`${net}:${type}`);
+        if (id) storage.updateNode(id, { isOnline: false, lastHeartbeat: new Date() }).catch(() => {});
+        results.push({ network: net, type, ...result });
+      }
+    }
+    res.json({ ok: true, results });
+  });
+
+  // GET sync-check — compares each running node's block height to the real GYDSchain
+  app.get("/api/admin/test-nodes/sync-check", requireAdmin, async (_req, res) => {
+    let chainBlockHex: string | null = null;
+    let chainBlock = 0;
+    try {
+      const rpcEndpoints = [
+        process.env.GYDS_RPC_URL,
+        'https://rpc.netlifegy.com',
+        'https://rpc2.netlifegy.com',
+        'https://rpc3.netlifegy.com',
+      ].filter(Boolean);
+      for (const url of rpcEndpoints) {
+        try {
+          const r = await fetch(url!, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
+            signal: AbortSignal.timeout(4000),
+          });
+          const j: any = await r.json();
+          if (j?.result) { chainBlockHex = j.result; chainBlock = parseInt(j.result, 16); break; }
+        } catch {}
+      }
+    } catch {}
+
+    const statuses = testNodeManager.status() as any;
+    const syncResults: any[] = [];
+    for (const net of ["mainnet", "testnet", "devnet"] as ValidNetwork[]) {
+      for (const type of VALID_NODE_TYPES) {
+        const s = statuses[net]?.[type];
+        if (!s?.running) continue;
+        const lag = chainBlock > 0 ? Math.max(0, chainBlock - s.blockHeight) : null;
+        const synced = lag !== null ? lag <= 5 : null;
+        syncResults.push({
+          network: net, type,
+          localBlock: s.blockHeight,
+          chainBlock: chainBlock || null,
+          lag,
+          synced,
+          peers: s.peers,
+          port: s.port,
+        });
+      }
+    }
+    res.json({ chainBlock: chainBlock || null, chainBlockHex, nodes: syncResults });
+  });
+
   app.patch("/api/admin/test-nodes/:network/:type/bootup", requireAdmin, async (req, res) => {
     const network = req.params.network as ValidNetwork;
     const type    = req.params.type    as ValidNodeType;

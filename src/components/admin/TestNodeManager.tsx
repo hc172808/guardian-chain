@@ -8,9 +8,26 @@ import {
   Play, Square, RefreshCw, Terminal, Wifi, WifiOff,
   Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe,
   Database, Rocket, Shield, MonitorDot, Link2, ChevronDown, ChevronUp,
-  Anchor, Radio, FileText, Download, Trash2, Search, X as XIcon
+  Anchor, Radio, FileText, Download, Trash2, Search, X as XIcon,
+  PlayCircle, StopCircle, AlertTriangle, CheckCircle2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+interface SyncResult {
+  network: string;
+  type: string;
+  localBlock: number;
+  chainBlock: number | null;
+  lag: number | null;
+  synced: boolean | null;
+  peers: number;
+  port: number;
+}
+interface SyncCheck {
+  chainBlock: number | null;
+  chainBlockHex: string | null;
+  nodes: SyncResult[];
+}
 
 type Network  = 'mainnet' | 'testnet' | 'devnet';
 type NodeType = 'rpc' | 'lite' | 'fullnode' | 'boostnode' | 'validator' | 'genesis' | 'bootnode';
@@ -585,6 +602,10 @@ export function TestNodeManager() {
   const [loading, setLoading]             = useState<Record<string, boolean>>({});
   const [selectedNetwork, setSelectedNet] = useState<Network>('mainnet');
   const [bootup, setBootup]               = useState<Record<string, boolean>>({});
+  const [bulkLoading, setBulkLoading]     = useState(false);
+  const [syncData, setSyncData]           = useState<SyncCheck | null>(null);
+  const [syncLoading, setSyncLoading]     = useState(false);
+  const [showSync, setShowSync]           = useState(false);
 
   const fetchStatus = useCallback(async () => {
     const res = await fetch('/api/admin/test-nodes/status', { credentials: 'include' });
@@ -618,6 +639,38 @@ export function TestNodeManager() {
     }
   };
 
+  const onBulkAction = async (act: 'start-all' | 'stop-all') => {
+    setBulkLoading(true);
+    try {
+      const res = await fetch(`/api/admin/test-nodes/${selectedNetwork}/${act}`, { method: 'POST', credentials: 'include' });
+      const data = await res.json();
+      if (data.ok) {
+        toast({ title: act === 'start-all' ? `Starting all ${selectedNetwork} nodes…` : `Stopping all ${selectedNetwork} nodes…` });
+        await fetchStatus();
+      } else {
+        toast({ title: 'Bulk action failed', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Request failed', variant: 'destructive' });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const onSyncCheck = async () => {
+    setSyncLoading(true);
+    setShowSync(true);
+    try {
+      const res = await fetch('/api/admin/test-nodes/sync-check', { credentials: 'include' });
+      if (res.ok) setSyncData(await res.json());
+      else toast({ title: 'Sync check failed', variant: 'destructive' });
+    } catch {
+      toast({ title: 'Sync check failed', variant: 'destructive' });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
   const onBootupToggle = async (network: Network, type: NodeType, shouldRun: boolean) => {
     const key = `${network}:${type}`;
     setBootup(b => ({ ...b, [key]: shouldRun }));
@@ -637,11 +690,12 @@ export function TestNodeManager() {
 
   const totalRunning = NETWORKS.reduce((sum, n) => sum + NODE_TYPES.filter(t => status[n]?.[t]?.running).length, 0);
   const anyRunningGlobal = totalRunning > 0;
+  const networkRunning = NODE_TYPES.filter(t => status[selectedNetwork]?.[t]?.running).length;
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Server className="w-5 h-5 text-primary" /> Network Test Nodes
@@ -651,9 +705,20 @@ export function TestNodeManager() {
             <span className="text-amber-400 font-medium ml-1">Admin / Founder only.</span>
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchStatus} className="gap-1.5">
-          <RefreshCw className="w-3.5 h-3.5" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={fetchStatus} className="gap-1.5">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="outline" size="sm"
+            onClick={onSyncCheck}
+            disabled={syncLoading || !anyRunningGlobal}
+            className="gap-1.5 text-blue-400 border-blue-500/30 hover:bg-blue-500/10"
+          >
+            <Activity className="w-3.5 h-3.5" />
+            {syncLoading ? 'Checking…' : 'Sync Check'}
+          </Button>
+        </div>
       </div>
 
       {/* Global health bar */}
@@ -668,6 +733,65 @@ export function TestNodeManager() {
         </span>
         {anyRunningGlobal && <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />}
       </div>
+
+      {/* Sync check results */}
+      {showSync && (
+        <GlassCard className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Activity className="w-4 h-4 text-blue-400" />
+              Sync Status
+              {syncData?.chainBlock && (
+                <span className="text-xs text-muted-foreground font-normal">
+                  — chain head: block #{syncData.chainBlock.toLocaleString()}
+                </span>
+              )}
+            </h3>
+            <button onClick={() => setShowSync(false)} className="text-muted-foreground hover:text-foreground">
+              <XIcon className="w-4 h-4" />
+            </button>
+          </div>
+          {syncLoading && (
+            <p className="text-xs text-muted-foreground animate-pulse">Querying RPC endpoints…</p>
+          )}
+          {!syncLoading && syncData && syncData.nodes.length === 0 && (
+            <p className="text-xs text-muted-foreground">No nodes are currently running. Start nodes first.</p>
+          )}
+          {!syncLoading && syncData && syncData.nodes.length > 0 && (
+            <div className="grid gap-1.5">
+              {!syncData.chainBlock && (
+                <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 rounded p-2">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  Could not reach rpc.netlifegy.com — showing local block heights only
+                </div>
+              )}
+              {syncData.nodes.map(n => (
+                <div key={`${n.network}:${n.type}`}
+                  className="flex items-center justify-between text-xs px-3 py-2 rounded bg-muted/10 border border-border/20">
+                  <span className="flex items-center gap-2">
+                    {n.synced === true
+                      ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      : n.synced === false
+                      ? <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                      : <Activity className="w-3.5 h-3.5 text-blue-400" />}
+                    <span className="font-mono text-muted-foreground">{n.network}/{n.type}</span>
+                  </span>
+                  <span className="flex items-center gap-4 text-right">
+                    <span className="text-muted-foreground">block <span className="text-foreground font-mono">#{n.localBlock.toLocaleString()}</span></span>
+                    {n.lag !== null && (
+                      <Badge variant="outline"
+                        className={cn('text-[10px] h-4 px-1', n.lag <= 5 ? 'border-emerald-500/40 text-emerald-400' : 'border-amber-500/40 text-amber-400')}>
+                        {n.synced ? 'synced' : `${n.lag} behind`}
+                      </Badge>
+                    )}
+                    <span className="text-muted-foreground">{n.peers} peers</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+      )}
 
       {/* Combined log file viewer */}
       <NodeLogFilePanel />
@@ -698,6 +822,30 @@ export function TestNodeManager() {
             </button>
           );
         })}
+      </div>
+
+      {/* Bulk start/stop for selected network */}
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          onClick={() => onBulkAction('start-all')}
+          disabled={bulkLoading || networkRunning === 7}
+          className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+        >
+          <PlayCircle className="w-3.5 h-3.5" />
+          Start All ({selectedNetwork})
+        </Button>
+        <Button
+          size="sm" variant="outline"
+          onClick={() => onBulkAction('stop-all')}
+          disabled={bulkLoading || networkRunning === 0}
+          className="gap-1.5 border-red-500/40 text-red-400 hover:bg-red-500/10"
+        >
+          <StopCircle className="w-3.5 h-3.5" />
+          Stop All ({selectedNetwork})
+        </Button>
+        {bulkLoading && <span className="text-xs text-muted-foreground animate-pulse">Working…</span>}
+        <span className="ml-auto text-xs text-muted-foreground">{networkRunning}/7 running</span>
       </div>
 
       {/* Selected network panel */}

@@ -65,6 +65,37 @@ await refreshSecuritySettings();
 setInterval(() => refreshSecuritySettings().catch(() => {}), 5 * 60_000);
 
 await setupAuth(app);
+
+// ── IP Session Lock ────────────────────────────────────────────────────────
+// After login the session stores the client IP. Any subsequent request from
+// a different IP destroys the session and forces re-authentication.
+// Public paths (auth endpoints, RPC, static) are excluded.
+const IP_LOCK_SKIP = ['/api/auth/', '/rpc', '/api/rpc', '/api/exchange-rates', '/api/price'];
+app.use((req: any, res: any, next: any) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) return next();
+  // Skip non-API and public API paths
+  const skip = IP_LOCK_SKIP.some(p => req.path.startsWith(p));
+  if (skip) return next();
+
+  const sessionIp: string | undefined = (req.session as any).ip;
+  const currentIp: string = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
+
+  if (!sessionIp) {
+    // Legacy session without IP recorded — save it now, allow through
+    (req.session as any).ip = currentIp;
+    return next();
+  }
+
+  if (currentIp !== sessionIp) {
+    const username = (req.user as any)?.username ?? (req.user as any)?.id ?? 'unknown';
+    console.warn(`[ip-lock] IP mismatch for "${username}" — session: ${sessionIp}, request: ${currentIp}`);
+    req.session.destroy(() => {});
+    return res.status(401).json({ error: 'Session expired: IP address changed. Please log in again.' });
+  }
+
+  next();
+});
+
 registerRoutes(app);
 await seedFounder();
 await seedFirewallDefaults().catch(e => console.warn("seedFirewallDefaults:", e.message));
