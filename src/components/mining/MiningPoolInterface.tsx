@@ -78,48 +78,47 @@ export const MiningPoolInterface = () => {
   const [loading, setLoading] = useState(true);
   const [poolConnected, setPoolConnected] = useState(false);
 
-  // Fetch pool stats from node installations and aggregate
+  // Fetch pool stats — uses /api/mining/pool-status which merges DB nodes
+  // with any in-memory running test nodes so the pool shows LIVE immediately
+  // when test nodes are started, without waiting for a DB heartbeat cycle.
   useEffect(() => {
     const fetchPoolData = async () => {
       try {
-        const res = await fetch('/api/nodes', { credentials: 'include' });
-        const allNodes = res.ok ? await res.json() : [];
-        const nodes = Array.isArray(allNodes)
-          ? allNodes.filter((n: any) => n.isOnline || n.is_online)
-          : [];
+        const res = await fetch('/api/mining/pool-status', { credentials: 'include' });
+        if (!res.ok) { setLoading(false); return; }
+        const data = await res.json();
 
-        if (nodes.length > 0) {
-          const totalHashRate = nodes.reduce((sum: number, n: any) => sum + (n.hashRate || n.hash_rate || 0), 0);
-          const totalRewards = nodes.reduce((sum: number, n: any) => sum + (n.totalRewards || n.total_rewards || 0), 0);
-          const totalShares = nodes.reduce((sum: number, n: any) => sum + Number(n.validShares || n.valid_shares || 0), 0);
+        setPoolConnected(data.connected ?? false);
 
+        if (data.stats) {
           setPoolStats(prev => ({
             ...prev,
-            totalHashRate,
-            activeMiners: nodes.length,
-            pendingRewards: totalRewards * 0.1,
-            totalPaid: totalRewards * 0.9,
-            blocksFound: Math.floor(totalShares / 100),
+            totalHashRate:  data.stats.totalHashRate  ?? prev.totalHashRate,
+            activeMiners:   data.stats.activeMiners   ?? prev.activeMiners,
+            blocksFound:    data.stats.blocksFound     ?? prev.blocksFound,
+            pendingRewards: data.stats.pendingRewards  ?? prev.pendingRewards,
+            totalPaid:      data.stats.totalPaid       ?? prev.totalPaid,
+            difficulty:     data.stats.difficulty      ?? prev.difficulty,
+            luck:           data.stats.luck            ?? prev.luck,
+            poolFee:        data.stats.poolFee         ?? prev.poolFee,
+            minPayout:      data.stats.minPayout       ?? prev.minPayout,
           }));
-
-          const miners: ConnectedMiner[] = nodes.map((node: any) => ({
-            address: (node.wireguardPublicKey || node.wireguard_public_key)?.slice(0, 20) || `miner_${node.id.slice(0, 8)}`,
-            hashRate: node.hashRate || node.hash_rate || 0,
-            validShares: Number(node.validShares || node.valid_shares || 0),
-            rejectedShares: Math.floor((node.errorCount || node.error_count || 0) / 10),
-            pendingReward: node.totalRewards || node.total_rewards || 0,
-            lastSeen: node.lastHeartbeat || node.last_heartbeat || new Date().toISOString(),
-            algorithm: (node.hashRate || node.hash_rate || 0) > 1000000 ? 'kheavyhash' : 'randomx',
-            isOnline: node.isOnline || node.is_online || false,
-            humanScore: Math.max(70, 100 - (node.errorCount || node.error_count || 0)),
-          }));
-
-          setConnectedMiners(miners);
-          setPoolConnected(true);
-        } else {
-          setPoolConnected(false);
-          setConnectedMiners([]);
         }
+
+        const nodes: any[] = data.nodes ?? [];
+        const miners: ConnectedMiner[] = nodes.map((node: any) => ({
+          address: (node.wireguardPublicKey || node.wireguard_public_key)?.slice(0, 20)
+            || `miner_${String(node.id).slice(0, 8)}`,
+          hashRate:       node.hashRate       || node.hash_rate       || 0,
+          validShares:    Number(node.validShares  || node.valid_shares  || 0),
+          rejectedShares: Math.floor((node.errorCount || node.error_count || 0) / 10),
+          pendingReward:  node.totalRewards   || node.total_rewards   || 0,
+          lastSeen:       node.lastHeartbeat  || node.last_heartbeat  || new Date().toISOString(),
+          algorithm:      (node.hashRate || node.hash_rate || 0) > 1_000_000 ? 'kheavyhash' : 'randomx',
+          isOnline:       node.isOnline       || node.is_online       || false,
+          humanScore:     Math.max(70, 100 - (node.errorCount || node.error_count || 0)),
+        }));
+        setConnectedMiners(miners);
 
         setLoading(false);
       } catch (error) {
@@ -129,7 +128,7 @@ export const MiningPoolInterface = () => {
     };
 
     fetchPoolData();
-    const interval = setInterval(fetchPoolData, 15000);
+    const interval = setInterval(fetchPoolData, 10_000);
     return () => clearInterval(interval);
   }, []);
 

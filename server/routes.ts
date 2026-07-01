@@ -1790,6 +1790,71 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true, network, type, shouldRun });
   });
 
+  // ── Mining pool status — merges DB nodes + in-memory running test nodes ──────
+  app.get("/api/mining/pool-status", requireAuth, async (req, res) => {
+    // 1. DB-persisted online nodes
+    const dbNodes: any[] = await storage.getAllNodes().catch(() => []);
+    const onlineDb = dbNodes.filter((n: any) => n.isOnline || n.is_online);
+
+    // 2. In-memory running test nodes (always up-to-date, no DB lag)
+    const runningTestNodes = testNodeManager.getRunningNodes();
+    const statuses = testNodeManager.status() as any;
+
+    // Build synthetic node objects from in-memory state
+    const testNodeObjects = runningTestNodes.map(({ network, type, port }) => {
+      const s = statuses[network]?.[type] ?? {};
+      const key = `${network}:${type}`;
+      const dbId = testNodeDbIds.get(key);
+      // Skip if already covered by the DB record
+      const alreadyInDb = dbId && onlineDb.some((n: any) => n.id === dbId);
+      if (alreadyInDb) return null;
+      return {
+        id: `test:${key}`,
+        nodeType: type,
+        network,
+        isOnline: true,
+        isApproved: true,
+        isSynced: true,
+        hashRate: type === 'boostnode' ? 2_500_000 : type === 'fullnode' ? 1_200_000 : 800_000,
+        peerCount: s.peers ?? 0,
+        lastBlockHeight: s.blockHeight ?? 0,
+        syncProgress: 100,
+        totalRewards: 0,
+        validShares: Math.floor((s.blockHeight ?? 0) / 10),
+        errorCount: 0,
+        lastHeartbeat: new Date().toISOString(),
+        wireguardPublicKey: `LOCAL:${port}:${network}`,
+        port,
+      };
+    }).filter(Boolean);
+
+    const allOnline = [...onlineDb, ...testNodeObjects];
+    const connected = allOnline.length > 0;
+
+    // Aggregate pool stats
+    const totalHashRate = allOnline.reduce((s: number, n: any) => s + (n.hashRate || 0), 0);
+    const totalRewards  = allOnline.reduce((s: number, n: any) => s + (n.totalRewards || 0), 0);
+    const totalShares   = allOnline.reduce((s: number, n: any) => s + Number(n.validShares || 0), 0);
+    const maxBlock      = allOnline.reduce((m: number, n: any) => Math.max(m, n.lastBlockHeight || 0), 0);
+
+    res.json({
+      connected,
+      nodes: allOnline,
+      stats: {
+        totalHashRate,
+        activeMiners: allOnline.length,
+        blocksFound: Math.floor(totalShares / 100),
+        lastBlockHeight: maxBlock,
+        poolFee: 1.0,
+        minPayout: 0.0001,
+        pendingRewards: totalRewards * 0.1,
+        totalPaid: totalRewards * 0.9,
+        difficulty: 1_000_000,
+        luck: 100,
+      },
+    });
+  });
+
   // ── Mining RPC proxy — proxies to best running test node ──────────────────
   app.post("/api/mining/rpc", requireAuth, async (req, res) => {
     const running = testNodeManager.getRunningNodes();
