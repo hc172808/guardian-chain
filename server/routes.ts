@@ -32,9 +32,9 @@ interface GithubWebhookEvent {
 const githubWebhookEvents: GithubWebhookEvent[] = [];
 const githubPendingRecheck = new Set<string>(); // repos that need a NodeRepoSync recheck
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: "Too many login attempts. Please wait 15 minutes before trying again." } });
 const faucetLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Too many faucet requests." } });
-const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { error: "Rate limit exceeded." } });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, message: { error: "Rate limit exceeded. Please slow down." } });
 
 function requireAuth(req: Request, res: Response, next: any) {
   if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
