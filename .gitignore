@@ -1,3 +1,7 @@
+# Environment secrets — never commit real .env
+.env
+# .env.template IS committed so teammates can copy it
+
 # Logs
 logs
 *.log

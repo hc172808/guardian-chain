@@ -15,6 +15,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
+import { broadcastTransfer, pollForConfirmation, checkRpcHealth } from "./chainRpc";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
@@ -331,12 +332,56 @@ export function registerRoutes(app: Express) {
       const user = req.user as any;
       const row = await storage.insertTransaction({ ...req.body, userId: user.id });
       res.json(row);
+
       storage.awardXpOnce(user.id, 'first_transaction', 50, 'First transaction on GYDSchain! +50 XP').catch(() => {});
       broadcastActivity({ type: 'transaction', title: 'New Transaction', detail: `${req.body.type ?? 'transfer'} · ${req.body.amount ?? ''} ${req.body.tokenSymbol ?? req.body.token_symbol ?? ''}`.trim(), user: user.username ?? (user.walletAddress ?? '').slice(0, 10), ip: req.ip ?? undefined });
+
+      // ── Broadcast to GYDSchain network (fire-and-forget after response) ──────
+      const fromAddress = req.body.from_address ?? req.body.fromAddress ?? '';
+      const toAddress   = req.body.to_address   ?? req.body.toAddress   ?? '';
+      const amountEther = parseFloat(req.body.amount ?? '0');
+      const signedRaw   = req.body.signed_raw_tx ?? req.body.signedRawTx ?? undefined;
+
+      if (fromAddress && toAddress && amountEther > 0) {
+        broadcastTransfer({
+          fromAddress,
+          toAddress,
+          amountEther,
+          signedRawTx: signedRaw,
+          chainId: parseInt(process.env.GYDS_CHAIN_ID ?? '13370'),
+        }).then(async (broadcast) => {
+          const txId = row.id;
+          console.log(`[chain] tx ${txId} → onChain=${broadcast.onChain} hash=${broadcast.txHash} endpoint=${broadcast.endpoint ?? 'n/a'}${broadcast.error ? ' err=' + broadcast.error : ''}`);
+
+          if (broadcast.onChain) {
+            await pgPool.query(
+              `UPDATE transactions SET tx_hash=$1, status='pending' WHERE id=$2`,
+              [broadcast.txHash, txId]
+            );
+            // Poll for confirmation in background
+            pollForConfirmation(broadcast.txHash).then(async ({ confirmed, blockNumber }) => {
+              if (confirmed) {
+                await pgPool.query(
+                  `UPDATE transactions SET status='confirmed', confirmed_at=NOW() WHERE id=$1`,
+                  [txId]
+                );
+                console.log(`[chain] tx ${txId} confirmed at block ${blockNumber}`);
+                broadcastActivity({ type: 'transaction', title: 'Transaction Confirmed', detail: `${req.body.type ?? 'transfer'} · ${req.body.amount ?? ''} GYDS confirmed on-chain`, user: user.username ?? '', ip: req.ip ?? undefined });
+              }
+            }).catch((e) => console.warn('[chain] poll error:', e.message));
+          }
+        }).catch((e) => console.warn('[chain] broadcast error:', e.message));
+      }
     } catch (err: any) {
       console.error('[transactions] insert error:', err.message);
       res.status(500).json({ error: err.message ?? 'Failed to submit transaction' });
     }
+  });
+
+  // ── RPC health check endpoint ──────────────────────────────────────────────
+  app.get("/api/chain/health", requireAuth, async (_req, res) => {
+    const health = await checkRpcHealth();
+    res.json(health);
   });
 
   // ── RPC URL env config (admin) ─────────────────────────────────────────────
