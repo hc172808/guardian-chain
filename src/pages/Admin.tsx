@@ -73,6 +73,7 @@ import { RevenueDashboard } from '@/components/admin/RevenueDashboard';
 import { ActivityFeed } from '@/components/admin/ActivityFeed';
 import { GenesisManager } from '@/components/admin/GenesisManager';
 import { NodeDetailsDrawer } from '@/components/admin/NodeDetailsDrawer';
+import { FounderWalletPanel } from '@/components/admin/FounderWalletPanel';
 import { Download } from 'lucide-react';
 
 function GitSyncPanel({ toast }: { toast: any }) {
@@ -758,6 +759,7 @@ const ADMIN_TABS = [
   ]},
   { group: 'Users & Payments', tabs: [
     { value: 'users', label: 'Users' },
+    { value: 'founder-wallet', label: 'Founder Wallet' },
     { value: 'payments', label: 'Payments' },
     { value: 'grant-achievement', label: 'Grant Badge' },
     { value: 'leaderboard-reset', label: 'XP Reset' },
@@ -1298,6 +1300,10 @@ const AdminContent = () => {
 
         <TabsContent value="users">
           <UserManager />
+        </TabsContent>
+
+        <TabsContent value="founder-wallet">
+          <FounderWalletPanel />
         </TabsContent>
 
         <TabsContent value="test-nodes">

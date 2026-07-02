@@ -10,6 +10,8 @@ export interface SubmitTxParams {
   fee?: number;
   walletId?: string | null;
   symbol?: string;
+  /** Skip the mempool balance check — use when the caller already validated balance via computeUserBalances */
+  skipBalanceCheck?: boolean;
 }
 
 export interface SubmitTxResult {
@@ -79,7 +81,7 @@ export const submitTransaction = async (params: SubmitTxParams): Promise<SubmitT
   const fee = Number(params.fee ?? 0);
   const total = params.amount + fee;
   const SYSTEM_ADDRS = new Set(['faucet', 'swap-pool', 'system', 'lp-bank', 'mint', 'bridge']);
-  if (!SYSTEM_ADDRS.has(params.fromAddress.toLowerCase())) {
+  if (!params.skipBalanceCheck && !SYSTEM_ADDRS.has(params.fromAddress.toLowerCase())) {
     const spendable = await getSpendableBalance(params.fromAddress);
     if (spendable < total) throw new Error(`Insufficient spendable balance. You have ${spendable.toFixed(6)} available, need ${total.toFixed(6)}.`);
   }

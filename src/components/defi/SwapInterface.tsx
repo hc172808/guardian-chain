@@ -425,6 +425,7 @@ export const SwapInterface = () => {
       }
 
       // Fallback: mempool simulation (until contracts are deployed)
+      // skipBalanceCheck=true because we already validated above via computeUserBalances
       const { submitTransaction } = await import('@/lib/mempool');
       const result = await submitTransaction({
         userId: user.id,
@@ -433,6 +434,7 @@ export const SwapInterface = () => {
         amount,
         fee: amount * 0.003,
         symbol: payToken.symbol,
+        skipBalanceCheck: true,
       });
 
       toast({
