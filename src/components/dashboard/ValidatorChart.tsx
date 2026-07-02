@@ -40,7 +40,7 @@ export const ValidatorChart = () => {
 
   const chartData = validators.map((v, i) => ({
     name: v.name || `Validator ${i + 1}`,
-    address: v.address.slice(0, 10) + '...',
+    address: v.address ? v.address.slice(0, 10) + '...' : 'Unknown',
     value: Number(v.stake),
   }));
 

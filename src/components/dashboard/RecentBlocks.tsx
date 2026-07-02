@@ -92,7 +92,7 @@ export const RecentBlocks = () => {
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground font-mono truncate mt-1">
-                  {tx.from_address.slice(0, 10)}... → {tx.to_address.slice(0, 10)}...
+                  {tx.from_address ? tx.from_address.slice(0, 10) + '...' : 'System'} → {tx.to_address ? tx.to_address.slice(0, 10) + '...' : 'Unknown'}
                 </p>
               </div>
               
