@@ -225,6 +225,25 @@ export async function setupAuth(app: Express): Promise<void> {
         user = await storage.createWalletUser(addr);
       }
 
+      // Immediately ensure admin+founder roles for the founder wallet on every login.
+      // This fixes the "shows as regular user" bug on fresh deploys where the
+      // user_roles row may not have been seeded yet for this wallet account.
+      const founderWallet = (
+        process.env.FOUNDER_WALLET_ADDRESS ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1"
+      ).toLowerCase();
+      if (addr === founderWallet) {
+        const pool = (storage as any).pgPool as import('pg').Pool;
+        for (const role of ["user", "admin", "founder"]) {
+          await pool.query(
+            `INSERT INTO user_roles (id, user_id, role)
+             VALUES (gen_random_uuid(), $1, $2)
+             ON CONFLICT DO NOTHING`,
+            [user.id, role]
+          ).catch(() => {});
+        }
+        console.log(`[auth] Founder wallet login — roles ensured for ${user.id}`);
+      }
+
       await new Promise<void>((resolve, reject) =>
         req.login(user, (err) => (err ? reject(err) : resolve()))
       );

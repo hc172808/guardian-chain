@@ -368,15 +368,26 @@ npm install --legacy-peer-deps
 npm run build
 log "Build complete → $APP_DIR/dist"
 
-info "Applying DB schema..."
-# Run migrations in order (lowest number first)
-for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
-    [[ -f "$f" ]] && psql "$DATABASE_URL" -f "$f" 2>/dev/null && log "  Migration: $(basename "$f")" || true
-done
-# Also ensure full schema is present (fallback for any missing tables)
-if [[ -f "$APP_DIR"/public/scripts/gydschain-complete-schema.sql ]]; then
-    psql "$DATABASE_URL" -f "$APP_DIR"/public/scripts/gydschain-complete-schema.sql 2>/dev/null && log "  Full schema: gydschain-complete-schema.sql" || true
+step "4b/8 — DB schema push"
+info "Applying DB schema via drizzle-kit push..."
+cd "$APP_DIR"
+export DATABASE_URL
+# Primary method: drizzle-kit push (idempotent, handles all Drizzle schema changes)
+if npx drizzle-kit push --config drizzle.config.ts 2>&1 | tee /tmp/drizzle-push.log | grep -qE "\[✓\] Changes applied|No schema changes"; then
+    log "Schema applied via drizzle-kit push"
+else
+    warn "drizzle-kit push had warnings — running SQL fallback migrations as well"
+    # Fallback: run generated migration SQL files in order
+    for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
+        [[ -f "$f" ]] && psql "$DATABASE_URL" -f "$f" 2>/dev/null && log "  Migration: $(basename "$f")" || true
+    done
+    # Full schema SQL as final safety net
+    if [[ -f "$APP_DIR"/public/scripts/gydschain-complete-schema.sql ]]; then
+        psql "$DATABASE_URL" -f "$APP_DIR"/public/scripts/gydschain-complete-schema.sql 2>/dev/null && log "  Schema: gydschain-complete-schema.sql" || true
+    fi
 fi
+cat /tmp/drizzle-push.log 2>/dev/null || true
+cd "$APP_DIR"
 
 # ─── Step 5: PM2 ──────────────────────────────────────────────────────────────
 step "5/8 — PM2 service"
