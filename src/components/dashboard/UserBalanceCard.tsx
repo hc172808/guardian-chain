@@ -31,6 +31,7 @@ export const UserBalanceCard = () => {
 
   const [gydsBalance, setGydsBalance]   = useState(0);
   const [gydBalance,  setGydBalance]    = useState(0);
+  const [gusdBalance, setGusdBalance]   = useState(0);
   const [address,     setAddress]       = useState('');
   const [loading,     setLoading]       = useState(true);
   const [network, setNetwork]           = useState<Network>(
@@ -52,11 +53,13 @@ export const UserBalanceCard = () => {
       if (serverBalance && (serverBalance.gyds !== undefined || serverBalance.gyd !== undefined)) {
         setGydsBalance(Number(serverBalance.gyds ?? 0));
         setGydBalance(Number(serverBalance.gyd ?? 0));
+        setGusdBalance(Number(serverBalance.gusd ?? 0));
       } else {
         const myAddresses = await getUserAddresses(user.id);
         const balances = await computeUserBalances(user.id, myAddresses);
         setGydsBalance(balances.gydsBalance);
         setGydBalance(balances.gydBalance);
+        setGusdBalance(balances.gusdBalance);
       }
     } catch {}
     setLoading(false);
@@ -104,7 +107,8 @@ export const UserBalanceCard = () => {
 
   const usdGyds  = gydsBalance * gydsPrice;
   const usdGyd   = gydBalance  * 1.00;
-  const totalUsd = usdGyds + usdGyd;
+  const usdGusd  = gusdBalance * 1.00;
+  const totalUsd = usdGyds + usdGyd + usdGusd;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
@@ -154,7 +158,7 @@ export const UserBalanceCard = () => {
         )}
 
         {/* Balance Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-5">
           <div>
             <p className="text-xs text-muted-foreground mb-1">GYDS</p>
             <p className="text-xl font-bold text-primary">{fmtQty(gydsBalance)}</p>
@@ -164,6 +168,11 @@ export const UserBalanceCard = () => {
             <p className="text-xs text-muted-foreground mb-1">GYD</p>
             <p className="text-xl font-bold text-emerald-400">{fmtQty(gydBalance)}</p>
             <p className="text-xs text-muted-foreground">{fmt(usdGyd)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">GUSD</p>
+            <p className="text-xl font-bold text-[#0A4FFF]">{fmtQty(gusdBalance)}</p>
+            <p className="text-xs text-muted-foreground">{fmt(usdGusd)}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground mb-1">Total ({symbol})</p>

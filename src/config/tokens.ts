@@ -52,6 +52,31 @@ export const GYD_COIN: NativeCoinConfig = {
   canUserHold: true,
 };
 
+// GUSD - Guardian Dollar, USD-pegged ecosystem stablecoin
+export const GUSD_COIN: NativeCoinConfig = {
+  name: 'Guardian Dollar',
+  symbol: 'GUSD',
+  decimals: 18,
+  maxSupply: Number.MAX_SAFE_INTEGER,
+  initialPrice: 1.0,
+  isPegged: true,
+  pegValue: 1.0,
+  description: 'Stable Value. Trusted Everywhere. — reserve-backed stablecoin for payments, commerce, and DeFi across the GYDS ecosystem',
+  isGasCoin: false,
+  canUserHold: true,
+};
+
+export const GUSD_BRANDING = {
+  tagline: 'Stable Value. Trusted Everywhere.',
+  colors: {
+    royalBlue: '#0A4FFF',
+    navyBlue: '#082567',
+    silver: '#C0C0C0',
+    white: '#FFFFFF',
+  },
+  fonts: ['Inter', 'Montserrat', 'Poppins'],
+};
+
 // Legacy exports
 export const GYDS_TOKEN = GYDS_COIN;
 export const GYD_TOKEN = GYD_COIN;
@@ -78,12 +103,14 @@ export const CHAIN_CONFIG: ChainConfig = {
 export const NATIVE_COIN_IDS = {
   GYDS: 0,
   GYD: 1,
+  GUSD: 2,
   BURN: '0x000000000000000000000000000000000000dEaD',
 };
 
 export const TOKEN_ADDRESSES = {
   GYDS: '0x0000000000000000000000000000000000000000',
   GYD: '0x0000000000000000000000000000000000000001',
+  GUSD: '0x0000000000000000000000000000000000000002',
   BURN: NATIVE_COIN_IDS.BURN,
 };
 
@@ -98,6 +125,12 @@ export const COIN_ECONOMICS = {
     minGasPrice: 1000000000,
   },
   gyd: {
+    mintFee: 0.001,
+    burnFee: 0.001,
+    collateralRatio: 1.0,
+    minMintAmount: 1,
+  },
+  gusd: {
     mintFee: 0.001,
     burnFee: 0.001,
     collateralRatio: 1.0,

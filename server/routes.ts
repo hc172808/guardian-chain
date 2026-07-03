@@ -1211,7 +1211,7 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/faucet/claim", requireAuth, faucetLimiter, async (req, res) => {
     const user = req.user as any;
-    const AMOUNTS: Record<string, number> = { gyd: 100, gyds: 0.5 };
+    const AMOUNTS: Record<string, number> = { gyd: 100, gyds: 0.5, gusd: 100 };
     const COOLDOWN_MS = 24 * 60 * 60 * 1000;
     const { token_type, wallet_address, hcaptcha_token } = req.body;
     const tokenType = String(token_type ?? "").toLowerCase();
@@ -1233,7 +1233,7 @@ export function registerRoutes(app: Express) {
       }
     }
 
-    if (!AMOUNTS[tokenType]) return res.status(400).json({ ok: false, error: "Invalid token_type (gyd|gyds)" });
+    if (!AMOUNTS[tokenType]) return res.status(400).json({ ok: false, error: "Invalid token_type (gyd|gyds|gusd)" });
     if (!walletAddress) return res.status(400).json({ ok: false, error: "wallet_address required" });
 
     const since = new Date(Date.now() - COOLDOWN_MS);
@@ -1246,7 +1246,7 @@ export function registerRoutes(app: Express) {
     const amount = AMOUNTS[tokenType];
     const txHash = `0xfaucet-${tokenType}-${Date.now().toString(16)}-${crypto.randomUUID().slice(0, 8)}`;
     await storage.insertFaucetClaim({ userId: user.id, walletAddress, tokenType, amount: String(amount), txHash, ipAddress: req.ip ?? null });
-    await storage.insertTokenOperation({ operationType: tokenType === "gyd" ? "mint_gyd" : "mint_gyds", amount: String(amount), walletAddress, txHash, status: "confirmed", createdBy: user.id });
+    await storage.insertTokenOperation({ operationType: tokenType === "gyd" ? "mint_gyd" : tokenType === "gusd" ? "mint_gusd" : "mint_gyds", amount: String(amount), walletAddress, txHash, status: "confirmed", createdBy: user.id });
     // Also insert a transaction record so the balance shows regardless of which address was claimed to
     await storage.insertTransaction({
       from_address: '0x000000000000000000000000000000000000fac3',
@@ -1884,7 +1884,7 @@ export function registerRoutes(app: Express) {
       const walletsRes = await pgPool.query(`SELECT address FROM wallets WHERE user_id=$1`, [user.id]).catch(() => ({ rows: [] }));
       const addresses: string[] = walletsRes.rows.map((r: any) => r.address.toLowerCase());
 
-      let gyds = 0, gyd = 0;
+      let gyds = 0, gyd = 0, gusd = 0;
 
       if (addresses.length > 0) {
         const addrList = addresses.map((_: any, i: number) => `$${i + 1}`).join(",");
@@ -1898,8 +1898,10 @@ export function registerRoutes(app: Express) {
           const t = op.operation_type ?? "";
           if (t === "mint_gyds" || t === "premine_gyds") gyds += amt;
           else if (t === "mint_gyd" || t === "premine_gyd") gyd += amt;
+          else if (t === "mint_gusd" || t === "premine_gusd") gusd += amt;
           else if (t === "burn_gyds" || t === "burn") gyds -= amt;
           else if (t === "burn_gyd") gyd -= amt;
+          else if (t === "burn_gusd") gusd -= amt;
         }
 
         const txRes = await pgPool.query(
@@ -1915,10 +1917,11 @@ export function registerRoutes(app: Express) {
           const toMe   = addresses.includes((tx.to_address   ?? "").toLowerCase());
           if (sym === "GYDS") { if (fromMe) gyds -= amt + fee; if (toMe) gyds += amt; }
           else if (sym === "GYD") { if (fromMe) gyd -= amt + fee; if (toMe) gyd += amt; }
+          else if (sym === "GUSD") { if (fromMe) gusd -= amt + fee; if (toMe) gusd += amt; }
         }
       }
 
-      res.json({ gyds: Math.max(0, gyds), gyd: Math.max(0, gyd), addresses });
+      res.json({ gyds: Math.max(0, gyds), gyd: Math.max(0, gyd), gusd: Math.max(0, gusd), addresses });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

@@ -312,7 +312,7 @@ const WalletContent = () => {
     if (!user) { setBalancesLoading(false); return; }
     setBalancesLoading(true);
 
-    const [priceData, userWallets, allTx, opsRaw, allTokensRaw, founderCfg, gydsCfg, gydCfg] = await Promise.all([
+    const [priceData, userWallets, allTx, opsRaw, allTokensRaw, founderCfg, gydsCfg, gydCfg, gusdCfg] = await Promise.all([
       api.get('/api/token-price').catch(() => null),
       api.get('/api/wallets').catch(() => []),
       api.get('/api/transactions').catch(() => []),
@@ -321,6 +321,7 @@ const WalletContent = () => {
       api.get('/api/config/founder_wallet').catch(() => null),
       api.get('/api/config/gyds_logo').catch(() => null),
       api.get('/api/config/gyd_logo').catch(() => null),
+      api.get('/api/config/gusd_logo').catch(() => null),
     ]);
 
     // Get user wallets to find addresses
@@ -363,14 +364,17 @@ const WalletContent = () => {
     const logos: Record<string, string> = {};
     const gydsLogoVal = gydsCfg?.configValue ?? gydsCfg?.config_value;
     const gydLogoVal = gydCfg?.configValue ?? gydCfg?.config_value;
+    const gusdLogoVal = gusdCfg?.configValue ?? gusdCfg?.config_value;
     if (gydsLogoVal?.url) logos['gyds_logo'] = gydsLogoVal.url;
     if (gydLogoVal?.url) logos['gyd_logo'] = gydLogoVal.url;
+    if (gusdLogoVal?.url) logos['gusd_logo'] = gusdLogoVal.url;
 
     const gydsPrice = priceData?.price || 0.0000001;
 
     // Calculate balances from confirmed transactions
     let gydsBalance = 0;
     let gydBalance = 0;
+    let gusdBalance = 0;
 
     // Credits from token operations (pre-mine, mint, faucet)
     // API returns camelCase from Drizzle — handle both camelCase and snake_case defensively
@@ -387,10 +391,14 @@ const WalletContent = () => {
           gydsBalance += amt;
         } else if (opType === 'mint_gyd' || opType === 'premine_gyd') {
           gydBalance += amt;
+        } else if (opType === 'mint_gusd' || opType === 'premine_gusd') {
+          gusdBalance += amt;
         } else if (opType === 'burn_gyds' || opType === 'burn') {
           gydsBalance -= amt;
         } else if (opType === 'burn_gyd') {
           gydBalance -= amt;
+        } else if (opType === 'burn_gusd') {
+          gusdBalance -= amt;
         }
       });
     }
@@ -406,6 +414,9 @@ const WalletContent = () => {
         if (symbol === 'GYDS') {
           if (fromMe) gydsBalance -= amt + fee;
           if (toMe)   gydsBalance += amt;
+        } else if (symbol === 'GUSD') {
+          if (fromMe) gusdBalance -= amt + fee;
+          if (toMe)   gusdBalance += amt;
         } else {
           if (fromMe) gydBalance -= amt + fee;
           if (toMe)   gydBalance += amt;
@@ -433,6 +444,16 @@ const WalletContent = () => {
         change24h: 0,
         decimals: 6,
         logo: logos['gyd_logo'],
+      },
+      {
+        symbol: 'GUSD',
+        name: 'Guardian Dollar',
+        balance: gusdBalance,
+        value: gusdBalance * 1.00,
+        price: 1.00,
+        change24h: 0,
+        decimals: 18,
+        logo: logos['gusd_logo'],
       },
     ];
 
@@ -1121,6 +1142,7 @@ const WalletContent = () => {
                         "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
                         token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
                         token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                        token.symbol === 'GUSD' ? "bg-gradient-to-br from-[#0A4FFF] to-[#082567]" :
                         "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
                       )}>
                         {token.symbol[0]}
@@ -1159,7 +1181,7 @@ const WalletContent = () => {
                     >
                       <ArrowRightLeft className="h-3 w-3" /> Swap
                     </Button>
-                    {(token.symbol === 'GYD' || token.symbol === 'GYDS') && (
+                    {(token.symbol === 'GYD' || token.symbol === 'GYDS' || token.symbol === 'GUSD') && (
                       <Button
                         variant="outline"
                         size="sm"

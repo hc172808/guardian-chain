@@ -6,3 +6,9 @@ id = "IcAyIAr34VoM0ShxN8ST7"
 uri = "file://public/gyd-coin.png"
 type = "image"
 title = "generated_image"
+
+[[generated]]
+id = "mlrbNdq1oPXr7bdpjOC-E"
+uri = "file://public/gusd-coin.png"
+type = "image"
+title = "GUSD guardian dollar coin logo"

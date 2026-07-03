@@ -13,8 +13,10 @@ export const CoinLogoUpload = () => {
   const { toast } = useToast();
   const [gydsLogo, setGydsLogo] = useState('');
   const [gydLogo, setGydLogo] = useState('');
+  const [gusdLogo, setGusdLogo] = useState('');
   const [gydsPreview, setGydsPreview] = useState('');
   const [gydPreview, setGydPreview] = useState('');
+  const [gusdPreview, setGusdPreview] = useState('');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
 
@@ -23,13 +25,15 @@ export const CoinLogoUpload = () => {
   }, []);
 
   const loadLogos = async () => {
-    const [gydsRow, gydRow] = await Promise.all([
+    const [gydsRow, gydRow, gusdRow] = await Promise.all([
       api.get('/api/config/gyds_logo').catch(() => null),
       api.get('/api/config/gyd_logo').catch(() => null),
+      api.get('/api/config/gusd_logo').catch(() => null),
     ]);
     const data = [
       gydsRow ? { config_key: 'gyds_logo', config_value: gydsRow.configValue } : null,
       gydRow  ? { config_key: 'gyd_logo',  config_value: gydRow.configValue  } : null,
+      gusdRow ? { config_key: 'gusd_logo', config_value: gusdRow.configValue } : null,
     ].filter(Boolean);
 
     (data || []).forEach((c: any) => {
@@ -42,10 +46,14 @@ export const CoinLogoUpload = () => {
         setGydLogo(val.url);
         setGydPreview(val.url);
       }
+      if (c.config_key === 'gusd_logo' && val?.url) {
+        setGusdLogo(val.url);
+        setGusdPreview(val.url);
+      }
     });
   };
 
-  const handleFileUpload = async (file: File, coin: 'gyds' | 'gyd') => {
+  const handleFileUpload = async (file: File, coin: 'gyds' | 'gyd' | 'gusd') => {
     if (!file || !file.type.startsWith('image/')) {
       toast({ title: 'Invalid file', description: 'Please select an image file', variant: 'destructive' });
       return;
@@ -71,9 +79,12 @@ export const CoinLogoUpload = () => {
     if (coin === 'gyds') {
       setGydsLogo(url);
       setGydsPreview(url);
-    } else {
+    } else if (coin === 'gyd') {
       setGydLogo(url);
       setGydPreview(url);
+    } else {
+      setGusdLogo(url);
+      setGusdPreview(url);
     }
 
     setUploading(null);
@@ -86,6 +97,7 @@ export const CoinLogoUpload = () => {
     const saves = [
       { key: 'gyds_logo', url: gydsLogo },
       { key: 'gyd_logo', url: gydLogo },
+      { key: 'gusd_logo', url: gusdLogo },
     ];
 
     for (const { key, url } of saves) {
@@ -107,10 +119,10 @@ export const CoinLogoUpload = () => {
         Native Coin Logos
       </h3>
       <p className="text-sm text-muted-foreground mb-4">
-        Upload logos for GYDS and GYD that will display across wallets, swap, and explorer.
+        Upload logos for GYDS, GYD, and GUSD that will display across wallets, swap, and explorer.
       </p>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-3 gap-6">
         {/* GYDS Logo */}
         <div className="space-y-3">
           <Label className="font-semibold">GYDS Logo</Label>
@@ -164,6 +176,34 @@ export const CoinLogoUpload = () => {
             placeholder="Or paste image URL"
             value={gydLogo}
             onChange={(e) => { setGydLogo(e.target.value); setGydPreview(e.target.value); }}
+          />
+        </div>
+
+        {/* GUSD Logo */}
+        <div className="space-y-3">
+          <Label className="font-semibold">GUSD Logo</Label>
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-secondary/30">
+              {gusdPreview ? (
+                <img src={gusdPreview} alt="GUSD" className="w-full h-full object-cover rounded-full" />
+              ) : (
+                <span className="text-xl font-bold text-muted-foreground">G</span>
+              )}
+            </div>
+            <div className="flex-1 space-y-2">
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gusd')}
+                disabled={uploading === 'gusd'}
+              />
+              {uploading === 'gusd' && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Uploading...</div>}
+            </div>
+          </div>
+          <Input
+            placeholder="Or paste image URL"
+            value={gusdLogo}
+            onChange={(e) => { setGusdLogo(e.target.value); setGusdPreview(e.target.value); }}
           />
         </div>
       </div>

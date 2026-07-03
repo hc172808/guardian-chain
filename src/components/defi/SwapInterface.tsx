@@ -52,6 +52,7 @@ interface Token {
 const NATIVE_TOKENS: Token[] = [
   { symbol: 'GYDS', name: 'GYDS Native Coin', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000', logo: '/gyds-coin.jpg' },
   { symbol: 'GYD', name: 'GYD Stablecoin', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: '/gyd-coin.png' },
+  { symbol: 'GUSD', name: 'Guardian Dollar', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000002', logo: '/gusd-coin.png' },
 ];
 
 const TokenSelectorButton = forwardRef<HTMLSpanElement, { token: Token; onClick: () => void }>(
@@ -64,6 +65,7 @@ const TokenSelectorButton = forwardRef<HTMLSpanElement, { token: Token; onClick:
           "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
           token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
           token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+          token.symbol === 'GUSD' ? "bg-gradient-to-br from-[#0A4FFF] to-[#082567]" :
           "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
         )}>
           {token.symbol[0]}
@@ -205,18 +207,21 @@ export const SwapInterface = () => {
       // Calculate real balances if user is logged in
       let gydsBalance = 0;
       let gydBalance = 0;
+      let gusdBalance = 0;
 
       if (user) {
         const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
         const balances = await computeUserBalances(user.id, myAddresses);
         gydsBalance = balances.gydsBalance;
         gydBalance = balances.gydBalance;
+        gusdBalance = balances.gusdBalance;
 
       }
 
       const nativeWithLogos: Token[] = [
         { symbol: 'GYDS', name: 'GYDS Native Coin', balance: gydsBalance, price: gydsPrice, address: '0x0000000000000000000000000000000000000000', logo: logos['gyds_logo'] },
         { symbol: 'GYD', name: 'GYD Stablecoin', balance: gydBalance, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: logos['gyd_logo'] },
+        { symbol: 'GUSD', name: 'Guardian Dollar', balance: gusdBalance, price: 1.00, address: '0x0000000000000000000000000000000000000002', logo: logos['gusd_logo'] },
       ];
 
       const dbTokens: Token[] = (data || []).map(t => ({

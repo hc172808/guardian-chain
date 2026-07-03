@@ -50,6 +50,9 @@ export const BurnMintManager = () => {
   const [burnUsdtAmount, setBurnUsdtAmount] = useState('');
   const [mintAmount, setMintAmount] = useState('');
   const [mintAddress, setMintAddress] = useState('');
+  const [gusdMintAmount, setGusdMintAmount] = useState('');
+  const [gusdMintAddress, setGusdMintAddress] = useState('');
+  const [gusdProcessing, setGusdProcessing] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -153,6 +156,37 @@ export const BurnMintManager = () => {
     setProcessing(false);
   };
 
+  const handleMintGusd = async () => {
+    if (!gusdMintAmount || !gusdMintAddress) {
+      toast({ title: 'Fill all fields', variant: 'destructive' });
+      return;
+    }
+    const amountNum = parseFloat(gusdMintAmount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      toast({ title: 'Invalid amount', variant: 'destructive' });
+      return;
+    }
+    setGusdProcessing(true);
+    const txHash = '0x' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+    try {
+      await api.post('/api/token-operations', {
+        operation_type: 'mint_gusd',
+        amount: amountNum,
+        usdt_amount: amountNum,
+        wallet_address: gusdMintAddress,
+        tx_hash: txHash,
+        status: 'confirmed',
+      });
+      toast({ title: 'Mint successful!', description: `Minted ${amountNum.toLocaleString()} GUSD` });
+      setGusdMintAmount('');
+      setGusdMintAddress('');
+      fetchData();
+    } catch (e: any) {
+      toast({ title: 'Mint failed', description: e.message, variant: 'destructive' });
+    }
+    setGusdProcessing(false);
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -179,9 +213,10 @@ export const BurnMintManager = () => {
       </div>
 
       <Tabs defaultValue="burn" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="burn">Burn USDT</TabsTrigger>
           <TabsTrigger value="mint">Mint GYDS</TabsTrigger>
+          <TabsTrigger value="gusd">Mint GUSD</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
 
@@ -245,6 +280,43 @@ export const BurnMintManager = () => {
           </GlassCard>
         </TabsContent>
 
+        <TabsContent value="gusd">
+          <GlassCard className="p-6">
+            <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+              <DollarSign className="h-5 w-5 text-[#0A4FFF]" />
+              Mint Guardian Dollar (GUSD) — Admin Only
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              GUSD is the reserve-backed stablecoin pegged 1:1 to USD. Only authorized issuers (admins) may mint.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <Label>Amount (GUSD)</Label>
+                <Input type="number" value={gusdMintAmount} onChange={(e) => setGusdMintAmount(e.target.value)} placeholder="1000" />
+              </div>
+              <div>
+                <Label>Destination Address</Label>
+                <Input value={gusdMintAddress} onChange={(e) => setGusdMintAddress(e.target.value)} placeholder="0x..." />
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {Object.entries(RESERVED_WALLETS).map(([key, wallet]) => (
+                    <Button key={key} variant="outline" size="sm" onClick={() => setGusdMintAddress(wallet.address)} className="text-xs">
+                      {wallet.name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <Button
+                onClick={handleMintGusd}
+                disabled={gusdProcessing}
+                className="w-full gap-2 bg-[#0A4FFF] hover:bg-[#0A4FFF]/80 text-white"
+              >
+                {gusdProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />}
+                Mint GUSD
+              </Button>
+            </div>
+          </GlassCard>
+        </TabsContent>
+
         <TabsContent value="history">
           <GlassCard className="p-6">
             <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
@@ -270,7 +342,7 @@ export const BurnMintManager = () => {
                           {op.operation_type.toUpperCase()}
                         </Badge>
                         <span className="font-mono text-sm">
-                          {op.amount.toLocaleString()} {op.operation_type === 'burn' ? 'USDT' : 'GYDS'}
+                          {op.amount.toLocaleString()} {op.operation_type === 'burn' ? 'USDT' : op.operation_type.includes('gusd') ? 'GUSD' : 'GYDS'}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">

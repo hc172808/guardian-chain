@@ -24,9 +24,10 @@ export const getUserAddresses = async (
 export const computeUserBalances = async (
   userId: string,
   myAddresses: Set<string>,
-): Promise<{ gydsBalance: number; gydBalance: number }> => {
+): Promise<{ gydsBalance: number; gydBalance: number; gusdBalance: number }> => {
   let gydsBalance = 0;
   let gydBalance = 0;
+  let gusdBalance = 0;
 
   try {
     const opsData = await api.get('/api/token-operations');
@@ -50,6 +51,8 @@ export const computeUserBalances = async (
         gydsBalance += amt;
       } else if (opType === 'mint_gyd' || opType === 'premine_gyd') {
         gydBalance += amt;
+      } else if (opType === 'mint_gusd' || opType === 'premine_gusd') {
+        gusdBalance += amt;
       } else if (opType === 'mint') {
         // legacy 'mint' — treat as GYDS unless address has 'gyd:' prefix
         if (isGyd) gydBalance += amt; else gydsBalance += amt;
@@ -57,6 +60,8 @@ export const computeUserBalances = async (
         if (isGyd) gydBalance -= amt; else gydsBalance -= amt;
       } else if (opType === 'burn_gyd') {
         gydBalance -= amt;
+      } else if (opType === 'burn_gusd') {
+        gusdBalance -= amt;
       }
     }
   } catch {}
@@ -79,6 +84,9 @@ export const computeUserBalances = async (
       if (symbol === 'GYDS') {
         if (fromMe) gydsBalance -= amt + fee;
         if (toMe)   gydsBalance += amt;
+      } else if (symbol === 'GUSD') {
+        if (fromMe) gusdBalance -= amt + fee;
+        if (toMe)   gusdBalance += amt;
       } else {
         if (fromMe) gydBalance -= amt + fee;
         if (toMe)   gydBalance += amt;
@@ -89,5 +97,6 @@ export const computeUserBalances = async (
   return {
     gydsBalance: Math.max(0, gydsBalance),
     gydBalance:  Math.max(0, gydBalance),
+    gusdBalance: Math.max(0, gusdBalance),
   };
 };
