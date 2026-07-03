@@ -27,8 +27,10 @@ async function grantRoles(userId: string, roles: string[]) {
 
 export async function seedFounder() {
   try {
-    // ── Step 1: Grant admin + founder to whoever owns the founder wallet ──────
-    // This is safe: wallet login requires a signed nonce proving private key ownership.
+    const founderPassword = process.env.FOUNDER_PASSWORD ?? "password";
+    const adminPassword   = process.env.ADMIN_PASSWORD   ?? "password";
+
+    // ── Step 1: Grant roles to whoever owns the founder wallet ───────────────
     const walletRow = await pool.query(
       `SELECT id FROM users WHERE LOWER(wallet_address) = $1 LIMIT 1`,
       [FOUNDER_WALLET]
@@ -36,50 +38,33 @@ export async function seedFounder() {
     if (walletRow.rows.length > 0) {
       await grantRoles(walletRow.rows[0].id, ["user", "admin", "founder"]);
       console.log("[seed] Ensured admin/founder on wallet account:", walletRow.rows[0].id);
-      // Wallet account exists — no need for the email bootstrap account.
-      return;
+    } else {
+      console.log("[seed] No wallet account for founder — connect wallet to claim admin.");
     }
 
-    // ── Step 2: Bootstrap-only email account ─────────────────────────────────
-    // Only create the email/password account when BOTH conditions are true:
-    //   a) No account owns the founder wallet yet (checked above), AND
-    //   b) No users exist at all (truly empty DB — first-run bootstrap only).
-    // This prevents an attacker who pre-registered the founder email from
-    // receiving elevated roles — they would not match condition (b).
-    const userCount = await pool.query(`SELECT COUNT(*) FROM users`);
-    const isEmpty = parseInt(userCount.rows[0].count, 10) === 0;
-
-    if (!isEmpty) {
-      // DB has users but none own the founder wallet yet.
-      // Do not auto-promote any existing account by email.
-      // The founder should log in via wallet to claim admin/founder.
-      console.log("[seed] No wallet account for founder — connect wallet 0x6422...b1 to claim admin.");
-      return;
-    }
-
-    // Empty DB — create bootstrap accounts.
-    const founderPassword = process.env.FOUNDER_PASSWORD ?? "password";
-    const adminPassword   = process.env.ADMIN_PASSWORD   ?? "password";
-
-    // ── Founder account ──────────────────────────────────────────────────────
-    const founderId   = `founder_bootstrap_${Date.now()}`;
+    // ── Step 2: Always upsert the founder password account ───────────────────
+    // Uses ON CONFLICT (username) so it updates the password on every restart,
+    // ensuring FOUNDER_PASSWORD env var is always in effect.
+    // NOTE: do NOT set wallet_address here — the real wallet account already
+    // owns that address and the unique constraint would reject the insert.
+    const founderId   = "founder_bootstrap_001";
     const founderHash = await bcrypt.hash(founderPassword, 12);
 
     await pool.query(
-      `INSERT INTO users (id, email, username, password_hash, wallet_address, first_name, last_name, updated_at)
-       VALUES ($1, $2, $3, $4, $5, 'Founder', 'GYDSchain', NOW())
-       ON CONFLICT DO NOTHING`,
-      [founderId, "founder@gydschain.local", "founder", founderHash, FOUNDER_WALLET]
+      `INSERT INTO users (id, email, username, password_hash, first_name, last_name, updated_at)
+       VALUES ($1, $2, $3, $4, 'Founder', 'GYDSchain', NOW())
+       ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()`,
+      [founderId, "founder@gydschain.local", "founder", founderHash]
     );
     await pool.query(
       `INSERT INTO profiles (id, user_id, email, username, display_name, role)
        VALUES (gen_random_uuid(), $1, $2, $3, 'Founder', 'founder')
-       ON CONFLICT (user_id) DO NOTHING`,
+       ON CONFLICT (user_id) DO UPDATE SET username=$3, display_name='Founder', role='founder'`,
       [founderId, "founder@gydschain.local", "founder"]
     );
     await grantRoles(founderId, ["user", "admin", "founder"]);
 
-    // ── Admin account ────────────────────────────────────────────────────────
+    // ── Step 3: Always upsert the admin password account ─────────────────────
     const adminId   = "admin_bootstrap_001";
     const adminHash = await bcrypt.hash(adminPassword, 12);
 
@@ -97,11 +82,10 @@ export async function seedFounder() {
     );
     await grantRoles(adminId, ["user", "admin"]);
 
-    console.log(`[seed] Bootstrap accounts created (first-run only):`);
-    console.log(`  Founder — username: founder  password: ${founderPassword}`);
-    console.log(`  Admin   — username: admin    password: ${adminPassword}`);
+    console.log(`[seed] Accounts ready:`);
+    console.log(`  founder / ${founderPassword}`);
+    console.log(`  admin   / ${adminPassword}`);
   } catch (err: any) {
-    // Seed errors are non-fatal — the server still starts.
     console.error("[seed] Founder seed error:", err.message);
   }
 }
