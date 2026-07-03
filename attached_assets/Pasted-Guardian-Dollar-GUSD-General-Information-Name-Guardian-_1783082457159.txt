@@ -1,0 +1,132 @@
+Guardian Dollar (GUSD)
+General Information
+
+Name: Guardian Dollar
+
+Symbol: GUSD
+
+Type: Native Stablecoin
+
+Blockchain: GYDS Blockchain
+
+Peg: 1 GUSD ≈ 1 United States Dollar (USD)
+
+Decimals: 18
+
+Category: Stablecoin
+
+Tagline: Stable Value. Trusted Everywhere.
+
+About (Under 500 Words)
+
+Guardian Dollar (GUSD) is the official stablecoin of the GYDS blockchain, created to provide a secure, transparent, and dependable digital currency for individuals, businesses, developers, and institutions. Designed to maintain a stable value target of one United States Dollar (1 GUSD ≈ 1 USD), GUSD enables users to send, receive, and store digital value without the significant price volatility commonly associated with many cryptocurrencies.
+
+Built on the GYDS blockchain, Guardian Dollar combines the speed, efficiency, and security of decentralized technology with the stability needed for everyday financial activities. It is intended to serve as the primary medium of exchange within the GYDS ecosystem, supporting payments, merchant transactions, cross-border transfers, payroll, decentralized finance (DeFi), digital commerce, and a wide range of blockchain-based applications.
+
+Guardian Dollar is designed with transparency, reliability, and accessibility at its core. Every transaction is permanently recorded on the GYDS blockchain, providing a secure and verifiable history while benefiting from the network's low transaction costs and fast confirmation times. Its infrastructure is built to support integration with digital wallets, exchanges, payment gateways, smart contracts, and enterprise solutions.
+
+As the GYDS ecosystem continues to expand, GUSD aims to become the trusted digital currency that powers economic activity across the network. By providing a stable unit of value, it helps users confidently participate in blockchain technology without being exposed to extreme market fluctuations. Guardian Dollar reflects the GYDS vision of building an open, efficient, and globally accessible financial ecosystem where digital assets can be used for everyday transactions as easily as traditional money.
+
+Whether for personal use, business operations, international settlements, or decentralized applications, Guardian Dollar is designed to provide a stable, efficient, and trusted foundation for the future of digital finance on the GYDS blockchain.
+
+Mission
+
+To provide a secure, transparent, and globally accessible stable digital currency that enables fast, affordable, and reliable financial transactions while supporting innovation, commerce, and decentralized applications across the GYDS blockchain ecosystem.
+
+Vision
+
+To become one of the world's most trusted blockchain-based stablecoins, empowering individuals, businesses, and developers with a reliable digital currency that bridges traditional finance and decentralized technology.
+
+Core Features
+Native stablecoin of the GYDS blockchain
+Stable value target of approximately 1 USD
+Fast transaction confirmations
+Low network transaction fees
+Secure blockchain settlement
+Transparent and auditable transaction history
+Smart contract compatible
+Merchant payment support
+Cross-border payments
+Enterprise-ready infrastructure
+Wallet and exchange integration
+Decentralized application (dApp) compatibility
+Scalable for global adoption
+Use Cases
+Everyday payments
+Online purchases
+Merchant settlements
+Payroll and salary payments
+International money transfers
+Savings and digital cash management
+Decentralized Finance (DeFi)
+Trading pair on cryptocurrency exchanges
+NFT marketplace payments
+Business-to-business settlements
+Subscription and recurring payments
+Token Specifications
+Property	Value
+Token Name	Guardian Dollar
+Symbol	GUSD
+Blockchain	GYDS Blockchain
+Token Type	Native Stablecoin
+Decimals	18
+Target Value	1 GUSD ≈ 1 USD
+Transferable	Yes
+Mintable	Yes (Authorized Issuers)
+Burnable	Yes
+Smart Contract Support	Yes
+Monetary Policy
+
+Guardian Dollar is intended to maintain a stable value target relative to the United States Dollar through a reserve-backed issuance model. New GUSD is minted only by authorized issuers when supported by eligible reserve assets or according to the governance rules established by the GYDS Foundation. Tokens may be redeemed and burned as reserves are withdrawn, helping maintain supply integrity and stability.
+
+Reserve Policy
+
+The long-term objective of Guardian Dollar is to be supported by high-quality reserve assets, which may include:
+
+Cash deposits
+Short-term U.S. Treasury securities
+Cash equivalents
+Other low-risk liquid assets approved by governance
+
+Reserve information may be published periodically to promote transparency and user confidence.
+
+Governance
+
+Guardian Dollar operates within the GYDS ecosystem under governance policies that define issuance, reserve management, compliance, security, and ecosystem development. Future governance may include community participation while maintaining safeguards for financial stability.
+
+Security
+
+Guardian Dollar is built on the security architecture of the GYDS blockchain and is designed to benefit from:
+
+Cryptographic transaction validation
+Immutable blockchain records
+Smart contract security practices
+Distributed network consensus
+Transparent on-chain transactions
+Branding
+Logo Style
+Modern fintech appearance
+Circular coin emblem
+Shield integrated behind the "G"
+Clean minimalist design
+Professional financial identity
+Primary Colors
+Royal Blue — #0A4FFF
+Navy Blue — #082567
+Silver — #C0C0C0
+White — #FFFFFF
+Recommended Fonts
+Inter
+Montserrat
+Poppins
+Official Short Description
+
+Guardian Dollar (GUSD) is the official stablecoin of the GYDS blockchain, providing a secure, transparent, and reliable digital currency designed for payments, commerce, decentralized finance, and global value transfer while targeting a stable value relative to the United States Dollar.
+
+Ecosystem Structure
+Asset	Purpose
+GYDS	Native blockchain coin used for network security, gas fees, and staking.
+GUSD	Native stablecoin for payments, savings, commerce, and settlement.
+GYDG (Future)	Gold-backed digital asset.
+GYDE (Future)	Euro-pegged stablecoin.
+GYDB (Future)	Business settlement and treasury asset.
