@@ -360,8 +360,12 @@ const WalletContent = () => {
       if (!tokensData.find((t: any) => t.id === bt.id)) tokensData.push(bt);
     });
 
-    // Get coin logos from admin_config
-    const logos: Record<string, string> = {};
+    // Get coin logos — static files are always the fallback
+    const logos: Record<string, string> = {
+      gyds_logo: '/gyds-coin.jpg',
+      gyd_logo:  '/gyd-coin.png',
+      gusd_logo: '/gusd-coin.png',
+    };
     const gydsLogoVal = gydsCfg?.configValue ?? gydsCfg?.config_value;
     const gydLogoVal = gydCfg?.configValue ?? gydCfg?.config_value;
     const gusdLogoVal = gusdCfg?.configValue ?? gusdCfg?.config_value;

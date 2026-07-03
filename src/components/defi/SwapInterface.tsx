@@ -182,17 +182,25 @@ export const SwapInterface = () => {
         .eq('is_active', true)
         .order('symbol');
 
-      // Get coin logos via direct API (supabase shim can't filter admin_config reliably)
-      const logos: Record<string, string> = {};
+      // Get coin logos — DB values override static fallbacks
+      // Static fallbacks exist at /gyds-coin.jpg, /gyd-coin.png, /gusd-coin.png
+      const logos: Record<string, string> = {
+        gyds_logo: '/gyds-coin.jpg',
+        gyd_logo:  '/gyd-coin.png',
+        gusd_logo: '/gusd-coin.png',
+      };
       try {
-        const [gydsLogoRes, gydLogoRes] = await Promise.all([
+        const [gydsLogoRes, gydLogoRes, gusdLogoRes] = await Promise.all([
           fetch('/api/config/gyds_logo', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
           fetch('/api/config/gyd_logo',  { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+          fetch('/api/config/gusd_logo', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
         ]);
-        const gVal = gydsLogoRes?.configValue ?? gydsLogoRes?.config_value;
-        const dVal = gydLogoRes?.configValue  ?? gydLogoRes?.config_value;
+        const gVal  = gydsLogoRes?.configValue ?? gydsLogoRes?.config_value;
+        const dVal  = gydLogoRes?.configValue  ?? gydLogoRes?.config_value;
+        const uVal  = gusdLogoRes?.configValue ?? gusdLogoRes?.config_value;
         if (gVal?.url) logos['gyds_logo'] = gVal.url;
         if (dVal?.url) logos['gyd_logo']  = dVal.url;
+        if (uVal?.url) logos['gusd_logo'] = uVal.url;
       } catch {}
 
       // Get GYDS price
