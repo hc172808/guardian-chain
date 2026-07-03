@@ -5,24 +5,36 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
-import { useAuth } from '@/contexts/AuthContext';
-import { Upload, Loader2, Save, Image as ImageIcon } from 'lucide-react';
+import { Loader2, Save, Image as ImageIcon, X } from 'lucide-react';
+
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+type Coin = 'gyds' | 'gyd' | 'gusd';
+
+interface CoinState {
+  url: string;
+  preview: string;
+  uploading: boolean;
+}
+
+const defaultState = (): CoinState => ({ url: '', preview: '', uploading: false });
 
 export const CoinLogoUpload = () => {
-  const { user } = useAuth();
   const { toast } = useToast();
-  const [gydsLogo, setGydsLogo] = useState('');
-  const [gydLogo, setGydLogo] = useState('');
-  const [gusdLogo, setGusdLogo] = useState('');
-  const [gydsPreview, setGydsPreview] = useState('');
-  const [gydPreview, setGydPreview] = useState('');
-  const [gusdPreview, setGusdPreview] = useState('');
+  const [coins, setCoins] = useState<Record<Coin, CoinState>>({
+    gyds: defaultState(),
+    gyd:  defaultState(),
+    gusd: defaultState(),
+  });
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadLogos();
-  }, []);
+  useEffect(() => { loadLogos(); }, []);
 
   const loadLogos = async () => {
     const [gydsRow, gydRow, gusdRow] = await Promise.all([
@@ -30,185 +42,125 @@ export const CoinLogoUpload = () => {
       api.get('/api/config/gyd_logo').catch(() => null),
       api.get('/api/config/gusd_logo').catch(() => null),
     ]);
-    const data = [
-      gydsRow ? { config_key: 'gyds_logo', config_value: gydsRow.configValue } : null,
-      gydRow  ? { config_key: 'gyd_logo',  config_value: gydRow.configValue  } : null,
-      gusdRow ? { config_key: 'gusd_logo', config_value: gusdRow.configValue } : null,
-    ].filter(Boolean);
-
-    (data || []).forEach((c: any) => {
-      const val = c.config_value as Record<string, string>;
-      if (c.config_key === 'gyds_logo' && val?.url) {
-        setGydsLogo(val.url);
-        setGydsPreview(val.url);
+    const map: Record<string, Coin> = { gyds_logo: 'gyds', gyd_logo: 'gyd', gusd_logo: 'gusd' };
+    for (const [row, key] of [[gydsRow, 'gyds_logo'], [gydRow, 'gyd_logo'], [gusdRow, 'gusd_logo']] as [any, string][]) {
+      if (!row) continue;
+      const val = row.configValue as Record<string, string>;
+      const coinKey = map[key];
+      if (val?.url) {
+        setCoins(prev => ({ ...prev, [coinKey]: { url: val.url, preview: val.url, uploading: false } }));
       }
-      if (c.config_key === 'gyd_logo' && val?.url) {
-        setGydLogo(val.url);
-        setGydPreview(val.url);
-      }
-      if (c.config_key === 'gusd_logo' && val?.url) {
-        setGusdLogo(val.url);
-        setGusdPreview(val.url);
-      }
-    });
+    }
   };
 
-  const handleFileUpload = async (file: File, coin: 'gyds' | 'gyd' | 'gusd') => {
-    if (!file || !file.type.startsWith('image/')) {
+  const handleFileUpload = async (file: File, coin: Coin) => {
+    if (!file.type.startsWith('image/')) {
       toast({ title: 'Invalid file', description: 'Please select an image file', variant: 'destructive' });
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
-      toast({ title: 'File too large', description: 'Max 2MB', variant: 'destructive' });
+      toast({ title: 'File too large', description: 'Max 2 MB', variant: 'destructive' });
       return;
     }
-
-    setUploading(coin);
-    const ext = file.name.split('.').pop();
-    const path = `coin-logos/${coin}-logo.${ext}`;
-
-    // No storage backend — ask for a URL instead
-    const urlInput = window.prompt(`Paste a public image URL for ${coin.toUpperCase()} logo:`);
-    if (!urlInput) {
-      setUploading(null);
-      return;
+    setCoins(prev => ({ ...prev, [coin]: { ...prev[coin], uploading: true } }));
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setCoins(prev => ({ ...prev, [coin]: { url: dataUrl, preview: dataUrl, uploading: false } }));
+    } catch {
+      toast({ title: 'Failed to read file', variant: 'destructive' });
+      setCoins(prev => ({ ...prev, [coin]: { ...prev[coin], uploading: false } }));
     }
+  };
 
-    const url = urlInput.trim();
+  const handleUrlChange = (coin: Coin, value: string) => {
+    setCoins(prev => ({ ...prev, [coin]: { url: value, preview: value, uploading: false } }));
+  };
 
-    if (coin === 'gyds') {
-      setGydsLogo(url);
-      setGydsPreview(url);
-    } else if (coin === 'gyd') {
-      setGydLogo(url);
-      setGydPreview(url);
-    } else {
-      setGusdLogo(url);
-      setGusdPreview(url);
-    }
-
-    setUploading(null);
-    toast({ title: `${coin.toUpperCase()} logo uploaded!` });
+  const clearLogo = (coin: Coin) => {
+    setCoins(prev => ({ ...prev, [coin]: defaultState() }));
   };
 
   const saveLogos = async () => {
     setSaving(true);
-
-    const saves = [
-      { key: 'gyds_logo', url: gydsLogo },
-      { key: 'gyd_logo', url: gydLogo },
-      { key: 'gusd_logo', url: gusdLogo },
-    ];
-
-    for (const { key, url } of saves) {
-      if (!url) continue;
+    const entries: [string, Coin][] = [['gyds_logo', 'gyds'], ['gyd_logo', 'gyd'], ['gusd_logo', 'gusd']];
+    for (const [key, coin] of entries) {
+      if (!coins[coin].url) continue;
       await api.post('/api/config', {
         key,
-        value: { url, updated_at: new Date().toISOString() },
-      });
+        value: { url: coins[coin].url, updated_at: new Date().toISOString() },
+      }).catch(() => {});
     }
-
     toast({ title: 'Coin logos saved!' });
     setSaving(false);
   };
 
+  const CoinRow = ({ coin, label }: { coin: Coin; label: string }) => {
+    const state = coins[coin];
+    return (
+      <div className="space-y-3">
+        <Label className="font-semibold">{label}</Label>
+        <div className="flex items-center gap-4">
+          <div className="relative w-16 h-16 shrink-0">
+            <div className="w-16 h-16 rounded-full border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-secondary/30">
+              {state.preview ? (
+                <img src={state.preview} alt={label} className="w-full h-full object-cover rounded-full" onError={() => handleUrlChange(coin, '')} />
+              ) : (
+                <span className="text-xl font-bold text-muted-foreground">{label[0]}</span>
+              )}
+            </div>
+            {state.preview && (
+              <button
+                onClick={() => clearLogo(coin)}
+                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/80"
+                title="Remove logo"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <div className="flex-1 space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <div className="px-3 py-1.5 rounded-md border border-border text-sm bg-secondary/30 hover:bg-secondary/60 transition-colors flex items-center gap-2">
+                {state.uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                {state.uploading ? 'Reading…' : 'Choose file'}
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={state.uploading}
+                onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0], coin)}
+              />
+            </label>
+            <p className="text-xs text-muted-foreground">PNG, JPG, SVG · max 2 MB · optional</p>
+          </div>
+        </div>
+        <Input
+          placeholder="Or paste a public image URL (optional)"
+          value={state.url.startsWith('data:') ? '' : state.url}
+          onChange={e => handleUrlChange(coin, e.target.value)}
+        />
+      </div>
+    );
+  };
+
   return (
     <GlassCard className="p-6">
-      <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+      <h3 className="text-lg font-semibold flex items-center gap-2 mb-1">
         <ImageIcon className="h-5 w-5 text-primary" />
         Native Coin Logos
       </h3>
-      <p className="text-sm text-muted-foreground mb-4">
-        Upload logos for GYDS, GYD, and GUSD that will display across wallets, swap, and explorer.
+      <p className="text-sm text-muted-foreground mb-5">
+        Upload a file <span className="text-muted-foreground/60">or</span> paste a URL for each coin logo. All fields are optional.
       </p>
 
       <div className="grid md:grid-cols-3 gap-6">
-        {/* GYDS Logo */}
-        <div className="space-y-3">
-          <Label className="font-semibold">GYDS Logo</Label>
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-secondary/30">
-              {gydsPreview ? (
-                <img src={gydsPreview} alt="GYDS" className="w-full h-full object-cover rounded-full" />
-              ) : (
-                <span className="text-xl font-bold text-muted-foreground">G</span>
-              )}
-            </div>
-            <div className="flex-1 space-y-2">
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gyds')}
-                disabled={uploading === 'gyds'}
-              />
-              {uploading === 'gyds' && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Uploading...</div>}
-            </div>
-          </div>
-          <Input
-            placeholder="Or paste image URL"
-            value={gydsLogo}
-            onChange={(e) => { setGydsLogo(e.target.value); setGydsPreview(e.target.value); }}
-          />
-        </div>
-
-        {/* GYD Logo */}
-        <div className="space-y-3">
-          <Label className="font-semibold">GYD Logo</Label>
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-secondary/30">
-              {gydPreview ? (
-                <img src={gydPreview} alt="GYD" className="w-full h-full object-cover rounded-full" />
-              ) : (
-                <span className="text-xl font-bold text-muted-foreground">G</span>
-              )}
-            </div>
-            <div className="flex-1 space-y-2">
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gyd')}
-                disabled={uploading === 'gyd'}
-              />
-              {uploading === 'gyd' && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Uploading...</div>}
-            </div>
-          </div>
-          <Input
-            placeholder="Or paste image URL"
-            value={gydLogo}
-            onChange={(e) => { setGydLogo(e.target.value); setGydPreview(e.target.value); }}
-          />
-        </div>
-
-        {/* GUSD Logo */}
-        <div className="space-y-3">
-          <Label className="font-semibold">GUSD Logo</Label>
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-secondary/30">
-              {gusdPreview ? (
-                <img src={gusdPreview} alt="GUSD" className="w-full h-full object-cover rounded-full" />
-              ) : (
-                <span className="text-xl font-bold text-muted-foreground">G</span>
-              )}
-            </div>
-            <div className="flex-1 space-y-2">
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gusd')}
-                disabled={uploading === 'gusd'}
-              />
-              {uploading === 'gusd' && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Uploading...</div>}
-            </div>
-          </div>
-          <Input
-            placeholder="Or paste image URL"
-            value={gusdLogo}
-            onChange={(e) => { setGusdLogo(e.target.value); setGusdPreview(e.target.value); }}
-          />
-        </div>
+        <CoinRow coin="gyds" label="GYDS" />
+        <CoinRow coin="gyd"  label="GYD"  />
+        <CoinRow coin="gusd" label="GUSD" />
       </div>
 
-      <Button onClick={saveLogos} disabled={saving} className="w-full mt-4 gap-2">
+      <Button onClick={saveLogos} disabled={saving} className="w-full mt-5 gap-2">
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
         Save Logos
       </Button>

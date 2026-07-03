@@ -101,7 +101,10 @@ export const TokenFactory = () => {
       return;
     }
     setLogoFile(file);
-    setLogoPreview(URL.createObjectURL(file));
+    // Convert to data URL so no server upload is needed
+    const reader = new FileReader();
+    reader.onload = () => setLogoPreview(reader.result as string);
+    reader.readAsDataURL(file);
   };
 
   const handleCreateToken = async () => {
@@ -144,12 +147,8 @@ export const TokenFactory = () => {
 
     setCreating(true);
     try {
-      let logoUrl: string | null = null;
-
-      if (logoFile) {
-        const logoUrlInput = window.prompt('Paste a public URL for the token logo (file upload not supported in this build):');
-        if (logoUrlInput) logoUrl = logoUrlInput.trim();
-      }
+      // Use the data URL from the file picker, or null if no logo selected (optional)
+      const logoUrl: string | null = logoPreview ?? null;
 
       const tokenAddress = '0x' + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       const walletAddr = address || `user:${user.id}`;
