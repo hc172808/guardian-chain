@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
+import rateLimit from "express-rate-limit";
 import { setupAuth } from "./auth";
 import { registerRoutes } from "./routes";
 import { seedFounder, seedFirewallDefaults } from "./seed";
@@ -15,32 +16,121 @@ import { testNodeManager, loadPersistedTestNodeState } from "./testNodes";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
 
-// CORS — open for RPC/JSON-RPC endpoints so Trust Wallet, MetaMask, etc. can connect
-app.use((req, res, next) => {
-  const origin = req.headers.origin || '*';
-  // Allow all origins for RPC paths; restrict to same-origin for everything else
-  if (req.path === '/rpc' || req.path === '/api/rpc' || req.path === '/') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+// ── Trust proxy — MUST be first, before all middleware ───────────────────────
+// Sets the trusted hop count to 1 (Replit's edge proxy / load balancer).
+// This makes req.ip reliable (the real client IP from the first untrusted XFF entry)
+// and prevents IP spoofing attacks against rate limiters and the firewall.
+app.set("trust proxy", 1);
+
+// ── Request timeout (30 s) — protection against slow-loris & hung connections ─
+app.use((req: any, res: any, next: any) => {
+  // Set a 30-second hard timeout on each request socket
+  req.socket?.setTimeout(30_000);
+  res.setTimeout(30_000, () => {
+    if (!res.headersSent) {
+      res.status(408).json({ error: "Request timeout.", code: "TIMEOUT" });
+    }
+  });
+  next();
+});
+
+// ── Body parsing — tighter limits ─────────────────────────────────────────────
+// Auth routes need very little body; restrict them to 16 KB to prevent large payload DoS
+app.use('/api/auth', express.json({ limit: '16kb' }));
+app.use('/api/auth', express.urlencoded({ extended: false, limit: '16kb' }));
+// Everything else gets 2 MB (was 10 MB — reduced to limit upload-based DoS)
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// ── Global rate limiter — last line of defence against extreme floods ──────────
+// Very generous (600 req/min) — only catches bulk abuse. Per-route limiters are tighter.
+const globalLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Never rate-limit loopback (Replit preview, health checks, localhost nodes)
+    const ip = req.ip ?? req.socket?.remoteAddress ?? '';
+    return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  },
+  message: { error: 'Too many requests. Please slow down.', code: 'GLOBAL_RATE_LIMITED' },
+  handler: (_req: any, res: any) => {
+    res.status(429).json({ error: 'Too many requests. Please slow down.', code: 'GLOBAL_RATE_LIMITED' });
+  },
+});
+app.use(globalLimiter);
+
+// ── CORS — credential-safe origin allowlist ────────────────────────────────────
+// RPC endpoints must stay open (*) for wallets; all others restrict credentials
+// to known origins to prevent cross-site credential theft.
+function buildAllowedOrigins(): Set<string> {
+  const origins = new Set<string>([
+    'https://netlifegy.com',
+    'https://www.netlifegy.com',
+    'https://rpc.netlifegy.com',
+    'https://app.netlifegy.com',
+    'http://localhost:5001',
+    'http://localhost:3000',
+    'http://127.0.0.1:5001',
+  ]);
+  // Replit dev-domain (format: <slug>.repl.co or <slug>.replit.dev)
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) {
+    origins.add(`https://${devDomain}`);
+    origins.add(`https://${devDomain.replace(/^[^.]+\./, '')}`); // parent domain
   }
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  return origins;
+}
+const ALLOWED_ORIGINS = buildAllowedOrigins();
+const RPC_PATHS = new Set(['/rpc', '/api/rpc', '/']);
+
+app.use((req: any, res: any, next: any) => {
+  const origin: string | undefined = req.headers.origin;
+  const isRpc = RPC_PATHS.has(req.path);
+
+  if (isRpc) {
+    // RPC must be open for any wallet app
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    // No credentials on open-CORS responses
+  } else if (!origin) {
+    // Same-origin request (no Origin header) — always allowed
+  } else if (ALLOWED_ORIGINS.has(origin)) {
+    // Known trusted origin — allow credentials
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  } else {
+    // Unknown origin — strict deny: emit no ACAO header at all.
+    // The browser will block the request. This prevents untrusted sites from
+    // reading any response data even without credentials.
+    res.setHeader('Vary', 'Origin');
+    if (req.method === 'OPTIONS') { res.sendStatus(403); return; }
+    // For non-preflight requests from unknown origins, continue (the missing
+    // ACAO header will cause the browser to block the response) but don't block
+    // server-side so API keys / mobile clients still work without a browser Origin.
+  }
+
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+
   if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
   next();
 });
 
-// Security headers (CSP hardening)
-app.use((_req, res, next) => {
+// ── Security headers ──────────────────────────────────────────────────────────
+app.use((_req: any, res: any, next: any) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  // HSTS — tell browsers to always use HTTPS (1 year, include subdomains)
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  // Prevent leaking server info
+  res.removeHeader('X-Powered-By');
+  res.setHeader('Server', 'GYDS');
   res.setHeader(
     'Content-Security-Policy',
     [
@@ -58,7 +148,7 @@ app.use((_req, res, next) => {
   next();
 });
 
-// AI Firewall middleware — runs before routes
+// ── AI Firewall + DDoS protection middleware — runs before all routes ─────────
 app.use(aiFirewallMiddleware);
 await refreshSecuritySettings();
 // Refresh security settings every 5 min

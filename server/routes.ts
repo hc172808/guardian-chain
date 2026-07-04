@@ -33,9 +33,16 @@ interface GithubWebhookEvent {
 const githubWebhookEvents: GithubWebhookEvent[] = [];
 const githubPendingRecheck = new Set<string>(); // repos that need a NodeRepoSync recheck
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: "Too many login attempts. Please wait 15 minutes before trying again." } });
-const faucetLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Too many faucet requests." } });
-const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, message: { error: "Rate limit exceeded. Please slow down." } });
+// 20 req / 15 min — matches auth.ts authLimiter
+const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many login attempts. Please wait 15 minutes before trying again." } });
+// 5 req / hr — faucet claim
+const faucetLimiter = rateLimit({ windowMs: 60 * 60_000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Too many faucet requests." } });
+// 100 req / min for developer API keys (was 200 — tightened)
+const apiLimiter = rateLimit({ windowMs: 60_000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: "Rate limit exceeded. Please slow down." } });
+// RPC relay: 60 req / min per IP (protect the /rpc proxy endpoint)
+const rpcLimiter = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false, skip: (req) => { const ip = req.ip ?? ''; return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'; }, message: { error: "RPC rate limit exceeded." } });
+// File upload: 10 req / 10 min
+const uploadLimiter = rateLimit({ windowMs: 10 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: "Too many uploads. Please wait." } });
 
 function requireAuth(req: Request, res: Response, next: any) {
   if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
@@ -2036,7 +2043,7 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.post("/api/rpc", async (req, res) => {
+  app.post("/api/rpc", rpcLimiter, async (req, res) => {
     const network = ((req.query.network as string) || req.body?._network || "mainnet") as ValidNetwork;
     const all = testNodeManager.status() as any;
     const netStatus = all[VALID_NETWORKS.includes(network) ? network : "mainnet"] ?? {};
@@ -4215,7 +4222,7 @@ export function registerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.post("/api/admin/wallet-releases/upload", requireAdmin, walletUpload.single("file"), async (req, res) => {
+  app.post("/api/admin/wallet-releases/upload", requireAdmin, uploadLimiter, walletUpload.single("file"), async (req, res) => {
     const user = req.user as any;
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });

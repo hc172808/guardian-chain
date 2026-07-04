@@ -22,7 +22,12 @@ setInterval(() => {
   for (const [k, v] of waOtpStore) if (v.expiresAt < now) waOtpStore.delete(k);
 }, 60_000);
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
+// Auth endpoints: 20 attempts per 15 min per IP
+const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
+// TOTP / backup-code verify: tighter (10 per 15 min) — brute-force protection
+const totpLimiter = rateLimit({ windowMs: 15 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: "Too many 2FA attempts. Please wait 15 minutes." } });
+// Password-reset confirm: even tighter (5 per 30 min) — token enumeration protection
+const resetConfirmLimiter = rateLimit({ windowMs: 30 * 60_000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: "Too many reset attempts. Please wait 30 minutes." } });
 
 function requireAuth(req: any, res: any, next: any) {
   if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
@@ -45,7 +50,7 @@ export function getSession(): RequestHandler {
 }
 
 export async function setupAuth(app: Express): Promise<void> {
-  app.set("trust proxy", 1);
+  // trust proxy is already set in index.ts before middleware — do not set again here
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
@@ -136,7 +141,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Email Verification ─────────────────────────────────────────────────────
-  app.post("/api/auth/verify-email", async (req, res) => {
+  app.post("/api/auth/verify-email", authLimiter, async (req, res) => {
     try {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "token required" });
@@ -153,7 +158,7 @@ export async function setupAuth(app: Express): Promise<void> {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.post("/api/auth/resend-verification", requireAuth, async (req, res) => {
+  app.post("/api/auth/resend-verification", authLimiter, requireAuth, async (req, res) => {
     try {
       const user = req.user as any;
       const pgPool = (storage as any).pgPool;
@@ -190,7 +195,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Web3: get nonce for a wallet address ───────────────────────────────────
-  app.get("/api/auth/nonce", async (req, res) => {
+  app.get("/api/auth/nonce", authLimiter, async (req, res) => {
     try {
       const address = String(req.query.address ?? "").toLowerCase();
       if (!address || !address.startsWith("0x")) return res.status(400).json({ error: "address required" });
@@ -203,7 +208,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Web3: verify signature and log in ─────────────────────────────────────
-  app.post("/api/auth/web3", async (req, res) => {
+  app.post("/api/auth/web3", authLimiter, async (req, res) => {
     try {
       const { address, signature } = req.body ?? {};
       if (!address || !signature) return res.status(400).json({ error: "address and signature required" });
@@ -263,7 +268,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Change password (authenticated) ───────────────────────────────────────
-  app.post("/api/auth/change-password", async (req, res) => {
+  app.post("/api/auth/change-password", authLimiter, async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const user = req.user as any;
     const { currentPassword, newPassword } = req.body ?? {};
@@ -289,7 +294,7 @@ export async function setupAuth(app: Express): Promise<void> {
   // Requires the email address registered to the account — username alone is NOT accepted.
   // Token is NEVER returned in the API response; it is sent only to the registered inbox.
   // If SMTP is not configured, the token is printed to server stdout only (owner access).
-  app.post("/api/auth/reset-password/request", async (req, res) => {
+  app.post("/api/auth/reset-password/request", authLimiter, async (req, res) => {
     try {
       const { email } = req.body ?? {};
       if (!email) return res.status(400).json({ error: "email required" });
@@ -330,7 +335,7 @@ export async function setupAuth(app: Express): Promise<void> {
 
   // ── Password reset: confirm with token ────────────────────────────────────
   // If the account has 2FA enabled, a valid TOTP code OR backup code is also required.
-  app.post("/api/auth/reset-password/confirm", async (req, res) => {
+  app.post("/api/auth/reset-password/confirm", resetConfirmLimiter, async (req, res) => {
     try {
       const { token, newPassword, totpCode } = req.body ?? {};
       if (!token || !newPassword) return res.status(400).json({ error: "token and newPassword required" });
@@ -371,7 +376,7 @@ export async function setupAuth(app: Express): Promise<void> {
 
   // ── Password reset: via wallet signature ──────────────────────────────────
   // Flow: 1) GET /api/auth/nonce?address=0x...  2) user signs nonce  3) POST here → get reset token
-  app.post("/api/auth/reset-password/wallet", async (req, res) => {
+  app.post("/api/auth/reset-password/wallet", authLimiter, async (req, res) => {
     try {
       const { address, signature } = req.body ?? {};
       if (!address || !signature) return res.status(400).json({ error: "address and signature required" });
@@ -476,7 +481,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── TOTP: setup (generate secret + QR URI) ────────────────────────────────
-  app.post("/api/auth/totp/setup", async (req, res) => {
+  app.post("/api/auth/totp/setup", authLimiter, async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const user = req.user as any;
     try {
@@ -491,7 +496,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── TOTP: verify and enable ────────────────────────────────────────────────
-  app.post("/api/auth/totp/verify", async (req, res) => {
+  app.post("/api/auth/totp/verify", totpLimiter, async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const user = req.user as any;
     const { code } = req.body ?? {};
@@ -509,7 +514,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── TOTP: generate backup codes ───────────────────────────────────────────
-  app.post("/api/auth/totp/backup-codes/generate", async (req, res) => {
+  app.post("/api/auth/totp/backup-codes/generate", authLimiter, async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const user = req.user as any;
     try {
@@ -538,7 +543,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── TOTP: use backup code (consumes it) ───────────────────────────────────
-  app.post("/api/auth/totp/backup-codes/use", async (req, res) => {
+  app.post("/api/auth/totp/backup-codes/use", totpLimiter, async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const user = req.user as any;
     const { code } = req.body ?? {};
@@ -587,7 +592,7 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── TOTP: disable ─────────────────────────────────────────────────────────
-  app.delete("/api/auth/totp", async (req, res) => {
+  app.delete("/api/auth/totp", totpLimiter, async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const user = req.user as any;
     const { code } = req.body ?? {};
