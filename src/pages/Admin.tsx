@@ -740,7 +740,7 @@ const ADMIN_TABS = [
   { group: 'Infrastructure', tabs: [
     { value: 'nodes', label: 'Nodes' },
     { value: 'validators', label: 'Validators' },
-    { value: 'test-nodes', label: 'Test Nodes' },
+    { value: 'test-nodes', label: 'Localhost Nodes' },
     { value: 'node-types', label: 'Node Types' },
     { value: 'installer', label: 'Installer' },
     { value: 'github', label: 'GitHub' },
@@ -1149,7 +1149,7 @@ const AdminContent = () => {
                         )}
                         {isLocalNode && (
                           <Badge variant="outline" className="text-primary border-primary/60 bg-primary/10 text-xs gap-1">
-                            <MonitorDot className="h-3 w-3" /> Local Test Node
+                            <MonitorDot className="h-3 w-3" /> Localhost Node
                           </Badge>
                         )}
                         {node.isApproved ? (

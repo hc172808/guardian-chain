@@ -698,10 +698,10 @@ export function TestNodeManager() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Server className="w-5 h-5 text-primary" /> Network Test Nodes
+            <Server className="w-5 h-5 text-primary" /> Localhost Nodes
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            7 node types × 3 networks = 21 live nodes. Each runs the correct chain ID, currency, and RPC endpoints.
+            7 node types × 3 networks = 21 localhost nodes. Each binds to a real port, runs the correct chain ID, and responds to JSON-RPC.
             <span className="text-amber-400 font-medium ml-1">Admin / Founder only.</span>
           </p>
         </div>
