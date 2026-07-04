@@ -7,8 +7,13 @@
  * - crypto.getRandomValues for secure randomness
  * - PIN rotation (re-encrypt with new PIN)
  *
+ * Wallet generation uses ethers.js BIP-39/BIP-44 (full 2048-word list,
+ * proper checksum) so phrases are accepted by MetaMask, Trust Wallet, Phantom, etc.
+ *
  * Private keys and seed phrases NEVER leave the device unencrypted.
  */
+
+import { Wallet, Mnemonic } from 'ethers';
 
 const PBKDF2_ITERATIONS = 100_000; // OWASP recommended minimum (100k for interactive logins)
 const SALT_BYTES = 16;
@@ -165,49 +170,22 @@ export async function rotatePin(
 }
 
 /**
- * Generate a cryptographically secure wallet.
- * Uses crypto.getRandomValues for key material.
+ * Generate a cryptographically secure wallet using BIP-39 / BIP-44.
+ * Uses ethers.js Wallet.createRandom() which produces a proper 12-word
+ * mnemonic from the full 2048-word BIP-39 wordlist with a valid checksum.
+ * The resulting phrase is accepted by MetaMask, Trust Wallet, Phantom, etc.
  */
 export function generateSecureWallet(): {
   privateKey: string;
   address: string;
   seedPhrase: string;
 } {
-  // Generate 32 random bytes for private key
-  const keyBytes = crypto.getRandomValues(new Uint8Array(32));
-  const privateKey = '0x' + bufToHex(keyBytes.buffer as ArrayBuffer);
-
-  // Generate 20 random bytes for address
-  const addrBytes = crypto.getRandomValues(new Uint8Array(20));
-  const address = '0x' + bufToHex(addrBytes.buffer as ArrayBuffer);
-
-  // BIP-39 word list subset (in production use the full 2048 list)
-  const words = [
-    'abandon', 'ability', 'able', 'about', 'above', 'absent', 'absorb', 'abstract',
-    'absurd', 'abuse', 'access', 'accident', 'account', 'accuse', 'achieve', 'acid',
-    'acoustic', 'acquire', 'across', 'act', 'action', 'actor', 'actress', 'actual',
-    'adapt', 'add', 'addict', 'address', 'adjust', 'admit', 'adult', 'advance',
-    'advice', 'aerobic', 'affair', 'afford', 'afraid', 'again', 'age', 'agent',
-    'agree', 'ahead', 'aim', 'air', 'airport', 'aisle', 'alarm', 'album',
-    'alert', 'alien', 'all', 'alley', 'allow', 'almost', 'alone', 'alpha',
-    'already', 'also', 'alter', 'always', 'amateur', 'amazing', 'among', 'amount',
-    'amused', 'analyst', 'anchor', 'ancient', 'anger', 'angle', 'angry', 'animal',
-    'ankle', 'announce', 'annual', 'another', 'answer', 'antenna', 'antique', 'anxiety',
-    'any', 'apart', 'apology', 'appear', 'apple', 'approve', 'april', 'arch',
-    'arctic', 'area', 'arena', 'argue', 'arm', 'armed', 'armor', 'army',
-    'around', 'arrange', 'arrest', 'arrive', 'arrow', 'art', 'artefact', 'artist',
-    'artwork', 'ask', 'aspect', 'assault', 'asset', 'assist', 'assume', 'asthma',
-    'athlete', 'atom', 'attack', 'attend', 'auction', 'audit', 'august', 'aunt',
-    'author', 'auto', 'avocado', 'avoid', 'awake', 'aware', 'awful', 'awkward',
-  ];
-
-  // Use crypto.getRandomValues for word selection
-  const indices = crypto.getRandomValues(new Uint8Array(12));
-  const seedPhrase = Array.from(indices)
-    .map((b) => words[b % words.length])
-    .join(' ');
-
-  return { privateKey, address, seedPhrase };
+  const wallet = Wallet.createRandom();
+  return {
+    privateKey: wallet.privateKey,
+    address: wallet.address,
+    seedPhrase: wallet.mnemonic!.phrase,
+  };
 }
 
 // ─── PIN Lock (app-level security) ────────────────────
@@ -288,17 +266,18 @@ export async function verifyPinLock(pin: string): Promise<boolean> {
 }
 
 /**
- * Derive a deterministic wallet address from a seed phrase using SHA-256.
- * The address is the last 20 bytes of SHA-256(seedPhrase), ensuring the same
- * seed always produces the same address on this network.
+ * Derive a wallet address from a BIP-39 seed phrase using standard BIP-44
+ * derivation (m/44'/60'/0'/0/0 — same path as MetaMask / Trust Wallet).
+ * This means the recovered address matches what any standard EVM wallet shows.
  */
 export async function walletFromSeed(seedPhrase: string): Promise<{ address: string; seedPhrase: string }> {
-  const enc = new TextEncoder();
-  const hashBuf = await crypto.subtle.digest('SHA-256', enc.encode(seedPhrase.trim()));
-  const hashArr = new Uint8Array(hashBuf);
-  const addrBytes = hashArr.slice(12); // last 20 bytes → 40 hex chars
-  const address = '0x' + Array.from(addrBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-  return { address, seedPhrase: seedPhrase.trim() };
+  const phrase = seedPhrase.trim();
+  // Validate first so we give a clear error rather than an ethers exception
+  if (!Mnemonic.isValidMnemonic(phrase)) {
+    throw new Error('Invalid recovery phrase. Please check every word and try again.');
+  }
+  const wallet = Wallet.fromPhrase(phrase);
+  return { address: wallet.address, seedPhrase: phrase };
 }
 
 // ─── Legacy compatibility (for existing wallets) ──────
