@@ -8,7 +8,7 @@ import { seedFounder, seedFirewallDefaults } from "./seed";
 import { storage } from "./storage";
 import { initVapid, ensurePushSubscriptionsTable } from "./webpush";
 import { Pool } from "pg";
-import { aiFirewallMiddleware, refreshSecuritySettings } from "./security";
+import { aiFirewallMiddleware, refreshSecuritySettings, ipBanGate, initIpBanTables, getClientIp } from "./security";
 import { initActivityFeed, handleUpgrade } from "./activityFeed";
 import { ensurePreferredCurrencyColumn } from "./exchangeRates";
 import { testNodeManager, loadPersistedTestNodeState } from "./testNodes";
