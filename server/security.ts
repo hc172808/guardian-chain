@@ -486,3 +486,150 @@ export function aiFirewallMiddleware(req: any, res: any, next: any) {
 
   next();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Persistent public-IP ban system (DB-backed).
+// - IP resolution goes through getClientIp() (CF-Connecting-IP → X-Real-IP → XFF).
+// - `ip_bans` holds manual + auto-issued bans (permanent when expires_at IS NULL).
+// - `login_failures` feeds the brute-force auto-banner (≥10 fails / 15 min = 24h ban).
+// - Every API request is gated by ipBanGate() before hitting a route handler.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const banCache = new Map<string, { until: number; expiresAt: number | null }>(); // ip → cache entry
+const BAN_CACHE_TTL_MS = 30_000;
+
+export async function initIpBanTables() {
+  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  if (!pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ip_bans (
+      ip          TEXT PRIMARY KEY,
+      reason      TEXT,
+      banned_by   TEXT,
+      banned_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at  TIMESTAMPTZ,
+      auto        BOOLEAN NOT NULL DEFAULT FALSE
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_bans_expires ON ip_bans(expires_at);
+
+    CREATE TABLE IF NOT EXISTS login_failures (
+      ip           TEXT NOT NULL,
+      attempted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      email        TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_failures_ip_time ON login_failures(ip, attempted_at);
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_ip  TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at  TIMESTAMPTZ;
+  `);
+  // Prune anything expired at startup
+  await pool.query(`DELETE FROM login_failures WHERE attempted_at < NOW() - INTERVAL '24 hours'`).catch(() => {});
+}
+
+async function isIpBannedDb(ip: string): Promise<{ banned: boolean; expiresAt: number | null }> {
+  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  if (!pool) return { banned: false, expiresAt: null };
+  const cached = banCache.get(ip);
+  if (cached && cached.until > Date.now()) {
+    if (cached.expiresAt === null) return { banned: true, expiresAt: null };
+    if (cached.expiresAt > Date.now()) return { banned: true, expiresAt: cached.expiresAt };
+    return { banned: false, expiresAt: null };
+  }
+  const r = await pool.query(
+    `SELECT expires_at FROM ip_bans WHERE ip=$1 AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1`,
+    [ip]
+  ).catch(() => ({ rows: [] as any[] }));
+  if (r.rows.length === 0) {
+    banCache.set(ip, { until: Date.now() + BAN_CACHE_TTL_MS, expiresAt: 0 });
+    return { banned: false, expiresAt: null };
+  }
+  const expiresAt = r.rows[0].expires_at ? new Date(r.rows[0].expires_at).getTime() : null;
+  banCache.set(ip, { until: Date.now() + BAN_CACHE_TTL_MS, expiresAt });
+  return { banned: true, expiresAt };
+}
+
+/** Middleware: block any request from an IP present in `ip_bans`. */
+export async function ipBanGate(req: any, res: any, next: any) {
+  const ip = getClientIp(req);
+  if (ALWAYS_ALLOW.has(ip)) return next();
+  const { banned, expiresAt } = await isIpBannedDb(ip);
+  if (!banned) return next();
+  return res.status(403).json({
+    error: "Your IP address has been banned from this service.",
+    code: "IP_BANNED",
+    ip,
+    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+  });
+}
+
+/** Fast synchronous cache check used by login handlers before password verification. */
+export function isIpBannedCached(ip: string): boolean {
+  const c = banCache.get(ip);
+  if (!c || c.until <= Date.now()) return false;
+  if (c.expiresAt === null) return true;
+  return c.expiresAt > Date.now();
+}
+
+export async function addIpBan(opts: { ip: string; reason?: string; bannedBy?: string; expiresAt?: Date | null; auto?: boolean }) {
+  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  if (!pool) throw new Error("db unavailable");
+  await pool.query(
+    `INSERT INTO ip_bans (ip, reason, banned_by, expires_at, auto)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (ip) DO UPDATE SET reason=EXCLUDED.reason, banned_by=EXCLUDED.banned_by,
+                                    expires_at=EXCLUDED.expires_at, auto=EXCLUDED.auto,
+                                    banned_at=NOW()`,
+    [opts.ip, opts.reason ?? null, opts.bannedBy ?? null, opts.expiresAt ?? null, !!opts.auto]
+  );
+  banCache.delete(opts.ip);
+}
+
+export async function removeIpBan(ip: string) {
+  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  if (!pool) throw new Error("db unavailable");
+  await pool.query(`DELETE FROM ip_bans WHERE ip=$1`, [ip]);
+  banCache.delete(ip);
+}
+
+export async function listIpBans() {
+  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  if (!pool) return [];
+  const r = await pool.query(
+    `SELECT ip, reason, banned_by, banned_at, expires_at, auto
+       FROM ip_bans
+      WHERE expires_at IS NULL OR expires_at > NOW()
+      ORDER BY banned_at DESC LIMIT 500`
+  );
+  return r.rows;
+}
+
+/** Record a failed login and auto-ban after 10 failures in the last 15 min. */
+export async function recordLoginFailure(ip: string, email?: string): Promise<{ autoBanned: boolean }> {
+  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  if (!pool || ALWAYS_ALLOW.has(ip)) return { autoBanned: false };
+  await pool.query(`INSERT INTO login_failures (ip, email) VALUES ($1,$2)`, [ip, email ?? null]).catch(() => {});
+  const r = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM login_failures WHERE ip=$1 AND attempted_at > NOW() - INTERVAL '15 minutes'`,
+    [ip]
+  ).catch(() => ({ rows: [{ c: 0 }] }));
+  const count = r.rows[0]?.c ?? 0;
+  if (count >= 10) {
+    await addIpBan({
+      ip,
+      reason: `auto: ${count} failed logins in 15 min`,
+      bannedBy: "system",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      auto: true,
+    }).catch(() => {});
+    console.warn(`[ip-ban] Auto-banned ${ip} for 24h after ${count} failed logins`);
+    return { autoBanned: true };
+  }
+  return { autoBanned: false };
+}
+
+export async function clearLoginFailures(ip: string) {
+  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  if (!pool) return;
+  await pool.query(`DELETE FROM login_failures WHERE ip=$1`, [ip]).catch(() => {});
+}
+
