@@ -176,19 +176,51 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Login (username + password) ────────────────────────────────────────────
-  app.post("/api/auth/login", authLimiter, (req, res, next) => {
-    passport.authenticate("local", (err: any, user: any, info: any) => {
+  app.post("/api/auth/login", authLimiter, async (req, res, next) => {
+    const { getClientIp, isIpBannedCached, recordLoginFailure, clearLoginFailures } = await import("./security");
+    const ip = getClientIp(req);
+
+    // Fast pre-check (uses 30s cache primed by ipBanGate on the same request)
+    if (isIpBannedCached(ip)) {
+      return res.status(403).json({ error: "Your IP address has been banned from this service.", code: "IP_BANNED", ip });
+    }
+
+    passport.authenticate("local", async (err: any, user: any, info: any) => {
       if (err) return res.status(500).json({ error: "Login error" });
-      if (!user) return res.status(401).json({ error: info?.message ?? "Invalid credentials" });
+      if (!user) {
+        const { autoBanned } = await recordLoginFailure(ip, String(req.body?.username ?? "").toLowerCase()).catch(() => ({ autoBanned: false }));
+        if (autoBanned) {
+          return res.status(403).json({ error: "Too many failed login attempts — your IP has been banned for 24 hours.", code: "IP_AUTO_BANNED", ip });
+        }
+        return res.status(401).json({ error: info?.message ?? "Invalid credentials" });
+      }
       req.login(user, async (loginErr) => {
         if (loginErr) return res.status(500).json({ error: "Session error" });
         (req.session as any).ua = req.headers['user-agent']?.slice(0, 200) ?? 'Unknown';
-        (req.session as any).ip = req.ip ?? req.socket?.remoteAddress ?? 'Unknown';
+        (req.session as any).ip = ip;
         (req.session as any).loginAt = new Date().toISOString();
+        // Persist last-login IP on the user row
+        try {
+          await (storage as any).pgPool?.query(
+            `UPDATE users SET last_login_ip=$1, last_login_at=NOW() WHERE id=$2`,
+            [ip, user.id]
+          );
+        } catch {}
+        clearLoginFailures(ip).catch(() => {});
+        // Audit log
+        try {
+          await storage.insertAuditLog({
+            userId: user.id, userEmail: user.email ?? null,
+            action: "login", category: "auth",
+            targetType: "user", targetId: user.id,
+            details: { username: user.username, ua: req.headers['user-agent'] } as any,
+            ipAddress: ip,
+          } as any);
+        } catch {}
         res.json({ ok: true });
         try {
           const { broadcastActivity } = await import('./activityFeed');
-          broadcastActivity({ type: 'login', title: 'User Login', detail: `${user.username ?? user.email ?? 'unknown'} signed in`, user: user.username ?? user.email, ip: req.ip ?? undefined });
+          broadcastActivity({ type: 'login', title: 'User Login', detail: `${user.username ?? user.email ?? 'unknown'} signed in`, user: user.username ?? user.email, ip });
         } catch {}
       });
     })(req, res, next);
