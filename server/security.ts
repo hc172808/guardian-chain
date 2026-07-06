@@ -175,11 +175,24 @@ const BAD_UA_PATTERNS: RegExp[] = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-// Use Express's trusted-proxy-aware req.ip (set by "trust proxy" in index.ts).
-// This is non-spoofable when trust proxy is correctly configured; manually
-// parsing x-forwarded-for would allow attackers to inject arbitrary IPs.
-function getClientIp(req: any): string {
-  return req.ip ?? req.socket?.remoteAddress ?? "0.0.0.0";
+// Resolve the real *public* client IP behind Cloudflare / Nginx / any reverse proxy.
+// Preference order (user-chosen policy): CF-Connecting-IP → X-Real-IP → first XFF hop → req.ip → socket.
+// Strips IPv6 "::ffff:" prefix and normalises "::1" → "127.0.0.1" so bans compare cleanly.
+export function getClientIp(req: any): string {
+  const h = req.headers ?? {};
+  const pick = (v: any): string => Array.isArray(v) ? v[0] : (typeof v === "string" ? v : "");
+  let ip =
+    pick(h["cf-connecting-ip"]) ||
+    pick(h["true-client-ip"]) ||
+    pick(h["x-real-ip"]) ||
+    pick(h["x-forwarded-for"]).split(",")[0].trim() ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    "0.0.0.0";
+  ip = String(ip).trim();
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  if (ip === "::1") ip = "127.0.0.1";
+  return ip;
 }
 
 function maxRps(sensitivity: number): number {
