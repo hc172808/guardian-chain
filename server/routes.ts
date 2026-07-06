@@ -7,7 +7,7 @@ import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { Pool } from "pg";
-import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings } from "./security";
+import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { sendBuyRequestStatusEmail, sendCashoutStatusEmail } from "./email";
 import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
