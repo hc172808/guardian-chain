@@ -7,7 +7,7 @@ import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { Pool } from "pg";
-import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings } from "./security";
+import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { sendBuyRequestStatusEmail, sendCashoutStatusEmail } from "./email";
 import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
@@ -1126,6 +1126,58 @@ export function registerRoutes(app: Express) {
   app.delete("/api/security/blocked-ips", requireAdmin, (_req, res) => {
     clearAllBlockedIps();
     res.json({ ok: true, message: "All blocked IPs cleared" });
+  });
+
+  // ── Persistent public-IP bans (DB-backed) ─────────────────────────────────
+  // Applies to every API request via the ipBanGate middleware.
+  app.get("/api/admin/ip-bans", requireAdmin, async (_req, res) => {
+    try { res.json({ bans: await listIpBans() }); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/admin/ip-bans", requireAdmin, async (req, res) => {
+    try {
+      const { ip, reason, expiresAt, userId } = req.body ?? {};
+      let targetIp = String(ip ?? "").trim();
+      // Convenience: ban a user's last-login IP by passing { userId }
+      if (!targetIp && userId) {
+        const r = await pgPool.query(`SELECT last_login_ip FROM users WHERE id=$1`, [userId]).catch(() => ({ rows: [] as any[] }));
+        targetIp = r.rows[0]?.last_login_ip ?? "";
+      }
+      if (!targetIp) return res.status(400).json({ error: "ip (or userId with recorded last-login IP) required" });
+      const actor = req.user as any;
+      await addIpBan({
+        ip: targetIp,
+        reason: reason ?? "manual",
+        bannedBy: actor?.id ?? "admin",
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        auto: false,
+      });
+      await storage.insertAuditLog({
+        userId: actor.id, userEmail: actor.email ?? null,
+        action: "ban_ip", category: "admin",
+        targetType: "ip", targetId: targetIp,
+        details: { reason, expiresAt } as any,
+        ipAddress: getClientIp(req),
+      } as any).catch(() => {});
+      res.json({ ok: true, bans: await listIpBans() });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/admin/ip-bans/:ip", requireAdmin, async (req, res) => {
+    try {
+      const ip = decodeURIComponent(req.params.ip);
+      await removeIpBan(ip);
+      const actor = req.user as any;
+      await storage.insertAuditLog({
+        userId: actor.id, userEmail: actor.email ?? null,
+        action: "unban_ip", category: "admin",
+        targetType: "ip", targetId: ip,
+        details: {} as any,
+        ipAddress: getClientIp(req),
+      } as any).catch(() => {});
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // Force reload firewall settings from DB
