@@ -154,6 +154,10 @@ await refreshSecuritySettings();
 // Refresh security settings every 5 min
 setInterval(() => refreshSecuritySettings().catch(() => {}), 5 * 60_000);
 
+// ── Public-IP ban gate — DB-backed, blocks banned IPs on every request ────────
+await initIpBanTables().catch(e => console.warn("initIpBanTables:", e.message));
+app.use((req, res, next) => { ipBanGate(req, res, next).catch(next); });
+
 await setupAuth(app);
 
 // ── IP Session Lock ────────────────────────────────────────────────────────
