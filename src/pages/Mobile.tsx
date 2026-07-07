@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, type NavigateOptions } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { QRScanner } from '@/components/wallet/QRScanner';
 import QRCode from 'qrcode';
