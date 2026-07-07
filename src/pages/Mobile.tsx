@@ -28,11 +28,12 @@ type Tab = 'home' | 'explorer' | 'defi' | 'wallet' | 'more';
 
 function useMobileNavigate() {
   const navigate = useNavigate();
-  return (path: string, options?: Parameters<typeof navigate>[1]) => {
+  return (path: string, options?: NavigateOptions) => {
     sessionStorage.setItem('fromMobileHub', 'true');
-    navigate(path, options as any);
+    navigate(path, options);
   };
 }
+
 
 export const MobileBackButton = () => {
   const navigate = useNavigate();
