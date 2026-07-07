@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, type NavigateOptions } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { QRScanner } from '@/components/wallet/QRScanner';
 import QRCode from 'qrcode';
@@ -28,11 +28,12 @@ type Tab = 'home' | 'explorer' | 'defi' | 'wallet' | 'more';
 
 function useMobileNavigate() {
   const navigate = useNavigate();
-  return (path: string, options?: Parameters<typeof navigate>[1]) => {
+  return (path: string, options?: NavigateOptions) => {
     sessionStorage.setItem('fromMobileHub', 'true');
-    navigate(path, options as any);
+    navigate(path, options);
   };
 }
+
 
 export const MobileBackButton = () => {
   const navigate = useNavigate();

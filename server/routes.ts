@@ -7,7 +7,7 @@ import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { Pool } from "pg";
-import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp } from "./security";
+import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { sendBuyRequestStatusEmail, sendCashoutStatusEmail } from "./email";
 import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
@@ -1178,6 +1178,23 @@ export function registerRoutes(app: Express) {
       } as any).catch(() => {});
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Honeypot redirect URL (used when an IP fails login 3× in 30s) ─────────
+  app.get("/api/admin/honeypot-redirect", requireAdmin, async (_req, res) => {
+    try { res.json({ url: await getHoneypotRedirectUrl() }); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/admin/honeypot-redirect", requireAdmin, async (req, res) => {
+    try {
+      const url = String(req.body?.url ?? "").trim();
+      if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: "url must start with http:// or https://" });
+      await storage.setAdminConfig("honeypot_redirect_url", url);
+      invalidateHoneypotCache();
+      res.json({ ok: true, url: url || null });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   });
 
   // Force reload firewall settings from DB

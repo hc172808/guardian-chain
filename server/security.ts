@@ -603,28 +603,64 @@ export async function listIpBans() {
   return r.rows;
 }
 
-/** Record a failed login and auto-ban after 10 failures in the last 15 min. */
-export async function recordLoginFailure(ip: string, email?: string): Promise<{ autoBanned: boolean }> {
+// ── Honeypot redirect (short-window brute force) ─────────────────────────────
+// After SHORT_LIMIT failed logins from one IP in SHORT_WINDOW_SEC seconds we
+// tell the client to redirect to a configurable "honeypot" URL (e.g. a warning
+// page or a trap site). The URL is read from admin_config.honeypot_redirect_url
+// with an env-var fallback and a 60s in-memory cache.
+export const SHORT_WINDOW_SEC = 30;
+export const SHORT_LIMIT = 3;
+const LONG_WINDOW_MIN = 15;
+const LONG_LIMIT = 10;
+
+let honeypotCache: { url: string | null; until: number } = { url: null, until: 0 };
+export async function getHoneypotRedirectUrl(): Promise<string | null> {
+  if (honeypotCache.until > Date.now()) return honeypotCache.url;
+  let url: string | null = process.env.HONEYPOT_REDIRECT_URL?.trim() || null;
+  try {
+    const v = await (storage as any).getAdminConfig?.("honeypot_redirect_url");
+    if (v && String(v).trim()) url = String(v).trim();
+  } catch {}
+  honeypotCache = { url, until: Date.now() + 60_000 };
+  return url;
+}
+export function invalidateHoneypotCache() { honeypotCache = { url: null, until: 0 }; }
+
+/** Record a failed login and evaluate short-window redirect + long-window auto-ban. */
+export async function recordLoginFailure(
+  ip: string,
+  email?: string
+): Promise<{ autoBanned: boolean; shortCount: number; longCount: number; redirectUrl: string | null }> {
   const pool = (storage as any).pgPool as import("pg").Pool | undefined;
-  if (!pool || ALWAYS_ALLOW.has(ip)) return { autoBanned: false };
+  if (!pool || ALWAYS_ALLOW.has(ip)) {
+    return { autoBanned: false, shortCount: 0, longCount: 0, redirectUrl: null };
+  }
   await pool.query(`INSERT INTO login_failures (ip, email) VALUES ($1,$2)`, [ip, email ?? null]).catch(() => {});
   const r = await pool.query(
-    `SELECT COUNT(*)::int AS c FROM login_failures WHERE ip=$1 AND attempted_at > NOW() - INTERVAL '15 minutes'`,
-    [ip]
-  ).catch(() => ({ rows: [{ c: 0 }] }));
-  const count = r.rows[0]?.c ?? 0;
-  if (count >= 10) {
+    `SELECT
+       COUNT(*) FILTER (WHERE attempted_at > NOW() - ($1 || ' seconds')::interval)::int  AS short_c,
+       COUNT(*) FILTER (WHERE attempted_at > NOW() - ($2 || ' minutes')::interval)::int  AS long_c
+     FROM login_failures WHERE ip=$3`,
+    [SHORT_WINDOW_SEC, LONG_WINDOW_MIN, ip]
+  ).catch(() => ({ rows: [{ short_c: 0, long_c: 0 }] as any[] }));
+  const shortCount = r.rows[0]?.short_c ?? 0;
+  const longCount = r.rows[0]?.long_c ?? 0;
+
+  let autoBanned = false;
+  if (longCount >= LONG_LIMIT) {
     await addIpBan({
       ip,
-      reason: `auto: ${count} failed logins in 15 min`,
+      reason: `auto: ${longCount} failed logins in ${LONG_WINDOW_MIN} min`,
       bannedBy: "system",
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       auto: true,
     }).catch(() => {});
-    console.warn(`[ip-ban] Auto-banned ${ip} for 24h after ${count} failed logins`);
-    return { autoBanned: true };
+    console.warn(`[ip-ban] Auto-banned ${ip} for 24h after ${longCount} failed logins`);
+    autoBanned = true;
   }
-  return { autoBanned: false };
+
+  const redirectUrl = shortCount >= SHORT_LIMIT ? await getHoneypotRedirectUrl() : null;
+  return { autoBanned, shortCount, longCount, redirectUrl };
 }
 
 export async function clearLoginFailures(ip: string) {
@@ -632,4 +668,5 @@ export async function clearLoginFailures(ip: string) {
   if (!pool) return;
   await pool.query(`DELETE FROM login_failures WHERE ip=$1`, [ip]).catch(() => {});
 }
+
 
