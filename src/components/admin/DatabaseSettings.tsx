@@ -34,11 +34,16 @@ export const DatabaseSettings = () => {
   const [externalUser, setExternalUser] = useState('');
   const [externalPass, setExternalPass] = useState('');
 
+  // Config key prefixed with `secret_` so RLS "Public can read public config"
+  // does NOT expose external database connection details (host/user/db).
+  // Passwords are never persisted here — set them via server-side secrets/env vars.
+  const CONFIG_KEY = 'secret_database_connection';
+
   useEffect(() => { fetchConfig(); }, []);
 
   const fetchConfig = async () => {
     try {
-      const row = await api.get('/api/config/database_connection');
+      const row = await api.get(`/api/config/${CONFIG_KEY}`);
       if (row?.configValue) {
         const cfg = row.configValue as DatabaseConfig;
         setConfig(cfg);
@@ -78,8 +83,9 @@ export const DatabaseSettings = () => {
       }),
     };
     try {
-      await api.post('/api/config', { key: 'database_connection', value: newConfig });
-      toast({ title: 'Settings saved!' });
+      // Never persist the password — it must be provided via server-side env/secret
+      await api.post('/api/config', { key: CONFIG_KEY, value: newConfig });
+      toast({ title: 'Settings saved!', description: 'Set the DB password via server env/secret — it is not stored here.' });
     } catch (e: any) {
       toast({ title: 'Failed to save', description: e.message, variant: 'destructive' });
     }

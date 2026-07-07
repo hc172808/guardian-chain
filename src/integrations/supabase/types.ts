@@ -580,7 +580,6 @@ export type Database = {
           uptime_seconds: number | null
           user_id: string
           valid_shares: number | null
-          wireguard_private_key: string | null
           wireguard_public_key: string | null
         }
         Insert: {
@@ -605,7 +604,6 @@ export type Database = {
           uptime_seconds?: number | null
           user_id: string
           valid_shares?: number | null
-          wireguard_private_key?: string | null
           wireguard_public_key?: string | null
         }
         Update: {
@@ -630,7 +628,6 @@ export type Database = {
           uptime_seconds?: number | null
           user_id?: string
           valid_shares?: number | null
-          wireguard_private_key?: string | null
           wireguard_public_key?: string | null
         }
         Relationships: []

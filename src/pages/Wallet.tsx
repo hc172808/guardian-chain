@@ -692,7 +692,10 @@ const WalletContent = () => {
     }
     setSendLoading(true);
     const fee = amount * 0.001;
-    const txHash = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    // Cryptographically secure random tx hash (prevents replay/prediction attacks vs Math.random)
+    const _hashBytes = new Uint8Array(32);
+    crypto.getRandomValues(_hashBytes);
+    const txHash = '0x' + Array.from(_hashBytes).map(b => b.toString(16).padStart(2, '0')).join('');
     setSendLoading(false);
     try {
       await api.post('/api/transactions', {

@@ -71,19 +71,21 @@ export const WireGuardManager = ({
       const keys = await generateWireGuardKeyPair();
       setPublicKey(keys.publicKey);
       setPrivateKey(keys.privateKey);
-      
+
+      // SECURITY: Never persist the WireGuard PRIVATE key to the database.
+      // Only the public key is stored server-side; the private key stays on the
+      // client (and in the exported .conf file the operator installs on the node).
       if (nodeId && user) {
         await supabase
           .from('node_installations')
-          .update({ 
+          .update({
             wireguard_public_key: keys.publicKey,
-            wireguard_private_key: keys.privateKey
           })
           .eq('id', nodeId);
       }
-      
+
       onKeysGenerated?.(keys.publicKey, keys.privateKey);
-      toast({ title: 'Keys generated successfully!' });
+      toast({ title: 'Keys generated successfully!', description: 'Private key stays on this device — export the config to install on the node.' });
     } catch (error) {
       toast({ title: 'Failed to generate keys', variant: 'destructive' });
     }
@@ -169,11 +171,11 @@ PersistentKeepalive = 25
       setPublicKey(derivedPublicKey);
       
       if (nodeId && user) {
+        // Only public key is stored server-side — private key never leaves this device.
         await supabase
           .from('node_installations')
-          .update({ 
+          .update({
             wireguard_public_key: derivedPublicKey,
-            wireguard_private_key: importedPrivateKey
           })
           .eq('id', nodeId);
       }
