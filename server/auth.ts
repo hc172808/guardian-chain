@@ -188,12 +188,26 @@ export async function setupAuth(app: Express): Promise<void> {
     passport.authenticate("local", async (err: any, user: any, info: any) => {
       if (err) return res.status(500).json({ error: "Login error" });
       if (!user) {
-        const { autoBanned } = await recordLoginFailure(ip, String(req.body?.username ?? "").toLowerCase()).catch(() => ({ autoBanned: false }));
+        const { autoBanned, shortCount, redirectUrl } = await recordLoginFailure(
+          ip, String(req.body?.username ?? "").toLowerCase()
+        ).catch(() => ({ autoBanned: false, shortCount: 0, redirectUrl: null as string | null }));
         if (autoBanned) {
           return res.status(403).json({ error: "Too many failed login attempts — your IP has been banned for 24 hours.", code: "IP_AUTO_BANNED", ip });
         }
-        return res.status(401).json({ error: info?.message ?? "Invalid credentials" });
+        if (redirectUrl) {
+          return res.status(429).json({
+            error: "Too many failed attempts from this IP. Redirecting…",
+            code: "HONEYPOT_REDIRECT",
+            redirectUrl,
+            ip,
+          });
+        }
+        const warn = shortCount >= 1
+          ? ` (Warning: ${shortCount}/3 failed attempts in 30s — you will be blocked if you continue.)`
+          : "";
+        return res.status(401).json({ error: (info?.message ?? "Invalid credentials") + warn, shortCount });
       }
+
       req.login(user, async (loginErr) => {
         if (loginErr) return res.status(500).json({ error: "Session error" });
         (req.session as any).ua = req.headers['user-agent']?.slice(0, 200) ?? 'Unknown';
