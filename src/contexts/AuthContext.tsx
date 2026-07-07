@@ -61,6 +61,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
+        // Firewall honeypot: 3 failed logins in 30s → redirect user off-site.
+        if (err?.code === 'HONEYPOT_REDIRECT' && typeof err.redirectUrl === 'string') {
+          window.location.replace(err.redirectUrl);
+          return { error: { message: 'Redirecting…' } };
+        }
         return { error: { message: err.error ?? 'Login failed' } };
       }
       await fetchUser();
@@ -69,6 +74,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return { error: { message: e.message ?? 'Login failed' } };
     }
   };
+
 
   const signUp = async (email: string, password: string): Promise<{ error: { message: string } | null }> => {
     try {
