@@ -12,6 +12,8 @@ import { aiFirewallMiddleware, refreshSecuritySettings, ipBanGate, initIpBanTabl
 import { initActivityFeed, handleUpgrade } from "./activityFeed";
 import { ensurePreferredCurrencyColumn } from "./exchangeRates";
 import { testNodeManager, loadPersistedTestNodeState } from "./testNodes";
+import { bootstrapDatabase } from "./bootstrap";
+import { pool as dbPool } from "./db";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -191,6 +193,7 @@ app.use((req: any, res: any, next: any) => {
 });
 
 registerRoutes(app);
+await bootstrapDatabase(dbPool).catch(e => console.warn("[bootstrap] error:", e.message));
 await seedFounder();
 await seedFirewallDefaults().catch(e => console.warn("seedFirewallDefaults:", e.message));
 await storage.seedAchievements().catch(e => console.warn("seedAchievements:", e.message));

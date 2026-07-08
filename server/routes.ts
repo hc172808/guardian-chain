@@ -1195,8 +1195,6 @@ export function registerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  });
-
   // Force reload firewall settings from DB
   app.post("/api/security/reload", requireAdmin, async (_req, res) => {
     await refreshSecuritySettings();
