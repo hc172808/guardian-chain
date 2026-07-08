@@ -5,6 +5,14 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { HardDrive, Loader2, CheckCircle2, AlertTriangle, Usb, ChevronRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
+// Minimal WebHID type surface — the DOM lib in this project does not ship HIDDevice.
+type HIDDevice = {
+  open: () => Promise<void>;
+  close: () => Promise<void>;
+  sendReport: (reportId: number, data: BufferSource) => Promise<void>;
+  oninputreport: ((ev: any) => void) | null;
+};
+
 interface LedgerAccount {
   address: string;
   path: string;

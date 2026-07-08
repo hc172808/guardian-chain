@@ -279,6 +279,7 @@ const empty: ProfileData = {
     email: true,
     push: false,
     sms: false,
+    whatsapp: false,
     price_alerts: true,
     tx_confirmed: true,
     node_status: true,

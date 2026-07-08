@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Webhook, Plus, Trash2, RefreshCw, Play, ChevronDown, ChevronUp,
   CheckCircle2, XCircle, Clock, Loader2, Copy, Shield, Zap,
-  Toggle, ToggleLeft, ToggleRight, Info
+  ToggleLeft, ToggleRight, Info
 } from 'lucide-react';
 
 const ALL_EVENTS = [

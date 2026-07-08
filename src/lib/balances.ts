@@ -3,6 +3,7 @@ import { api } from '@/lib/api';
 export const getUserAddresses = async (
   userId: string,
   connectedAddress?: string,
+  _email?: string | null,
 ): Promise<Set<string>> => {
   const myAddresses = new Set<string>();
   if (connectedAddress) myAddresses.add(connectedAddress.toLowerCase());

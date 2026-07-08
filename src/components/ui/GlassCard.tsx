@@ -1,4 +1,4 @@
-import { ReactNode, forwardRef } from 'react';
+import { ReactNode, MouseEvent, forwardRef } from 'react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 
@@ -7,7 +7,7 @@ interface GlassCardProps {
   className?: string;
   glow?: boolean;
   hover?: boolean;
-  onClick?: () => void;
+  onClick?: (e: MouseEvent<HTMLDivElement>) => void;
 }
 
 export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(

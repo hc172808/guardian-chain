@@ -73,7 +73,8 @@ function assertBlocked(error: unknown): void {
 // ── Minimal Supabase-shaped mock builder ─────────────────────────────────────
 function mockTable(op: 'insert' | 'update' | 'delete', error: unknown) {
   const fn = vi.fn().mockResolvedValue({ data: null, error });
-  return { from: vi.fn(() => ({ [op]: fn })), _fn: fn };
+  const from = vi.fn((_table: string) => ({ [op]: fn }));
+  return { from, _fn: fn };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,7 +246,7 @@ describe('RLS — audit_logs never records anonymous actions', () => {
   it('a legitimate authenticated insert is NOT blocked (control case)', async () => {
     // Positive control: a proper insert with a real user_id should succeed.
     const mockInsert = vi.fn().mockResolvedValue({ data: [{ id: 'abc' }], error: null });
-    const supabase = { from: vi.fn(() => ({ insert: mockInsert })) };
+    const supabase = { from: vi.fn((_table: string) => ({ insert: mockInsert })) };
     const { error } = await supabase
       .from('audit_logs')
       .insert({ user_id: 'real-user-uuid', action: 'stablecoin_config_save', category: 'admin' });

@@ -67,7 +67,9 @@ interface RevenueData {
   recent: RecentItem[];
 }
 
-const TYPE_META: Record<string, { label: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
+type IconType = React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+
+const TYPE_META: Record<string, { label: string; color: string; icon: IconType }> = {
   trust:       { label: 'Living Trust',    color: COLORS.trust,      icon: Lock },
   stablecoin:  { label: 'Stablecoin Fee',  color: COLORS.stablecoin, icon: Coins },
   insurance:   { label: 'Insurance',       color: COLORS.insurance,  icon: Shield },
@@ -80,7 +82,7 @@ const TYPE_META: Record<string, { label: string; color: string; icon: React.Comp
 function KpiCard({
   icon: Icon, label, gyds, usd, color, count,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: IconType;
   label: string;
   gyds: number;
   usd: number;

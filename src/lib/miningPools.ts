@@ -43,7 +43,7 @@ export const loadPools = async (): Promise<MiningPool[]> => {
   return Array.isArray(v) ? v : defaultPools();
 };
 
-export const savePools = async (pools: MiningPool[]): Promise<void> => {
+export const savePools = async (pools: MiningPool[], _userId?: string): Promise<void> => {
   await setConfig(POOLS_KEY, pools);
 };
 

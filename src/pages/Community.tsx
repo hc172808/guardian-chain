@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { MessageSquare, ThumbsUp, ThumbsDown, Plus, Search, Flame, Lightbulb, Trophy, Clock, ChevronDown, ChevronUp, Gift, Users, Link2, RefreshCw } from 'lucide-react';
+import { MessageSquare, ThumbsUp, ThumbsDown, Plus, Search, Flame, Lightbulb, Trophy, Clock, ChevronDown, ChevronUp, Gift, Users, Link2, RefreshCw, Lock, TrendingUp } from 'lucide-react';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 type PostType = 'discussion' | 'showcase' | 'idea' | 'announcement';
