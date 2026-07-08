@@ -38,7 +38,7 @@ const WatchlistPage = () => {
         api.get('/api/watchlist'),
         api.get('/api/tokens'),
       ]);
-      const tokensMap = new Map((tokensData || []).map((t: any) => [t.id, t]));
+      const tokensMap = new Map<string, any>((tokensData || []).map((t: any) => [t.id, t]));
       const merged = (watchlistData || []).map((item: any) => {
         const tok = tokensMap.get(item.tokenId ?? item.token_id);
         if (!tok) return null;
