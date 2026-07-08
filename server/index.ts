@@ -174,7 +174,7 @@ app.use((req: any, res: any, next: any) => {
   if (skip) return next();
 
   const sessionIp: string | undefined = (req.session as any).ip;
-  const currentIp: string = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
+  const currentIp: string = getClientIp(req);
 
   if (!sessionIp) {
     // Legacy session without IP recorded — save it now, allow through
