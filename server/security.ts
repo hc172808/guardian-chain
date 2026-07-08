@@ -548,10 +548,17 @@ async function isIpBannedDb(ip: string): Promise<{ banned: boolean; expiresAt: n
   return { banned: true, expiresAt };
 }
 
+/** Paths that are always reachable even from a banned IP so that admin/founder
+ *  operators can recover via wallet-signature login. */
+const BAN_BYPASS_PATHS = new Set(["/api/auth/nonce", "/api/auth/web3"]);
+
 /** Middleware: block any request from an IP present in `ip_bans`. */
 export async function ipBanGate(req: any, res: any, next: any) {
   const ip = getClientIp(req);
   if (ALWAYS_ALLOW.has(ip)) return next();
+  // Allow wallet-signature login endpoints through so privileged operators
+  // can always sign in and self-unban.
+  if (BAN_BYPASS_PATHS.has(req.path)) return next();
   const { banned, expiresAt } = await isIpBannedDb(ip);
   if (!banned) return next();
   return res.status(403).json({
