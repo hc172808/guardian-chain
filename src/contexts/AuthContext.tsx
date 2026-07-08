@@ -17,11 +17,16 @@ interface AuthUser {
   roles: AppRole[];
   isAdmin: boolean;
   isFounder: boolean;
+  createdAt?: string | null;
 }
 
 interface AuthContextType {
   user: AuthUser | null;
   loading: boolean;
+  /** Alias of `loading` for components using isLoading naming. */
+  isLoading: boolean;
+  /** Roles derived from the current user (empty when signed out). */
+  roles: AppRole[];
   signIn: (email: string, password: string) => Promise<{ error: { message: string } | null }>;
   signUp: (email: string, password: string) => Promise<{ error: { message: string } | null }>;
   signOut: () => Promise<void>;
@@ -105,10 +110,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const isFounder = user?.isFounder ?? false;
   const isAdmin = user?.isAdmin ?? false;
 
+  const roles = user?.roles ?? [];
+
   return (
     <AuthContext.Provider value={{
       user,
       loading,
+      isLoading: loading,
+      roles,
       signIn,
       signUp,
       signOut,

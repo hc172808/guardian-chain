@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Image, TrendingUp, Star, Plus, Search, Grid3X3, List,
   Zap, Tag, RefreshCw, Award, TrendingDown, Gavel, X,
-  Package, Layers, Lock, Tag as TagIcon, ArrowUpRight
+  Package, Layers, Lock, Tag as TagIcon, ArrowUpRight, Shield
 } from 'lucide-react';
 
 interface NFTToken {

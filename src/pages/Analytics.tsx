@@ -5,6 +5,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/hooks/use-toast';
 import {
   BarChart3, TrendingUp, TrendingDown, Activity, Zap,
   Clock, Users, Coins, RefreshCw, Download, Globe, Flame, Package, Bell
@@ -211,6 +212,7 @@ const MiningCalc = ({ overview }: { overview: Overview | null }) => {
 };
 
 const AnalyticsPage = () => {
+  const { toast } = useToast();
   const [period, setPeriod]   = useState<'7d' | '30d' | '90d'>('30d');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
