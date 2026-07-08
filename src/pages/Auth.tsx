@@ -24,7 +24,15 @@ const api = async (path: string, body?: object, method = 'POST') => {
 };
 
 // ── Login form ────────────────────────────────────────────────────────────────
-const LoginForm = ({ onSuccess, onReset }: { onSuccess: () => void; onReset: () => void }) => {
+const LoginForm = ({
+  onSuccess,
+  onReset,
+  onWalletFallback,
+}: {
+  onSuccess: () => void;
+  onReset: () => void;
+  onWalletFallback?: () => void;
+}) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -37,7 +45,26 @@ const LoginForm = ({ onSuccess, onReset }: { onSuccess: () => void; onReset: () 
     if (!username.trim() || !password) { setError('Fill in all fields'); return; }
     setLoading(true);
     try {
-      await api('/api/auth/login', { username: username.trim().toLowerCase(), password });
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim().toLowerCase(), password }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        // Admin/founder never gets locked out — server offers wallet fallback.
+        if (data?.code === 'USE_WALLET_FALLBACK' && onWalletFallback) {
+          setError(data.error ?? 'Use your registered wallet to sign in.');
+          setTimeout(() => onWalletFallback(), 900);
+          return;
+        }
+        if (data?.code === 'HONEYPOT_REDIRECT' && typeof data.redirectUrl === 'string') {
+          window.location.replace(data.redirectUrl);
+          return;
+        }
+        throw new Error(data?.error ?? 'Login failed');
+      }
       onSuccess();
     } catch (err: any) {
       setError(err.message);
@@ -972,7 +999,7 @@ const Auth = () => {
 
           <AnimatePresence mode="wait">
             <motion.div key={tab} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.15 }}>
-              {tab === 'login'    && <LoginForm    onSuccess={handleSuccess} onReset={() => setTab('reset')} />}
+              {tab === 'login'    && <LoginForm    onSuccess={handleSuccess} onReset={() => setTab('reset')} onWalletFallback={() => setTab('web3')} />}
               {tab === 'register' && <RegisterForm onSuccess={handleSuccess} />}
               {tab === 'web3'     && <Web3Form     onSuccess={handleSuccess} />}
               {tab === 'reset'    && <ResetForm    onBack={() => setTab('login')} />}
