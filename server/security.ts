@@ -626,15 +626,59 @@ export async function getHoneypotRedirectUrl(): Promise<string | null> {
 }
 export function invalidateHoneypotCache() { honeypotCache = { url: null, until: 0 }; }
 
-/** Record a failed login and evaluate short-window redirect + long-window auto-ban. */
+/**
+ * Is the given username/email tied to an admin or founder account?
+ * Used to prevent privileged operators from ever being locked out — they
+ * always retain a wallet-signature fallback path.
+ */
+export async function isPrivilegedUsername(usernameOrEmail: string): Promise<boolean> {
+  if (!usernameOrEmail) return false;
+  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  if (!pool) return false;
+  const r = await pool.query(
+    `SELECT 1
+       FROM users u
+       JOIN user_roles r ON r.user_id = u.id
+      WHERE (LOWER(u.username) = LOWER($1) OR LOWER(u.email) = LOWER($1))
+        AND r.role IN ('admin','founder')
+      LIMIT 1`,
+    [usernameOrEmail]
+  ).catch(() => ({ rowCount: 0 } as any));
+  return (r.rowCount ?? 0) > 0;
+}
+
+/** True when this wallet address is registered against an admin/founder user. */
+export async function isPrivilegedWallet(address: string): Promise<boolean> {
+  if (!address) return false;
+  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  if (!pool) return false;
+  const addr = address.toLowerCase();
+  const founderEnv = (process.env.FOUNDER_WALLET_ADDRESS ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1").toLowerCase();
+  if (addr === founderEnv) return true;
+  const r = await pool.query(
+    `SELECT 1
+       FROM users u
+       JOIN user_roles r ON r.user_id = u.id
+      WHERE LOWER(u.wallet_address) = $1
+        AND r.role IN ('admin','founder')
+      LIMIT 1`,
+    [addr]
+  ).catch(() => ({ rowCount: 0 } as any));
+  return (r.rowCount ?? 0) > 0;
+}
+
+/** Record a failed login and evaluate short-window redirect + long-window auto-ban.
+ *  Admin/founder accounts never trigger auto-bans or honeypot redirects — they can
+ *  always fall back to wallet-signature login (`privileged: true` in the response). */
 export async function recordLoginFailure(
   ip: string,
   email?: string
-): Promise<{ autoBanned: boolean; shortCount: number; longCount: number; redirectUrl: string | null }> {
+): Promise<{ autoBanned: boolean; shortCount: number; longCount: number; redirectUrl: string | null; privileged: boolean }> {
   const pool = (storage as any).pgPool as import("pg").Pool | undefined;
   if (!pool || ALWAYS_ALLOW.has(ip)) {
-    return { autoBanned: false, shortCount: 0, longCount: 0, redirectUrl: null };
+    return { autoBanned: false, shortCount: 0, longCount: 0, redirectUrl: null, privileged: false };
   }
+  const privileged = email ? await isPrivilegedUsername(email) : false;
   await pool.query(`INSERT INTO login_failures (ip, email) VALUES ($1,$2)`, [ip, email ?? null]).catch(() => {});
   const r = await pool.query(
     `SELECT
@@ -645,6 +689,12 @@ export async function recordLoginFailure(
   ).catch(() => ({ rows: [{ short_c: 0, long_c: 0 }] as any[] }));
   const shortCount = r.rows[0]?.short_c ?? 0;
   const longCount = r.rows[0]?.long_c ?? 0;
+
+  // Privileged operator: never auto-ban, never honeypot-redirect. They always
+  // keep the wallet-signature fallback open so they can't lock themselves out.
+  if (privileged) {
+    return { autoBanned: false, shortCount, longCount, redirectUrl: null, privileged: true };
+  }
 
   let autoBanned = false;
   if (longCount >= LONG_LIMIT) {
@@ -660,7 +710,7 @@ export async function recordLoginFailure(
   }
 
   const redirectUrl = shortCount >= SHORT_LIMIT ? await getHoneypotRedirectUrl() : null;
-  return { autoBanned, shortCount, longCount, redirectUrl };
+  return { autoBanned, shortCount, longCount, redirectUrl, privileged: false };
 }
 
 export async function clearLoginFailures(ip: string) {

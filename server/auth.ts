@@ -177,20 +177,35 @@ export async function setupAuth(app: Express): Promise<void> {
 
   // ── Login (username + password) ────────────────────────────────────────────
   app.post("/api/auth/login", authLimiter, async (req, res, next) => {
-    const { getClientIp, isIpBannedCached, recordLoginFailure, clearLoginFailures } = await import("./security");
+    const { getClientIp, isIpBannedCached, recordLoginFailure, clearLoginFailures, isPrivilegedUsername } = await import("./security");
     const ip = getClientIp(req);
+    const submittedUsername = String(req.body?.username ?? "").toLowerCase();
+
+    // Privileged operators (admin/founder) are exempt from IP bans on the login
+    // endpoint so they always retain the wallet-signature fallback path.
+    const privileged = submittedUsername ? await isPrivilegedUsername(submittedUsername).catch(() => false) : false;
 
     // Fast pre-check (uses 30s cache primed by ipBanGate on the same request)
-    if (isIpBannedCached(ip)) {
+    if (!privileged && isIpBannedCached(ip)) {
       return res.status(403).json({ error: "Your IP address has been banned from this service.", code: "IP_BANNED", ip });
     }
 
     passport.authenticate("local", async (err: any, user: any, info: any) => {
       if (err) return res.status(500).json({ error: "Login error" });
       if (!user) {
-        const { autoBanned, shortCount, redirectUrl } = await recordLoginFailure(
-          ip, String(req.body?.username ?? "").toLowerCase()
-        ).catch(() => ({ autoBanned: false, shortCount: 0, redirectUrl: null as string | null }));
+        const { autoBanned, shortCount, redirectUrl, privileged: privilegedFail } = await recordLoginFailure(
+          ip, submittedUsername
+        ).catch(() => ({ autoBanned: false, shortCount: 0, redirectUrl: null as string | null, privileged: false }));
+
+        // Privileged operator: never ban, always offer wallet fallback.
+        if (privilegedFail) {
+          return res.status(401).json({
+            error: "Invalid credentials. Use your registered wallet to sign in instead — admin/founder accounts cannot be locked out.",
+            code: "USE_WALLET_FALLBACK",
+            useWalletFallback: true,
+          });
+        }
+
         if (autoBanned) {
           return res.status(403).json({ error: "Too many failed login attempts — your IP has been banned for 24 hours.", code: "IP_AUTO_BANNED", ip });
         }
@@ -275,6 +290,19 @@ export async function setupAuth(app: Express): Promise<void> {
       if (!user) {
         user = await storage.createWalletUser(addr);
       }
+
+      // Admin/founder wallet self-recovery: signature-verified privileged
+      // operators automatically clear their IP ban + failed-attempt history so
+      // they can never lock themselves out of their own network.
+      try {
+        const { isPrivilegedWallet, removeIpBan, clearLoginFailures, getClientIp } = await import("./security");
+        if (await isPrivilegedWallet(addr)) {
+          const ip = getClientIp(req);
+          await removeIpBan(ip).catch(() => {});
+          await clearLoginFailures(ip).catch(() => {});
+          console.log(`[auth] Privileged wallet ${addr} signed in — cleared bans/failures for ${ip}`);
+        }
+      } catch {}
 
       // Immediately ensure admin+founder roles for the founder wallet on every login.
       // This fixes the "shows as regular user" bug on fresh deploys where the
