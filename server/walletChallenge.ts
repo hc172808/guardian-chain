@@ -45,15 +45,16 @@ export async function verifyWalletChallenge(
 
   const guard: NonceCheck = checkNonce(address, nonce);
   if (!guard.ok) {
+    const reason = guard.reason;
     return {
       ok: false,
       status: 400,
-      code: `NONCE_${guard.reason.toUpperCase()}`,
+      code: `NONCE_${reason.toUpperCase()}`,
       error:
-        guard.reason === "replayed" ? "Nonce already used — replay rejected" :
-        guard.reason === "stale"    ? "Nonce expired — request a new one"    :
-        guard.reason === "mismatch" ? "Nonce mismatch — request a new one"   :
-                                      "No active nonce — request a new one",
+        reason === "replayed" ? "Nonce already used — replay rejected" :
+        reason === "stale"    ? "Nonce expired — request a new one"    :
+        reason === "mismatch" ? "Nonce mismatch — request a new one"   :
+                                "No active nonce — request a new one",
     };
   }
 
