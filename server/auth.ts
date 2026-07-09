@@ -273,35 +273,17 @@ export async function setupAuth(app: Express): Promise<void> {
   // ── Web3: verify signature and log in ─────────────────────────────────────
   app.post("/api/auth/web3", authLimiter, async (req, res) => {
     try {
-      const { checkNonce, consumeNonce } = await import("./nonceGuard");
+      const { verifyWalletChallenge } = await import("./walletChallenge");
       const { address, signature } = req.body ?? {};
-      if (!address || !signature) return res.status(400).json({ error: "address and signature required" });
+      const result = await verifyWalletChallenge(address, signature, storage);
+      if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+      const addr = result.address;
 
-      const addr = String(address).toLowerCase();
-      const nonceRow = await storage.getUserNonce(addr);
-      if (!nonceRow) return res.status(400).json({ error: "No nonce found — request a new one" });
-
-      // Protocol-level replay/staleness protection — rejects reused or expired nonces
-      // before any signature work, and remembers consumed nonces for 10 minutes.
-      const guard = checkNonce(addr, nonceRow);
-      if (!guard.ok) {
-        return res.status(400).json({
-          error:
-            guard.reason === "replayed" ? "Nonce already used — replay rejected" :
-            guard.reason === "stale"    ? "Nonce expired — request a new one" :
-            guard.reason === "mismatch" ? "Nonce mismatch — request a new one" :
-                                          "No active nonce — request a new one",
-          code: `NONCE_${guard.reason.toUpperCase()}`,
-        });
+      // Get or create user for this wallet
+      let user = await storage.getUserByWallet(addr);
+      if (!user) {
+        user = await storage.createWalletUser(addr);
       }
-
-      const message = `Sign in to ChainCore\nNonce: ${nonceRow}`;
-      const recovered = ethers.verifyMessage(message, signature).toLowerCase();
-      if (recovered !== addr) return res.status(401).json({ error: "Signature verification failed" });
-
-      // Clear nonce (one-time use) — both in the store and in the replay guard
-      await storage.clearUserNonce(addr);
-      consumeNonce(addr, nonceRow);
 
       // Get or create user for this wallet
       let user = await storage.getUserByWallet(addr);
@@ -470,20 +452,11 @@ export async function setupAuth(app: Express): Promise<void> {
   // Flow: 1) GET /api/auth/nonce?address=0x...  2) user signs nonce  3) POST here → get reset token
   app.post("/api/auth/reset-password/wallet", authLimiter, async (req, res) => {
     try {
+      const { verifyWalletChallenge } = await import("./walletChallenge");
       const { address, signature } = req.body ?? {};
-      if (!address || !signature) return res.status(400).json({ error: "address and signature required" });
-      const addr = String(address).toLowerCase();
-
-      // Verify signature against stored nonce (same nonce system used for Web3 login)
-      const nonceRow = await storage.getUserNonce(addr);
-      if (!nonceRow) return res.status(400).json({ error: "No active challenge — request a new nonce first" });
-
-      const message = `Sign in to ChainCore\nNonce: ${nonceRow}`;
-      const recovered = ethers.verifyMessage(message, signature).toLowerCase();
-      if (recovered !== addr) return res.status(401).json({ error: "Signature verification failed" });
-
-      // Clear nonce (one-time use)
-      await storage.clearUserNonce(addr);
+      const result = await verifyWalletChallenge(address, signature, storage);
+      if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+      const addr = result.address;
 
       // Find account linked to this wallet
       const user = await storage.getUserByWallet(addr);
