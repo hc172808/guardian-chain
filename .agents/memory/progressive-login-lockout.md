@@ -10,6 +10,7 @@ Separate from the existing IP-based ban/honeypot system (`login_failures`, `ip_b
 - Admin/founder accounts are always exempt (`isPrivilegedUsername`) — they keep the existing wallet-signature fallback (`USE_WALLET_FALLBACK`) instead of ever being locked out.
 - While locked, the client receives `code: "LOGIN_LOCKED"` with `lockedUntil` (ms epoch) and `redirectUrl` (nullable). Frontend (`src/pages/Auth.tsx` LoginForm) redirects immediately if a URL is set, otherwise shows a live countdown and disables the form.
 - Admin UI lives in a new "Lockout" tab in `src/components/admin/FirewallManager.tsx` (`LockoutSettingsTab.tsx`) — lets admin/founder edit the duration ladder (accepts inputs like `30s`, `5m`, `2h`), set/clear the redirect URL, and view/manually unlock active lockouts.
+- Default `redirectUrl` is `/locked-out` (`src/pages/LockedOut.tsx`) — a test page with a live countdown (reads `?until=<epoch-ms>` from the URL). User can close the tab and return anytime since the lockout is tracked server-side, not client-side. Admin/founder can repoint or clear this URL anytime.
 
 **Why:** user wanted escalating timeouts distinct from IP bans, since a shared IP (e.g. office/NAT) using IP-based lockout would collaterally block other legitimate accounts.
 

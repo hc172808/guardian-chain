@@ -49,6 +49,7 @@ import PressKitPage from "./pages/PressKit";
 import BlogPage from "./pages/Blog";
 import TrustPage from "./pages/Trust";
 import Blocked from "./pages/Blocked";
+import LockedOut from "./pages/LockedOut";
 import ReferralsPage from "./pages/Referrals";
 import PreviewPage from "./pages/Preview";
 import SetupPage from "./pages/Setup";
@@ -149,6 +150,8 @@ const AppContent = () => {
       <Route path="/setup" element={<SetupPage />} />
       {/* Firewall test warning page — default honeypot-redirect destination */}
       <Route path="/blocked" element={<Blocked />} />
+      {/* Login-lockout test page — default progressive-lockout redirect destination */}
+      <Route path="/locked-out" element={<LockedOut />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
     </>

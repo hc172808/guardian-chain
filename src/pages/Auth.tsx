@@ -90,11 +90,13 @@ const LoginForm = ({
           return;
         }
         if (data?.code === 'LOGIN_LOCKED') {
+          const until = typeof data.lockedUntil === 'number' ? data.lockedUntil : Date.now() + 60_000;
           setNow(Date.now());
-          setLockedUntil(typeof data.lockedUntil === 'number' ? data.lockedUntil : Date.now() + 60_000);
+          setLockedUntil(until);
           setLockRedirectUrl(typeof data.redirectUrl === 'string' ? data.redirectUrl : null);
           if (typeof data.redirectUrl === 'string') {
-            window.location.replace(data.redirectUrl);
+            const sep = data.redirectUrl.includes('?') ? '&' : '?';
+            window.location.href = `${data.redirectUrl}${sep}until=${until}`;
             return;
           }
           setError(data?.error ?? 'This account is temporarily locked.');

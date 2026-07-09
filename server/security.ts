@@ -775,7 +775,7 @@ export const DEFAULT_LOCKOUT_DURATIONS_SEC = [
 const DEFAULT_LOCKOUT_SETTINGS: LockoutSettings = {
   enabled: true,
   durationsSec: DEFAULT_LOCKOUT_DURATIONS_SEC,
-  redirectUrl: null,
+  redirectUrl: "/locked-out",
 };
 
 let lockoutSettingsCache: { value: LockoutSettings; until: number } = { value: DEFAULT_LOCKOUT_SETTINGS, until: 0 };
