@@ -452,20 +452,11 @@ export async function setupAuth(app: Express): Promise<void> {
   // Flow: 1) GET /api/auth/nonce?address=0x...  2) user signs nonce  3) POST here → get reset token
   app.post("/api/auth/reset-password/wallet", authLimiter, async (req, res) => {
     try {
+      const { verifyWalletChallenge } = await import("./walletChallenge");
       const { address, signature } = req.body ?? {};
-      if (!address || !signature) return res.status(400).json({ error: "address and signature required" });
-      const addr = String(address).toLowerCase();
-
-      // Verify signature against stored nonce (same nonce system used for Web3 login)
-      const nonceRow = await storage.getUserNonce(addr);
-      if (!nonceRow) return res.status(400).json({ error: "No active challenge — request a new nonce first" });
-
-      const message = `Sign in to ChainCore\nNonce: ${nonceRow}`;
-      const recovered = ethers.verifyMessage(message, signature).toLowerCase();
-      if (recovered !== addr) return res.status(401).json({ error: "Signature verification failed" });
-
-      // Clear nonce (one-time use)
-      await storage.clearUserNonce(addr);
+      const result = await verifyWalletChallenge(address, signature, storage);
+      if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+      const addr = result.address;
 
       // Find account linked to this wallet
       const user = await storage.getUserByWallet(addr);
