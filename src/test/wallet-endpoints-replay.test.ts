@@ -44,6 +44,13 @@ function failCode(res: WalletChallengeResult): string {
   return res.code;
 }
 
+// jsdom's Buffer-returning randomBytes trips ethers.Wallet.createRandom, so
+// use deterministic private keys for reproducibility.
+function makeWallet(seed: number): Signer {
+  const hex = seed.toString(16).padStart(64, '0');
+  return new ethers.Wallet('0x' + hex);
+}
+
 describe('wallet-login endpoints: protocol-level replay protection', () => {
   let storage: ReturnType<typeof makeStorage>;
   let wallet: Signer;
@@ -51,7 +58,7 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
   beforeEach(() => {
     _resetNonceGuardForTests();
     storage = makeStorage();
-    wallet = ethers.Wallet.createRandom();
+    wallet = makeWallet(1);
   });
 
   it('accepts a valid signature exactly once (single-use nonce)', async () => {
