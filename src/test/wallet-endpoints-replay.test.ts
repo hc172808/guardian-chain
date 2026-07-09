@@ -12,6 +12,7 @@ import {
   verifyWalletChallenge,
   CHALLENGE_MESSAGE,
   type WalletChallengeStorage,
+  type WalletChallengeResult,
 } from '../../server/walletChallenge';
 import { issueNonce, _resetNonceGuardForTests } from '../../server/nonceGuard';
 
@@ -20,24 +21,32 @@ function makeStorage(): WalletChallengeStorage & { _nonces: Map<string, string> 
   const _nonces = new Map<string, string>();
   return {
     _nonces,
-    async getUserNonce(a) { return _nonces.get(a.toLowerCase()) ?? null; },
-    async clearUserNonce(a) { _nonces.delete(a.toLowerCase()); },
+    async getUserNonce(a: string) { return _nonces.get(a.toLowerCase()) ?? null; },
+    async clearUserNonce(a: string) { _nonces.delete(a.toLowerCase()); },
   };
 }
 
-async function mintChallenge(storage: ReturnType<typeof makeStorage>, wallet: ethers.Wallet) {
-  // Simulates what GET /api/auth/nonce does end-to-end.
+/** Any object with a signMessage method — covers Wallet and HDNodeWallet. */
+type Signer = { address: string; signMessage: (m: string) => Promise<string> };
+
+async function mintChallenge(storage: ReturnType<typeof makeStorage>, signer: Signer) {
   const nonce = 'n_' + Math.random().toString(36).slice(2, 20);
-  const addr = wallet.address.toLowerCase();
+  const addr = signer.address.toLowerCase();
   storage._nonces.set(addr, nonce);
   issueNonce(addr, nonce);
-  const signature = await wallet.signMessage(CHALLENGE_MESSAGE(nonce));
+  const signature = await signer.signMessage(CHALLENGE_MESSAGE(nonce));
   return { nonce, signature, address: addr };
+}
+
+/** Narrowing helper — asserts result is a failure and returns the code. */
+function failCode(res: WalletChallengeResult): string {
+  if (res.ok) throw new Error(`expected failure, got success for ${JSON.stringify(res)}`);
+  return res.code;
 }
 
 describe('wallet-login endpoints: protocol-level replay protection', () => {
   let storage: ReturnType<typeof makeStorage>;
-  let wallet: ethers.Wallet;
+  let wallet: Signer;
 
   beforeEach(() => {
     _resetNonceGuardForTests();
@@ -52,8 +61,7 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
 
     // Same payload again — this is the classic replay attack.
     const second = await verifyWalletChallenge(address, signature, storage);
-    expect(second.ok).toBe(false);
-    if (!second.ok) expect(second.code).toBe('NONCE_MISSING'); // store was cleared
+    expect(failCode(second)).toBe('NONCE_MISSING'); // store was cleared
   });
 
   it('rejects a replayed signature even if the storage row is re-populated', async () => {
@@ -67,8 +75,7 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
     // guard remembers the consumed nonce for 10 minutes and rejects it.
     storage._nonces.set(address, nonce);
     const replay = await verifyWalletChallenge(address, signature, storage);
-    expect(replay.ok).toBe(false);
-    if (!replay.ok) expect(replay.code).toBe('NONCE_REPLAYED');
+    expect(failCode(replay)).toBe('NONCE_REPLAYED');
   });
 
   it('rejects a stale signature signed against an old nonce after rotation', async () => {
@@ -78,8 +85,7 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
 
     // Old signature no longer matches the active nonce.
     const stale = await verifyWalletChallenge(address, oldSig, storage);
-    expect(stale.ok).toBe(false);
-    if (!stale.ok) expect(stale.code).toBe('BAD_SIGNATURE');
+    expect(failCode(stale)).toBe('BAD_SIGNATURE');
 
     // Fresh signature still works.
     const ok = await verifyWalletChallenge(address, newSig, storage);
@@ -92,8 +98,7 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
     // Attacker copies signature but submits their own address — but they have
     // no active nonce, so the guard rejects before signature check.
     const res = await verifyWalletChallenge(attacker, signature, storage);
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.code).toBe('NONCE_MISSING');
+    expect(failCode(res)).toBe('NONCE_MISSING');
     expect(address).not.toBe(attacker);
   });
 
@@ -102,18 +107,15 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
     const forger = ethers.Wallet.createRandom();
     const forgedSig = await forger.signMessage(CHALLENGE_MESSAGE(nonce));
     const res = await verifyWalletChallenge(address, forgedSig, storage);
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.code).toBe('BAD_SIGNATURE');
+    expect(failCode(res)).toBe('BAD_SIGNATURE');
   });
 
   it('rejects missing or malformed inputs', async () => {
     const missing = await verifyWalletChallenge(undefined, undefined, storage);
-    expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.code).toBe('MISSING_FIELDS');
+    expect(failCode(missing)).toBe('MISSING_FIELDS');
 
     const badAddr = await verifyWalletChallenge('not-an-address', 'sig', storage);
-    expect(badAddr.ok).toBe(false);
-    if (!badAddr.ok) expect(badAddr.code).toBe('BAD_ADDRESS');
+    expect(failCode(badAddr)).toBe('BAD_ADDRESS');
   });
 
   it('the same helper protects /api/auth/web3 AND /api/auth/reset-password/wallet', async () => {
@@ -128,7 +130,6 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
     // Repopulate the storage row exactly as a race attacker would.
     storage._nonces.set(address, nonce);
     const resetReplay = await verifyWalletChallenge(address, signature, storage);
-    expect(resetReplay.ok).toBe(false);
-    if (!resetReplay.ok) expect(resetReplay.code).toBe('NONCE_REPLAYED');
+    expect(failCode(resetReplay)).toBe('NONCE_REPLAYED');
   });
 });
