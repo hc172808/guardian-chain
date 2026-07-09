@@ -258,10 +258,12 @@ export async function setupAuth(app: Express): Promise<void> {
   // ── Web3: get nonce for a wallet address ───────────────────────────────────
   app.get("/api/auth/nonce", authLimiter, async (req, res) => {
     try {
+      const { issueNonce } = await import("./nonceGuard");
       const address = String(req.query.address ?? "").toLowerCase();
       if (!address || !address.startsWith("0x")) return res.status(400).json({ error: "address required" });
-      const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const nonce = crypto.randomBytes(24).toString("hex") + Date.now().toString(36);
       await storage.setUserNonce(address, nonce);
+      issueNonce(address, nonce);
       res.json({ nonce, message: `Sign in to ChainCore\nNonce: ${nonce}` });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -271,6 +273,7 @@ export async function setupAuth(app: Express): Promise<void> {
   // ── Web3: verify signature and log in ─────────────────────────────────────
   app.post("/api/auth/web3", authLimiter, async (req, res) => {
     try {
+      const { checkNonce, consumeNonce } = await import("./nonceGuard");
       const { address, signature } = req.body ?? {};
       if (!address || !signature) return res.status(400).json({ error: "address and signature required" });
 
@@ -278,12 +281,27 @@ export async function setupAuth(app: Express): Promise<void> {
       const nonceRow = await storage.getUserNonce(addr);
       if (!nonceRow) return res.status(400).json({ error: "No nonce found — request a new one" });
 
+      // Protocol-level replay/staleness protection — rejects reused or expired nonces
+      // before any signature work, and remembers consumed nonces for 10 minutes.
+      const guard = checkNonce(addr, nonceRow);
+      if (!guard.ok) {
+        return res.status(400).json({
+          error:
+            guard.reason === "replayed" ? "Nonce already used — replay rejected" :
+            guard.reason === "stale"    ? "Nonce expired — request a new one" :
+            guard.reason === "mismatch" ? "Nonce mismatch — request a new one" :
+                                          "No active nonce — request a new one",
+          code: `NONCE_${guard.reason.toUpperCase()}`,
+        });
+      }
+
       const message = `Sign in to ChainCore\nNonce: ${nonceRow}`;
       const recovered = ethers.verifyMessage(message, signature).toLowerCase();
       if (recovered !== addr) return res.status(401).json({ error: "Signature verification failed" });
 
-      // Clear nonce (one-time use)
+      // Clear nonce (one-time use) — both in the store and in the replay guard
       await storage.clearUserNonce(addr);
+      consumeNonce(addr, nonceRow);
 
       // Get or create user for this wallet
       let user = await storage.getUserByWallet(addr);
