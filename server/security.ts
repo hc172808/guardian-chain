@@ -325,9 +325,12 @@ export async function refreshSecuritySettings() {
 export function aiFirewallMiddleware(req: any, res: any, next: any) {
   const path: string = req.path ?? "";
 
-  // (1) Skip static assets & health check
+  // (1) Skip static assets, health check, and auth routes
+  // Auth routes must never be payload-scanned — legitimate passwords/fields
+  // can match XSS/injection patterns and produce false positives.
   if (
     path.startsWith("/assets/") ||
+    path.startsWith("/api/auth/") ||
     path === "/favicon.ico"     ||
     path === "/health"
   ) return next();

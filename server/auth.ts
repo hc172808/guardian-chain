@@ -285,12 +285,6 @@ export async function setupAuth(app: Express): Promise<void> {
         user = await storage.createWalletUser(addr);
       }
 
-      // Get or create user for this wallet
-      let user = await storage.getUserByWallet(addr);
-      if (!user) {
-        user = await storage.createWalletUser(addr);
-      }
-
       // Admin/founder wallet self-recovery: signature-verified privileged
       // operators automatically clear their IP ban + failed-attempt history so
       // they can never lock themselves out of their own network.
