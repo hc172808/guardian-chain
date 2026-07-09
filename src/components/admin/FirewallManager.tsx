@@ -19,6 +19,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
 import { AIFirewallTab } from './AIFirewallTab';
+import { LockoutSettingsTab } from './LockoutSettingsTab';
 
 // ─── Types ───
 interface FirewallRule {
@@ -991,7 +992,7 @@ export const FirewallManager = () => {
       )}
 
       <Tabs defaultValue="ai" className="space-y-4">
-        <TabsList className="grid grid-cols-6 w-full">
+        <TabsList className="grid grid-cols-7 w-full">
           <TabsTrigger value="ai" className="gap-1 text-xs">
             <Brain className="h-3 w-3" /> AI
           </TabsTrigger>
@@ -1010,6 +1011,9 @@ export const FirewallManager = () => {
           <TabsTrigger value="iplist" className="gap-1 text-xs">
             <Globe className="h-3 w-3" /> IP List
           </TabsTrigger>
+          <TabsTrigger value="lockout" className="gap-1 text-xs">
+            <Lock className="h-3 w-3" /> Lockout
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="ai"><AIFirewallTab /></TabsContent>
@@ -1018,6 +1022,7 @@ export const FirewallManager = () => {
         <TabsContent value="ratelimit"><RateLimitTab /></TabsContent>
         <TabsContent value="ddos"><DDoSProtectionTab /></TabsContent>
         <TabsContent value="iplist"><IpAccessListTab /></TabsContent>
+        <TabsContent value="lockout"><LockoutSettingsTab /></TabsContent>
       </Tabs>
 
       <div className="mt-6 p-4 rounded-lg bg-secondary/20 border border-border/50">

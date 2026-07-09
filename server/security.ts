@@ -18,6 +18,7 @@
  * 13. Auto-block at high sensitivity
  */
 import { storage } from "./storage";
+import { pool as pgConnPool } from "./db";
 
 // ── In-memory state ──────────────────────────────────────────────────────────
 const blockedIps   = new Set<string>();                  // permanent bans
@@ -515,7 +516,7 @@ const banCache = new Map<string, { until: number; expiresAt: number | null }>();
 const BAN_CACHE_TTL_MS = 30_000;
 
 export async function initIpBanTables() {
-  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  const pool = pgConnPool;
   if (!pool) return;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ip_bans (
@@ -543,7 +544,7 @@ export async function initIpBanTables() {
 }
 
 async function isIpBannedDb(ip: string): Promise<{ banned: boolean; expiresAt: number | null }> {
-  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  const pool = pgConnPool;
   if (!pool) return { banned: false, expiresAt: null };
   const cached = banCache.get(ip);
   if (cached && cached.until > Date.now()) {
@@ -594,7 +595,7 @@ export function isIpBannedCached(ip: string): boolean {
 }
 
 export async function addIpBan(opts: { ip: string; reason?: string; bannedBy?: string; expiresAt?: Date | null; auto?: boolean }) {
-  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  const pool = pgConnPool;
   if (!pool) throw new Error("db unavailable");
   await pool.query(
     `INSERT INTO ip_bans (ip, reason, banned_by, expires_at, auto)
@@ -608,14 +609,14 @@ export async function addIpBan(opts: { ip: string; reason?: string; bannedBy?: s
 }
 
 export async function removeIpBan(ip: string) {
-  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  const pool = pgConnPool;
   if (!pool) throw new Error("db unavailable");
   await pool.query(`DELETE FROM ip_bans WHERE ip=$1`, [ip]);
   banCache.delete(ip);
 }
 
 export async function listIpBans() {
-  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  const pool = pgConnPool;
   if (!pool) return [];
   const r = await pool.query(
     `SELECT ip, reason, banned_by, banned_at, expires_at, auto
@@ -660,7 +661,7 @@ export function invalidateHoneypotCache() { honeypotCache = { url: null, until: 
  */
 export async function isPrivilegedUsername(usernameOrEmail: string): Promise<boolean> {
   if (!usernameOrEmail) return false;
-  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  const pool = pgConnPool;
   if (!pool) return false;
   const r = await pool.query(
     `SELECT 1
@@ -677,7 +678,7 @@ export async function isPrivilegedUsername(usernameOrEmail: string): Promise<boo
 /** True when this wallet address is registered against an admin/founder user. */
 export async function isPrivilegedWallet(address: string): Promise<boolean> {
   if (!address) return false;
-  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  const pool = pgConnPool;
   if (!pool) return false;
   const addr = address.toLowerCase();
   const founderEnv = (process.env.FOUNDER_WALLET_ADDRESS ?? process.env.FOUNDER_WALLET ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1").toLowerCase();
@@ -701,7 +702,7 @@ export async function recordLoginFailure(
   ip: string,
   email?: string
 ): Promise<{ autoBanned: boolean; shortCount: number; longCount: number; redirectUrl: string | null; privileged: boolean }> {
-  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  const pool = pgConnPool;
   if (!pool || ALWAYS_ALLOW.has(ip)) {
     return { autoBanned: false, shortCount: 0, longCount: 0, redirectUrl: null, privileged: false };
   }
@@ -741,9 +742,161 @@ export async function recordLoginFailure(
 }
 
 export async function clearLoginFailures(ip: string) {
-  const pool = (storage as any).pgPool as import("pg").Pool | undefined;
+  const pool = pgConnPool;
   if (!pool) return;
   await pool.query(`DELETE FROM login_failures WHERE ip=$1`, [ip]).catch(() => {});
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Progressive account lockout — escalating timeout per identifier (username/email).
+// 1st wrong password → short timeout (default 1 min), each subsequent wrong
+// password while/after a lockout escalates the timeout, up to a configurable max
+// (default 24h). While locked, the client is told to redirect to an
+// admin/founder-configured URL. Admin/founder accounts are always exempt (they
+// keep the wallet-signature fallback instead — see isPrivilegedUsername).
+// Settings live in admin_config under "lockout_settings" and are cached 60s.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface LockoutSettings {
+  enabled: boolean;
+  durationsSec: number[];
+  redirectUrl: string | null;
+}
+
+export const DEFAULT_LOCKOUT_DURATIONS_SEC = [
+  60,          // 1st lockout   → 1 min
+  5 * 60,      // 2nd           → 5 min
+  15 * 60,     // 3rd           → 15 min
+  60 * 60,     // 4th           → 1 h
+  6 * 60 * 60, // 5th           → 6 h
+  24 * 60 * 60, // 6th+         → 24 h (cap)
+];
+
+const DEFAULT_LOCKOUT_SETTINGS: LockoutSettings = {
+  enabled: true,
+  durationsSec: DEFAULT_LOCKOUT_DURATIONS_SEC,
+  redirectUrl: null,
+};
+
+let lockoutSettingsCache: { value: LockoutSettings; until: number } = { value: DEFAULT_LOCKOUT_SETTINGS, until: 0 };
+
+export async function getLockoutSettings(): Promise<LockoutSettings> {
+  if (lockoutSettingsCache.until > Date.now()) return lockoutSettingsCache.value;
+  let value = DEFAULT_LOCKOUT_SETTINGS;
+  try {
+    const row = await (storage as any).getConfig?.("lockout_settings");
+    if (row?.configValue) {
+      const s = row.configValue as any;
+      value = {
+        enabled: s.enabled !== false,
+        durationsSec: Array.isArray(s.durationsSec) && s.durationsSec.length > 0
+          ? s.durationsSec.map((n: any) => Math.max(1, Number(n) || 0))
+          : DEFAULT_LOCKOUT_DURATIONS_SEC,
+        redirectUrl: typeof s.redirectUrl === "string" && s.redirectUrl.trim() ? s.redirectUrl.trim() : null,
+      };
+    }
+  } catch {}
+  lockoutSettingsCache = { value, until: Date.now() + 60_000 };
+  return value;
+}
+
+export function invalidateLockoutSettingsCache() { lockoutSettingsCache = { value: DEFAULT_LOCKOUT_SETTINGS, until: 0 }; }
+
+export async function initLockoutTable() {
+  const pool = pgConnPool;
+  if (!pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS login_lockouts (
+      identifier   TEXT PRIMARY KEY,
+      strikes      INT NOT NULL DEFAULT 0,
+      locked_until TIMESTAMPTZ,
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_lockouts_locked_until ON login_lockouts(locked_until);
+  `);
+  // Prune stale rows (never locked recently, no point keeping strikes forever)
+  await pool.query(`DELETE FROM login_lockouts WHERE updated_at < NOW() - INTERVAL '30 days'`).catch(() => {});
+}
+
+function normalizeIdentifier(identifier: string): string {
+  return String(identifier ?? "").trim().toLowerCase();
+}
+
+/** Check whether this identifier is currently locked out. */
+export async function checkLockout(identifier: string): Promise<{ locked: boolean; lockedUntil: number | null; redirectUrl: string | null }> {
+  const id = normalizeIdentifier(identifier);
+  if (!id) return { locked: false, lockedUntil: null, redirectUrl: null };
+  const settings = await getLockoutSettings();
+  if (!settings.enabled) return { locked: false, lockedUntil: null, redirectUrl: null };
+  const pool = pgConnPool;
+  if (!pool) return { locked: false, lockedUntil: null, redirectUrl: null };
+  const r = await pool.query(
+    `SELECT locked_until FROM login_lockouts WHERE identifier=$1`,
+    [id]
+  ).catch(() => ({ rows: [] as any[] }));
+  const lockedUntil = r.rows[0]?.locked_until ? new Date(r.rows[0].locked_until).getTime() : null;
+  if (lockedUntil && lockedUntil > Date.now()) {
+    return { locked: true, lockedUntil, redirectUrl: settings.redirectUrl };
+  }
+  return { locked: false, lockedUntil: null, redirectUrl: null };
+}
+
+/** Record a failed login attempt for this identifier and escalate the lockout.
+ *  Privileged (admin/founder) identifiers are exempt — callers should check
+ *  isPrivilegedUsername() first and skip this for privileged accounts. */
+export async function recordLockoutFailure(
+  identifier: string
+): Promise<{ locked: boolean; lockedUntil: number | null; strikes: number; redirectUrl: string | null }> {
+  const id = normalizeIdentifier(identifier);
+  const settings = await getLockoutSettings();
+  if (!id || !settings.enabled) return { locked: false, lockedUntil: null, strikes: 0, redirectUrl: null };
+  const pool = pgConnPool;
+  if (!pool) return { locked: false, lockedUntil: null, strikes: 0, redirectUrl: null };
+
+  const r = await pool.query(
+    `INSERT INTO login_lockouts (identifier, strikes, updated_at)
+     VALUES ($1, 1, NOW())
+     ON CONFLICT (identifier) DO UPDATE SET strikes = login_lockouts.strikes + 1, updated_at = NOW()
+     RETURNING strikes`,
+    [id]
+  ).catch(() => ({ rows: [{ strikes: 1 }] as any[] }));
+  const strikes = r.rows[0]?.strikes ?? 1;
+
+  const durations = settings.durationsSec;
+  const durationSec = durations[Math.min(strikes - 1, durations.length - 1)];
+  const lockedUntil = Date.now() + durationSec * 1000;
+
+  await pool.query(
+    `UPDATE login_lockouts SET locked_until=$2 WHERE identifier=$1`,
+    [id, new Date(lockedUntil)]
+  ).catch(() => {});
+
+  console.warn(`[lockout] ${id} locked for ${durationSec}s (strike ${strikes})`);
+  return { locked: true, lockedUntil, strikes, redirectUrl: settings.redirectUrl };
+}
+
+/** Clear lockout state for this identifier (successful login, or admin unlock). */
+export async function clearLockout(identifier: string) {
+  const id = normalizeIdentifier(identifier);
+  const pool = pgConnPool;
+  if (!pool || !id) return;
+  await pool.query(`DELETE FROM login_lockouts WHERE identifier=$1`, [id]).catch(() => {});
+}
+
+/** List all currently-active lockouts (for the admin panel). */
+export async function listActiveLockouts(): Promise<Array<{ identifier: string; strikes: number; lockedUntil: string | null }>> {
+  const pool = pgConnPool;
+  if (!pool) return [];
+  const r = await pool.query(
+    `SELECT identifier, strikes, locked_until FROM login_lockouts
+      WHERE locked_until IS NOT NULL AND locked_until > NOW()
+      ORDER BY locked_until DESC LIMIT 500`
+  ).catch(() => ({ rows: [] as any[] }));
+  return r.rows.map((row: any) => ({
+    identifier: row.identifier,
+    strikes: row.strikes,
+    lockedUntil: row.locked_until ? new Date(row.locked_until).toISOString() : null,
+  }));
 }
 
 

@@ -7,7 +7,7 @@ import { withCache, getCacheStats, clearCache } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { Pool } from "pg";
-import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache } from "./security";
+import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { sendBuyRequestStatusEmail, sendCashoutStatusEmail } from "./email";
 import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
@@ -1199,6 +1199,60 @@ export function registerRoutes(app: Express) {
   app.post("/api/security/reload", requireAdmin, async (_req, res) => {
     await refreshSecuritySettings();
     res.json({ ok: true, status: getFirewallStatus() });
+  });
+
+  // ── Progressive login-lockout settings (1 min → 24h escalation + redirect URL) ─
+  app.get("/api/admin/lockout-settings", requireAdmin, async (_req, res) => {
+    try { res.json(await getLockoutSettings()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/admin/lockout-settings", requireAdmin, async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const enabled = body.enabled !== false;
+      let durationsSec: number[] = Array.isArray(body.durationsSec) && body.durationsSec.length > 0
+        ? body.durationsSec.map((n: any) => Math.max(1, Math.floor(Number(n) || 0))).filter((n: number) => n > 0)
+        : DEFAULT_LOCKOUT_DURATIONS_SEC;
+      if (durationsSec.length === 0) durationsSec = DEFAULT_LOCKOUT_DURATIONS_SEC;
+      const redirectUrl = typeof body.redirectUrl === "string" && body.redirectUrl.trim() ? body.redirectUrl.trim() : null;
+      if (redirectUrl && !/^https?:\/\//i.test(redirectUrl) && !redirectUrl.startsWith("/")) {
+        return res.status(400).json({ error: "redirectUrl must start with http://, https://, or /" });
+      }
+      const value = { enabled, durationsSec, redirectUrl };
+      await storage.setAdminConfig("lockout_settings", value);
+      invalidateLockoutSettingsCache();
+      const actor = req.user as any;
+      await storage.insertAuditLog({
+        userId: actor.id, userEmail: actor.email ?? null,
+        action: "update_lockout_settings", category: "admin",
+        targetType: "admin_config", targetId: "lockout_settings",
+        details: value as any,
+        ipAddress: getClientIp(req),
+      } as any).catch(() => {});
+      res.json({ ok: true, ...value });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/admin/lockouts", requireAdmin, async (_req, res) => {
+    try { res.json(await listActiveLockouts()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete("/api/admin/lockouts/:identifier", requireAdmin, async (req, res) => {
+    try {
+      const identifier = decodeURIComponent(req.params.identifier);
+      await clearLockout(identifier);
+      const actor = req.user as any;
+      await storage.insertAuditLog({
+        userId: actor.id, userEmail: actor.email ?? null,
+        action: "unlock_login_lockout", category: "admin",
+        targetType: "login_lockout", targetId: identifier,
+        details: {} as any,
+        ipAddress: getClientIp(req),
+      } as any).catch(() => {});
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Audit Logs ─────────────────────────────────────────────────────────────

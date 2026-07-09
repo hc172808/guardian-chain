@@ -44,4 +44,6 @@
 - [gyds-config.env shared config](gyds-config-env.md) — written by deploy-dashboard.sh and POST /api/admin/server-config; sourced by all 7 node install scripts (install-validatornode/fullnode/litenode/boostnode/rpcnode/bootnode + setup-server.sh) via GYDS_CONF var before config-defaults block; NONINTERACTIVE=1 skips prompts.
 - [Auth/transaction raw SQL](auth-transaction-raw-sql.md) — nonce, updateUserPassword, insertTransaction all use raw pgPool; Drizzle silently fails on deployed DB schema drift.
 - [Session cookie Replit fix](session-cookie-replit.md) — Secure+SameSite=None required in Replit preview; Vite proxy must forward X-Forwarded-Proto:https or Express withholds the cookie.
+- [security.ts pgPool bug](security-ts-pgpool-bug.md) — `(storage as any).pgPool` is always undefined (storage.ts never exposes it); silently broke ip_bans/login_failures/lockouts. Import `{ pool } from "./db"` directly instead.
+- [Progressive login lockout](progressive-login-lockout.md) — escalating account lockout (not IP-based) with admin-configurable durations + redirect URL; admin/founder always exempt (wallet fallback).
 - [Founder wallet env mismatch](founder-wallet-env.md) — FOUNDER_WALLET_ADDRESS vs FOUNDER_WALLET naming trap broke founder role/privileged wallet detection.

@@ -180,7 +180,10 @@ export async function setupAuth(app: Express): Promise<void> {
 
   // ── Login (username + password) ────────────────────────────────────────────
   app.post("/api/auth/login", authLimiter, async (req, res, next) => {
-    const { getClientIp, isIpBannedCached, recordLoginFailure, clearLoginFailures, isPrivilegedUsername } = await import("./security");
+    const {
+      getClientIp, isIpBannedCached, recordLoginFailure, clearLoginFailures, isPrivilegedUsername,
+      checkLockout, recordLockoutFailure, clearLockout,
+    } = await import("./security");
     const ip = getClientIp(req);
     const submittedUsername = String(req.body?.username ?? "").toLowerCase();
 
@@ -191,6 +194,19 @@ export async function setupAuth(app: Express): Promise<void> {
     // Fast pre-check (uses 30s cache primed by ipBanGate on the same request)
     if (!privileged && isIpBannedCached(ip)) {
       return res.status(403).json({ error: "Your IP address has been banned from this service.", code: "IP_BANNED", ip });
+    }
+
+    // Progressive per-account lockout check (1 min → ... → 24h, admin-configurable).
+    if (!privileged && submittedUsername) {
+      const lock = await checkLockout(submittedUsername).catch(() => ({ locked: false, lockedUntil: null, redirectUrl: null }));
+      if (lock.locked) {
+        return res.status(429).json({
+          error: "Too many failed attempts. This account is temporarily locked.",
+          code: "LOGIN_LOCKED",
+          lockedUntil: lock.lockedUntil,
+          redirectUrl: lock.redirectUrl,
+        });
+      }
     }
 
     passport.authenticate("local", async (err: any, user: any, info: any) => {
@@ -220,6 +236,22 @@ export async function setupAuth(app: Express): Promise<void> {
             ip,
           });
         }
+
+        // Escalating account lockout — 1st wrong password locks briefly, each
+        // further failure (this session or a later one) escalates the timeout.
+        if (submittedUsername) {
+          const lockResult = await recordLockoutFailure(submittedUsername).catch(() => null);
+          if (lockResult?.locked) {
+            return res.status(429).json({
+              error: "Incorrect credentials. This account is now temporarily locked.",
+              code: "LOGIN_LOCKED",
+              lockedUntil: lockResult.lockedUntil,
+              redirectUrl: lockResult.redirectUrl,
+              strikes: lockResult.strikes,
+            });
+          }
+        }
+
         const warn = shortCount >= 1
           ? ` (Warning: ${shortCount}/3 failed attempts in 30s — you will be blocked if you continue.)`
           : "";
@@ -239,6 +271,7 @@ export async function setupAuth(app: Express): Promise<void> {
           );
         } catch {}
         clearLoginFailures(ip).catch(() => {});
+        clearLockout(submittedUsername).catch(() => {});
         // Audit log
         try {
           await storage.insertAuditLog({

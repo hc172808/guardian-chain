@@ -24,6 +24,16 @@ const api = async (path: string, body?: object, method = 'POST') => {
 };
 
 // ── Login form ────────────────────────────────────────────────────────────────
+const formatCountdown = (ms: number): string => {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+};
+
 const LoginForm = ({
   onSuccess,
   onReset,
@@ -38,6 +48,22 @@ const LoginForm = ({
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [lockRedirectUrl, setLockRedirectUrl] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!lockedUntil) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [lockedUntil]);
+
+  useEffect(() => {
+    if (lockedUntil && now >= lockedUntil) {
+      setLockedUntil(null);
+      setError('');
+    }
+  }, [now, lockedUntil]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,6 +89,17 @@ const LoginForm = ({
           window.location.replace(data.redirectUrl);
           return;
         }
+        if (data?.code === 'LOGIN_LOCKED') {
+          setNow(Date.now());
+          setLockedUntil(typeof data.lockedUntil === 'number' ? data.lockedUntil : Date.now() + 60_000);
+          setLockRedirectUrl(typeof data.redirectUrl === 'string' ? data.redirectUrl : null);
+          if (typeof data.redirectUrl === 'string') {
+            window.location.replace(data.redirectUrl);
+            return;
+          }
+          setError(data?.error ?? 'This account is temporarily locked.');
+          return;
+        }
         throw new Error(data?.error ?? 'Login failed');
       }
       onSuccess();
@@ -73,6 +110,8 @@ const LoginForm = ({
     }
   };
 
+  const isLocked = !!lockedUntil && now < lockedUntil;
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
@@ -80,8 +119,8 @@ const LoginForm = ({
         <div className="relative">
           <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input type="text" value={username} onChange={e => setUsername(e.target.value)}
-            placeholder="username or email" autoComplete="username"
-            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
+            placeholder="username or email" autoComplete="username" disabled={isLocked}
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors disabled:opacity-60" />
         </div>
       </div>
       <div className="space-y-2">
@@ -92,19 +131,25 @@ const LoginForm = ({
         <div className="relative">
           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-            placeholder="••••••••" autoComplete="current-password"
-            className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors" />
+            placeholder="••••••••" autoComplete="current-password" disabled={isLocked}
+            className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm transition-colors disabled:opacity-60" />
           <button type="button" onClick={() => setShowPw(v => !v)}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
             {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
       </div>
-      {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
-      <button type="submit" disabled={loading}
+      {isLocked && (
+        <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2">
+          <ShieldAlert className="h-4 w-4 shrink-0" />
+          <span>Account locked — try again in {formatCountdown(lockedUntil! - now)}.</span>
+        </div>
+      )}
+      {!isLocked && error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+      <button type="submit" disabled={loading || isLocked}
         className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        {loading ? 'Signing in…' : 'Sign In'}
+        {isLocked ? `Locked (${formatCountdown(lockedUntil! - now)})` : loading ? 'Signing in…' : 'Sign In'}
       </button>
     </form>
   );
