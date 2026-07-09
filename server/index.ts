@@ -163,13 +163,14 @@ app.use((req, res, next) => { ipBanGate(req, res, next).catch(next); });
 await setupAuth(app);
 
 // ── IP Session Lock ────────────────────────────────────────────────────────
-// After login the session stores the client IP. Any subsequent request from
-// a different IP destroys the session and forces re-authentication.
-// Public paths (auth endpoints, RPC, static) are excluded.
+// Only active in production deployments. Replit's dev proxy can vary the
+// headers between requests (login POST vs subsequent GETs), making the IP
+// comparison unreliable and causing immediate session destruction in dev.
+const IP_LOCK_ENABLED = !!process.env.REPLIT_DEPLOYMENT;
 const IP_LOCK_SKIP = ['/api/auth/', '/rpc', '/api/rpc', '/api/exchange-rates', '/api/price'];
 app.use((req: any, res: any, next: any) => {
+  if (!IP_LOCK_ENABLED) return next();
   if (!req.isAuthenticated || !req.isAuthenticated()) return next();
-  // Skip non-API and public API paths
   const skip = IP_LOCK_SKIP.some(p => req.path.startsWith(p));
   if (skip) return next();
 
@@ -177,7 +178,6 @@ app.use((req: any, res: any, next: any) => {
   const currentIp: string = getClientIp(req);
 
   if (!sessionIp) {
-    // Legacy session without IP recorded — save it now, allow through
     (req.session as any).ip = currentIp;
     return next();
   }
