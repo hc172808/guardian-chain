@@ -44,7 +44,7 @@ export async function verifyWalletChallenge(
   }
 
   const guard: NonceCheck = checkNonce(address, nonce);
-  if (!guard.ok) {
+  if (guard.ok === false) {
     const reason = guard.reason;
     return {
       ok: false,
