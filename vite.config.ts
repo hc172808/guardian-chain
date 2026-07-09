@@ -12,6 +12,9 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:5001",
         changeOrigin: true,
+        // Tell Express the connection is HTTPS so it sends Secure cookies.
+        // Replit serves dev over HTTPS externally; Vite→Express is HTTP internally.
+        headers: { "X-Forwarded-Proto": "https" },
       },
       "/ws": {
         target: "ws://localhost:5001",

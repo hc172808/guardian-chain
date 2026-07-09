@@ -43,7 +43,10 @@ export function getSession(): RequestHandler {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: !!process.env.REPLIT_DEPLOYMENT,
+      // On Replit the preview is served in an iframe over HTTPS, so cookies
+      // must be Secure + SameSite=None or the browser won't send them back.
+      secure: !!(process.env.REPL_ID || process.env.REPLIT_DEPLOYMENT),
+      sameSite: (process.env.REPL_ID || process.env.REPLIT_DEPLOYMENT) ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   });
