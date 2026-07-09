@@ -1664,7 +1664,7 @@ export function registerRoutes(app: Express) {
     const type    = req.params.type    as ValidNodeType;
     if (!VALID_NETWORKS.includes(network))   { res.status(400).json({ ok: false, message: "Invalid network" }); return; }
     if (!VALID_NODE_TYPES.includes(type))    { res.status(400).json({ ok: false, message: "Invalid node type" }); return; }
-    const result = testNodeManager.start(network, type);
+    const result = await testNodeManager.start(network, type);
     if (result.ok) {
       // Persist "should run" so this node survives server restarts
       saveTestNodeState(network, type, true).catch(() => {});
@@ -1773,8 +1773,8 @@ export function registerRoutes(app: Express) {
     const userId = (req.user as any)?.id;
     for (const net of networks) {
       for (const type of VALID_NODE_TYPES) {
-        const result = testNodeManager.start(net, type);
-        saveTestNodeState(net, type, true).catch(() => {});
+        const result = await testNodeManager.start(net, type);
+        saveTestNodeState(net, type, result.ok).catch(() => {});
         if (result.ok && userId) {
           const s = (testNodeManager.status() as any)[net]?.[type] ?? {};
           upsertTestNodeInstallation(userId, net, type, { peers: s.peers, blockHeight: s.blockHeight, port: s.port })

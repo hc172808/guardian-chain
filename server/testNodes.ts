@@ -581,68 +581,85 @@ const NODE_LABELS: Record<NodeType, string> = {
 };
 
 export const testNodeManager = {
-  start(network: Network, type: NodeType): { ok: boolean; message: string } {
-    const s = state[network][type];
-    const cfg = NETWORK_CFGS[network];
-    if (s.running) return { ok: false, message: `${NODE_LABELS[type]} (${network}) is already running` };
+  /** Returns a Promise so the route can await a real start/fail result. */
+  start(network: Network, type: NodeType): Promise<{ ok: boolean; message: string }> {
+    return new Promise((resolve) => {
+      const s = state[network][type];
+      const cfg = NETWORK_CFGS[network];
+      if (s.running) {
+        resolve({ ok: false, message: `${NODE_LABELS[type]} (${network}) is already running` });
+        return;
+      }
 
-    const srv = createServer(makeHandler(network, type));
-    srv.on("error", (err: Error) => {
-      addLog(network, type, `ERROR: ${err.message}`);
-      if ((err as any).code === "EADDRINUSE") {
+      const srv = createServer(makeHandler(network, type));
+      let settled = false;
+
+      srv.on("error", (err: Error) => {
+        addLog(network, type, `ERROR: ${err.message}`);
         s.running = false; s.server = null;
         if (s.blockTimer) { clearInterval(s.blockTimer); s.blockTimer = null; }
-      }
-    });
-
-    srv.listen(s.port, "0.0.0.0", () => {
-      s.running = true;
-      s.startedAt = new Date().toISOString();
-      addLog(network, type, `${NODE_LABELS[type]} started on port ${s.port}`);
-
-      addLog(network, type, `Network: ${cfg.name} | Chain ID: ${cfg.chainId} | Symbol: ${cfg.symbol}`);
-      addLog(network, type, `Endpoint: http://0.0.0.0:${s.port}`);
-      if (type === "boostnode") addLog(network, type, "MEV bundle endpoint: POST /boost/bundle");
-      if (type === "fullnode")  addLog(network, type, "Full-state RPC + txpool_status + debug_traceTransaction enabled");
-      if (type === "validator") addLog(network, type, "PoS consensus started | validator_info, validator_set, validator_getRewards, validator_register");
-      if (type === "genesis")   addLog(network, type, `Genesis block served at GET /genesis.json | Chain ID: ${cfg.chainId}`);
-      if (type === "bootnode")  addLog(network, type, `Peer discovery active | ${s.peers} peers known | enode available at GET /`);
-
-      // genesis and bootnode don't produce blocks — skip the block timer
-      if (BLOCK_INTERVALS[type] === 0) return;
-
-      s.blockTimer = setInterval(() => {
-        s.blockHeight++;
-        s.peers = Math.max(1, s.peers + (Math.random() > 0.8 ? (Math.random() > 0.5 ? 1 : -1) : 0));
-
-        if (type === "rpc") {
-          const txCount = Math.floor(Math.random() * 5);
-          addLog(network, type, `Block #${s.blockHeight} | ${txCount} txs | ${s.peers} peers`);
-        } else if (type === "lite") {
-          addLog(network, type, `Header #${s.blockHeight} synced | ${s.peers} peers`);
-        } else if (type === "fullnode") {
-          const txCount = Math.floor(Math.random() * 15) + 1;
-          s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 8) - txCount);
-          addLog(network, type, `Block #${s.blockHeight} | ${txCount} txs | pool: ${s.txPool} | ${s.peers} peers`);
-        } else if (type === "validator") {
-          const validators = MOCK_VALIDATORS[network];
-          const txCount = Math.floor(Math.random() * 8) + 1;
-          const proposer = validators[s.blockHeight % validators.length].address;
-          const epoch = Math.floor(s.blockHeight / 100);
-          s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 5) - txCount);
-          validators[s.blockHeight % validators.length].blocksProposed++;
-          addLog(network, type, `Block #${s.blockHeight} by ${proposer.slice(0, 10)}… | ${txCount} txs | epoch ${epoch} | +${txCount * 2} ${cfg.symbol}`);
-        } else {
-          const txCount = Math.floor(Math.random() * 40) + 10;
-          const mev = Math.random() > 0.6 ? ` | MEV #${Math.floor(Math.random() * 9999)}` : "";
-          s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 20) - txCount);
-          addLog(network, type, `Block #${s.blockHeight} | ${txCount} txs | pool: ${s.txPool}${mev}`);
+        if (!settled) {
+          settled = true;
+          const hint = (err as any).code === "EADDRINUSE"
+            ? ` — port ${s.port} is already in use`
+            : "";
+          resolve({ ok: false, message: `${NODE_LABELS[type]} failed to start: ${err.message}${hint}` });
         }
-      }, BLOCK_INTERVALS[type]);
-    });
+      });
 
-    s.server = srv;
-    return { ok: true, message: `Starting ${NODE_LABELS[type]} (${cfg.name}) on port ${s.port}…` };
+      srv.listen(s.port, "0.0.0.0", () => {
+        s.running = true;
+        s.startedAt = new Date().toISOString();
+        addLog(network, type, `${NODE_LABELS[type]} started on port ${s.port}`);
+
+        addLog(network, type, `Network: ${cfg.name} | Chain ID: ${cfg.chainId} | Symbol: ${cfg.symbol}`);
+        addLog(network, type, `Endpoint: http://0.0.0.0:${s.port}`);
+        if (type === "boostnode") addLog(network, type, "MEV bundle endpoint: POST /boost/bundle");
+        if (type === "fullnode")  addLog(network, type, "Full-state RPC + txpool_status + debug_traceTransaction enabled");
+        if (type === "validator") addLog(network, type, "PoS consensus started | validator_info, validator_set, validator_getRewards, validator_register");
+        if (type === "genesis")   addLog(network, type, `Genesis block served at GET /genesis.json | Chain ID: ${cfg.chainId}`);
+        if (type === "bootnode")  addLog(network, type, `Peer discovery active | ${s.peers} peers known | enode available at GET /`);
+
+        if (!settled) {
+          settled = true;
+          resolve({ ok: true, message: `${NODE_LABELS[type]} (${cfg.name}) started on port ${s.port}` });
+        }
+
+        // genesis and bootnode don't produce blocks — skip the block timer
+        if (BLOCK_INTERVALS[type] === 0) return;
+
+        s.blockTimer = setInterval(() => {
+          s.blockHeight++;
+          s.peers = Math.max(1, s.peers + (Math.random() > 0.8 ? (Math.random() > 0.5 ? 1 : -1) : 0));
+
+          if (type === "rpc") {
+            const txCount = Math.floor(Math.random() * 5);
+            addLog(network, type, `Block #${s.blockHeight} | ${txCount} txs | ${s.peers} peers`);
+          } else if (type === "lite") {
+            addLog(network, type, `Header #${s.blockHeight} synced | ${s.peers} peers`);
+          } else if (type === "fullnode") {
+            const txCount = Math.floor(Math.random() * 15) + 1;
+            s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 8) - txCount);
+            addLog(network, type, `Block #${s.blockHeight} | ${txCount} txs | pool: ${s.txPool} | ${s.peers} peers`);
+          } else if (type === "validator") {
+            const validators = MOCK_VALIDATORS[network];
+            const txCount = Math.floor(Math.random() * 8) + 1;
+            const proposer = validators[s.blockHeight % validators.length].address;
+            const epoch = Math.floor(s.blockHeight / 100);
+            s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 5) - txCount);
+            validators[s.blockHeight % validators.length].blocksProposed++;
+            addLog(network, type, `Block #${s.blockHeight} by ${proposer.slice(0, 10)}… | ${txCount} txs | epoch ${epoch} | +${txCount * 2} ${cfg.symbol}`);
+          } else {
+            const txCount = Math.floor(Math.random() * 40) + 10;
+            const mev = Math.random() > 0.6 ? ` | MEV #${Math.floor(Math.random() * 9999)}` : "";
+            s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 20) - txCount);
+            addLog(network, type, `Block #${s.blockHeight} | ${txCount} txs | pool: ${s.txPool}${mev}`);
+          }
+        }, BLOCK_INTERVALS[type]);
+      });
+
+      s.server = srv;
+    });
   },
 
 

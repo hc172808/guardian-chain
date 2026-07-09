@@ -21,7 +21,20 @@ import { storage } from "./storage";
 
 // ── In-memory state ──────────────────────────────────────────────────────────
 const blockedIps   = new Set<string>();                  // permanent bans
+
+// IPs that bypass ALL firewall checks — loopback + anything in IP_WHITELIST env var.
+// IP_WHITELIST=1.2.3.4,5.6.7.8  (comma-separated, supports CIDR notation stripped to host)
 const ALWAYS_ALLOW = new Set<string>(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+(function loadEnvWhitelist() {
+  const raw = process.env.IP_WHITELIST ?? "";
+  raw.split(",").map(s => s.trim()).filter(Boolean).forEach(ip => {
+    // Normalise "::ffff:x" → "x" and "::1" → "127.0.0.1" for consistency
+    if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+    if (ip === "::1") ip = "127.0.0.1";
+    ALWAYS_ALLOW.add(ip);
+    console.log(`[Security] Whitelisted IP from env: ${ip}`);
+  });
+})();
 
 let firewallEnabled  = true;
 let lockdownMode     = false;
