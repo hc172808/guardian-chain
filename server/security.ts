@@ -621,6 +621,9 @@ const LONG_WINDOW_MIN = 15;
 const LONG_LIMIT = 10;
 
 let honeypotCache: { url: string | null; until: number } = { url: null, until: 0 };
+// Default fallback: the built-in /blocked test warning page. Admins can override
+// via admin_config.honeypot_redirect_url or the HONEYPOT_REDIRECT_URL env var.
+const DEFAULT_HONEYPOT_URL = "/blocked";
 export async function getHoneypotRedirectUrl(): Promise<string | null> {
   if (honeypotCache.until > Date.now()) return honeypotCache.url;
   let url: string | null = process.env.HONEYPOT_REDIRECT_URL?.trim() || null;
@@ -628,6 +631,7 @@ export async function getHoneypotRedirectUrl(): Promise<string | null> {
     const v = await (storage as any).getAdminConfig?.("honeypot_redirect_url");
     if (v && String(v).trim()) url = String(v).trim();
   } catch {}
+  if (!url) url = DEFAULT_HONEYPOT_URL;
   honeypotCache = { url, until: Date.now() + 60_000 };
   return url;
 }
