@@ -48,6 +48,7 @@ import LandingPage from "./pages/Landing";
 import PressKitPage from "./pages/PressKit";
 import BlogPage from "./pages/Blog";
 import TrustPage from "./pages/Trust";
+import Blocked from "./pages/Blocked";
 import ReferralsPage from "./pages/Referrals";
 import PreviewPage from "./pages/Preview";
 import SetupPage from "./pages/Setup";
@@ -146,6 +147,8 @@ const AppContent = () => {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/profile" element={<ProfilePage />} />
       <Route path="/setup" element={<SetupPage />} />
+      {/* Firewall test warning page — default honeypot-redirect destination */}
+      <Route path="/blocked" element={<Blocked />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
     </>
