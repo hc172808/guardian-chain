@@ -680,7 +680,7 @@ export async function isPrivilegedWallet(address: string): Promise<boolean> {
   const pool = (storage as any).pgPool as import("pg").Pool | undefined;
   if (!pool) return false;
   const addr = address.toLowerCase();
-  const founderEnv = (process.env.FOUNDER_WALLET_ADDRESS ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1").toLowerCase();
+  const founderEnv = (process.env.FOUNDER_WALLET_ADDRESS ?? process.env.FOUNDER_WALLET ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1").toLowerCase();
   if (addr === founderEnv) return true;
   const r = await pool.query(
     `SELECT 1

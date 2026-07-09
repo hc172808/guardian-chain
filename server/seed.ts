@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 // the holder of the private key can actually authenticate as admin/founder.
 // Override with FOUNDER_WALLET_ADDRESS env var if the key is rotated.
 const FOUNDER_WALLET = (
-  process.env.FOUNDER_WALLET_ADDRESS ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1"
+  process.env.FOUNDER_WALLET_ADDRESS ?? process.env.FOUNDER_WALLET ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1"
 ).toLowerCase();
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
