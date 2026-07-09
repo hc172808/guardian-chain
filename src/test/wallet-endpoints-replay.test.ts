@@ -40,7 +40,7 @@ async function mintChallenge(storage: ReturnType<typeof makeStorage>, signer: Si
 
 /** Narrowing helper — asserts result is a failure and returns the code. */
 function failCode(res: WalletChallengeResult): string {
-  if (res.ok) throw new Error(`expected failure, got success for ${JSON.stringify(res)}`);
+  if (res.ok === true) throw new Error(`expected failure, got success`);
   return res.code;
 }
 
