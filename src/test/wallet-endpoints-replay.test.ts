@@ -101,7 +101,7 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
 
   it('rejects a signature from a different wallet (address mismatch)', async () => {
     const { signature, address } = await mintChallenge(storage, wallet);
-    const attacker = ethers.Wallet.createRandom().address.toLowerCase();
+    const attacker = makeWallet(Math.floor(Math.random()*1e9)+2).address.toLowerCase();
     // Attacker copies signature but submits their own address — but they have
     // no active nonce, so the guard rejects before signature check.
     const res = await verifyWalletChallenge(attacker, signature, storage);
@@ -111,7 +111,7 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
 
   it('rejects a forged signature over the correct nonce', async () => {
     const { nonce, address } = await mintChallenge(storage, wallet);
-    const forger = ethers.Wallet.createRandom();
+    const forger = makeWallet(Math.floor(Math.random()*1e9)+2);
     const forgedSig = await forger.signMessage(CHALLENGE_MESSAGE(nonce));
     const res = await verifyWalletChallenge(address, forgedSig, storage);
     expect(failCode(res)).toBe('BAD_SIGNATURE');
