@@ -195,12 +195,19 @@ const MathChallengeWidget = ({
   const [error,       setError]       = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Keep a stable reference to the latest onExpire/onVerify callbacks so
+  // fetchChallenge doesn't need them in its dependency array — otherwise a
+  // new inline `onExpire` prop on every parent re-render (e.g. each keystroke
+  // in the username/password fields) would fetch a brand-new challenge.
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
+
   const fetchChallenge = useCallback(async () => {
     setLoading(true);
     setError('');
     setAnswer('');
     setVerified(false);
-    onExpire?.();
+    onExpireRef.current?.();
     try {
       const res  = await fetch('/api/auth/captcha');
       const data = await res.json();
@@ -214,9 +221,11 @@ const MathChallengeWidget = ({
       // Focus the input after load
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [onExpire]);
+  }, []);
 
-  useEffect(() => { fetchChallenge(); }, [fetchChallenge]);
+  // Fetch exactly once on mount. Subsequent fresh challenges only come from
+  // an explicit reset() call (e.g. after a failed login) or the refresh button.
+  useEffect(() => { fetchChallenge(); }, []);
 
   // Expose imperative reset
   useEffect(() => {
