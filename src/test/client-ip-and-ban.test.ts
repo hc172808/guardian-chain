@@ -80,11 +80,10 @@ describe("removeIpBan / clearLoginFailures — bypass prevention", () => {
   const calls: string[] = [];
   beforeEach(() => { calls.length = 0; });
 
-  it("removeIpBan and clearLoginFailures are no-ops when db pool is unavailable (safe by default)", async () => {
-    // With no DB, these must not throw — but also must not silently 'succeed'
-    // in a way that would grant access. The gate is separate (ipBanGate), so
-    // no-op here is the correct behaviour when the persistence layer is down.
-    await expect(security.removeIpBan("1.2.3.4")).resolves.toBeUndefined();
+  it("removeIpBan / clearLoginFailures error out safely when db is down (no silent 'success')", async () => {
+    // Without a DB, removeIpBan must NOT quietly succeed — that would let a
+    // caller falsely believe a ban was lifted. clearLoginFailures is best-effort.
+    await expect(security.removeIpBan("1.2.3.4")).rejects.toThrow(/db/i);
     await expect(security.clearLoginFailures("1.2.3.4")).resolves.toBeUndefined();
   });
 
