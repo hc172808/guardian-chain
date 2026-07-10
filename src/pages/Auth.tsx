@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,6 +8,7 @@ import {
   Copy, RefreshCw, ShieldAlert, Send
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { CaptchaWidget, type CaptchaPayload, type CaptchaWidgetHandle } from '@/components/CaptchaWidget';
 
 type Tab = 'login' | 'register' | 'web3' | 'reset' | 'totp';
 
@@ -51,6 +52,8 @@ const LoginForm = ({
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [lockRedirectUrl, setLockRedirectUrl] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [captchaPayload, setCaptchaPayload] = useState<CaptchaPayload | null>(null);
+  const captchaRef = useRef<CaptchaWidgetHandle | null>(null);
 
   useEffect(() => {
     if (!lockedUntil) return;
@@ -65,20 +68,27 @@ const LoginForm = ({
     }
   }, [now, lockedUntil]);
 
+  const resetCaptcha = () => {
+    setCaptchaPayload(null);
+    captchaRef.current?.reset();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!username.trim() || !password) { setError('Fill in all fields'); return; }
+    if (!captchaPayload) { setError('Please complete the security check below.'); return; }
     setLoading(true);
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim().toLowerCase(), password }),
+        body: JSON.stringify({ username: username.trim().toLowerCase(), password, ...captchaPayload }),
       });
       const data = await res.json().catch(() => ({} as any));
       if (!res.ok) {
+        resetCaptcha();
         // Admin/founder never gets locked out — server offers wallet fallback.
         if (data?.code === 'USE_WALLET_FALLBACK' && onWalletFallback) {
           setError(data.error ?? 'Use your registered wallet to sign in.');
@@ -107,6 +117,7 @@ const LoginForm = ({
       onSuccess();
     } catch (err: any) {
       setError(err.message);
+      resetCaptcha();
     } finally {
       setLoading(false);
     }
@@ -148,7 +159,14 @@ const LoginForm = ({
         </div>
       )}
       {!isLocked && error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
-      <button type="submit" disabled={loading || isLocked}
+      {!isLocked && (
+        <CaptchaWidget
+          widgetRef={captchaRef}
+          onVerify={setCaptchaPayload}
+          onExpire={() => setCaptchaPayload(null)}
+        />
+      )}
+      <button type="submit" disabled={loading || isLocked || (!captchaPayload && !isLocked)}
         className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {isLocked ? `Locked (${formatCountdown(lockedUntil! - now)})` : loading ? 'Signing in…' : 'Sign In'}
@@ -167,6 +185,13 @@ const RegisterForm = ({ onSuccess }: { onSuccess: () => void }) => {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [captchaPayload, setCaptchaPayload] = useState<CaptchaPayload | null>(null);
+  const captchaRef = useRef<CaptchaWidgetHandle | null>(null);
+
+  const resetCaptcha = () => {
+    setCaptchaPayload(null);
+    captchaRef.current?.reset();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,6 +203,7 @@ const RegisterForm = ({ onSuccess }: { onSuccess: () => void }) => {
       setError('Username must be 3–20 characters: letters, numbers, underscores only');
       return;
     }
+    if (!captchaPayload) { setError('Please complete the security check below.'); return; }
     setLoading(true);
     try {
       await api('/api/auth/register', {
@@ -185,10 +211,12 @@ const RegisterForm = ({ onSuccess }: { onSuccess: () => void }) => {
         email: email.trim() || undefined,
         phone: phone.trim() || undefined,
         password,
+        ...captchaPayload,
       });
       onSuccess();
     } catch (err: any) {
       setError(err.message);
+      resetCaptcha();
     } finally {
       setLoading(false);
     }
@@ -249,7 +277,12 @@ const RegisterForm = ({ onSuccess }: { onSuccess: () => void }) => {
         </div>
       </div>
       {error && <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
-      <button type="submit" disabled={loading}
+      <CaptchaWidget
+        widgetRef={captchaRef}
+        onVerify={setCaptchaPayload}
+        onExpire={() => setCaptchaPayload(null)}
+      />
+      <button type="submit" disabled={loading || !captchaPayload}
         className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60">
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {loading ? 'Creating account…' : 'Create Account'}

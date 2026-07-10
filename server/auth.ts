@@ -12,6 +12,7 @@ import { pool } from "./db";
 import { storage } from "./storage";
 import { sendPasswordResetEmail, sendEmailVerification } from "./email";
 import { sendWhatsAppMessage } from "./whatsapp";
+import { verifyCaptcha, generateChallenge, captchaMode } from "./captcha";
 const pgPool = pool;
 
 // ── WhatsApp OTP store (in-memory, short-lived) ───────────────────────────────
@@ -85,9 +86,29 @@ export async function setupAuth(app: Express): Promise<void> {
     }
   });
 
+  // ── Captcha challenge endpoint ─────────────────────────────────────────────
+  // GET /api/auth/captcha → { challengeId, question, mode }
+  // Called by the frontend CaptchaWidget to get a fresh math challenge.
+  // Returns the current mode so the frontend can confirm which widget to show.
+  app.get("/api/auth/captcha", (req, res) => {
+    const mode = captchaMode();
+    if (mode === 'hcaptcha') {
+      // hCaptcha mode: challenges are issued client-side; nothing to generate here
+      return res.json({ mode: 'hcaptcha' });
+    }
+    const { challengeId, question } = generateChallenge();
+    res.json({ mode: 'math', challengeId, question });
+  });
+
   // ── Register ───────────────────────────────────────────────────────────────
   app.post("/api/auth/register", authLimiter, async (req, res) => {
     try {
+      // Verify captcha FIRST — before doing any DB work
+      const captchaResult = await verifyCaptcha(req.body ?? {}, req.ip);
+      if (!captchaResult.ok) {
+        return res.status(400).json({ error: captchaResult.error, code: "CAPTCHA_FAILED" });
+      }
+
       const { username, password, email, phone } = req.body ?? {};
       if (!username || !password) return res.status(400).json({ error: "Username and password required" });
       if (String(password).length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
@@ -193,6 +214,16 @@ export async function setupAuth(app: Express): Promise<void> {
           lockedUntil: lock.lockedUntil,
           redirectUrl: lock.redirectUrl,
         });
+      }
+    }
+
+    // Verify captcha AFTER IP ban + lockout checks (banned IPs get rejected before
+    // we waste a challenge), but BEFORE hitting the password-verification logic.
+    // Privileged users (admin/founder) bypass captcha so they can always get in.
+    if (!privileged) {
+      const captchaResult = await verifyCaptcha(req.body ?? {}, ip);
+      if (!captchaResult.ok) {
+        return res.status(400).json({ error: captchaResult.error, code: "CAPTCHA_FAILED" });
       }
     }
 
