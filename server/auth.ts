@@ -101,12 +101,12 @@ export async function setupAuth(app: Express): Promise<void> {
 
       // Save optional phone number
       if (phone) {
-        await (storage as any).pgPool?.query(
+        await pgPool.query(
           `UPDATE users SET phone=$1 WHERE id=$2`,
           [String(phone).trim(), user.id]
         ).catch(() => {});
         // Also store in profile metadata for WhatsApp use
-        await (storage as any).pgPool?.query(
+        await pgPool.query(
           `UPDATE profiles SET metadata = jsonb_set(COALESCE(metadata,'{}'), '{phone}', $1::jsonb) WHERE user_id=$2`,
           [JSON.stringify(String(phone).trim()), user.id]
         ).catch(() => {});
@@ -115,17 +115,7 @@ export async function setupAuth(app: Express): Promise<void> {
       // Generate email verification token (stored; actual email delivery requires SMTP configuration)
       if (email) {
         const token = require('crypto').randomBytes(32).toString('hex');
-        await (storage as any).pgPool?.query(
-          `CREATE TABLE IF NOT EXISTS email_verification_tokens (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            user_id TEXT NOT NULL,
-            token TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours',
-            used_at TIMESTAMPTZ
-          )`
-        ).catch(() => {});
-        await (storage as any).pgPool?.query(
+        await pgPool.query(
           `INSERT INTO email_verification_tokens (user_id, token) VALUES ($1, $2)`,
           [user.id, token]
         ).catch(() => {});
@@ -148,8 +138,6 @@ export async function setupAuth(app: Express): Promise<void> {
     try {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "token required" });
-      const pgPool = (storage as any).pgPool;
-      if (!pgPool) return res.status(503).json({ error: "not available" });
       const row = (await pgPool.query(
         `SELECT * FROM email_verification_tokens WHERE token=$1 AND used_at IS NULL AND expires_at > NOW() LIMIT 1`,
         [token]
@@ -164,10 +152,9 @@ export async function setupAuth(app: Express): Promise<void> {
   app.post("/api/auth/resend-verification", authLimiter, requireAuth, async (req, res) => {
     try {
       const user = req.user as any;
-      const pgPool = (storage as any).pgPool;
       if (!user.email) return res.status(400).json({ error: "No email on account" });
       const token = require('crypto').randomBytes(32).toString('hex');
-      await pgPool?.query(
+      await pgPool.query(
         `INSERT INTO email_verification_tokens (user_id, token) VALUES ($1, $2)
          ON CONFLICT DO NOTHING`,
         [user.id, token]
@@ -265,7 +252,7 @@ export async function setupAuth(app: Express): Promise<void> {
         (req.session as any).loginAt = new Date().toISOString();
         // Persist last-login IP on the user row
         try {
-          await (storage as any).pgPool?.query(
+          await pgPool.query(
             `UPDATE users SET last_login_ip=$1, last_login_at=NOW() WHERE id=$2`,
             [ip, user.id]
           );
@@ -341,9 +328,8 @@ export async function setupAuth(app: Express): Promise<void> {
         process.env.FOUNDER_WALLET_ADDRESS ?? process.env.FOUNDER_WALLET ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1"
       ).toLowerCase();
       if (addr === founderWallet) {
-        const pool = (storage as any).pgPool as import('pg').Pool;
         for (const role of ["user", "admin", "founder"]) {
-          await pool.query(
+          await pgPool.query(
             `INSERT INTO user_roles (id, user_id, role)
              VALUES (gen_random_uuid(), $1, $2)
              ON CONFLICT DO NOTHING`,

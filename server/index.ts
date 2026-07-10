@@ -13,6 +13,7 @@ import { initActivityFeed, handleUpgrade } from "./activityFeed";
 import { ensurePreferredCurrencyColumn } from "./exchangeRates";
 import { testNodeManager, loadPersistedTestNodeState } from "./testNodes";
 import { bootstrapDatabase } from "./bootstrap";
+import { startupMigrate } from "./startup-migrate";
 import { pool as dbPool } from "./db";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -77,12 +78,38 @@ function buildAllowedOrigins(): Set<string> {
     'http://localhost:3000',
     'http://127.0.0.1:5001',
   ]);
+
+  // REPLIT_DOMAINS — set by deploy-dashboard.sh as "FQDN,DOMAIN" (e.g. "app.example.com,example.com")
+  // Allows the deployed custom domain to make credentialed API requests without CORS errors.
+  // Only HTTPS is trusted for non-loopback domains; HTTP is intentionally omitted to prevent
+  // credentialed cross-origin requests over plaintext in production.
+  const replitDomains = process.env.REPLIT_DOMAINS ?? '';
+  replitDomains.split(',').map(d => d.trim()).filter(Boolean).forEach(domain => {
+    origins.add(`https://${domain}`);
+    // Allow http only for local dev names (localhost / *.local / bare IPs)
+    if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|.*\.local)/.test(domain)) {
+      origins.add(`http://${domain}`);
+    }
+  });
+
+  // APP_URL — full URL of the deployment (e.g. https://app.example.com)
+  // Only the HTTPS origin is trusted.
+  const appUrl = process.env.APP_URL ?? '';
+  if (appUrl) {
+    try {
+      const u = new URL(appUrl);
+      if (u.protocol === 'https:') origins.add(u.origin);
+      else if (/^(localhost|127\.)/.test(u.hostname)) origins.add(u.origin); // local http ok
+    } catch {}
+  }
+
   // Replit dev-domain (format: <slug>.repl.co or <slug>.replit.dev)
   const devDomain = process.env.REPLIT_DEV_DOMAIN;
   if (devDomain) {
     origins.add(`https://${devDomain}`);
     origins.add(`https://${devDomain.replace(/^[^.]+\./, '')}`); // parent domain
   }
+
   return origins;
 }
 const ALLOWED_ORIGINS = buildAllowedOrigins();
@@ -149,6 +176,11 @@ app.use((_req: any, res: any, next: any) => {
   );
   next();
 });
+
+// ── Startup schema migration — runs FIRST, before any middleware touches the DB ─
+// Creates all core tables with IF NOT EXISTS on every boot so the server works
+// correctly on fresh deployments and after schema drift from failed migrations.
+await startupMigrate(dbPool).catch(e => console.warn("[startup-migrate] error:", e.message));
 
 // ── AI Firewall + DDoS protection middleware — runs before all routes ─────────
 app.use(aiFirewallMiddleware);
@@ -229,8 +261,7 @@ storage.captureNetworkSnapshot().catch(() => {});
 
 // 90-day DB pruner cron — runs once daily at startup + every 24h
 async function runDbPruner() {
-  const pgPool = (storage as any).pgPool;
-  if (!pgPool) return;
+  const pgPool = dbPool;
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
   try {
     const pruneQueries = [
@@ -281,8 +312,7 @@ setTimeout(() => autoRestartPersistedNodes().catch(e => console.warn("[test-node
 
 // Price Alert LISTEN/NOTIFY via Postgres
 async function startPriceAlertListener() {
-  const pgPool = (storage as any).pgPool as Pool | undefined;
-  if (!pgPool) return;
+  const pgPool: Pool = dbPool;
   const client = await pgPool.connect();
   await client.query('LISTEN price_alert_trigger').catch(() => {});
   client.on('notification', async (msg: any) => {

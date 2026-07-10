@@ -3129,7 +3129,6 @@ export function registerRoutes(app: Express) {
   // ── Admin Monitoring (Validator + Explorer + System) ──────────────────────
   app.get("/api/admin/monitoring", requireAdmin, async (_req, res) => {
     try {
-      const pgPool = (storage as any).pgPool;
       const [validatorRows, nodeRows, rpcHealth] = await Promise.all([
         storage.getValidators?.().catch(() => [] as any[]),
         pgPool?.query(`SELECT COUNT(*) as total, SUM(CASE WHEN is_synced THEN 1 ELSE 0 END) as synced FROM node_installations`).catch(() => ({ rows: [{ total: 0, synced: 0 }] })),
@@ -3182,7 +3181,6 @@ export function registerRoutes(app: Express) {
 
   // ── Full infrastructure health check (replaces Supabase Edge Function) ──────
   app.get("/api/health/full", async (_req, res) => {
-    const pgPool = (storage as any).pgPool;
     const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
 
     const checkEndpoint = async (url: string, timeout = 5000) => {

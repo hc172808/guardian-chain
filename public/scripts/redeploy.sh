@@ -91,15 +91,11 @@ _run_migrations() {
         done
     fi
 
-    # 2. Full schema — ONLY use the idempotent complete schema (IF NOT EXISTS everywhere).
-    #    Do NOT apply gydschain-schema.sql here — it has DROP TABLE CASCADE which
-    #    would wipe all user data on every redeploy.
-    local safe_schema="${dir}/public/scripts/gydschain-complete-schema.sql"
-    if [[ -f "$safe_schema" ]]; then
-        info "  Applying full schema: $(basename "$safe_schema")"
-        psql "$db_url" -v ON_ERROR_STOP=0 -f "$safe_schema" >> "$DEPLOY_LOG" 2>&1 || true
-        log "  ✓ $(basename "$safe_schema")"
-    fi
+    # 2. Do NOT apply gydschain-complete-schema.sql here.
+    #    It is a pg_dump (plain CREATE TABLE without IF NOT EXISTS) and will emit
+    #    thousands of errors on every redeploy against an existing database.
+    #    Any tables not covered by the numbered migration files are created
+    #    idempotently by server/startup-migrate.ts when the server boots.
 
     # 3. Report table count
     local table_count

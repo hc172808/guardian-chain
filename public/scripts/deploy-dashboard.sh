@@ -368,25 +368,28 @@ npm install --legacy-peer-deps
 npm run build
 log "Build complete → $APP_DIR/dist"
 
-step "4b/8 — DB schema push"
-info "Applying DB schema via drizzle-kit push..."
+step "4b/8 — DB schema migrations"
+# drizzle-kit push requires an interactive TTY and will fail non-interactively.
+# Instead, we apply each numbered migration file directly via psql.
+# ON_ERROR_STOP=0 means a "relation already exists" error on an existing DB won't
+# abort the run — every statement is attempted, so additive changes always apply.
+info "Applying DB migrations via psql (non-interactive, idempotent)..."
 cd "$APP_DIR"
 export DATABASE_URL
-# Primary method: drizzle-kit push (idempotent, handles all Drizzle schema changes)
-if npx drizzle-kit push --config drizzle.config.ts 2>&1 | tee /tmp/drizzle-push.log | grep -qE "\[✓\] Changes applied|No schema changes"; then
-    log "Schema applied via drizzle-kit push"
-else
-    warn "drizzle-kit push had warnings — running SQL fallback migrations as well"
-    # Fallback: run generated migration SQL files in order
-    for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
-        [[ -f "$f" ]] && psql "$DATABASE_URL" -f "$f" 2>/dev/null && log "  Migration: $(basename "$f")" || true
-    done
-    # Full schema SQL as final safety net
-    if [[ -f "$APP_DIR"/public/scripts/gydschain-complete-schema.sql ]]; then
-        psql "$DATABASE_URL" -f "$APP_DIR"/public/scripts/gydschain-complete-schema.sql 2>/dev/null && log "  Schema: gydschain-complete-schema.sql" || true
+migration_ok=0
+migration_fail=0
+for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
+    if psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f "$f" > /tmp/mig-last.log 2>&1; then
+        log "  ✓  $(basename "$f")"
+        (( migration_ok++ )) || true
+    else
+        warn "  ⚠  $(basename "$f") — see /tmp/mig-last.log"
+        (( migration_fail++ )) || true
     fi
-fi
-cat /tmp/drizzle-push.log 2>/dev/null || true
+done
+log "Migrations done: ${migration_ok} OK, ${migration_fail} with warnings"
+# NOTE: the server's startup-migrate.ts creates all remaining tables idempotently
+# at boot time, so any tables missed by the migration files are still created.
 cd "$APP_DIR"
 
 # ─── Step 5: PM2 ──────────────────────────────────────────────────────────────
