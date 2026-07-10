@@ -600,6 +600,55 @@ const DownloadPage = () => {
               </div>
             </GlassCard>
 
+            {/* Standalone Miner */}
+            <GlassCard className="p-6 border-primary/30">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-3 rounded-lg bg-primary/20">
+                  <Cpu className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold">GYDS Miner</h2>
+                  <p className="text-sm text-muted-foreground">Standalone Node.js miner with a built-in web dashboard — runs on Ubuntu or any Linux server</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                {[
+                  { icon: Cpu, label: 'Multi-threaded CPU mining' },
+                  { icon: Monitor, label: 'Live web dashboard' },
+                  { icon: Server, label: 'Runs as systemd service' },
+                  { icon: Shield, label: 'Optional password protection' },
+                ].map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm">
+                    <f.icon className="h-4 w-4 text-primary" />
+                    <span>{f.label}</span>
+                  </div>
+                ))}
+              </div>
+
+              <CommandBlock
+                command={`wget https://netlifegy.com/miner-download/gyds-miner.tar.gz\ntar xzf gyds-miner.tar.gz\ncd miner\nsudo bash install.sh`}
+                label="Miner Install Command"
+                onCopy={copyToClipboard}
+              />
+
+              <div className="flex flex-wrap gap-3 mt-4">
+                <Button asChild className="gap-2" size="lg">
+                  <a href="/miner-download/gyds-miner.tar.gz" download>
+                    <DownloadIcon className="h-4 w-4" />
+                    Download Miner (.tar.gz)
+                  </a>
+                </Button>
+                <Button variant="outline" className="gap-2" onClick={() => window.open('/miner/README.md', '_blank')}>
+                  <BookOpen className="h-4 w-4" />
+                  Setup Guide
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground/70 mt-3">
+                Requirements: Node.js 18+ (auto-installed), 1 CPU core minimum. The installer opens a web dashboard at port 4500 for monitoring hash rate, shares, and rewards, and to start/stop mining or set your wallet address remotely.
+              </p>
+            </GlassCard>
+
             {/* Multi-Server Architecture */}
             <GlassCard className="p-6">
               <h3 className="text-lg font-semibold mb-4">Multi-Server Architecture</h3>
