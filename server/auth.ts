@@ -379,14 +379,26 @@ export async function setupAuth(app: Express): Promise<void> {
       await new Promise<void>((resolve, reject) =>
         req.login(user, (err) => (err ? reject(err) : resolve()))
       );
+      // Capture client IP consistently (X-Forwarded-For via trusted-proxy allowlist).
+      const { getClientIp: _getIp, removeIpBan: _removeBan, clearLoginFailures: _clearFails } = await import("./security");
+      const clientIp = _getIp(req);
       (req.session as any).ua = req.headers['user-agent']?.slice(0, 200) ?? 'Unknown';
-      (req.session as any).ip = req.ip ?? req.socket?.remoteAddress ?? 'Unknown';
+      (req.session as any).ip = clientIp;
       (req.session as any).loginAt = new Date().toISOString();
+      // Persist last-login IP + trust this IP for the session (same as password login).
+      try {
+        await pgPool.query(
+          `UPDATE users SET last_login_ip=$1, last_login_at=NOW() WHERE id=$2`,
+          [clientIp, user.id]
+        );
+      } catch {}
+      _clearFails(clientIp).catch(() => {});
+      _removeBan(clientIp).catch(() => {});
       res.json({ ok: true });
       try {
         const { broadcastActivity } = await import('./activityFeed');
         const shortAddr = `${addr.slice(0, 6)}…${addr.slice(-4)}`;
-        broadcastActivity({ type: 'login', title: 'Web3 Login', detail: `${shortAddr} connected`, user: shortAddr, ip: req.ip ?? undefined });
+        broadcastActivity({ type: 'login', title: 'Web3 Login', detail: `${shortAddr} connected`, user: shortAddr, ip: clientIp });
       } catch {}
     } catch (err: any) {
       console.error("Web3 auth error:", err.message);
