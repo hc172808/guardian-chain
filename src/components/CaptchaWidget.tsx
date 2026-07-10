@@ -202,7 +202,7 @@ const MathChallengeWidget = ({
   const onExpireRef = useRef(onExpire);
   useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
-  const fetchChallenge = useCallback(async () => {
+  const fetchChallenge = useCallback(async (autoFocus: boolean = true) => {
     setLoading(true);
     setError('');
     setAnswer('');
@@ -218,14 +218,17 @@ const MathChallengeWidget = ({
       setError(e.message);
     } finally {
       setLoading(false);
-      // Focus the input after load
-      setTimeout(() => inputRef.current?.focus(), 100);
+      // Only steal focus into the answer box when the user explicitly asked
+      // for a new challenge (reset/refresh) — never on the initial mount,
+      // where it would yank focus away from whatever field they're typing in.
+      if (autoFocus) setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, []);
 
-  // Fetch exactly once on mount. Subsequent fresh challenges only come from
-  // an explicit reset() call (e.g. after a failed login) or the refresh button.
-  useEffect(() => { fetchChallenge(); }, []);
+  // Fetch exactly once on mount, without stealing focus. Subsequent fresh
+  // challenges only come from an explicit reset() call (e.g. after a failed
+  // login) or the refresh button, which do autofocus.
+  useEffect(() => { fetchChallenge(false); }, []);
 
   // Expose imperative reset
   useEffect(() => {
