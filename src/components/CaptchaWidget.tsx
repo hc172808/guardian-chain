@@ -264,7 +264,7 @@ const MathChallengeWidget = ({
         </div>
         <button
           type="button"
-          onClick={fetchChallenge}
+          onClick={() => fetchChallenge()}
           disabled={loading}
           title="New question"
           className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground disabled:opacity-40"
@@ -283,7 +283,7 @@ const MathChallengeWidget = ({
         <div className="flex items-center gap-2 text-destructive text-xs">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           {error}
-          <button type="button" onClick={fetchChallenge} className="underline ml-auto">Retry</button>
+          <button type="button" onClick={() => fetchChallenge()} className="underline ml-auto">Retry</button>
         </div>
       ) : (
         <div className="flex items-center gap-3">
