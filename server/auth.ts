@@ -289,6 +289,12 @@ export async function setupAuth(app: Express): Promise<void> {
           );
         } catch {}
         clearLoginFailures(ip).catch(() => {});
+        // Trust this IP for the session and remove any prior auto-ban so the user
+        // isn't blocked mid-session (e.g. after prior failed attempts from same IP).
+        try {
+          const { removeIpBan } = await import("./security");
+          await removeIpBan(ip).catch(() => {});
+        } catch {}
         clearLockout(submittedUsername).catch(() => {});
         // Audit log
         try {
