@@ -771,12 +771,35 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Logout ─────────────────────────────────────────────────────────────────
-  app.get("/api/auth/logout", (req, res) => {
-    req.logout(() => res.redirect("/auth"));
+  async function performLogoutCleanup(req: any) {
+    try {
+      const { getClientIp, clearLoginFailures, removeIpBan } = await import("./security");
+      const ip = getClientIp(req);
+      // Reset per-IP failure counters and any auto-ban so a fresh login from the
+      // same or different IP starts clean.
+      await clearLoginFailures(ip).catch(() => {});
+      await removeIpBan(ip).catch(() => {});
+    } catch {}
+    try {
+      if (req.session) {
+        (req.session as any).ip = undefined;
+        (req.session as any).loginAt = undefined;
+      }
+    } catch {}
+  }
+
+  app.get("/api/auth/logout", async (req, res) => {
+    await performLogoutCleanup(req);
+    req.logout(() => {
+      req.session?.destroy?.(() => res.redirect("/auth")) ?? res.redirect("/auth");
+    });
   });
 
-  app.post("/api/auth/logout", (req, res) => {
-    req.logout(() => res.json({ ok: true }));
+  app.post("/api/auth/logout", async (req, res) => {
+    await performLogoutCleanup(req);
+    req.logout(() => {
+      req.session?.destroy?.(() => res.json({ ok: true })) ?? res.json({ ok: true });
+    });
   });
 
   // ── Current user ───────────────────────────────────────────────────────────
