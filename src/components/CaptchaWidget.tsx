@@ -264,7 +264,7 @@ const MathChallengeWidget = ({
         </div>
         <button
           type="button"
-          onClick={fetchChallenge}
+          onClick={() => fetchChallenge()}
           disabled={loading}
           title="New question"
           className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground disabled:opacity-40"
