@@ -189,24 +189,60 @@ const BAD_UA_PATTERNS: RegExp[] = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-// Resolve the real *public* client IP behind Cloudflare / Nginx / any reverse proxy.
-// Preference order (user-chosen policy): CF-Connecting-IP → X-Real-IP → first XFF hop → req.ip → socket.
-// Strips IPv6 "::ffff:" prefix and normalises "::1" → "127.0.0.1" so bans compare cleanly.
-export function getClientIp(req: any): string {
-  const h = req.headers ?? {};
-  const pick = (v: any): string => Array.isArray(v) ? v[0] : (typeof v === "string" ? v : "");
-  let ip =
-    pick(h["cf-connecting-ip"]) ||
-    pick(h["true-client-ip"]) ||
-    pick(h["x-real-ip"]) ||
-    pick(h["x-forwarded-for"]).split(",")[0].trim() ||
-    req.ip ||
-    req.socket?.remoteAddress ||
-    "0.0.0.0";
-  ip = String(ip).trim();
+// Trusted proxy allowlist for forwarded-IP headers. Only when the immediate
+// TCP peer (`req.socket.remoteAddress`) is in this set will we trust
+// CF-Connecting-IP / True-Client-IP / X-Real-IP / X-Forwarded-For — otherwise
+// those headers are ignored (they can be spoofed by any HTTP client).
+// Loopback is always trusted (Express `app.set('trust proxy', 1)` handles req.ip);
+// extend via env var TRUSTED_PROXIES="1.2.3.4,10.0.0.5".
+const TRUSTED_PROXIES = new Set<string>(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+(function loadTrustedProxies() {
+  const raw = process.env.TRUSTED_PROXIES ?? "";
+  raw.split(",").map(s => s.trim()).filter(Boolean).forEach(ip => {
+    if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+    if (ip === "::1") ip = "127.0.0.1";
+    TRUSTED_PROXIES.add(ip);
+    console.log(`[Security] Trusted proxy from env: ${ip}`);
+  });
+})();
+
+function normalizeIp(ip: string): string {
+  ip = String(ip ?? "").trim();
   if (ip.startsWith("::ffff:")) ip = ip.slice(7);
   if (ip === "::1") ip = "127.0.0.1";
   return ip;
+}
+
+export function isTrustedProxy(ip: string): boolean {
+  return TRUSTED_PROXIES.has(normalizeIp(ip));
+}
+
+// Resolve the real *public* client IP behind Cloudflare / Nginx / any reverse proxy.
+// Only trusts forwarded-IP headers when the immediate peer is a trusted proxy;
+// otherwise falls back to the socket peer address so spoofed headers are ignored.
+export function getClientIp(req: any): string {
+  const h = req.headers ?? {};
+  const pick = (v: any): string => Array.isArray(v) ? v[0] : (typeof v === "string" ? v : "");
+  const peer = normalizeIp(req.socket?.remoteAddress ?? req.connection?.remoteAddress ?? "");
+  const trusted = !peer || TRUSTED_PROXIES.has(peer);
+
+  if (trusted) {
+    const forwarded =
+      pick(h["cf-connecting-ip"]) ||
+      pick(h["true-client-ip"]) ||
+      pick(h["x-real-ip"]) ||
+      pick(h["x-forwarded-for"]).split(",")[0].trim() ||
+      req.ip ||
+      peer;
+    return normalizeIp(forwarded) || "0.0.0.0";
+  }
+
+  // Untrusted peer — reject spoofed headers, use socket address only.
+  // Log the first time we see a spoof attempt for observability.
+  if (h["x-forwarded-for"] || h["x-real-ip"] || h["cf-connecting-ip"] || h["true-client-ip"]) {
+    console.warn(`[Security] Ignoring forwarded-IP headers from untrusted peer ${peer}`);
+  }
+  return peer || "0.0.0.0";
 }
 
 function maxRps(sensitivity: number): number {
