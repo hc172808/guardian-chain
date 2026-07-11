@@ -306,6 +306,32 @@ nginx -t 2>/dev/null && { nginx -s reload 2>/dev/null || systemctl reload nginx 
 
 pm2 save --force 2>/dev/null || true
 
+# ── IP blocking disabled ───────────────────────────────────────────────────────
+# Disables the permanent IP block-list and its auto-block escalation, and
+# clears every currently blocked/banned IP. This fixes
+# {"error":"Access denied.","code":"IP_BLOCKED"} (server/security.ts
+# blockedIps set) and any lingering rows in ip_bans (code IP_BANNED). Basic
+# rate-limit throttling (429s) still applies — only permanent IP blocking is
+# turned off. To re-enable later, set "auto_block":true in the
+# ai_firewall_settings admin_config row.
+step "Post-update  Disable IP blocking"
+if [[ -n "${DATABASE_URL:-}" ]]; then
+    psql "$DATABASE_URL" -v ON_ERROR_STOP=0 >> "$LOG_FILE" 2>&1 <<'IPSQL'
+INSERT INTO admin_config (config_key, config_value)
+VALUES ('ai_firewall_settings', '{"enabled":true,"auto_block":false,"scan_payloads":true,"sensitivity":6,"threat_response":"observe"}'::jsonb)
+ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value;
+
+INSERT INTO admin_config (config_key, config_value)
+VALUES ('blocked_ips', '[]'::jsonb)
+ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value;
+
+DELETE FROM ip_bans;
+IPSQL
+    ok "IP block-list cleared and auto-block disabled (rate-limit throttling still active)"
+else
+    warn "DATABASE_URL not set — could not disable IP blocking automatically"
+fi
+
 # ── Cloudflare false-positive ban cleanup ─────────────────────────────────────
 # If this deployment is behind Cloudflare and was previously running without
 # Cloudflare-aware IP trust, every visitor could have collapsed onto
