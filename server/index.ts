@@ -8,7 +8,7 @@ import { seedFounder, seedFirewallDefaults } from "./seed";
 import { storage } from "./storage";
 import { initVapid, ensurePushSubscriptionsTable } from "./webpush";
 import { Pool } from "pg";
-import { aiFirewallMiddleware, refreshSecuritySettings, ipBanGate, initIpBanTables, initLockoutTable, getClientIp } from "./security";
+import { aiFirewallMiddleware, refreshSecuritySettings, ipBanGate, initIpBanTables, initLockoutTable, getClientIp, clearCloudflareEdgeFalsePositives } from "./security";
 import { initActivityFeed, handleUpgrade } from "./activityFeed";
 import { ensurePreferredCurrencyColumn } from "./exchangeRates";
 import { testNodeManager, loadPersistedTestNodeState } from "./testNodes";
@@ -228,6 +228,10 @@ app.use((req: any, res: any, next: any) => {
 registerRoutes(app);
 await bootstrapDatabase(dbPool).catch(e => console.warn("[bootstrap] error:", e.message));
 await seedFounder();
+
+// Purge any bans that were mistakenly placed on a Cloudflare edge IP itself
+// (see security.ts for why this happens) — safe to run on every boot.
+clearCloudflareEdgeFalsePositives().catch(e => console.warn("[Security] Cloudflare ban cleanup failed:", e.message));
 await seedFirewallDefaults().catch(e => console.warn("seedFirewallDefaults:", e.message));
 await storage.seedAchievements().catch(e => console.warn("seedAchievements:", e.message));
 await storage.initReferralTables().catch(e => console.warn("initReferralTables:", e.message));
@@ -296,7 +300,12 @@ async function autoRestartPersistedNodes() {
   console.log(`[test-nodes] Auto-restarting ${toRestart.length} node(s) from persisted state…`);
   for (const { network, type } of toRestart) {
     try {
-      const result = testNodeManager.start(network as any, type as any);
+      // start() is async (returns a Promise<{ok, message}>) — this was
+      // previously called without `await`, so `result` was always the Promise
+      // object itself: `result.ok` was always undefined (falsy), so every
+      // auto-restart on boot logged a misleading "⚠ ... undefined" regardless
+      // of whether the node actually started successfully in the background.
+      const result = await testNodeManager.start(network as any, type as any);
       if (result.ok) {
         console.log(`[test-nodes] ✓ Restarted ${type} (${network})`);
       } else {
@@ -342,6 +351,24 @@ startPriceAlertListener().catch(e => console.warn("price alert listener:", e.mes
 if (process.env.HCAPTCHA_SECRET_KEY) {
   console.log('[faucet] hCaptcha verification enabled');
 }
+
+// ── JSON safety net for unmatched /api/* routes ───────────────────────────────
+// Must be registered AFTER registerRoutes(app) but BEFORE the SPA static
+// catch-all below. Without this, a request to an API route that doesn't exist
+// on the running server (e.g. the frontend was updated but the server wasn't
+// restarted with the matching code yet) falls through to the SPA catch-all,
+// which returns index.html with a 200 status. The frontend then tries to
+// `res.json()` that HTML and crashes with "Unexpected token '<', <!DOCTYPE...
+// is not valid JSON" — a confusing symptom that really just means "this server
+// is running older code than the frontend expects; redeploy/restart the app."
+app.use("/api", (req, res) => {
+  res.status(404).json({
+    error: "API route not found on this server.",
+    code: "API_ROUTE_NOT_FOUND",
+    path: req.path,
+    hint: "If you just deployed new code, make sure the server was restarted (pm2 reload) after the update — the running process may still be serving the previous version.",
+  });
+});
 
 // Serve static frontend in production only
 if (process.env.NODE_ENV === "production") {

@@ -1984,7 +1984,14 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Mining RPC proxy — proxies to best running test node ──────────────────
-  app.post("/api/mining/rpc", requireAuth, async (req, res) => {
+  // Intentionally NOT behind requireAuth: this is the JSON-RPC endpoint the
+  // standalone Node.js miner (public/miner/miner.js) talks to from a remote
+  // Ubuntu server with no browser session/cookie — same as /rpc and /api/rpc,
+  // which are also public JSON-RPC endpoints. It's protected the same way any
+  // RPC endpoint is: the global firewall/rate-limiter (rpcLimiter) below, not
+  // a login. Requiring auth here made every standalone miner get silently
+  // rejected with 401 (or redirected to the login page) on mining_connect.
+  app.post("/api/mining/rpc", rpcLimiter, async (req, res) => {
     const running = testNodeManager.getRunningNodes();
     if (!running.length) {
       return res.json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32000, message: "No test nodes are running. Start a node in the Admin panel first." } });

@@ -206,6 +206,69 @@ const TRUSTED_PROXIES = new Set<string>(["127.0.0.1", "::1", "::ffff:127.0.0.1"]
   });
 })();
 
+// ── Cloudflare edge IP ranges ──────────────────────────────────────────────────
+// Published at https://www.cloudflare.com/ips/ — rarely changes. When a request's
+// immediate TCP peer falls in one of these ranges, we know it really did come
+// through Cloudflare's edge, so it's safe to trust the CF-Connecting-IP header
+// for the *real* visitor IP. Without this, every visitor behind Cloudflare looks
+// like they share Cloudflare's edge IP — which means one auto-ban (e.g. from one
+// abusive visitor) blocks EVERY visitor, including the site owner.
+// Disable with CLOUDFLARE_TRUST=false if you are not using Cloudflare.
+const CLOUDFLARE_CIDRS = [
+  "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+  "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+  "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+  "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+  "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32",
+  "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+];
+const CLOUDFLARE_TRUST_ENABLED = process.env.CLOUDFLARE_TRUST !== "false";
+
+function ip4ToLong(ip: string): number | null {
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) return null;
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function ip6ToBig(ip: string): bigint | null {
+  // Expand "::" shorthand into 8 groups of 16 bits.
+  const parts = ip.split("::");
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(":").filter(Boolean) : [];
+  const tail = parts.length === 2 && parts[1] ? parts[1].split(":").filter(Boolean) : [];
+  const missing = 8 - head.length - tail.length;
+  if (parts.length === 1 && missing !== 0) return null; // no "::" but not full 8 groups
+  const groups = parts.length === 2 ? [...head, ...Array(Math.max(missing, 0)).fill("0"), ...tail] : head;
+  if (groups.length !== 8) return null;
+  try {
+    return groups.reduce((acc, g) => (acc << 16n) | BigInt(parseInt(g || "0", 16)), 0n);
+  } catch { return null; }
+}
+
+function ipInCidr(ip: string, cidr: string): boolean {
+  const [range, bitsStr] = cidr.split("/");
+  const bits = parseInt(bitsStr, 10);
+  if (range.includes(":")) {
+    if (!ip.includes(":")) return false;
+    const ipBig = ip6ToBig(ip);
+    const rangeBig = ip6ToBig(range);
+    if (ipBig === null || rangeBig === null) return false;
+    const mask = bits === 0 ? 0n : (~0n << BigInt(128 - bits)) & ((1n << 128n) - 1n);
+    return (ipBig & mask) === (rangeBig & mask);
+  }
+  if (ip.includes(":")) return false;
+  const ipLong = ip4ToLong(ip);
+  const rangeLong = ip4ToLong(range);
+  if (ipLong === null || rangeLong === null) return false;
+  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+  return (ipLong & mask) === (rangeLong & mask);
+}
+
+export function isCloudflareEdgeIp(ip: string): boolean {
+  if (!CLOUDFLARE_TRUST_ENABLED) return false;
+  return CLOUDFLARE_CIDRS.some(cidr => ipInCidr(ip, cidr));
+}
+
 function normalizeIp(ip: string): string {
   ip = String(ip ?? "").trim();
   if (ip.startsWith("::ffff:")) ip = ip.slice(7);
@@ -214,7 +277,8 @@ function normalizeIp(ip: string): string {
 }
 
 export function isTrustedProxy(ip: string): boolean {
-  return TRUSTED_PROXIES.has(normalizeIp(ip));
+  const n = normalizeIp(ip);
+  return TRUSTED_PROXIES.has(n) || isCloudflareEdgeIp(n);
 }
 
 // Resolve the real *public* client IP behind Cloudflare / Nginx / any reverse proxy.
@@ -224,7 +288,7 @@ export function getClientIp(req: any): string {
   const h = req.headers ?? {};
   const pick = (v: any): string => Array.isArray(v) ? v[0] : (typeof v === "string" ? v : "");
   const peer = normalizeIp(req.socket?.remoteAddress ?? req.connection?.remoteAddress ?? "");
-  const trusted = !peer || TRUSTED_PROXIES.has(peer);
+  const trusted = !peer || TRUSTED_PROXIES.has(peer) || isCloudflareEdgeIp(peer);
 
   if (trusted) {
     const forwarded =
@@ -649,6 +713,42 @@ export async function removeIpBan(ip: string) {
   if (!pool) throw new Error("db unavailable");
   await pool.query(`DELETE FROM ip_bans WHERE ip=$1`, [ip]);
   banCache.delete(ip);
+}
+
+/**
+ * Purge any bans/temp-bans that were mistakenly placed on a Cloudflare edge IP
+ * itself (rather than a real visitor IP). This happens when the app was running
+ * without Cloudflare-aware trust: every visitor looked like they shared
+ * Cloudflare's edge IP, so one abusive visitor's auto-ban blocked everyone,
+ * including the site owner. Safe to run any time — real attacker IPs are never
+ * inside Cloudflare's published ranges.
+ */
+export async function clearCloudflareEdgeFalsePositives(): Promise<{ removedBans: number; removedTemp: number; removedBlocked: number }> {
+  let removedTemp = 0, removedBlocked = 0, removedBans = 0;
+
+  for (const ip of [...tempBanned.keys()]) {
+    if (isCloudflareEdgeIp(ip)) { tempBanned.delete(ip); removedTemp++; }
+  }
+  for (const ip of [...blockedIps]) {
+    if (isCloudflareEdgeIp(ip)) { blockedIps.delete(ip); removedBlocked++; }
+  }
+  if (removedBlocked > 0) persistBlockedIps();
+
+  const pool = pgConnPool;
+  if (pool) {
+    const r = await pool.query(`SELECT ip FROM ip_bans WHERE expires_at IS NULL OR expires_at > NOW()`).catch(() => ({ rows: [] as any[] }));
+    const badIps = r.rows.map((row: any) => row.ip).filter((ip: string) => isCloudflareEdgeIp(ip));
+    if (badIps.length > 0) {
+      await pool.query(`DELETE FROM ip_bans WHERE ip = ANY($1)`, [badIps]).catch(() => {});
+      badIps.forEach((ip: string) => banCache.delete(ip));
+      removedBans = badIps.length;
+    }
+  }
+
+  if (removedTemp + removedBlocked + removedBans > 0) {
+    console.warn(`[Security] Cleared Cloudflare-edge false-positive bans: ${removedBans} persistent, ${removedTemp} temp, ${removedBlocked} permanent-blocked`);
+  }
+  return { removedBans, removedTemp, removedBlocked };
 }
 
 export async function listIpBans() {

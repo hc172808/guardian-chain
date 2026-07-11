@@ -306,6 +306,33 @@ nginx -t 2>/dev/null && { nginx -s reload 2>/dev/null || systemctl reload nginx 
 
 pm2 save --force 2>/dev/null || true
 
+# ── Cloudflare false-positive ban cleanup ─────────────────────────────────────
+# If this deployment is behind Cloudflare and was previously running without
+# Cloudflare-aware IP trust, every visitor could have collapsed onto
+# Cloudflare's shared edge IP, causing one abusive request to auto-ban EVERY
+# visitor (including the site owner/admin). The app now clears these
+# false-positive bans automatically on every boot (see server/security.ts),
+# but we also do it here right after the reload so it's visible in this run.
+step "Post-update  Cloudflare ban cleanup"
+sleep 2
+if [[ -n "${DATABASE_URL:-}" ]]; then
+    REMOVED=$(psql "$DATABASE_URL" -t -c \
+        "SELECT count(*) FROM ip_bans WHERE ip ~ '^(173\.245\.4[89]|173\.245\.5[0-9]|103\.21\.24[4-7]|103\.22\.20[0-3]|103\.31\.[4-7]|141\.101\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])|108\.162\.19[2-9]|108\.162\.2[0-4][0-9]|108\.162\.25[0-5]|190\.93\.24[0-9]|190\.93\.25[0-5]|188\.114\.9[6-9]|188\.114\.1[01][0-9]|197\.234\.24[0-3]|198\.41\.(12[89]|1[3-9][0-9]|2[0-4][0-9]|25[0-5])|162\.158\.|104\.1[6-9]\.|104\.2[0-3]\.|104\.24\.|104\.25\.|104\.26\.|104\.27\.|172\.6[4-9]\.|172\.7[01]\.|131\.0\.7[23]\.)';" \
+        2>/dev/null | tr -d ' ' || echo 0)
+    if [[ "$REMOVED" -gt 0 ]]; then
+        warn "Found $REMOVED ban(s) on Cloudflare edge IPs — these were false positives caused by the app not recognizing Cloudflare's proxy. Restart already applies the fix; check pm2 logs for '[Security] Cleared Cloudflare-edge false-positive bans'."
+    else
+        ok "No Cloudflare-edge false-positive bans found"
+    fi
+fi
+echo ""
+echo -e "  ${DIM}Behind Cloudflare?${NC} Make sure Cloudflare's proxy (orange cloud) is ON for your"
+echo -e "  ${DIM}domain, and SSL/TLS mode is 'Full' or 'Full (strict)' — NOT 'Flexible', which${NC}"
+echo -e "  ${DIM}causes redirect loops. The app now auto-detects Cloudflare's published IP${NC}"
+echo -e "  ${DIM}ranges and trusts its CF-Connecting-IP header for real visitor IPs.${NC}"
+echo -e "  ${DIM}To disable this (not behind Cloudflare, or using a different CDN),${NC}"
+echo -e "  ${DIM}set CLOUDFLARE_TRUST=false in .env.${NC}"
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo "Update complete: $TS" >> "$LOG_FILE"
 echo ""

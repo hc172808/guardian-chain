@@ -190,7 +190,6 @@ const MathChallengeWidget = ({
   const [challengeId, setChallengeId] = useState('');
   const [question,    setQuestion]    = useState('');
   const [answer,      setAnswer]      = useState('');
-  const [verified,    setVerified]    = useState(false);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -206,10 +205,17 @@ const MathChallengeWidget = ({
     setLoading(true);
     setError('');
     setAnswer('');
-    setVerified(false);
     onExpireRef.current?.();
     try {
-      const res  = await fetch('/api/auth/captcha');
+      const res = await fetch('/api/auth/captcha');
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.includes('application/json')) {
+        // The server sent back HTML (usually the SPA index page) instead of JSON —
+        // this means the running server doesn't have this route yet, most likely
+        // because it's running older code than the frontend. A clear message
+        // instead of a raw JSON-parse error ("Unexpected token '<' ... <!DOCTYPE").
+        throw new Error('Security check unavailable — the server may need to be updated/restarted. Please try again shortly.');
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to load security check');
       setChallengeId(data.challengeId);
@@ -240,11 +246,14 @@ const MathChallengeWidget = ({
     // Only allow digits and minus sign
     const cleaned = val.replace(/[^0-9\-]/g, '');
     setAnswer(cleaned);
-    setVerified(false);
 
-    // Auto-verify when answer is plausibly complete (2+ digits or any digit after op ×)
+    // NOTE: this widget cannot check correctness client-side (the answer is only
+    // known to the server) — it just forwards whatever was typed. The real
+    // pass/fail decision happens server-side in verifyCaptcha() when the form is
+    // submitted. We intentionally do NOT show a "Verified"/green-check state here
+    // for an arbitrary typed number — that would misleadingly imply the answer is
+    // already confirmed correct before the server has seen it.
     if (cleaned !== '' && !isNaN(parseInt(cleaned, 10))) {
-      setVerified(true);
       onVerify({ challengeId, captchaAnswer: cleaned });
     } else {
       onExpire?.();
@@ -252,10 +261,7 @@ const MathChallengeWidget = ({
   };
 
   return (
-    <div className={cn(
-      'rounded-xl border border-border bg-card/50 px-4 py-3 space-y-3',
-      verified && 'border-green-500/40 bg-green-500/5',
-    )}>
+    <div className="rounded-xl border border-border bg-card/50 px-4 py-3 space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -296,23 +302,10 @@ const MathChallengeWidget = ({
               value={answer}
               onChange={e => handleChange(e.target.value)}
               placeholder="Answer"
-              className={cn(
-                'w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none transition-colors text-center font-mono font-semibold',
-                verified
-                  ? 'border-green-500/60 focus:border-green-500 text-green-500'
-                  : 'border-border focus:border-primary',
-              )}
+              className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-primary transition-colors text-center font-mono font-semibold"
               aria-label="Type your answer"
             />
           </div>
-        </div>
-      )}
-
-      {/* Status */}
-      {verified && !loading && (
-        <div className="flex items-center gap-1.5 text-green-500 text-xs">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          Verified
         </div>
       )}
     </div>

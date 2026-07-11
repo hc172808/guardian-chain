@@ -624,16 +624,39 @@ export function TestNodeManager() {
     return () => clearInterval(id);
   }, [fetchStatus, fetchBootup]);
 
+  // Parses a fetch Response into a normalized { ok, message } shape, surfacing
+  // the *real* reason for a failure (HTTP status, server error text, or "not
+  // JSON" for e.g. a stale server serving the SPA HTML for a missing route)
+  // instead of a generic, undiagnosable toast.
+  const describeFailure = async (res: Response): Promise<{ ok: boolean; message: string; data?: any }> => {
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      return { ok: false, message: `Server returned an unexpected response (HTTP ${res.status}, not JSON) — it may need to be restarted with the latest code.` };
+    }
+    let data: any = null;
+    try { data = await res.json(); } catch {
+      return { ok: false, message: `Server returned invalid JSON (HTTP ${res.status}).` };
+    }
+    if (!res.ok) {
+      const reason = data?.error || data?.message || `HTTP ${res.status}`;
+      if (res.status === 403 && /ban|block/i.test(String(reason))) {
+        return { ok: false, message: `Blocked by firewall: ${reason}. If this is your own IP, clear it in Admin → Security.`, data };
+      }
+      return { ok: false, message: reason, data };
+    }
+    return { ok: !!data.ok, message: data.message ?? (data.ok ? 'Done' : 'Action failed'), data };
+  };
+
   const onAction = async (network: Network, type: NodeType, act: 'start' | 'stop') => {
     const key = `${network}:${type}`;
     setLoading(l => ({ ...l, [key]: true }));
     try {
       const res = await fetch(`/api/admin/test-nodes/${network}/${type}/${act}`, { method: 'POST', credentials: 'include' });
-      const data = await res.json();
-      toast({ title: data.message, variant: data.ok ? 'default' : 'destructive' });
-      if (data.ok) await fetchStatus();
-    } catch {
-      toast({ title: 'Request failed', variant: 'destructive' });
+      const { ok, message } = await describeFailure(res);
+      toast({ title: message, variant: ok ? 'default' : 'destructive' });
+      if (ok) await fetchStatus();
+    } catch (e: any) {
+      toast({ title: `Request failed: ${e?.message || 'network error'}`, variant: 'destructive' });
     } finally {
       setLoading(l => ({ ...l, [key]: false }));
     }
@@ -643,15 +666,15 @@ export function TestNodeManager() {
     setBulkLoading(true);
     try {
       const res = await fetch(`/api/admin/test-nodes/${selectedNetwork}/${act}`, { method: 'POST', credentials: 'include' });
-      const data = await res.json();
-      if (data.ok) {
+      const { ok, message } = await describeFailure(res);
+      if (ok) {
         toast({ title: act === 'start-all' ? `Starting all ${selectedNetwork} nodes…` : `Stopping all ${selectedNetwork} nodes…` });
         await fetchStatus();
       } else {
-        toast({ title: 'Bulk action failed', variant: 'destructive' });
+        toast({ title: `Bulk action failed: ${message}`, variant: 'destructive' });
       }
-    } catch {
-      toast({ title: 'Request failed', variant: 'destructive' });
+    } catch (e: any) {
+      toast({ title: `Request failed: ${e?.message || 'network error'}`, variant: 'destructive' });
     } finally {
       setBulkLoading(false);
     }

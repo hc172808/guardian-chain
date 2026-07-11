@@ -47,3 +47,6 @@
 - [security.ts pgPool bug](security-ts-pgpool-bug.md) — `(storage as any).pgPool` is always undefined (storage.ts never exposes it); silently broke ip_bans/login_failures/lockouts. Import `{ pool } from "./db"` directly instead.
 - [Progressive login lockout](progressive-login-lockout.md) — escalating account lockout (not IP-based) with admin-configurable durations + redirect URL; admin/founder always exempt (wallet fallback).
 - [Founder wallet env mismatch](founder-wallet-env.md) — FOUNDER_WALLET_ADDRESS vs FOUNDER_WALLET naming trap broke founder role/privileged wallet detection.
+- [Cloudflare trust + IP-ban false positives](cloudflare-trust.md) — without recognizing Cloudflare's edge IP ranges, every visitor behind Cloudflare collapses onto one shared IP, so one abusive request auto-bans everyone including the admin.
+- [Public RPC endpoints must skip requireAuth](public-rpc-no-auth.md) — JSON-RPC/mining endpoints are consumed by anonymous external clients (miners, wallets) with no session cookie; requireAuth on them silently breaks every non-browser client.
+- [Missing await on async start()](missing-await-start.md) — testNodeManager.start() is async; calling it without await makes `result.ok`/`result.message` always undefined, masking real start failures as "undefined" in logs.
