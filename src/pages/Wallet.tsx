@@ -485,8 +485,8 @@ const WalletContent = () => {
   const totalPortfolioValue = balances.reduce((sum, b) => sum + b.value, 0);
 
   const handleCreateWallet = async () => {
-    if (pin.length < 4) {
-      toast({ title: 'PIN must be at least 4 digits', variant: 'destructive' });
+    if (pin.length < 4 || pin.length > 20) {
+      toast({ title: 'PIN must be 4-20 digits', variant: 'destructive' });
       return;
     }
     if (pin !== confirmPin) {
@@ -508,7 +508,7 @@ const WalletContent = () => {
   };
 
   const handleImportWallet = async () => {
-    if (pin.length < 4) { toast({ title: 'PIN must be at least 4 digits', variant: 'destructive' }); return; }
+    if (pin.length < 4 || pin.length > 20) { toast({ title: 'PIN must be 4-20 digits', variant: 'destructive' }); return; }
     if (pin !== confirmPin) { toast({ title: 'PINs do not match', variant: 'destructive' }); return; }
     if (!importSeed.trim()) { toast({ title: 'Please enter seed phrase', variant: 'destructive' }); return; }
     // Derive a deterministic address from the seed phrase so the same seed always
@@ -559,8 +559,8 @@ const WalletContent = () => {
   // ─── PIN Rotation Handler ─────────────────────────────
   const handleRotatePin = async () => {
     if (!rotateWalletId) return;
-    if (newPin.length < 4) {
-      toast({ title: 'New PIN must be at least 4 digits', variant: 'destructive' });
+    if (newPin.length < 4 || newPin.length > 20) {
+      toast({ title: 'New PIN must be 4-20 digits', variant: 'destructive' });
       return;
     }
     if (newPin !== confirmNewPin) {
@@ -603,8 +603,8 @@ const WalletContent = () => {
 
   // ─── PIN Lock Handlers ────────────────────────────────
   const handleEnablePinLock = async () => {
-    if (pinLockInput.length < 4) {
-      toast({ title: 'PIN must be at least 4 digits', variant: 'destructive' });
+    if (pinLockInput.length < 4 || pinLockInput.length > 20) {
+      toast({ title: 'PIN must be 4-20 digits', variant: 'destructive' });
       return;
     }
     if (pinLockInput !== pinLockConfirm) {
@@ -739,7 +739,7 @@ const WalletContent = () => {
               value={unlockPin}
               onChange={(e) => { setUnlockPin(e.target.value); setUnlockError(''); }}
               placeholder="Enter PIN"
-              maxLength={6}
+              maxLength={20}
               className="text-center text-lg tracking-widest"
               onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
             />
@@ -1023,10 +1023,10 @@ const WalletContent = () => {
               <div className="space-y-4">
                 <div><Label>Seed Phrase</Label>
                   <Input value={importSeed} onChange={(e) => setImportSeed(e.target.value)} placeholder="Enter your 12-word seed phrase" /></div>
-                <div><Label>Create PIN (min 4 digits)</Label>
-                  <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter PIN" maxLength={6} /></div>
+                <div><Label>Create PIN (4-20 digits)</Label>
+                  <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter PIN" maxLength={20} /></div>
                 <div><Label>Confirm PIN</Label>
-                  <Input type="password" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} placeholder="Confirm PIN" maxLength={6} /></div>
+                  <Input type="password" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} placeholder="Confirm PIN" maxLength={20} /></div>
                 <Button onClick={handleImportWallet} className="w-full">Import Wallet</Button>
               </div>
             </DialogContent>
@@ -1056,10 +1056,10 @@ const WalletContent = () => {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div><Label>Create PIN (min 4 digits)</Label>
-                    <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter PIN to encrypt wallet" maxLength={6} /></div>
+                  <div><Label>Create PIN (4-20 digits)</Label>
+                    <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter PIN to encrypt wallet" maxLength={20} /></div>
                   <div><Label>Confirm PIN</Label>
-                    <Input type="password" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} placeholder="Confirm PIN" maxLength={6} /></div>
+                    <Input type="password" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} placeholder="Confirm PIN" maxLength={20} /></div>
                   <Button onClick={handleCreateWallet} className="w-full">Create Wallet</Button>
                 </div>
               )}
@@ -1278,7 +1278,7 @@ const WalletContent = () => {
                         ) : (
                           <div className="space-y-4">
                             <div><Label>Enter PIN</Label>
-                              <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter your PIN" maxLength={6} /></div>
+                              <Input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter your PIN" maxLength={20} /></div>
                             <Button onClick={handleViewSeed} className="w-full">Reveal Seed</Button>
                           </div>
                         )}
@@ -1302,11 +1302,11 @@ const WalletContent = () => {
                         </DialogHeader>
                         <div className="space-y-4">
                           <div><Label>Current PIN</Label>
-                            <Input type="password" value={oldPin} onChange={(e) => setOldPin(e.target.value)} placeholder="Enter current PIN" maxLength={6} /></div>
-                          <div><Label>New PIN (min 4 digits)</Label>
-                            <Input type="password" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder="Enter new PIN" maxLength={6} /></div>
+                            <Input type="password" value={oldPin} onChange={(e) => setOldPin(e.target.value)} placeholder="Enter current PIN" maxLength={20} /></div>
+                          <div><Label>New PIN (4-20 digits)</Label>
+                            <Input type="password" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder="Enter new PIN" maxLength={20} /></div>
                           <div><Label>Confirm New PIN</Label>
-                            <Input type="password" value={confirmNewPin} onChange={(e) => setConfirmNewPin(e.target.value)} placeholder="Confirm new PIN" maxLength={6} /></div>
+                            <Input type="password" value={confirmNewPin} onChange={(e) => setConfirmNewPin(e.target.value)} placeholder="Confirm new PIN" maxLength={20} /></div>
                           <Button onClick={handleRotatePin} className="w-full gap-2" disabled={rotateLoading}>
                             {rotateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                             {rotateLoading ? 'Rotating...' : 'Change PIN'}
@@ -1357,10 +1357,10 @@ const WalletContent = () => {
                   </DialogHeader>
                   <div className="space-y-4">
                     <p className="text-sm text-muted-foreground">This PIN will be required every time you visit the wallet page. After 5 failed attempts, you'll be locked out for 5 minutes.</p>
-                    <div><Label>PIN (min 4 digits)</Label>
-                      <Input type="password" value={pinLockInput} onChange={(e) => setPinLockInput(e.target.value)} placeholder="Enter PIN" maxLength={6} /></div>
+                    <div><Label>PIN (4-20 digits)</Label>
+                      <Input type="password" value={pinLockInput} onChange={(e) => setPinLockInput(e.target.value)} placeholder="Enter PIN" maxLength={20} /></div>
                     <div><Label>Confirm PIN</Label>
-                      <Input type="password" value={pinLockConfirm} onChange={(e) => setPinLockConfirm(e.target.value)} placeholder="Confirm PIN" maxLength={6} /></div>
+                      <Input type="password" value={pinLockConfirm} onChange={(e) => setPinLockConfirm(e.target.value)} placeholder="Confirm PIN" maxLength={20} /></div>
                     <Button onClick={handleEnablePinLock} className="w-full gap-2">
                       <ShieldCheck className="h-4 w-4" /> Enable PIN Lock
                     </Button>
