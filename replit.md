@@ -48,3 +48,9 @@ Three roles in `user_roles` table: `user`, `admin`, `founder`
 - Preserve existing code structure and patterns
 - Use Drizzle ORM for all database operations
 - Keep the Supabase shim in place (routes to Express API, no real Supabase needed)
+- IP blocking/banning is disabled by default (see "Security / IP handling" below) — do not silently re-enable it.
+
+## Security / IP handling
+- IP-block **enforcement** is OFF by default (`server/security.ts` `ipBlockEnabled = false`, persisted in `admin_config.ip_block_enforcement`). Detection/logging (firewall stats, honeypot/UA/payload flags, login-failure counters) still runs for monitoring, but no request is ever rejected with a 403/429 IP ban while this is off.
+- Every successful login (password or wallet, any role) auto-adds the user's current IP to the `ip_whitelist` table (`server/security.ts` `addIpToWhitelist`, called from `server/auth.ts`). Whitelisted IPs bypass firewall/ban checks entirely but stay monitored (`last_seen_at`/`login_count` keep updating).
+- To re-enable IP-block enforcement later, call `setIpBlockEnforcement(true)` (exported from `server/security.ts`) or set `admin_config.ip_block_enforcement.enabled = true`.

@@ -312,8 +312,13 @@ export async function setupAuth(app: Express): Promise<void> {
         // Trust this IP for the session and remove any prior auto-ban so the user
         // isn't blocked mid-session (e.g. after prior failed attempts from same IP).
         try {
-          const { removeIpBan } = await import("./security");
+          const { removeIpBan, addIpToWhitelist } = await import("./security");
           await removeIpBan(ip).catch(() => {});
+          // Auto-whitelist this IP on every successful login (admin/founder/regular
+          // users alike) — future requests from it bypass block/ban enforcement,
+          // but activity is still monitored (last_seen_at keeps updating).
+          const roles = Array.isArray(user.roles) ? user.roles.join(",") : (user.role ?? null);
+          await addIpToWhitelist(ip, { userId: user.id, username: user.username ?? user.email, role: roles }).catch(() => {});
         } catch {}
         clearLockout(submittedUsername).catch(() => {});
         // Audit log
@@ -377,6 +382,8 @@ export async function setupAuth(app: Express): Promise<void> {
           console.log(`[auth] Privileged wallet ${addr} signed in — cleared bans/failures for ${ip}`);
         }
       } catch {}
+      const privilegedRole = addr === (process.env.FOUNDER_WALLET_ADDRESS ?? process.env.FOUNDER_WALLET ?? "0x6422d12bfaddee5142bfad21b3006a74d09017b1").toLowerCase()
+        ? "founder" : undefined;
 
       // Immediately ensure admin+founder roles for the founder wallet on every login.
       // This fixes the "shows as regular user" bug on fresh deploys where the
@@ -414,6 +421,10 @@ export async function setupAuth(app: Express): Promise<void> {
       } catch {}
       _clearFails(clientIp).catch(() => {});
       _removeBan(clientIp).catch(() => {});
+      try {
+        const { addIpToWhitelist } = await import("./security");
+        await addIpToWhitelist(clientIp, { userId: user.id, username: user.username ?? addr, role: privilegedRole }).catch(() => {});
+      } catch {}
       res.json({ ok: true });
       try {
         const { broadcastActivity } = await import('./activityFeed');

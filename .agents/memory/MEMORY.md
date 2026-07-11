@@ -52,3 +52,4 @@
 - [Missing await on async start()](missing-await-start.md) — testNodeManager.start() is async; calling it without await makes `result.ok`/`result.message` always undefined, masking real start failures as "undefined" in logs.
 - [Privileged-user exemptions must cover rate limiters too](privileged-exemption-scope.md) — admin/founder ban/lockout/captcha bypass inside a route handler is useless if a rate-limit middleware in front of that route still blocks them first.
 - [Duplicate dev server processes](duplicate-dev-processes.md) — repeated workflow restarts without a clean prior exit can leave stale tsx/vite processes holding old ports, causing the new instance to fall back to another port and produce confusing "stalled"/inconsistent behavior.
+- [IP-block disabled + auto-whitelist](ip-block-disabled-whitelist.md) — ipBlockEnabled defaults false (monitoring-only); every login auto-whitelists the IP via ip_whitelist table but keeps logging activity.

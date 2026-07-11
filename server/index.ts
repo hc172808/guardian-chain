@@ -8,7 +8,7 @@ import { seedFounder, seedFirewallDefaults } from "./seed";
 import { storage } from "./storage";
 import { initVapid, ensurePushSubscriptionsTable } from "./webpush";
 import { Pool } from "pg";
-import { aiFirewallMiddleware, refreshSecuritySettings, ipBanGate, initIpBanTables, initLockoutTable, getClientIp, clearCloudflareEdgeFalsePositives } from "./security";
+import { aiFirewallMiddleware, refreshSecuritySettings, ipBanGate, initIpBanTables, initLockoutTable, initIpWhitelistTable, getClientIp, clearCloudflareEdgeFalsePositives, isIpBlockEnforcementEnabled, clearAllBlockedIps } from "./security";
 import { initActivityFeed, handleUpgrade } from "./activityFeed";
 import { ensurePreferredCurrencyColumn } from "./exchangeRates";
 import { testNodeManager, loadPersistedTestNodeState } from "./testNodes";
@@ -191,7 +191,20 @@ setInterval(() => refreshSecuritySettings().catch(() => {}), 5 * 60_000);
 // ── Public-IP ban gate — DB-backed, blocks banned IPs on every request ────────
 await initIpBanTables().catch(e => console.warn("initIpBanTables:", e.message));
 await initLockoutTable().catch(e => console.warn("initLockoutTable:", e.message));
+await initIpWhitelistTable().catch(e => console.warn("initIpWhitelistTable:", e.message));
 app.use((req, res, next) => { ipBanGate(req, res, next).catch(next); });
+
+// IP-block enforcement is disabled by default (see server/security.ts) because
+// legitimate users, including admin/founder, were getting falsely IP-blocked.
+// Detection/monitoring keeps running; only the actual block/ban response is
+// skipped. Clear any pre-existing blocks/bans left over from before so nobody
+// stays locked out after this change.
+if (!isIpBlockEnforcementEnabled()) {
+  clearAllBlockedIps();
+  const { pool } = await import("./db");
+  await pool?.query(`DELETE FROM ip_bans`).catch(() => {});
+  console.log("[Security] IP-block enforcement is DISABLED (monitoring-only mode) — cleared any pre-existing blocks/bans.");
+}
 
 await setupAuth(app);
 

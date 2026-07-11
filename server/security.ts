@@ -45,6 +45,23 @@ let sensitivityLevel = 6;
 let lastRefresh      = 0;
 const REFRESH_MS     = 5 * 60_000;
 
+// ── IP-block enforcement master switch ───────────────────────────────────────
+// When false, every layer below still *detects and logs* suspicious activity
+// (monitoring keeps running — stats counters, console warnings, honeypot/UA/
+// payload flags) but never actually rejects the request or issues a ban.
+// Persisted in admin_config under "ip_block_enforcement"; defaults to
+// DISABLED because legitimate users (including admin/founder) were getting
+// falsely IP-blocked. Re-enable from the admin firewall panel once tuned.
+let ipBlockEnabled = false;
+export function isIpBlockEnforcementEnabled() { return ipBlockEnabled; }
+export async function setIpBlockEnforcement(enabled: boolean) {
+  ipBlockEnabled = !!enabled;
+  await storage.upsertConfig("ip_block_enforcement", { enabled: ipBlockEnabled } as any).catch(() => {});
+}
+function monitorLog(reason: string, ip: string) {
+  console.log(`[Security][monitor-only] would have blocked ${ip} — ${reason} (IP blocking disabled, request allowed)`);
+}
+
 // Per-IP request windows
 const reqWindows   = new Map<string, { count: number; start: number }>();  // 60-second window
 const burstWindows = new Map<string, { count: number; start: number }>();  // 5-second burst window
@@ -269,6 +286,90 @@ export function isCloudflareEdgeIp(ip: string): boolean {
   return CLOUDFLARE_CIDRS.some(cidr => ipInCidr(ip, cidr));
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Auto-whitelist on login — any user (admin, founder, or regular) who
+// successfully authenticates has their current IP added here automatically.
+// Whitelisted IPs bypass block/ban *enforcement* entirely (they can't be
+// firewalled out of their own account), but activity from them is still
+// logged for monitoring (last_seen_at/login_count keep updating, and the
+// normal audit-log / activity-feed entries from auth.ts are unaffected).
+// ═══════════════════════════════════════════════════════════════════════════════
+const whitelistedIps = new Set<string>();
+const whitelistTouchCache = new Map<string, number>(); // ip → last DB touch ms, throttled
+const WHITELIST_TOUCH_THROTTLE_MS = 5 * 60_000;
+
+export async function initIpWhitelistTable() {
+  const pool = pgConnPool;
+  if (!pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ip_whitelist (
+      ip            TEXT PRIMARY KEY,
+      user_id       TEXT,
+      username      TEXT,
+      role          TEXT,
+      added_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      login_count   INT NOT NULL DEFAULT 1
+    );
+  `);
+  const r = await pool.query(`SELECT ip FROM ip_whitelist`).catch(() => ({ rows: [] as any[] }));
+  r.rows.forEach((row: any) => whitelistedIps.add(row.ip));
+  console.log(`[Security] Loaded ${r.rows.length} auto-whitelisted IP(s) from prior logins`);
+}
+
+/** Called on every successful login (password or wallet) to trust this IP going forward. */
+export async function addIpToWhitelist(ip: string, opts: { userId?: string; username?: string; role?: string } = {}) {
+  ip = normalizeIp(ip);
+  if (!ip) return;
+  whitelistedIps.add(ip);
+  whitelistTouchCache.set(ip, Date.now());
+  const pool = pgConnPool;
+  if (!pool) return;
+  await pool.query(
+    `INSERT INTO ip_whitelist (ip, user_id, username, role, added_at, last_seen_at, login_count)
+     VALUES ($1,$2,$3,$4,NOW(),NOW(),1)
+     ON CONFLICT (ip) DO UPDATE SET
+       user_id = EXCLUDED.user_id, username = EXCLUDED.username, role = EXCLUDED.role,
+       last_seen_at = NOW(), login_count = ip_whitelist.login_count + 1`,
+    [ip, opts.userId ?? null, opts.username ?? null, opts.role ?? null]
+  ).catch((e: any) => console.warn("[Security] addIpToWhitelist failed:", e.message));
+  console.log(`[Security] Auto-whitelisted IP ${ip} for ${opts.username ?? opts.userId ?? "user"} (monitoring continues)`);
+}
+
+export function isIpWhitelisted(ip: string): boolean {
+  return whitelistedIps.has(normalizeIp(ip));
+}
+
+/** Throttled "still active" touch — called for whitelisted IPs on ordinary requests
+ *  so monitoring (last_seen_at) stays fresh without hammering the DB every request. */
+function touchWhitelistedIp(ip: string) {
+  const last = whitelistTouchCache.get(ip) ?? 0;
+  if (Date.now() - last < WHITELIST_TOUCH_THROTTLE_MS) return;
+  whitelistTouchCache.set(ip, Date.now());
+  const pool = pgConnPool;
+  if (!pool) return;
+  pool.query(`UPDATE ip_whitelist SET last_seen_at = NOW() WHERE ip = $1`, [ip]).catch(() => {});
+}
+
+export async function listIpWhitelist() {
+  const pool = pgConnPool;
+  if (!pool) return [];
+  const r = await pool.query(
+    `SELECT ip, user_id, username, role, added_at, last_seen_at, login_count
+       FROM ip_whitelist ORDER BY last_seen_at DESC LIMIT 500`
+  ).catch(() => ({ rows: [] as any[] }));
+  return r.rows;
+}
+
+export async function removeFromIpWhitelist(ip: string) {
+  ip = normalizeIp(ip);
+  whitelistedIps.delete(ip);
+  whitelistTouchCache.delete(ip);
+  const pool = pgConnPool;
+  if (!pool) return;
+  await pool.query(`DELETE FROM ip_whitelist WHERE ip = $1`, [ip]).catch(() => {});
+}
+
 function normalizeIp(ip: string): string {
   ip = String(ip ?? "").trim();
   if (ip.startsWith("::ffff:")) ip = ip.slice(7);
@@ -429,6 +530,10 @@ export async function refreshSecuritySettings() {
       blockedIps.clear();
       (ipCfg.configValue as string[]).forEach(ip => blockedIps.add(ip));
     }
+    const blockEnforceCfg = await storage.getConfig("ip_block_enforcement");
+    if (blockEnforceCfg?.configValue && typeof (blockEnforceCfg.configValue as any).enabled === "boolean") {
+      ipBlockEnabled = (blockEnforceCfg.configValue as any).enabled;
+    }
     lastRefresh = Date.now();
   } catch (e: any) {
     console.warn("[Security] refresh failed:", e.message);
@@ -459,8 +564,10 @@ export function aiFirewallMiddleware(req: any, res: any, next: any) {
 
   const ip = getClientIp(req);
 
-  // (4) Always-allow IPs (loopback / internal)
+  // (4) Always-allow IPs (loopback / internal) + auto-whitelisted logged-in users.
+  // Whitelisted IPs skip enforcement but stay monitored via touchWhitelistedIp.
   if (ALWAYS_ALLOW.has(ip)) return next();
+  if (whitelistedIps.has(ip)) { touchWhitelistedIp(ip); return next(); }
 
   // (5) Lockdown — allow only auth routes
   if (lockdownMode && !path.startsWith("/api/auth")) {
@@ -474,6 +581,7 @@ export function aiFirewallMiddleware(req: any, res: any, next: any) {
   // (6) Permanent IP block-list
   if (blockedIps.has(ip)) {
     securityStats.blocked++;
+    if (!ipBlockEnabled) { monitorLog("permanent block-list", ip); return next(); }
     return res.status(403).json({ error: "Access denied.", code: "IP_BLOCKED" });
   }
 
@@ -481,6 +589,7 @@ export function aiFirewallMiddleware(req: any, res: any, next: any) {
   const tb = isTempBanned(ip);
   if (tb.banned) {
     securityStats.blocked++;
+    if (!ipBlockEnabled) { monitorLog("temp ban", ip); return next(); }
     return res.status(429).json({
       error: "Access temporarily denied — too many violations.",
       code: "TEMP_BANNED",
@@ -491,6 +600,7 @@ export function aiFirewallMiddleware(req: any, res: any, next: any) {
   // (8) Honeypot path detection
   if (isHoneypotPath(path)) {
     securityStats.honeypotBlocked++;
+    if (!ipBlockEnabled) { monitorLog(`honeypot path: ${path}`, ip); return next(); }
     if (autoBlock) {
       const ttl = addTempBan(ip, `honeypot path: ${path}`);
       return res.status(403).json({
@@ -507,6 +617,7 @@ export function aiFirewallMiddleware(req: any, res: any, next: any) {
   if (ua && BAD_UA_PATTERNS.some(re => re.test(ua))) {
     securityStats.uaBlocked++;
     console.warn(`[Security] Blocked scanner UA from ${ip}: ${ua.substring(0, 80)}`);
+    if (!ipBlockEnabled) { monitorLog("bad user-agent", ip); return next(); }
     if (autoBlock && sensitivityLevel >= 5) {
       addTempBan(ip, `bad user-agent: ${ua.substring(0, 60)}`);
     }
@@ -524,6 +635,7 @@ export function aiFirewallMiddleware(req: any, res: any, next: any) {
       if (burst.count > BURST_THRESHOLD) {
         securityStats.burstBlocked++;
         console.warn(`[Security] DDoS burst from ${ip}: ${burst.count} req in 5s`);
+        if (!ipBlockEnabled) { monitorLog(`DDoS burst (${burst.count} req/5s)`, ip); return next(); }
         if (autoBlock && sensitivityLevel >= 4) {
           const ttl = addTempBan(ip, `DDoS burst (${burst.count} req/5s)`);
           return res.status(429).json({
@@ -552,6 +664,7 @@ export function aiFirewallMiddleware(req: any, res: any, next: any) {
       win.count++;
       if (win.count > limit) {
         securityStats.rateBlocked++;
+        if (!ipBlockEnabled) { monitorLog(`rate limit (${win.count} req/min > ${limit})`, ip); return next(); }
         if (autoBlock && sensitivityLevel >= 7) {
           const ttl = addTempBan(ip, `rate limit (${win.count} req/min > ${limit})`);
           if (ttl === 0) {
@@ -584,6 +697,7 @@ export function aiFirewallMiddleware(req: any, res: any, next: any) {
       if (re.test(target)) {
         securityStats.payloadBlocked++;
         console.warn(`[Security] ${severity.toUpperCase()} attack from ${ip}: ${name}`);
+        if (!ipBlockEnabled) { monitorLog(`payload attack: ${name}`, ip); continue; }
         if (autoBlock && sensitivityLevel >= 5) {
           blockIp(ip);
           return res.status(403).json({
@@ -673,11 +787,13 @@ const BAN_BYPASS_PATHS = new Set(["/api/auth/nonce", "/api/auth/web3"]);
 export async function ipBanGate(req: any, res: any, next: any) {
   const ip = getClientIp(req);
   if (ALWAYS_ALLOW.has(ip)) return next();
+  if (whitelistedIps.has(ip)) { touchWhitelistedIp(ip); return next(); }
   // Allow wallet-signature login endpoints through so privileged operators
   // can always sign in and self-unban.
   if (BAN_BYPASS_PATHS.has(req.path)) return next();
   const { banned, expiresAt } = await isIpBannedDb(ip);
   if (!banned) return next();
+  if (!ipBlockEnabled) { monitorLog("db ip_bans entry", ip); return next(); }
   return res.status(403).json({
     error: "Your IP address has been banned from this service.",
     code: "IP_BANNED",
@@ -688,6 +804,7 @@ export async function ipBanGate(req: any, res: any, next: any) {
 
 /** Fast synchronous cache check used by login handlers before password verification. */
 export function isIpBannedCached(ip: string): boolean {
+  if (!ipBlockEnabled) return false; // monitoring only — never actually gate login
   const c = banCache.get(ip);
   if (!c || c.until <= Date.now()) return false;
   if (c.expiresAt === null) return true;
@@ -862,15 +979,19 @@ export async function recordLoginFailure(
 
   let autoBanned = false;
   if (longCount >= LONG_LIMIT) {
-    await addIpBan({
-      ip,
-      reason: `auto: ${longCount} failed logins in ${LONG_WINDOW_MIN} min`,
-      bannedBy: "system",
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      auto: true,
-    }).catch(() => {});
-    console.warn(`[ip-ban] Auto-banned ${ip} for 24h after ${longCount} failed logins`);
-    autoBanned = true;
+    if (ipBlockEnabled) {
+      await addIpBan({
+        ip,
+        reason: `auto: ${longCount} failed logins in ${LONG_WINDOW_MIN} min`,
+        bannedBy: "system",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        auto: true,
+      }).catch(() => {});
+      console.warn(`[ip-ban] Auto-banned ${ip} for 24h after ${longCount} failed logins`);
+      autoBanned = true;
+    } else {
+      console.log(`[ip-ban][monitor-only] ${ip} hit ${longCount} failed logins in ${LONG_WINDOW_MIN} min — would auto-ban, but IP blocking is disabled`);
+    }
   }
 
   const redirectUrl = shortCount >= SHORT_LIMIT ? await getHoneypotRedirectUrl() : null;
