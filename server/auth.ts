@@ -23,8 +23,28 @@ setInterval(() => {
   for (const [k, v] of waOtpStore) if (v.expiresAt < now) waOtpStore.delete(k);
 }, 60_000);
 
-// Auth endpoints: 20 attempts per 15 min per IP
-const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests, please try again later." } });
+// Auth endpoints: 20 attempts per 15 min per IP.
+// Admin/founder accounts are meant to be exempt from lockouts/bans (see
+// isPrivilegedUsername in security.ts), but that exemption only ran *inside*
+// the route handlers — this limiter sits in front of them and was blocking
+// privileged users with a blunt 429 before their exemption ever got checked.
+// Skip the count entirely for privileged usernames/wallets so admin/founder
+// never stall here, no matter how many legitimate attempts they make.
+async function isPrivilegedAuthRequest(req: any): Promise<boolean> {
+  try {
+    const { isPrivilegedUsername, isPrivilegedWallet } = await import("./security");
+    const username = req.body?.username ?? req.body?.email;
+    if (username && (await isPrivilegedUsername(String(username)).catch(() => false))) return true;
+    const address = req.body?.address ?? req.query?.address;
+    if (address && (await isPrivilegedWallet(String(address)).catch(() => false))) return true;
+  } catch {}
+  return false;
+}
+const authLimiter = rateLimit({
+  windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+  skip: (req: any) => isPrivilegedAuthRequest(req) as any,
+});
 // TOTP / backup-code verify: tighter (10 per 15 min) — brute-force protection
 const totpLimiter = rateLimit({ windowMs: 15 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: "Too many 2FA attempts. Please wait 15 minutes." } });
 // Password-reset confirm: even tighter (5 per 30 min) — token enumeration protection
