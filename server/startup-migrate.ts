@@ -263,9 +263,11 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       wallet_id    UUID,
       user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at   TIMESTAMPTZ DEFAULT NOW(),
-      confirmed_at TIMESTAMPTZ
+      confirmed_at TIMESTAMPTZ,
+      token_symbol TEXT NOT NULL DEFAULT 'GYD'
     )
   `);
+  await run("transactions-token-symbol-col", `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS token_symbol TEXT NOT NULL DEFAULT 'GYD'`);
 
   // ── 5. Node tables ───────────────────────────────────────────────────────────
   await run("node_installations", `
