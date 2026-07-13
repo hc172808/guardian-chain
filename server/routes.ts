@@ -16,6 +16,7 @@ import path from "path";
 import fs from "fs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
 import { broadcastTransfer, pollForConfirmation, checkRpcHealth, testEndpoints } from "./chainRpc";
+import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasuryBalance, sendTreasuryTransfer } from "./treasury";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
@@ -583,16 +584,70 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/token-operations", requireAdmin, async (req, res) => {
     const user = req.user as any;
-    const { operation_type, usdt_amount, wallet_address, tx_hash, ...rest } = req.body;
+    const { operation_type, usdt_amount, wallet_address, tx_hash, amount, ...rest } = req.body;
+    const opType = operation_type ?? rest.operationType;
+
+    let finalTxHash = tx_hash ?? rest.txHash;
+    let onChain = false;
+    let onChainError: string | undefined;
+
+    // Mints become real transfers from the treasury account when one is
+    // configured — otherwise this stays the existing off-chain ledger entry
+    // (with a fabricated tx hash), same as before.
+    const isMint = opType === "mint" || opType === "mint_gusd";
+    if (isMint && hasTreasuryKey() && wallet_address && amount) {
+      try {
+        const result = await sendTreasuryTransfer(wallet_address, Number(amount));
+        finalTxHash = result.txHash;
+        onChain = true;
+      } catch (err: any) {
+        onChainError = err.message;
+        // Fall through and record as an off-chain/simulated op so the admin
+        // still has a ledger entry, but the response tells them it failed
+        // on-chain instead of silently pretending it worked.
+      }
+    }
+
     const row = await storage.insertTokenOperation({
       ...rest,
-      operationType: operation_type ?? rest.operationType,
+      amount,
+      operationType: opType,
       usdtAmount: usdt_amount ?? rest.usdtAmount ?? 0,
       walletAddress: wallet_address ?? rest.walletAddress,
-      txHash: tx_hash ?? rest.txHash,
+      txHash: finalTxHash,
       createdBy: user.id,
     });
-    res.json(toSnakeOperation(row));
+    res.json({ ...toSnakeOperation(row), on_chain: onChain, on_chain_error: onChainError });
+  });
+
+  // ── Treasury (real on-chain mint funding source) ───────────────────────────
+  app.get("/api/admin/treasury/status", requireAdmin, async (_req, res) => {
+    try {
+      const configured = hasTreasuryKey();
+      const address = getTreasuryAddress();
+      let balance: string | null = null;
+      let balanceError: string | undefined;
+      if (address) {
+        try {
+          const result = await getTreasuryBalance();
+          balance = result?.balance ?? null;
+        } catch (err: any) {
+          balanceError = err.message;
+        }
+      }
+      res.json({ configured, address, balance, balanceError });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Generates a fresh keypair server-side and returns it ONCE. Nothing is
+  // persisted — the admin must copy the private key immediately and either
+  // paste it into the Treasury Private Key field below, or set it as
+  // TREASURY_PRIVATE_KEY in .env themselves, then fund the address on-chain.
+  app.post("/api/admin/treasury/generate", requireAdmin, async (_req, res) => {
+    try {
+      const wallet = generateTreasuryWallet();
+      res.json({ ...wallet, warning: "This private key is shown only once and is not stored anywhere. Copy it now — if you lose it before saving, you must generate a new wallet." });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Token Price ────────────────────────────────────────────────────────────
@@ -4706,6 +4761,7 @@ export function registerRoutes(app: Express) {
     'TELEGRAM_BOT_TOKEN',
     'SMTP_PASS',
     'WHATSAPP_TOKEN',
+    'TREASURY_PRIVATE_KEY',
   ];
   const SERVER_CONFIG_ALL = [...SERVER_CONFIG_READABLE, ...SERVER_CONFIG_SECRET];
 

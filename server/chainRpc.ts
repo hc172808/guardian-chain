@@ -1,11 +1,21 @@
 import crypto from "crypto";
 
-const RPC_ENDPOINTS = [
-  process.env.GYDS_RPC_URL,
-  "https://rpc.netlifegy.com",
-  "https://rpc2.netlifegy.com",
-  "https://rpc3.netlifegy.com",
-].filter(Boolean) as string[];
+// Computed lazily (not a module-level const) — process.env is populated by
+// server/index.ts's .env loader, which runs AFTER this module's imports are
+// resolved (ES module import hoisting), so a top-level const here would have
+// baked in stale/missing env values and silently ignored any admin-configured
+// RPC override.
+function getRpcEndpoints(): string[] {
+  const backups = process.env.GYDS_RPC_BACKUP_URLS
+    ? process.env.GYDS_RPC_BACKUP_URLS.split(",").map((s) => s.trim()).filter(Boolean)
+    : ["https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
+  const local = process.env.GYDS_LOCAL_RPC_URL ? [process.env.GYDS_LOCAL_RPC_URL.trim()] : [];
+  return [
+    process.env.GYDS_RPC_URL || "https://rpc.netlifegy.com",
+    ...backups,
+    ...local,
+  ].filter(Boolean) as string[];
+}
 
 const TIMEOUT_MS = 8000;
 
@@ -29,7 +39,7 @@ async function rpcCall(url: string, method: string, params: any[] = []): Promise
 
 async function rpcCallWithFallback(method: string, params: any[] = []): Promise<{ result: any; endpoint: string }> {
   const errors: string[] = [];
-  for (const url of RPC_ENDPOINTS) {
+  for (const url of getRpcEndpoints()) {
     try {
       const result = await rpcCall(url, method, params);
       return { result, endpoint: url };
@@ -67,6 +77,21 @@ export async function getTransactionReceipt(txHash: string): Promise<any | null>
   } catch {
     return null;
   }
+}
+
+export async function getTransactionCount(address: string): Promise<number> {
+  const { result } = await rpcCallWithFallback("eth_getTransactionCount", [address, "pending"]);
+  return parseInt(result, 16);
+}
+
+export async function getGasPrice(): Promise<bigint> {
+  const { result } = await rpcCallWithFallback("eth_gasPrice");
+  return BigInt(result);
+}
+
+export async function getChainIdRpc(): Promise<number> {
+  const { result } = await rpcCallWithFallback("eth_chainId");
+  return parseInt(result, 16);
 }
 
 export async function getTransactionByHash(txHash: string): Promise<any | null> {

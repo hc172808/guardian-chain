@@ -41,6 +41,7 @@ interface ConfigValues {
   GYDS_RPC_URL: string;
   GYDS_RPC_BACKUP_URLS: string;
   GYDS_LOCAL_RPC_URL: string;
+  TREASURY_PRIVATE_KEY: string;
 }
 
 const EMPTY: ConfigValues = {
@@ -51,7 +52,15 @@ const EMPTY: ConfigValues = {
   WHATSAPP_TOKEN: '', WHATSAPP_PHONE_ID: '',
   GYDS_BOOTSTRAP_NODES: '',
   GYDS_RPC_URL: '', GYDS_RPC_BACKUP_URLS: '', GYDS_LOCAL_RPC_URL: '',
+  TREASURY_PRIVATE_KEY: '',
 };
+
+interface TreasuryStatus {
+  configured: boolean;
+  address: string | null;
+  balance: string | null;
+  balanceError?: string;
+}
 
 const SECRET_KEYS: (keyof ConfigValues)[] = [
   'GITHUB_TOKEN', 'HCAPTCHA_SECRET_KEY', 'TELEGRAM_BOT_TOKEN', 'SMTP_PASS', 'WHATSAPP_TOKEN',
@@ -137,9 +146,48 @@ export function ServerConfigManager() {
   const [health, setHealth] = useState<EndpointHealth[] | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [healthCheckedAt, setHealthCheckedAt] = useState<string | null>(null);
+  const [treasury, setTreasury] = useState<TreasuryStatus | null>(null);
+  const [treasuryLoading, setTreasuryLoading] = useState(false);
+  const [generated, setGenerated] = useState<{ address: string; privateKey: string } | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   const set = (k: keyof ConfigValues) => (v: string) =>
     setValues(prev => ({ ...prev, [k]: v }));
+
+  const loadTreasury = async () => {
+    setTreasuryLoading(true);
+    try {
+      const res = await fetch('/api/admin/treasury/status', { credentials: 'include' });
+      const data = await res.json();
+      setTreasury(data);
+    } catch {
+      toast({ title: 'Failed to load treasury status', variant: 'destructive' });
+    } finally {
+      setTreasuryLoading(false);
+    }
+  };
+
+  useEffect(() => { loadTreasury(); }, []);
+
+  const generateWallet = async () => {
+    setGenerating(true);
+    try {
+      const res = await fetch('/api/admin/treasury/generate', { method: 'POST', credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to generate');
+      setGenerated({ address: data.address, privateKey: data.privateKey });
+    } catch (e: any) {
+      toast({ title: 'Failed to generate wallet', description: e.message, variant: 'destructive' });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const useGeneratedKey = () => {
+    if (!generated) return;
+    set('TREASURY_PRIVATE_KEY')(generated.privateKey);
+    toast({ title: 'Private key loaded into the field below', description: 'Click "Save & Apply" to store it, then fund this address on-chain.' });
+  };
 
   const checkHealth = async () => {
     setHealthLoading(true);
@@ -191,6 +239,7 @@ export function ServerConfigManager() {
       setRestartStatus(data.restarted ? 'ok' : 'no-pm2');
       toast({ title: 'Configuration saved', description: data.restarted ? 'Service restarted via PM2.' : 'Changes applied. Manual restart may be needed for some vars.' });
       await load();
+      await loadTreasury();
     } catch (e: any) {
       toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
     } finally {
@@ -460,6 +509,56 @@ export function ServerConfigManager() {
             </div>
           )}
         </div>
+      </Section>
+
+      <Section icon={Wallet} title="Treasury (real on-chain mint funding)" desc="Fund mints as real transfers from a genesis-funded account instead of database-only records" defaultOpen={true}>
+        <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm border ${
+          treasury?.configured
+            ? (treasury.balanceError ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-green-500/10 border-green-500/20 text-green-400')
+            : 'bg-white/5 border-border/30 text-muted-foreground'
+        }`}>
+          {treasuryLoading ? (
+            <span className="flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" /> Checking treasury status…</span>
+          ) : treasury?.configured ? (
+            <div className="font-mono text-xs space-y-0.5">
+              <p className="text-foreground/90 font-semibold">Configured — {treasury.address}</p>
+              {treasury.balanceError ? (
+                <p>Could not read balance: {treasury.balanceError}</p>
+              ) : (
+                <p>Balance: {treasury.balance} GYDS {Number(treasury.balance) === 0 && '— fund this address on-chain for mints to succeed'}</p>
+              )}
+            </div>
+          ) : (
+            <p>No treasury key configured yet. Mints will keep using database-only records until one is set below.</p>
+          )}
+          <Button variant="outline" size="sm" onClick={loadTreasury} disabled={treasuryLoading}>
+            <RefreshCw className={`h-3.5 w-3.5 ${treasuryLoading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+
+        <div className="p-3 rounded-lg bg-black/20 border border-border/30 space-y-2">
+          <p className="text-xs text-muted-foreground">Don't have a treasury account yet? Generate one, fund the address with real GYDS at genesis, then load its key below.</p>
+          <Button variant="outline" size="sm" onClick={generateWallet} disabled={generating}>
+            {generating ? 'Generating…' : 'Generate new treasury wallet'}
+          </Button>
+          {generated && (
+            <div className="mt-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
+              <p className="text-xs text-red-400 font-semibold">Shown once — copy this now. It is not stored anywhere until you save it below.</p>
+              <p className="text-xs font-mono break-all"><span className="text-muted-foreground">Address: </span>{generated.address}</p>
+              <p className="text-xs font-mono break-all"><span className="text-muted-foreground">Private key: </span>{generated.privateKey}</p>
+              <Button size="sm" onClick={useGeneratedKey}>Load into field below</Button>
+            </div>
+          )}
+        </div>
+
+        <Field label="Treasury Private Key" hint="Server-side only, never sent to the browser after saving. Used to sign real mint transfers.">
+          <SecretInput
+            id="TREASURY_PRIVATE_KEY"
+            value={values.TREASURY_PRIVATE_KEY || (keysSet.TREASURY_PRIVATE_KEY ? MASKED : '')}
+            onChange={set('TREASURY_PRIVATE_KEY')}
+            placeholder="0x..."
+          />
+        </Field>
       </Section>
 
       <GlassCard className="p-4 bg-secondary/10">

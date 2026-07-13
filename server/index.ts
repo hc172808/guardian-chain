@@ -1,6 +1,27 @@
+import fs from "fs";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
+
+// ── Load .env into process.env at boot ────────────────────────────────────────
+// Admin → Server Config writes here, but nothing previously loaded this file
+// back into process.env on startup — so every saved value (RPC URLs,
+// treasury key, SMTP creds, etc.) was silently lost on the next restart.
+// Only fills in keys that aren't already set (Replit-managed secrets/env
+// vars still take priority over the file).
+(function loadDotEnv() {
+  const envPath = path.resolve(".env");
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim();
+    if (key && process.env[key] === undefined) process.env[key] = val;
+  }
+})();
 import rateLimit from "express-rate-limit";
 import { setupAuth } from "./auth";
 import { registerRoutes } from "./routes";
