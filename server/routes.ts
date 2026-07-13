@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile } from "./testNodes";
-import { withCache, getCacheStats, clearCache } from "./queryCache";
+import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { Pool } from "pg";
@@ -560,9 +560,25 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Token Operations ───────────────────────────────────────────────────────
+  // Drizzle returns camelCase JS keys (operationType, walletAddress, ...) while
+  // the frontend (BurnMintManager) expects the snake_case shape it POSTs with.
+  // Map + coerce numeric strings to numbers here so the History tab doesn't
+  // crash on `op.operation_type.toUpperCase()` against an undefined field.
+  const toSnakeOperation = (r: any) => ({
+    id: r.id,
+    operation_type: r.operationType ?? r.operation_type,
+    amount: Number(r.amount),
+    usdt_amount: Number(r.usdtAmount ?? r.usdt_amount ?? 0),
+    wallet_address: r.walletAddress ?? r.wallet_address,
+    tx_hash: r.txHash ?? r.tx_hash,
+    created_by: r.createdBy ?? r.created_by,
+    created_at: r.createdAt ?? r.created_at,
+    status: r.status,
+  });
+
   app.get("/api/token-operations", async (_req, res) => {
     const data = await storage.getTokenOperations();
-    res.json(data);
+    res.json((data as any[]).map(toSnakeOperation));
   });
 
   app.post("/api/token-operations", requireAdmin, async (req, res) => {
@@ -576,18 +592,38 @@ export function registerRoutes(app: Express) {
       txHash: tx_hash ?? rest.txHash,
       createdBy: user.id,
     });
-    res.json(row);
+    res.json(toSnakeOperation(row));
   });
 
   // ── Token Price ────────────────────────────────────────────────────────────
+  // Drizzle's `numeric` columns are returned as strings by node-postgres; coerce
+  // them to numbers here so every consumer (e.g. price.toFixed(...)) works.
+  const coerceTokenPrice = (row: any) =>
+    row && {
+      ...row,
+      price: Number(row.price),
+      total_supply: Number(row.total_supply ?? row.totalSupply),
+      circulating_supply: Number(row.circulating_supply ?? row.circulatingSupply),
+      burned_total: Number(row.burned_total ?? row.burnedTotal),
+    };
+
   app.get("/api/token-price", async (_req, res) => {
     const row = await storage.getTokenPrice();
-    res.json(row);
+    res.json(coerceTokenPrice(row));
   });
 
   app.patch("/api/token-price", requireAdmin, async (req, res) => {
-    const row = await storage.updateTokenPrice(req.body);
-    res.json(row);
+    // BurnMintManager (frontend) PATCHes snake_case keys, but the Drizzle
+    // schema/storage layer expects camelCase — map them so burns/mints
+    // actually update circulating supply & burned totals instead of no-oping.
+    const { circulating_supply, burned_total, total_supply, ...rest } = req.body;
+    const row = await storage.updateTokenPrice({
+      ...rest,
+      ...(circulating_supply !== undefined ? { circulatingSupply: circulating_supply } : {}),
+      ...(burned_total !== undefined ? { burnedTotal: burned_total } : {}),
+      ...(total_supply !== undefined ? { totalSupply: total_supply } : {}),
+    });
+    res.json(coerceTokenPrice(row));
   });
 
   // ── Tokens ─────────────────────────────────────────────────────────────────
@@ -914,16 +950,19 @@ export function registerRoutes(app: Express) {
   app.post("/api/validators", requireAdmin, async (req, res) => {
     const user = req.user as any;
     const row = await storage.insertValidator({ ...req.body, createdBy: user.id });
+    invalidate("/api/validators");
     res.json(row);
   });
 
   app.patch("/api/validators/:id", requireAdmin, async (req, res) => {
     const row = await storage.updateValidator(req.params.id, req.body);
+    invalidate("/api/validators");
     res.json(row);
   });
 
   app.delete("/api/validators/:id", requireAdmin, async (req, res) => {
     await storage.deleteValidator(req.params.id);
+    invalidate("/api/validators");
     res.json({ ok: true });
   });
 

@@ -47,7 +47,7 @@ const coreNav: NavItem[] = [
   { to: '/watchlist',    icon: Star,     label: 'Watchlist' },
   { to: '/price-alerts', icon: BellRing,  label: 'Price Alerts' },
   { to: '/webhooks',     icon: Webhook,   label: 'Webhooks' },
-  { to: '/network',    icon: Network,        label: 'Network Config', featureKey: 'network.nodes' },
+  { to: '/network',    icon: Network,        label: 'Network Config' },
   { to: '/node-terminal',icon: Terminal,     label: 'Node Terminal' },
   { to: '/faucet',     icon: Droplets,       label: 'Testnet Faucet', featureKey: 'wallet.faucet' },
 ];

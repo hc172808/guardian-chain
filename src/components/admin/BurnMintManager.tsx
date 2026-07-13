@@ -193,7 +193,7 @@ export const BurnMintManager = () => {
         <GlassCard className="p-4 text-center">
           <DollarSign className="h-6 w-6 mx-auto text-primary mb-2" />
           <p className="text-xs text-muted-foreground">GYDS Price</p>
-          <p className="text-xl font-bold font-mono">${tokenPrice?.price.toFixed(7) || TOKENOMICS.initialPrice}</p>
+          <p className="text-xl font-bold font-mono">${tokenPrice?.price?.toFixed(7) ?? TOKENOMICS.initialPrice}</p>
         </GlassCard>
         <GlassCard className="p-4 text-center">
           <Coins className="h-6 w-6 mx-auto text-neon-emerald mb-2" />
