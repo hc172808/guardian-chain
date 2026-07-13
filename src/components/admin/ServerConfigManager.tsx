@@ -7,8 +7,17 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import {
   Eye, EyeOff, Save, RefreshCw, CheckCircle2, AlertCircle,
-  Wallet, KeyRound, MessageCircle, Mail, Globe, Zap, ChevronDown, ChevronRight
+  Wallet, KeyRound, MessageCircle, Mail, Globe, Zap, ChevronDown, ChevronRight, Radio
 } from 'lucide-react';
+
+interface EndpointHealth {
+  url: string;
+  ok: boolean;
+  chainId?: number;
+  blockNumber?: number;
+  latencyMs?: number;
+  error?: string;
+}
 
 const MASKED = '••••••••';
 
@@ -29,6 +38,9 @@ interface ConfigValues {
   WHATSAPP_TOKEN: string;
   WHATSAPP_PHONE_ID: string;
   GYDS_BOOTSTRAP_NODES: string;
+  GYDS_RPC_URL: string;
+  GYDS_RPC_BACKUP_URLS: string;
+  GYDS_LOCAL_RPC_URL: string;
 }
 
 const EMPTY: ConfigValues = {
@@ -38,6 +50,7 @@ const EMPTY: ConfigValues = {
   SMTP_HOST: '', SMTP_PORT: '587', SMTP_USER: '', SMTP_PASS: '', SMTP_FROM: '',
   WHATSAPP_TOKEN: '', WHATSAPP_PHONE_ID: '',
   GYDS_BOOTSTRAP_NODES: '',
+  GYDS_RPC_URL: '', GYDS_RPC_BACKUP_URLS: '', GYDS_LOCAL_RPC_URL: '',
 };
 
 const SECRET_KEYS: (keyof ConfigValues)[] = [
@@ -121,9 +134,26 @@ export function ServerConfigManager() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [restartStatus, setRestartStatus] = useState<null | 'pending' | 'ok' | 'no-pm2'>(null);
+  const [health, setHealth] = useState<EndpointHealth[] | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthCheckedAt, setHealthCheckedAt] = useState<string | null>(null);
 
   const set = (k: keyof ConfigValues) => (v: string) =>
     setValues(prev => ({ ...prev, [k]: v }));
+
+  const checkHealth = async () => {
+    setHealthLoading(true);
+    try {
+      const res = await fetch('/api/network-config/health', { credentials: 'include' });
+      const data = await res.json();
+      setHealth(data.results ?? []);
+      setHealthCheckedAt(data.checkedAt ?? null);
+    } catch {
+      toast({ title: 'Failed to check RPC health', variant: 'destructive' });
+    } finally {
+      setHealthLoading(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -356,7 +386,7 @@ export function ServerConfigManager() {
         </div>
       </Section>
 
-      <Section icon={Globe} title="Network" desc="Bootstrap nodes for peer discovery" defaultOpen={false}>
+      <Section icon={Globe} title="Network" desc="RPC endpoints, bootstrap nodes, and live reachability" defaultOpen={true}>
         <Field label="Bootstrap Node(s)" hint="Comma-separated enode:// URIs. Written as GYDS_BOOTSTRAP_NODES in gyds-config.env for all node install scripts.">
           <Input
             value={values.GYDS_BOOTSTRAP_NODES}
@@ -365,6 +395,71 @@ export function ServerConfigManager() {
             className="bg-black/20 border-border/40 font-mono text-sm"
           />
         </Field>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Primary RPC URL" hint="What wallets & this app hit first. Overrides the built-in https://rpc.netlifegy.com default.">
+            <Input
+              value={values.GYDS_RPC_URL}
+              onChange={e => set('GYDS_RPC_URL')(e.target.value)}
+              placeholder="https://rpc.netlifegy.com or your own node's public URL"
+              className="bg-black/20 border-border/40 font-mono text-sm"
+            />
+          </Field>
+          <Field label="Backup RPC URL(s)" hint="Comma-separated. Tried in order if the primary fails.">
+            <Input
+              value={values.GYDS_RPC_BACKUP_URLS}
+              onChange={e => set('GYDS_RPC_BACKUP_URLS')(e.target.value)}
+              placeholder="https://rpc2.netlifegy.com,https://rpc3.netlifegy.com"
+              className="bg-black/20 border-border/40 font-mono text-sm"
+            />
+          </Field>
+        </div>
+        <Field label="Local Node RPC URL" hint="Point this at your own running node (e.g. an RPC/full node you started on your server) — takes priority over localhost defaults.">
+          <Input
+            value={values.GYDS_LOCAL_RPC_URL}
+            onChange={e => set('GYDS_LOCAL_RPC_URL')(e.target.value)}
+            placeholder="http://your-server-ip:8545"
+            className="bg-black/20 border-border/40 font-mono text-sm"
+          />
+        </Field>
+
+        <div className="pt-2 border-t border-border/20">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <Radio className="h-3.5 w-3.5" /> Live Reachability
+            </p>
+            <Button variant="outline" size="sm" onClick={checkHealth} disabled={healthLoading}>
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${healthLoading ? 'animate-spin' : ''}`} />
+              {healthLoading ? 'Checking…' : 'Check now'}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-2">
+            Save first if you changed the URLs above — this checks whatever is currently active on the server.
+          </p>
+          {health && (
+            <div className="space-y-1.5">
+              {health.map((h) => (
+                <div
+                  key={h.url}
+                  className={`flex items-center justify-between gap-3 p-2 rounded-lg text-xs font-mono border ${
+                    h.ok ? 'bg-green-500/5 border-green-500/20 text-green-400' : 'bg-red-500/5 border-red-500/20 text-red-400'
+                  }`}
+                >
+                  <span className="truncate">{h.url}</span>
+                  <span className="shrink-0 flex items-center gap-1.5">
+                    {h.ok ? (
+                      <><CheckCircle2 className="h-3.5 w-3.5" /> {h.latencyMs}ms · chain {h.chainId} · block {h.blockNumber}</>
+                    ) : (
+                      <><AlertCircle className="h-3.5 w-3.5" /> {h.error}</>
+                    )}
+                  </span>
+                </div>
+              ))}
+              {healthCheckedAt && (
+                <p className="text-xs text-muted-foreground pt-1">Checked at {new Date(healthCheckedAt).toLocaleTimeString()}</p>
+              )}
+            </div>
+          )}
+        </div>
       </Section>
 
       <GlassCard className="p-4 bg-secondary/10">

@@ -16,11 +16,59 @@ export const RPC_ENDPOINTS_LIST = {
   ],
 };
 
-export const ALL_RPC_ENDPOINTS = [
+// Mutable in place (not reassigned) so importers that hold this array
+// reference see updates after applyNetworkOverrides() runs at boot.
+export const ALL_RPC_ENDPOINTS: string[] = [
   RPC_ENDPOINTS_LIST.main,
   ...RPC_ENDPOINTS_LIST.backups,
   ...RPC_ENDPOINTS_LIST.local,
 ];
+
+function rebuildAllRpcEndpoints() {
+  ALL_RPC_ENDPOINTS.length = 0;
+  ALL_RPC_ENDPOINTS.push(
+    RPC_ENDPOINTS_LIST.main,
+    ...RPC_ENDPOINTS_LIST.backups,
+    ...RPC_ENDPOINTS_LIST.local,
+  );
+}
+
+// Admin-configured overrides fetched from the server (Server Config →
+// RPC URLs). Falls back silently to the hardcoded defaults above if the
+// fetch fails or nothing has been configured — so this is safe to call
+// speculatively on every app boot.
+export async function applyNetworkOverrides(): Promise<void> {
+  try {
+    const res = await fetch('/api/network-config');
+    if (!res.ok) return;
+    const data: { main?: string; backups?: string[]; local?: string[] } = await res.json();
+    if (data.main) {
+      RPC_ENDPOINTS_LIST.main = data.main;
+      NETWORK_CONFIG.rpcUrls.primary = data.main;
+      SERVICE_ENDPOINTS.rpc = data.main;
+      TRUST_WALLET_CONFIG.rpcUrl = data.main;
+    }
+    if (Array.isArray(data.backups)) {
+      RPC_ENDPOINTS_LIST.backups.length = 0;
+      RPC_ENDPOINTS_LIST.backups.push(...data.backups);
+      NETWORK_CONFIG.rpcUrls.backup = RPC_ENDPOINTS_LIST.backups;
+      if (data.backups[0]) SERVICE_ENDPOINTS.rpc2 = data.backups[0];
+      if (data.backups[1]) SERVICE_ENDPOINTS.rpc3 = data.backups[1];
+    }
+    if (Array.isArray(data.local) && data.local.length) {
+      // Admin-provided local/self-hosted node URLs take priority over the
+      // hardcoded localhost defaults, but keep localhost as a fallback.
+      const merged = [...data.local, ...RPC_ENDPOINTS_LIST.local.filter(u => !data.local!.includes(u))];
+      RPC_ENDPOINTS_LIST.local.length = 0;
+      RPC_ENDPOINTS_LIST.local.push(...merged);
+      NETWORK_CONFIG.rpcUrls.local = RPC_ENDPOINTS_LIST.local;
+    }
+    RPC_CONFIG.fullNodeUrl = NETWORK_CONFIG.rpcUrls.primary;
+    rebuildAllRpcEndpoints();
+  } catch {
+    // Network config endpoint unreachable — keep built-in defaults.
+  }
+}
 
 // ── Network kinds ───────────────────────────────────────────────────────────
 export type NetworkKind = 'mainnet' | 'testnet' | 'devnet';

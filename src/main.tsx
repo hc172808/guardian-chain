@@ -2,6 +2,11 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import React from "react";
+import { applyNetworkOverrides } from "@/config/network";
+
+// Pull any admin-configured RPC URLs (Server Config → Network) before the
+// wallet/network UI reads its config. Safe no-op if nothing is configured.
+void applyNetworkOverrides();
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

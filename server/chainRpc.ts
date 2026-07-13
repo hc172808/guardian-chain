@@ -181,3 +181,57 @@ export async function checkRpcHealth(): Promise<{ online: boolean; endpoint?: st
     return { online: false, error: err.message };
   }
 }
+
+export interface EndpointHealth {
+  url: string;
+  ok: boolean;
+  chainId?: number;
+  blockNumber?: number;
+  latencyMs?: number;
+  error?: string;
+}
+
+// Probes one RPC URL directly (no fallback) so callers can show per-endpoint
+// status instead of only "some endpoint worked".
+export async function testEndpoint(url: string, timeoutMs = 6000): Promise<EndpointHealth> {
+  const started = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
+      signal: controller.signal,
+    });
+    const json = await res.json();
+    if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
+    const chainId = parseInt(json.result, 16);
+    let blockNumber: number | undefined;
+    try {
+      const bnRes = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 2 }),
+        signal: controller.signal,
+      });
+      const bnJson = await bnRes.json();
+      if (!bnJson.error) blockNumber = parseInt(bnJson.result, 16);
+    } catch {}
+    return { url, ok: true, chainId, blockNumber, latencyMs: Date.now() - started };
+  } catch (err: any) {
+    const aborted = err?.name === "AbortError";
+    return {
+      url,
+      ok: false,
+      latencyMs: Date.now() - started,
+      error: aborted ? `Timed out after ${timeoutMs}ms (connection opened but never responded)` : err.message,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function testEndpoints(urls: string[]): Promise<EndpointHealth[]> {
+  return Promise.all(urls.map((u) => testEndpoint(u)));
+}

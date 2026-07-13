@@ -15,7 +15,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
-import { broadcastTransfer, pollForConfirmation, checkRpcHealth } from "./chainRpc";
+import { broadcastTransfer, pollForConfirmation, checkRpcHealth, testEndpoints } from "./chainRpc";
 const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
@@ -4699,6 +4699,7 @@ export function registerRoutes(app: Express) {
     'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_FROM',
     'WHATSAPP_PHONE_ID',
     'GYDS_BOOTSTRAP_NODES',
+    'GYDS_RPC_URL', 'GYDS_RPC_BACKUP_URLS', 'GYDS_LOCAL_RPC_URL',
   ];
   const SERVER_CONFIG_SECRET: string[] = [
     'GITHUB_TOKEN', 'HCAPTCHA_SECRET_KEY',
@@ -4770,6 +4771,9 @@ export function registerRoutes(app: Express) {
       if (toSave['WHATSAPP_TOKEN'])       gydsConf['WHATSAPP_TOKEN'] = toSave['WHATSAPP_TOKEN'];
       if (toSave['WHATSAPP_PHONE_ID'])    gydsConf['WHATSAPP_PHONE_ID'] = toSave['WHATSAPP_PHONE_ID'];
       if (toSave['GYDS_BOOTSTRAP_NODES']) gydsConf['GYDS_BOOTSTRAP_NODES'] = toSave['GYDS_BOOTSTRAP_NODES'];
+      if (toSave['GYDS_RPC_URL'])         gydsConf['GYDS_RPC_URL'] = toSave['GYDS_RPC_URL'];
+      if (toSave['GYDS_RPC_BACKUP_URLS']) gydsConf['GYDS_RPC_BACKUP_URLS'] = toSave['GYDS_RPC_BACKUP_URLS'];
+      if (toSave['GYDS_LOCAL_RPC_URL'])   gydsConf['GYDS_LOCAL_RPC_URL'] = toSave['GYDS_LOCAL_RPC_URL'];
       const gydsLines = [
         '# GYDSchain shared config — managed via Admin → Server Config',
         ...Object.entries(gydsConf).map(([k, v]) => `${k}=${v}`),
@@ -4792,5 +4796,39 @@ export function registerRoutes(app: Express) {
 
       res.json({ ok: true, saved: Object.keys(toSave), restarted });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Network / RPC config — public, runtime-configurable ───────────────────
+  // Lets an admin repoint the app at a real RPC (including their own local
+  // nodes) via Server Config without a code deploy. Frontend fetches this on
+  // boot and overrides its built-in defaults.
+  const DEFAULT_RPC = {
+    main: 'https://rpc.netlifegy.com',
+    backups: ['https://rpc2.netlifegy.com', 'https://rpc3.netlifegy.com'],
+  };
+  function effectiveRpcConfig() {
+    const main = (process.env.GYDS_RPC_URL || DEFAULT_RPC.main).trim();
+    const backups = (process.env.GYDS_RPC_BACKUP_URLS
+      ? process.env.GYDS_RPC_BACKUP_URLS.split(',').map(s => s.trim()).filter(Boolean)
+      : DEFAULT_RPC.backups);
+    const local = process.env.GYDS_LOCAL_RPC_URL
+      ? [process.env.GYDS_LOCAL_RPC_URL.trim()]
+      : [];
+    return { main, backups, local };
+  }
+
+  app.get('/api/network-config', (_req, res) => {
+    res.json(effectiveRpcConfig());
+  });
+
+  app.get('/api/network-config/health', async (_req, res) => {
+    try {
+      const { main, backups, local } = effectiveRpcConfig();
+      const urls = [main, ...backups, ...local];
+      const results = await testEndpoints(urls);
+      res.json({ results, checkedAt: new Date().toISOString() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 }
