@@ -1,4 +1,5 @@
 import fs from "fs";
+import http from "http";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -404,12 +405,35 @@ app.use("/api", (req, res) => {
   });
 });
 
-// Serve static frontend in production only
+// Serve static frontend in production; proxy to Vite dev server in development
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "../dist");
   app.use(express.static(distPath));
   app.get("/{*path}", (_req, res) => {
     res.sendFile(path.join(distPath, "index.html"));
+  });
+} else {
+  // Dev mode: proxy all non-API requests to the Vite dev server on port 5000.
+  // This means the Replit preview (which hits port 80 → Express on 5001) will
+  // transparently show the Vite app instead of returning "Cannot GET /".
+  app.use((req, res) => {
+    const options = {
+      hostname: "localhost",
+      port: 5000,
+      path: req.url,
+      method: req.method,
+      headers: { ...req.headers, host: "localhost:5000" },
+    };
+    const proxy = http.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    });
+    proxy.on("error", () => {
+      if (!res.headersSent) {
+        res.status(503).send("Vite dev server not ready yet — please wait a moment and refresh.");
+      }
+    });
+    req.pipe(proxy, { end: true });
   });
 }
 

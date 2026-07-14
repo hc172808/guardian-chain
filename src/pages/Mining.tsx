@@ -1,11 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { TOKENOMICS } from '@/config/wallets';
 import { MiningAlgorithm } from '@/lib/blockchain';
 import { motion } from 'framer-motion';
-import { Pickaxe, Play, Pause, Lock, Cpu, MonitorPlay, Users, Calculator } from 'lucide-react';
+import { Pickaxe, Play, Pause, Lock, Cpu, MonitorPlay, Users, Calculator, BookOpen,
+         BarChart3, Activity, Server, Zap, Clock, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { RequireAuth } from '@/components/auth/RequireAuth';
@@ -16,8 +19,146 @@ import { MiningPoolsList } from '@/components/mining/MiningPoolsList';
 import { ProfitabilityCalculator } from '@/components/mining/ProfitabilityCalculator';
 import { MiningProcess } from '@/components/mining/MiningProcess';
 import { createMiningClient, MiningEngine } from '@/lib/miningClient';
-import { Badge } from '@/components/ui/badge';
-import { BookOpen } from 'lucide-react';
+
+function fmtDiff(d: number | undefined) {
+  if (!d) return '—';
+  if (d >= 1e9) return (d / 1e9).toFixed(2) + 'G';
+  if (d >= 1e6) return (d / 1e6).toFixed(2) + 'M';
+  if (d >= 1e3) return (d / 1e3).toFixed(2) + 'K';
+  return String(d);
+}
+
+function PoolStatsTab() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['pool-stats'],
+    queryFn: () => fetch('/api/mining/pool-stats').then(r => r.json()),
+    refetchInterval: 5000,
+  });
+
+  const { data: poolInfo } = useQuery({
+    queryKey: ['pool-info-rpc'],
+    queryFn: () => fetch('/api/mining/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'mining_getPoolInfo', params: {} }),
+    }).then(r => r.json()).then(d => d.result),
+    refetchInterval: 10000,
+  });
+
+  if (isLoading) return <div className="text-center text-muted-foreground py-12">Loading pool stats…</div>;
+  if (isError)   return <div className="text-center text-destructive py-12">Failed to load pool stats.</div>;
+
+  const stats = [
+    { label: 'Active Miners',   value: data?.activeSessions ?? 0,               icon: Users,   color: 'text-primary' },
+    { label: 'Block Height',    value: data?.currentJob?.blockHeight ?? '—',     icon: Hash,    color: 'text-blue-400' },
+    { label: 'Difficulty',      value: fmtDiff(data?.currentJob?.difficulty),    icon: Zap,     color: 'text-amber-400' },
+    { label: 'Pool Fee',        value: `${((data?.fee ?? 0.01) * 100).toFixed(0)}%`, icon: BarChart3, color: 'text-green-400' },
+    { label: 'Reward / Share',  value: `${data?.rewardPerShare ?? 0.001} GYDS`, icon: Activity, color: 'text-emerald-400' },
+    { label: 'Block Time',      value: `${poolInfo?.blockTime ?? 120}s`,         icon: Clock,   color: 'text-purple-400' },
+  ];
+
+  const jobAge = data?.currentJob?.ageMs ? Math.round(data.currentJob.ageMs / 1000) : 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Live indicator */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+        </span>
+        Live · refreshes every 5 s
+      </div>
+
+      {/* Stat grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {stats.map(({ label, value, icon: Icon, color }) => (
+          <GlassCard key={label} className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Icon className={cn('h-4 w-4', color)} />
+              <span className="text-xs text-muted-foreground uppercase tracking-wide">{label}</span>
+            </div>
+            <p className={cn('text-2xl font-bold', color)}>{String(value)}</p>
+          </GlassCard>
+        ))}
+      </div>
+
+      {/* Current job */}
+      {data?.currentJob && (
+        <GlassCard className="p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Server className="h-4 w-4 text-primary" />
+            <h3 className="font-semibold text-sm">Current Mining Job</h3>
+            <Badge variant="outline" className="ml-auto text-xs">
+              {jobAge}s old
+            </Badge>
+          </div>
+          <div className="space-y-1.5 text-xs text-muted-foreground font-mono">
+            <div className="flex justify-between gap-4">
+              <span>Job ID</span>
+              <span className="text-foreground truncate max-w-48">{data.currentJob.jobId}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span>Block Height</span>
+              <span className="text-foreground">{data.currentJob.blockHeight}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span>Difficulty</span>
+              <span className="text-foreground">{data.currentJob.difficulty.toLocaleString()}</span>
+            </div>
+          </div>
+        </GlassCard>
+      )}
+
+      {/* Pool details */}
+      {poolInfo && (
+        <GlassCard className="p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <BarChart3 className="h-4 w-4 text-primary" />
+            <h3 className="font-semibold text-sm">Pool Details</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-xs">
+            {[
+              ['Pool Name',      poolInfo.name],
+              ['Algorithm',      poolInfo.algorithm],
+              ['Chain ID',       poolInfo.chainId],
+              ['Network',        poolInfo.network],
+              ['Min Payout',     `${poolInfo.minPayout} GYDS`],
+              ['Total Shares',   (poolInfo.totalShares ?? 0).toLocaleString()],
+            ].map(([k, v]) => (
+              <div key={String(k)} className="flex justify-between gap-2">
+                <span className="text-muted-foreground">{k}</span>
+                <span className="font-medium text-foreground">{String(v)}</span>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+      )}
+
+      {/* Setup guide */}
+      <GlassCard className="p-4 border-primary/20 bg-primary/5">
+        <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
+          <Pickaxe className="h-4 w-4 text-primary" /> Mine with the standalone miner
+        </h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          Run our Node.js miner on any Ubuntu / Linux server and connect it to this pool.
+        </p>
+        <div className="bg-black/40 rounded-lg p-3 font-mono text-xs text-green-400 space-y-1">
+          <div># Download &amp; install</div>
+          <div>wget https://netlifegy.com/miner/miner.tar.gz</div>
+          <div>tar xzf miner.tar.gz &amp;&amp; cd miner</div>
+          <div>npm install</div>
+          <div className="mt-2"># Edit config.json — set minerAddress to your GYDS wallet</div>
+          <div>node miner.js</div>
+          <div className="mt-2"># Dashboard at http://YOUR-SERVER-IP:4500</div>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          RPC endpoint: <code className="text-primary">https://netlifegy.com/api/mining/rpc</code> · Chain ID 13370
+        </p>
+      </GlassCard>
+    </div>
+  );
+}
 
 const MiningContent = () => {
   const { user } = useAuth();
@@ -160,22 +301,26 @@ const MiningContent = () => {
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="pools" className="flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Pools
+          <TabsList className="grid w-full grid-cols-5">
+            <TabsTrigger value="pools" className="flex items-center gap-1.5 text-xs sm:text-sm">
+              <Users className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Pools</span>
             </TabsTrigger>
-            <TabsTrigger value="mine" className="flex items-center gap-2">
-              <Pickaxe className="w-4 h-4" />
-              Mining Engine
+            <TabsTrigger value="mine" className="flex items-center gap-1.5 text-xs sm:text-sm">
+              <Pickaxe className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Engine</span>
             </TabsTrigger>
-            <TabsTrigger value="calculator" className="flex items-center gap-2">
-              <Calculator className="w-4 h-4" />
-              Calculator
+            <TabsTrigger value="pool-stats" className="flex items-center gap-1.5 text-xs sm:text-sm">
+              <BarChart3 className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Pool Stats</span>
             </TabsTrigger>
-            <TabsTrigger value="learn" className="flex items-center gap-2">
-              <BookOpen className="w-4 h-4" />
-              How It Works
+            <TabsTrigger value="calculator" className="flex items-center gap-1.5 text-xs sm:text-sm">
+              <Calculator className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Calculator</span>
+            </TabsTrigger>
+            <TabsTrigger value="learn" className="flex items-center gap-1.5 text-xs sm:text-sm">
+              <BookOpen className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">How It Works</span>
             </TabsTrigger>
           </TabsList>
 
@@ -185,6 +330,10 @@ const MiningContent = () => {
 
           <TabsContent value="mine" className="mt-6">
             <MiningPoolInterface />
+          </TabsContent>
+
+          <TabsContent value="pool-stats" className="mt-6">
+            <PoolStatsTab />
           </TabsContent>
 
           <TabsContent value="calculator" className="mt-6">
