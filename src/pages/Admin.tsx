@@ -76,6 +76,7 @@ import { ActivityFeed } from '@/components/admin/ActivityFeed';
 import { GenesisManager } from '@/components/admin/GenesisManager';
 import { NodeDetailsDrawer } from '@/components/admin/NodeDetailsDrawer';
 import { FounderWalletPanel } from '@/components/admin/FounderWalletPanel';
+import { AnnouncementPanel } from '@/components/admin/AnnouncementPanel';
 import { Download } from 'lucide-react';
 
 function GitSyncPanel({ toast }: { toast: any }) {
@@ -771,6 +772,7 @@ const ADMIN_TABS = [
     { value: 'premine', label: 'Pre-mine' },
     { value: 'logos', label: 'Logos' },
     { value: 'promotion', label: 'Promotion' },
+    { value: 'announcement', label: 'Announcements' },
   ]},
   { group: 'System', tabs: [
     { value: 'server-config', label: 'Server Config' },
@@ -1036,6 +1038,10 @@ const AdminContent = () => {
 
         <TabsContent value="premine">
           <PremineManager />
+        </TabsContent>
+
+        <TabsContent value="announcement">
+          <AnnouncementPanel />
         </TabsContent>
 
         <TabsContent value="logos">

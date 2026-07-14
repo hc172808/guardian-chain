@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GYDS Miner Dashboard</title>
+<title>GYDS Miner — Chain 13370</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -13,10 +13,13 @@
         <div class="logo">⛏</div>
         <div>
           <h1>GYDS Miner</h1>
-          <p id="hostLabel" class="muted">connecting…</p>
+          <p class="muted small">Chain ID 13370 · <span id="networkLabel">connecting…</span></p>
         </div>
       </div>
-      <div id="statusPill" class="pill pill-off">Stopped</div>
+      <div class="header-right">
+        <span id="hostLabel" class="muted small"></span>
+        <div id="statusPill" class="pill pill-off">Stopped</div>
+      </div>
     </header>
 
     <div id="loginGate" class="card" style="display:none">
@@ -28,26 +31,34 @@
     </div>
 
     <main id="appMain" style="display:none">
-      <section class="grid">
+      <!-- Stats row -->
+      <section class="grid-4">
         <div class="card stat">
           <span class="label">Hash Rate</span>
-          <span id="hashRate" class="value">0 H/s</span>
+          <span id="hashRate" class="value accent">0 H/s</span>
         </div>
         <div class="card stat">
           <span class="label">Valid Shares</span>
-          <span id="validShares" class="value">0</span>
+          <span id="validShares" class="value green">0</span>
         </div>
         <div class="card stat">
-          <span class="label">Rejected Shares</span>
-          <span id="rejectedShares" class="value">0</span>
+          <span class="label">Rejected</span>
+          <span id="rejectedShares" class="value red">0</span>
         </div>
         <div class="card stat">
           <span class="label">Total Reward</span>
-          <span id="totalReward" class="value">0 GYDS</span>
+          <span id="totalReward" class="value accent">0 GYDS</span>
         </div>
+      </section>
+
+      <section class="grid-3">
         <div class="card stat">
           <span class="label">Block Height</span>
           <span id="blockHeight" class="value">—</span>
+        </div>
+        <div class="card stat">
+          <span class="label">Difficulty</span>
+          <span id="difficulty" class="value">—</span>
         </div>
         <div class="card stat">
           <span class="label">Uptime</span>
@@ -55,47 +66,71 @@
         </div>
       </section>
 
+      <!-- Pool info -->
+      <section class="card pool-banner" id="poolBanner" style="display:none">
+        <span class="pool-icon">🏊</span>
+        <div>
+          <p class="pool-name" id="poolName">GYDS Mining Pool</p>
+          <p class="muted small" id="poolStats">Fetching pool info…</p>
+        </div>
+        <div class="pool-right">
+          <span class="pill pill-on">Connected</span>
+        </div>
+      </section>
+
+      <!-- Controls -->
       <section class="card">
         <div class="row-between">
           <h2>Controls</h2>
           <div class="btn-group">
-            <button id="startBtn" class="btn primary" onclick="callAction('start')">Start Mining</button>
-            <button id="stopBtn" class="btn danger" onclick="callAction('stop')">Stop Mining</button>
+            <button id="startBtn" class="btn primary" onclick="callAction('start')">▶ Start Mining</button>
+            <button id="stopBtn" class="btn danger" onclick="callAction('stop')">■ Stop Mining</button>
           </div>
         </div>
-        <p id="actionMessage" class="muted"></p>
+        <p id="actionMessage" class="muted small mt-1"></p>
       </section>
 
+      <!-- Configuration -->
       <section class="card">
         <h2>Configuration</h2>
         <div class="form-grid">
           <label>RPC Endpoint
             <input id="cfgRpc" type="text" placeholder="https://netlifegy.com/api/mining/rpc" />
+            <span class="field-hint">Default: https://netlifegy.com/api/mining/rpc</span>
           </label>
           <label>Miner Wallet Address
             <input id="cfgAddress" type="text" placeholder="0x..." />
+            <span class="field-hint">Your GYDS wallet (Chain 13370)</span>
           </label>
           <label>Worker Name
             <input id="cfgWorker" type="text" placeholder="ubuntu-rig-1" />
           </label>
-          <label>Threads
+          <label>CPU Threads
             <input id="cfgThreads" type="number" min="1" />
+            <span class="field-hint">0 = auto (all cores)</span>
           </label>
-          <label>Dashboard Password <span class="muted">(leave blank to keep unchanged)</span>
+          <label>Dashboard Password <span class="muted">(blank = no change)</span>
             <input id="cfgPassword" type="password" placeholder="••••••••" />
           </label>
         </div>
-        <button class="btn primary" onclick="saveConfig()">Save Configuration</button>
-        <p id="configMessage" class="muted"></p>
+        <div class="row mt-1">
+          <button class="btn primary" onclick="saveConfig()">💾 Save & Apply</button>
+          <p id="configMessage" class="muted small"></p>
+        </div>
       </section>
 
+      <!-- System -->
       <section class="card">
         <h2>System</h2>
         <div id="systemInfo" class="system-grid"></div>
       </section>
 
+      <!-- Log -->
       <section class="card">
-        <h2>Activity Log</h2>
+        <div class="row-between">
+          <h2>Activity Log</h2>
+          <button class="btn ghost small" onclick="clearLog()">Clear</button>
+        </div>
         <pre id="logBox" class="log-box"></pre>
       </section>
     </main>

@@ -2081,32 +2081,29 @@ export function registerRoutes(app: Express) {
     });
   });
 
-  // ── Mining RPC proxy — proxies to best running test node ──────────────────
-  // Intentionally NOT behind requireAuth: this is the JSON-RPC endpoint the
-  // standalone Node.js miner (public/miner/miner.js) talks to from a remote
-  // Ubuntu server with no browser session/cookie — same as /rpc and /api/rpc,
-  // which are also public JSON-RPC endpoints. It's protected the same way any
-  // RPC endpoint is: the global firewall/rate-limiter (rpcLimiter) below, not
-  // a login. Requiring auth here made every standalone miner get silently
-  // rejected with 401 (or redirected to the login page) on mining_connect.
+  // ── Mining Pool RPC — self-contained pool server (no node required) ────────
+  // Public endpoint (no requireAuth): standalone miners connect from remote
+  // servers with no browser session. Protected by rpcLimiter only.
   app.post("/api/mining/rpc", rpcLimiter, async (req, res) => {
-    const running = testNodeManager.getRunningNodes();
-    if (!running.length) {
-      return res.json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32000, message: "No test nodes are running. Start a node in the Admin panel first." } });
-    }
-    const preferred = running.find(n => n.type === "rpc" || n.type === "fullnode") ?? running[0];
-    try {
-      const resp = await fetch(`http://localhost:${preferred.port}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req.body),
-        signal: AbortSignal.timeout(10_000),
-      });
-      const data = await resp.json();
-      res.json(data);
-    } catch (err: any) {
-      res.json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32001, message: "Node unreachable: " + (err?.message ?? "unknown") } });
-    }
+    const { handleMiningRpc } = await import("./miningPool");
+    const body = req.body ?? {};
+    const method = String(body.method ?? "");
+    const params = body.params ?? {};
+    const id = body.id ?? null;
+
+    const out = handleMiningRpc(method, params);
+
+    // asyncFn means a reward DB write is needed; fire-and-forget
+    if (out.asyncFn) out.asyncFn().catch(() => {});
+
+    if (out.error) return res.json({ jsonrpc: "2.0", id, error: out.error });
+    return res.json({ jsonrpc: "2.0", id, result: out.result });
+  });
+
+  // ── Mining pool stats (for Admin dashboard + /mining page) ─────────────────
+  app.get("/api/mining/pool-stats", async (_req, res) => {
+    const { getPoolStats } = await import("./miningPool");
+    res.json(getPoolStats());
   });
 
   // ── Server-side balance endpoint ──────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { ReactNode, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Info, AlertTriangle, CheckCircle, X } from 'lucide-react';
 import { Sidebar, MobileMenuButton } from './Sidebar';
 import { MobileBottomNav } from './MobileBottomNav';
 import { UpgradeBanner } from './UpgradeBanner';
@@ -12,6 +12,62 @@ import { useMaintenance } from '@/hooks/useMaintenance';
 import { useCurrency, CURRENCIES } from '@/contexts/CurrencyContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
+
+type BannerType = 'info' | 'warning' | 'success' | 'error';
+
+const BANNER_STYLES: Record<BannerType, string> = {
+  info:    'bg-blue-500/10 border-blue-500/30 text-blue-200',
+  warning: 'bg-amber-500/10 border-amber-500/30 text-amber-200',
+  success: 'bg-green-500/10 border-green-500/30 text-green-200',
+  error:   'bg-red-500/10 border-red-500/30 text-red-200',
+};
+const BANNER_ICONS: Record<BannerType, typeof Info> = {
+  info: Info, warning: AlertTriangle, success: CheckCircle, error: AlertTriangle,
+};
+
+function AnnouncementBanner() {
+  const [banner, setBanner] = useState<any>(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/config/announcement_banner', { credentials: 'include' });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled) setBanner(data?.config_value ?? null);
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  useEffect(() => { setDismissed(false); }, [banner?.at]);
+
+  if (!banner || dismissed) return null;
+
+  const type: BannerType = ['info','warning','success','error'].includes(banner.type) ? banner.type : 'info';
+  const Icon = BANNER_ICONS[type];
+
+  return (
+    <div className={`flex items-center gap-3 px-4 py-2.5 border-b text-sm ${BANNER_STYLES[type]}`}>
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="flex-1">{banner.message}</span>
+      {banner.link && (
+        <a href={banner.link} target="_blank" rel="noreferrer"
+          className="underline font-medium text-xs whitespace-nowrap hover:opacity-80">
+          {banner.linkLabel || 'Learn more'}
+        </a>
+      )}
+      <button onClick={() => setDismissed(true)}
+        className="ml-1 opacity-60 hover:opacity-100 transition-opacity shrink-0">
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
 
 interface LayoutProps {
   children: ReactNode;
@@ -74,6 +130,7 @@ export const Layout = ({ children }: LayoutProps) => {
 
       <main className={isMobile ? "min-h-screen pb-20" : "ml-64 min-h-screen"}>
         {enabled && <UpgradeBanner message={message} />}
+        <AnnouncementBanner />
 
         {/* Top-right header bar with currency selector + wallet download + notification bell (desktop only) */}
         {!isMobile && (
