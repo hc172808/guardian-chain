@@ -54,6 +54,8 @@ import { Web3ConnectModal } from '@/components/Web3ConnectModal';
 import { QRScanner } from '@/components/wallet/QRScanner';
 import { useRpcBalance } from '@/hooks/useRpcBalance';
 import { QrCode, Wifi, WifiOff, Activity, CheckCircle2, Clock, XCircle, ExternalLink } from 'lucide-react';
+import { NetworkSelector } from '@/components/ui/NetworkSelector';
+import { useNetwork, NETWORK_BADGE } from '@/contexts/NetworkContext';
 
 interface WalletData {
   id: string;
@@ -103,9 +105,7 @@ const WalletContent = () => {
   const { toast } = useToast();
   const [wallets, setWallets] = useState<WalletData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedNetwork, setSelectedNetwork] = useState<string>(
-    () => localStorage.getItem('gyds_network') || 'Testnet'
-  );
+  const { selectedNetwork: ctxNetwork, setSelectedNetwork: setCtxNetwork } = useNetwork();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [viewSeedDialogOpen, setViewSeedDialogOpen] = useState(false);
@@ -753,39 +753,18 @@ const WalletContent = () => {
     );
   }
 
-  const NETWORKS = ['Testnet', 'Mainnet', 'Devnet'] as const;
-  const NETWORK_COLORS: Record<string, string> = {
-    Testnet: 'text-amber-400 border-amber-400/40 bg-amber-400/10',
-    Mainnet: 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10',
-    Devnet:  'text-blue-400 border-blue-400/40 bg-blue-400/10',
-  };
-
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
+        <div className="space-y-2">
           <h1 className="text-3xl font-bold flex items-center gap-3">
             <WalletIcon className="w-8 h-8 text-primary" />
             Wallet Manager
           </h1>
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <p className="text-muted-foreground text-sm">Create, import, and manage your wallets</p>
-            <div className="flex gap-1">
-              {NETWORKS.map(n => (
-                <button
-                  key={n}
-                  onClick={() => { setSelectedNetwork(n); localStorage.setItem('gyds_network', n); }}
-                  className={`text-xs px-2 py-0.5 rounded-full border font-medium transition-all ${
-                    selectedNetwork === n
-                      ? NETWORK_COLORS[n]
-                      : 'text-muted-foreground border-muted-foreground/20 hover:border-muted-foreground/40'
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
           </div>
+          <NetworkSelector showToggles />
         </div>
         <div className="flex gap-2 flex-wrap">
           {isFounder && <FounderWalletConfig />}
@@ -1095,8 +1074,12 @@ const WalletContent = () => {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <p className="text-sm text-muted-foreground">Total Portfolio Value ({currencySymbol})</p>
-              <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${NETWORK_COLORS[selectedNetwork]}`}>
-                {selectedNetwork} · Chain 13370
+              <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${
+                ctxNetwork !== 'all'
+                  ? `${NETWORK_BADGE[ctxNetwork].border} ${NETWORK_BADGE[ctxNetwork].text} ${NETWORK_BADGE[ctxNetwork].bg}`
+                  : 'border-primary/40 text-primary bg-primary/10'
+              }`}>
+                {ctxNetwork !== 'all' ? NETWORK_BADGE[ctxNetwork].label : 'All Networks'} · Chain 13370
               </span>
             </div>
             <p className="text-3xl font-bold text-foreground">

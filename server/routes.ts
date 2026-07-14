@@ -682,8 +682,12 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Tokens ─────────────────────────────────────────────────────────────────
-  app.get("/api/tokens", withCache(20_000), async (_req, res) => {
-    const data = await storage.getActiveTokens();
+  app.get("/api/tokens", withCache(20_000), async (req, res) => {
+    const network = req.query.network as string | undefined;
+    let data = await storage.getActiveTokens();
+    if (network && ['mainnet', 'testnet', 'devnet'].includes(network)) {
+      data = (data as any[]).filter((t: any) => (t.networkType ?? t.network_type ?? 'devnet') === network);
+    }
     res.json(data);
   });
 

@@ -15,6 +15,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { readAllTokenNetworkStates, TokenNetworkState } from '@/lib/tokenPromotion';
+import { NetworkSelector } from '@/components/ui/NetworkSelector';
+import { useNetwork, ALL_NETWORKS, NETWORK_BADGE } from '@/contexts/NetworkContext';
 
 interface TokenRecord {
   id: string;
@@ -67,11 +69,21 @@ const TokensPage = () => {
   const [selectedToken, setSelectedToken] = useState<ReturnType<typeof toFeaturePanelToken> | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { selectedNetwork, activeNetworks } = useNetwork();
 
   useEffect(() => {
     const fetchTokens = async () => {
-      const data: TokenRecord[] = await fetch('/api/tokens').then(r => r.ok ? r.json() : []).catch(() => []);
-      const filtered = data.filter(t => t.is_active || (user && t.creator_id === user.id));
+      // Build URL — filter by selected network when a specific one is chosen
+      const networkParam = selectedNetwork !== 'all' ? `?network=${selectedNetwork}` : '';
+      const data: TokenRecord[] = await fetch(`/api/tokens${networkParam}`, { credentials: 'include' })
+        .then(r => r.ok ? r.json() : []).catch(() => []);
+
+      // Also hide tokens whose network is currently toggled off
+      const filtered = data.filter(t => {
+        const net = (t as any).networkType ?? (t as any).network_type ?? 'devnet';
+        if (!activeNetworks.has(net as any)) return false;
+        return t.is_active || (user && t.creator_id === user.id);
+      });
       setTokens(filtered);
       const states = await readAllTokenNetworkStates();
       setNetworkStates(states);
@@ -79,10 +91,10 @@ const TokensPage = () => {
     };
     fetchTokens();
 
-    // Poll every 30s (no Supabase realtime)
+    // Poll every 30s
     const interval = setInterval(fetchTokens, 30000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, selectedNetwork, activeNetworks]);
 
   const filtered = tokens.filter(t =>
     (t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -95,17 +107,21 @@ const TokensPage = () => {
   return (
     <Layout>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold">
-              <span className="text-gradient-primary">Token</span> Marketplace
-            </h1>
-            <p className="text-muted-foreground mt-2 text-sm">Browse, create, and trade tokens on GYDS Network</p>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold">
+                <span className="text-gradient-primary">Token</span> Marketplace
+              </h1>
+              <p className="text-muted-foreground mt-2 text-sm">Browse, create, and trade tokens on GYDS Network</p>
+            </div>
+            <Badge variant="outline" className="gap-2 w-fit">
+              <Coins className="h-4 w-4" />
+              {tokens.length} Tokens Listed
+            </Badge>
           </div>
-          <Badge variant="outline" className="gap-2 w-fit">
-            <Coins className="h-4 w-4" />
-            {tokens.length} Tokens Listed
-          </Badge>
+          {/* Network filter + per-network toggles */}
+          <NetworkSelector showToggles />
         </div>
 
         <GlassCard className="p-4 border-warning/30 bg-warning/5">

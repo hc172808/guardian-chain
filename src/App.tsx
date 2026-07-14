@@ -56,6 +56,7 @@ import SetupPage from "./pages/Setup";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
+import { NetworkProvider } from "@/contexts/NetworkContext";
 
 const queryClient = new QueryClient();
 
@@ -162,6 +163,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <CurrencyProvider>
+        <NetworkProvider>
         <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -171,6 +173,7 @@ const App = () => (
             </ErrorBoundary>
           </BrowserRouter>
         </TooltipProvider>
+        </NetworkProvider>
       </CurrencyProvider>
     </AuthProvider>
   </QueryClientProvider>
