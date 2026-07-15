@@ -127,9 +127,12 @@ export default function SetupPage() {
 
   const set = (key: keyof FormValues) => (v: string) => setValues(prev => ({ ...prev, [key]: v }));
 
+  const [alreadySetup, setAlreadySetup] = useState(false);
+
   useEffect(() => {
     API('/api/setup/status').then(r => r.ok ? r.json() : null).then(data => {
       if (!data) return;
+      if (data.setupComplete) setAlreadySetup(true);
       const v: Partial<FormValues> = {};
       for (const [k, val] of Object.entries(data.values ?? {})) {
         if (k in DEFAULT && typeof val === 'string' && val && !val.startsWith('••')) {
@@ -184,7 +187,10 @@ export default function SetupPage() {
       const data = await r.json();
       if (!data.ok) throw new Error(data.error ?? 'Save failed');
       setSaved(true);
+      setAlreadySetup(true);
       toast({ title: 'Setup complete!', description: `${data.saved.length} settings saved to .env` });
+      // Auto-redirect to admin after 3 seconds
+      setTimeout(() => navigate('/admin'), 3000);
     } catch (e: any) {
       toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
     } finally {
@@ -201,6 +207,30 @@ export default function SetupPage() {
           <h2 className="text-xl font-bold mb-2">Admin Access Required</h2>
           <p className="text-muted-foreground mb-4">You need admin or founder role to access the setup wizard.</p>
           <Button onClick={() => navigate('/auth')}>Sign In</Button>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  if (alreadySetup && !saved) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <GlassCard className="p-8 text-center max-w-md space-y-5">
+          <div className="p-4 rounded-full bg-emerald-500/20 w-fit mx-auto">
+            <CheckCircle2 className="h-14 w-14 text-emerald-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-emerald-300">Setup Already Complete</h2>
+          <p className="text-muted-foreground">
+            ChainCore is already configured. Your <code className="bg-secondary px-1 rounded">.env</code> settings are in place and the platform is live.
+          </p>
+          <div className="flex flex-col gap-2">
+            <Button onClick={() => navigate('/admin')} className="gap-2">
+              Go to Admin Panel
+            </Button>
+            <Button variant="outline" onClick={() => setAlreadySetup(false)} className="gap-2 text-muted-foreground">
+              Reconfigure (overwrite .env)
+            </Button>
+          </div>
         </GlassCard>
       </div>
     );

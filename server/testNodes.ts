@@ -127,6 +127,51 @@ interface NodeState {
 const INITIAL_PEERS: Record<NodeType, number> = { rpc: 4, lite: 2, fullnode: 10, boostnode: 18, validator: 5, genesis: 0, bootnode: 32 };
 const INITIAL_POOL:  Record<NodeType, number> = { rpc: 0, lite: 0, fullnode: 12, boostnode: 40, validator: 3,  genesis: 0, bootnode: 0  };
 
+// ── Shared per-network chain state ────────────────────────────────────────────
+// All node types on the same network share ONE block height counter and ONE
+// balance trie so they are always in sync with each other.
+const networkChain: Record<Network, {
+  blockHeight: number;
+  timer:       ReturnType<typeof setInterval> | null;
+  /** key = "TOKEN:0xlowercaseaddress" → wei as bigint */
+  balances:    Map<string, bigint>;
+  txLog:       Array<{ hash: string; from: string; to: string; token: string; value: bigint; block: number }>;
+}> = {
+  mainnet: { blockHeight: 1_000, timer: null, balances: new Map(), txLog: [] },
+  testnet: { blockHeight: 1_000, timer: null, balances: new Map(), txLog: [] },
+  devnet:  { blockHeight: 1_000, timer: null, balances: new Map(), txLog: [] },
+};
+
+/** Credit tokens to an address on a network (faucet, premine, transfers). */
+export function creditAddress(network: Network, address: string, token: "GYDS" | "GYD" | "GUSD", amountWei: bigint): void {
+  if (!address || amountWei <= 0n) return;
+  const key   = `${token}:${address.toLowerCase()}`;
+  const chain = networkChain[network];
+  chain.balances.set(key, (chain.balances.get(key) ?? 0n) + amountWei);
+}
+
+/** Debit tokens from an address. Returns false if insufficient balance. */
+export function debitAddress(network: Network, address: string, token: "GYDS" | "GYD" | "GUSD", amountWei: bigint): boolean {
+  if (!address || amountWei <= 0n) return false;
+  const key     = `${token}:${address.toLowerCase()}`;
+  const chain   = networkChain[network];
+  const current = chain.balances.get(key) ?? 0n;
+  if (current < amountWei) return false;
+  chain.balances.set(key, current - amountWei);
+  return true;
+}
+
+/** Read on-chain balance for an address (returns wei as bigint). */
+export function getNetworkBalance(network: Network, address: string, token: "GYDS" | "GYD" | "GUSD" = "GYDS"): bigint {
+  const key = `${token}:${address.toLowerCase()}`;
+  return networkChain[network].balances.get(key) ?? 0n;
+}
+
+/** Get the current chain block height for a network (shared across all nodes). */
+export function getChainBlockHeight(network: Network): number {
+  return networkChain[network].blockHeight;
+}
+
 const state: Record<Network, Record<NodeType, NodeState>> = {} as any;
 for (const network of ALL_NETWORKS) {
   state[network] = {} as any;
@@ -284,7 +329,11 @@ function jsonRpcDispatch(rpc: any, s: NodeState, cfg: NetworkCfg, opts: { booste
     case "net_peerCount":             return "0x" + s.peers.toString(16);
     case "web3_clientVersion":        return `GYDSchain/${cfg.label}/${s.type}/v1.0.0`;
     case "eth_syncing":               return false;
-    case "eth_getBalance":            return "0x" + (1_000_000_000_000_000_000n).toString(16);
+    case "eth_getBalance": {
+      const addr = String(rpc.params?.[0] ?? "").toLowerCase();
+      const key  = `GYDS:${addr}`;
+      return "0x" + (networkChain[s.network].balances.get(key) ?? 0n).toString(16);
+    }
     case "eth_getTransactionCount":   return "0x" + Math.floor(Math.random() * 100).toString(16);
     case "eth_estimateGas":           return "0x" + (21_000).toString(16);
     case "eth_getBlockByNumber":      return blockObject(s, cfg, Math.floor(Math.random() * (opts.boosted ? 30 : 5)));
@@ -358,6 +407,24 @@ function jsonRpcDispatch(rpc: any, s: NodeState, cfg: NetworkCfg, opts: { booste
     case "mining_submitWork": return { accepted: true, reward: 0.01, message: "Share accepted!", newDifficulty: "0000ffff" };
     case "mining_getStats":   return { hashRate: Math.floor(Math.random() * 5e6), validShares: Math.floor(Math.random() * 100), rejectedShares: Math.floor(Math.random() * 3), totalReward: Math.random() * 10, currentDifficulty: "0000ffff", humanScore: Math.random(), sessionId: randHex(16), uptime: Math.floor(Math.random() * 3600) };
     case "mining_getPoolInfo": return { name: "GYDS-" + cfg.label + "-Pool", totalHashRate: Math.floor(Math.random() * 1e9), activeMiners: Math.floor(Math.random() * 50) + 1, blocksFound: Math.floor(Math.random() * 1000), poolFee: 1.0, minPayout: 0.1, difficulty: "0000ffff" };
+    case "gyds_sendTransaction": {
+      // Custom GYDS transfer: { from, to, token, value } where value is wei as hex or bigint string
+      const p        = rpc.params?.[0] ?? {};
+      const fromAddr = String(p.from  ?? "").toLowerCase();
+      const toAddr   = String(p.to    ?? "").toLowerCase();
+      const token    = (["GYDS", "GYD", "GUSD"].includes(String(p.token ?? "").toUpperCase())
+                        ? String(p.token).toUpperCase()
+                        : "GYDS") as "GYDS" | "GYD" | "GUSD";
+      let valueWei: bigint;
+      try { valueWei = BigInt(p.value ?? 0); } catch { return null; }
+      if (!fromAddr || !toAddr || valueWei <= 0n) return null;
+      if (!debitAddress(s.network, fromAddr, token, valueWei)) return null; // insufficient funds
+      creditAddress(s.network, toAddr, token, valueWei);
+      const txHash = "0x" + randHex(64);
+      networkChain[s.network].txLog.push({ hash: txHash, from: fromAddr, to: toAddr, token, value: valueWei, block: networkChain[s.network].blockHeight });
+      if (networkChain[s.network].txLog.length > 500) networkChain[s.network].txLog.shift();
+      return txHash;
+    }
     default:                          return null;
   }
 }
@@ -591,6 +658,16 @@ export const testNodeManager = {
         return;
       }
 
+      // Only one genesis node is allowed running at a time across all networks
+      if (type === "genesis") {
+        for (const net of ALL_NETWORKS) {
+          if (net !== network && state[net].genesis.running) {
+            resolve({ ok: false, message: `Genesis node already running on ${net}. Only one genesis node is allowed across all networks — stop it first.` });
+            return;
+          }
+        }
+      }
+
       const srv = createServer(makeHandler(network, type));
       let settled = false;
 
@@ -625,35 +702,53 @@ export const testNodeManager = {
           resolve({ ok: true, message: `${NODE_LABELS[type]} (${cfg.name}) started on port ${s.port}` });
         }
 
-        // genesis and bootnode don't produce blocks — skip the block timer
+        // Sync node to shared chain state immediately
+        const chain = networkChain[network];
+        s.blockHeight = chain.blockHeight;
+
+        // Start the shared 3-second block timer if this is the first node on this network
+        if (chain.timer === null) {
+          chain.timer = setInterval(() => {
+            chain.blockHeight++;
+            // Mirror block height to all running nodes so status shows the same height
+            for (const t of ALL_NODE_TYPES) {
+              if (state[network][t].running) state[network][t].blockHeight = chain.blockHeight;
+            }
+          }, 3_000);
+          addLog(network, type, `Shared block timer started — all ${network} nodes synced at block #${chain.blockHeight}`);
+        }
+
+        // genesis and bootnode don't log per-block activity
         if (BLOCK_INTERVALS[type] === 0) return;
 
+        // Per-node activity logger (reads shared block height — does NOT increment it)
         s.blockTimer = setInterval(() => {
-          s.blockHeight++;
+          const h = chain.blockHeight; // authoritative shared height
+          s.blockHeight = h;
           s.peers = Math.max(1, s.peers + (Math.random() > 0.8 ? (Math.random() > 0.5 ? 1 : -1) : 0));
 
           if (type === "rpc") {
             const txCount = Math.floor(Math.random() * 5);
-            addLog(network, type, `Block #${s.blockHeight} | ${txCount} txs | ${s.peers} peers`);
+            addLog(network, type, `Block #${h} | ${txCount} txs | ${s.peers} peers`);
           } else if (type === "lite") {
-            addLog(network, type, `Header #${s.blockHeight} synced | ${s.peers} peers`);
+            addLog(network, type, `Header #${h} synced | ${s.peers} peers`);
           } else if (type === "fullnode") {
             const txCount = Math.floor(Math.random() * 15) + 1;
             s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 8) - txCount);
-            addLog(network, type, `Block #${s.blockHeight} | ${txCount} txs | pool: ${s.txPool} | ${s.peers} peers`);
+            addLog(network, type, `Block #${h} | ${txCount} txs | pool: ${s.txPool} | ${s.peers} peers`);
           } else if (type === "validator") {
             const validators = MOCK_VALIDATORS[network];
             const txCount = Math.floor(Math.random() * 8) + 1;
-            const proposer = validators[s.blockHeight % validators.length].address;
-            const epoch = Math.floor(s.blockHeight / 100);
+            const proposer = validators[h % validators.length].address;
+            const epoch = Math.floor(h / 100);
             s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 5) - txCount);
-            validators[s.blockHeight % validators.length].blocksProposed++;
-            addLog(network, type, `Block #${s.blockHeight} by ${proposer.slice(0, 10)}… | ${txCount} txs | epoch ${epoch} | +${txCount * 2} ${cfg.symbol}`);
+            validators[h % validators.length].blocksProposed++;
+            addLog(network, type, `Block #${h} by ${proposer.slice(0, 10)}… | ${txCount} txs | epoch ${epoch} | +${txCount * 2} ${cfg.symbol}`);
           } else {
             const txCount = Math.floor(Math.random() * 40) + 10;
             const mev = Math.random() > 0.6 ? ` | MEV #${Math.floor(Math.random() * 9999)}` : "";
             s.txPool = Math.max(0, s.txPool + Math.floor(Math.random() * 20) - txCount);
-            addLog(network, type, `Block #${s.blockHeight} | ${txCount} txs | pool: ${s.txPool}${mev}`);
+            addLog(network, type, `Block #${h} | ${txCount} txs | pool: ${s.txPool}${mev}`);
           }
         }, BLOCK_INTERVALS[type]);
       });
@@ -669,6 +764,15 @@ export const testNodeManager = {
     if (s.blockTimer) { clearInterval(s.blockTimer); s.blockTimer = null; }
     s.server?.close(() => addLog(network, type, `${NODE_LABELS[type]} stopped`));
     s.running = false; s.server = null; s.startedAt = null;
+
+    // If no more nodes running on this network, stop the shared block timer
+    const chain = networkChain[network];
+    const anyStillRunning = ALL_NODE_TYPES.some(t => t !== type && state[network][t].running);
+    if (!anyStillRunning && chain.timer !== null) {
+      clearInterval(chain.timer);
+      chain.timer = null;
+      addLog(network, type, `Shared block timer stopped — no more nodes running on ${network}`);
+    }
     return { ok: true, message: `${NODE_LABELS[type]} (${network}) stopped` };
   },
 
@@ -708,5 +812,38 @@ export const testNodeManager = {
       }
     }
     return result;
+  },
+
+  /**
+   * Start all 7 node types for a network sequentially in proper dependency order:
+   * genesis → bootnode → rpc → fullnode → validator → lite → boostnode
+   * Each node waits 500ms after starting before the next begins.
+   */
+  async startSequential(
+    network: Network,
+    onProgress?: (step: number, total: number, type: NodeType, ok: boolean, msg: string) => void
+  ): Promise<{ ok: boolean; started: NodeType[]; failed: NodeType[] }> {
+    const ORDER: NodeType[] = ["genesis", "bootnode", "rpc", "fullnode", "validator", "lite", "boostnode"];
+    const started: NodeType[] = [];
+    const failed:  NodeType[] = [];
+    for (let i = 0; i < ORDER.length; i++) {
+      const type = ORDER[i];
+      if (state[network][type].running) {
+        started.push(type);
+        onProgress?.(i + 1, ORDER.length, type, true, "Already running");
+        continue;
+      }
+      const result = await this.start(network, type);
+      if (result.ok) {
+        started.push(type);
+        await saveTestNodeState(network, type, true);
+      } else {
+        failed.push(type);
+      }
+      onProgress?.(i + 1, ORDER.length, type, result.ok, result.message);
+      // Small delay so each node binds its port before the next one tries
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return { ok: failed.length === 0, started, failed };
   },
 };

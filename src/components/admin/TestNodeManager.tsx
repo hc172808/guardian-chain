@@ -745,6 +745,148 @@ function NodeLogFilePanel() {
   );
 }
 
+// ── Node Setup Wizard ─────────────────────────────────────────────────────────
+const WIZARD_ORDER: NodeType[] = ['genesis', 'bootnode', 'rpc', 'fullnode', 'validator', 'lite', 'boostnode'];
+const WIZARD_LABELS: Record<NodeType, string> = {
+  genesis: 'Genesis Node — chain origin & genesis.json',
+  bootnode: 'Boot Node — peer discovery & enode list',
+  rpc: 'RPC Node — JSON-RPC endpoint',
+  fullnode: 'Full Node — complete chain state',
+  validator: 'Validator Node — PoS consensus',
+  lite: 'Lite Node — lightweight header sync',
+  boostnode: 'Boost Node — MEV & high-throughput',
+};
+
+interface WizardStep { type: NodeType; ok: boolean; message: string; }
+
+function NodeSetupWizard({ onDone }: { onDone: () => void }) {
+  const { toast } = useToast();
+  const [wizardNet, setWizardNet] = useState<Network>('mainnet');
+  const [running, setRunning]     = useState(false);
+  const [done, setDone]           = useState(false);
+  const [steps, setSteps]         = useState<WizardStep[]>([]);
+  const [pending, setPending]     = useState<NodeType | null>(null);
+
+  const runWizard = async () => {
+    setRunning(true);
+    setDone(false);
+    setSteps([]);
+    // Optimistically show pending state for each node in order
+    for (let i = 0; i < WIZARD_ORDER.length; i++) {
+      setPending(WIZARD_ORDER[i]);
+      await new Promise(r => setTimeout(r, 0)); // yield to render
+    }
+    setPending(null);
+    try {
+      const res = await fetch(`/api/admin/test-nodes/${wizardNet}/start-sequential`, {
+        method: 'POST', credentials: 'include',
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.steps)) {
+        setSteps(data.steps.map((s: any) => ({ type: s.type, ok: s.ok, message: s.message })));
+        setDone(true);
+        if (data.ok) {
+          toast({ title: `All ${wizardNet} nodes started!`, description: 'Network is ready to use.' });
+          setTimeout(onDone, 2000);
+        } else {
+          toast({ title: 'Some nodes failed to start', description: `${data.failed?.length ?? 0} node(s) failed`, variant: 'destructive' });
+        }
+      } else {
+        toast({ title: 'Wizard failed', description: data.error ?? 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Request failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setRunning(false);
+      setPending(null);
+    }
+  };
+
+  return (
+    <GlassCard className="p-4 space-y-4 border border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-primary" />
+          <span className="font-semibold text-sm">Node Setup Wizard</span>
+          <Badge variant="outline" className="text-xs text-primary border-primary/40 bg-primary/10 py-0">
+            Starts all 7 nodes in order
+          </Badge>
+        </div>
+        {/* Network selector */}
+        <div className="flex gap-1">
+          {(['mainnet', 'testnet', 'devnet'] as Network[]).map(n => (
+            <button key={n} onClick={() => { if (!running) { setWizardNet(n); setSteps([]); setDone(false); } }}
+              className={cn('px-2.5 py-1 rounded text-xs font-medium border transition-all',
+                wizardNet === n && !running
+                  ? 'bg-primary/20 border-primary/50 text-primary'
+                  : 'border-border/30 text-muted-foreground hover:border-border/60 hover:text-foreground',
+                running ? 'opacity-50 cursor-not-allowed' : ''
+              )}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Step list */}
+      <div className="space-y-1.5">
+        {WIZARD_ORDER.map((type, i) => {
+          const step = steps.find(s => s.type === type);
+          const isPending = running && !step && i >= (steps.length);
+          const isActive  = pending === type && running && !step;
+          return (
+            <div key={type} className={cn('flex items-center gap-3 px-3 py-2 rounded-lg text-xs border transition-all',
+              step ? (step.ok ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30') :
+              isActive ? 'bg-primary/10 border-primary/30 animate-pulse' :
+              'bg-muted/10 border-border/20 text-muted-foreground'
+            )}>
+              <span className="w-4 h-4 shrink-0 flex items-center justify-center">
+                {step ? (
+                  step.ok
+                    ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    : <AlertTriangle className="w-4 h-4 text-red-400" />
+                ) : isActive ? (
+                  <span className="w-3 h-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                ) : (
+                  <span className="w-4 h-4 rounded-full border border-muted-foreground/30 flex items-center justify-center text-[10px] text-muted-foreground">{i + 1}</span>
+                )}
+              </span>
+              <span className={cn('flex-1 font-medium', step?.ok ? 'text-emerald-300' : step ? 'text-red-300' : isActive ? 'text-primary' : '')}>
+                {WIZARD_LABELS[type]}
+              </span>
+              {step && <span className="text-muted-foreground truncate max-w-[180px]">{step.message}</span>}
+              {isActive && <span className="text-primary/70 text-[10px] animate-pulse">Starting…</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Action */}
+      {done && steps.every(s => s.ok) ? (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-300">All Nodes Ready!</p>
+            <p className="text-xs text-muted-foreground">All 7 {wizardNet} nodes are running and synced.</p>
+          </div>
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          className="gap-2 bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary"
+          onClick={runWizard}
+          disabled={running}
+        >
+          {running
+            ? <><span className="w-3.5 h-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Setting up…</>
+            : <><Zap className="w-3.5 h-3.5" /> {done ? 'Re-run Wizard' : 'Run Setup Wizard'} ({wizardNet})</>
+          }
+        </Button>
+      )}
+    </GlassCard>
+  );
+}
+
 const EMPTY_NODE_STATUS: NodeStatus = { running: false, startedAt: null, port: 0, blockHeight: 1000, peers: 0, txPool: 0 };
 const EMPTY_STATUS: FullStatus = {
   mainnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8545 }, lite: { ...EMPTY_NODE_STATUS, port: 8555 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8565 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8575 }, validator: { ...EMPTY_NODE_STATUS, port: 8585 }, genesis: { ...EMPTY_NODE_STATUS, port: 8590 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8595 } },
@@ -762,6 +904,7 @@ export function TestNodeManager() {
   const [syncData, setSyncData]           = useState<SyncCheck | null>(null);
   const [syncLoading, setSyncLoading]     = useState(false);
   const [showSync, setShowSync]           = useState(false);
+  const [showWizard, setShowWizard]       = useState(true);
 
   const fetchStatus = useCallback(async () => {
     const res = await fetch('/api/admin/test-nodes/status', { credentials: 'include' });
@@ -907,11 +1050,22 @@ export function TestNodeManager() {
           : <WifiOff className="w-4 h-4 text-muted-foreground shrink-0" />}
         <span className="text-muted-foreground">
           {anyRunningGlobal
-            ? `${totalRunning}/21 nodes running across all networks`
-            : 'No nodes running — select a network tab and click Start All'}
+            ? `${totalRunning}/21 nodes running — all nodes on same network share one block height (synced)`
+            : 'No nodes running — use the Setup Wizard below to start all nodes in order'}
         </span>
         {anyRunningGlobal && <Activity className="w-4 h-4 text-emerald-400 animate-pulse ml-auto shrink-0" />}
+        <button
+          onClick={() => setShowWizard(w => !w)}
+          className="ml-auto text-xs text-primary border border-primary/30 rounded px-2 py-0.5 hover:bg-primary/10 transition-colors shrink-0"
+        >
+          {showWizard ? 'Hide Wizard' : 'Setup Wizard'}
+        </button>
       </div>
+
+      {/* Node Setup Wizard */}
+      {showWizard && (
+        <NodeSetupWizard onDone={() => { setShowWizard(false); fetchStatus(); }} />
+      )}
 
       {/* Sync check results */}
       {showSync && (

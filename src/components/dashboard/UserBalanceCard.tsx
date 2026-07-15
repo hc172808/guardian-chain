@@ -42,28 +42,44 @@ export const UserBalanceCard = () => {
   const loadBalances = useCallback(async () => {
     if (!user) { setLoading(false); return; }
     try {
-      const [wallets, priceData, serverBalance] = await Promise.all([
+      const [wallets, priceData] = await Promise.all([
         api.get('/api/wallets').catch(() => []),
         api.get('/api/token-price').catch(() => null),
-        api.get('/api/user/balance').catch(() => null),
       ]);
-      if (wallets?.length) setAddress(wallets[0].address);
+      const walletAddress = wallets?.[0]?.address ?? '';
+      if (walletAddress) setAddress(walletAddress);
       if (priceData?.price) setGydsPrice(Number(priceData.price));
 
-      if (serverBalance && (serverBalance.gyds !== undefined || serverBalance.gyd !== undefined)) {
-        setGydsBalance(Number(serverBalance.gyds ?? 0));
-        setGydBalance(Number(serverBalance.gyd ?? 0));
-        setGusdBalance(Number(serverBalance.gusd ?? 0));
+      // Try on-chain balance first (live from local nodes)
+      const netKey = (network === 'Mainnet' ? 'mainnet' : network === 'Testnet' ? 'testnet' : 'devnet');
+      const onChain = walletAddress
+        ? await api.get(`/api/chain/balance/${walletAddress}?network=${netKey}`).catch(() => null)
+        : null;
+
+      if (onChain?.ok && onChain.source === 'onchain' &&
+          (onChain.gyds > 0 || onChain.gyd > 0 || onChain.gusd > 0)) {
+        // Use on-chain data — nodes are running and have balances
+        setGydsBalance(Number(onChain.gyds));
+        setGydBalance(Number(onChain.gyd));
+        setGusdBalance(Number(onChain.gusd));
       } else {
-        const myAddresses = await getUserAddresses(user.id);
-        const balances = await computeUserBalances(user.id, myAddresses);
-        setGydsBalance(balances.gydsBalance);
-        setGydBalance(balances.gydBalance);
-        setGusdBalance(balances.gusdBalance);
+        // Fall back to DB-computed balance
+        const serverBalance = await api.get('/api/user/balance').catch(() => null);
+        if (serverBalance && (serverBalance.gyds !== undefined || serverBalance.gyd !== undefined)) {
+          setGydsBalance(Number(serverBalance.gyds ?? 0));
+          setGydBalance(Number(serverBalance.gyd ?? 0));
+          setGusdBalance(Number(serverBalance.gusd ?? 0));
+        } else {
+          const myAddresses = await getUserAddresses(user.id);
+          const balances = await computeUserBalances(user.id, myAddresses);
+          setGydsBalance(balances.gydsBalance);
+          setGydBalance(balances.gydBalance);
+          setGusdBalance(balances.gusdBalance);
+        }
       }
     } catch {}
     setLoading(false);
-  }, [user]);
+  }, [user, network]);
 
   useEffect(() => {
     loadBalances();

@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile } from "./testNodes";
+import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, getNetworkBalance } from "./testNodes";
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
@@ -1488,6 +1488,13 @@ export function registerRoutes(app: Express) {
     });
     await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "faucet_claim", category: "token", targetType: "token", targetId: tokenType, details: { amount, wallet_address: walletAddress, tx_hash: txHash }, ipAddress: req.ip ?? null });
 
+    // Credit on-chain balance trie so all running local nodes reflect the claim
+    const tokenKey = tokenType === "gyd" ? "GYD" : tokenType === "gusd" ? "GUSD" : "GYDS";
+    const amountWei = BigInt(Math.round(amount * 1e18));
+    for (const net of ["mainnet", "testnet", "devnet"] as const) {
+      creditAddress(net, walletAddress, tokenKey as "GYDS" | "GYD" | "GUSD", amountWei);
+    }
+
     res.json({ ok: true, tx_hash: txHash, amount, token_type: tokenType });
     broadcastActivity({ type: 'faucet', title: 'Faucet Claim', detail: `${amount} ${tokenType.toUpperCase()} → ${walletAddress.slice(0, 10)}…`, user: user.username ?? user.walletAddress?.slice(0, 10), ip: req.ip ?? undefined });
 
@@ -2145,6 +2152,37 @@ export function registerRoutes(app: Express) {
       }
     }
     res.json({ chainBlock: chainBlock || null, chainBlockHex, nodes: syncResults });
+  });
+
+  // GET on-chain balance for an address from the in-memory balance trie
+  app.get("/api/chain/balance/:address", requireAuth, async (req, res) => {
+    const address = String(req.params.address ?? "").trim();
+    const network = (["mainnet", "testnet", "devnet"].includes(req.query.network as string)
+      ? req.query.network : "mainnet") as "mainnet" | "testnet" | "devnet";
+    if (!address) return res.status(400).json({ ok: false, error: "address required" });
+    const toEth = (wei: bigint) => Number(wei) / 1e18;
+    res.json({
+      ok: true,
+      address,
+      network,
+      gyds: toEth(getNetworkBalance(network, address, "GYDS")),
+      gyd:  toEth(getNetworkBalance(network, address, "GYD")),
+      gusd: toEth(getNetworkBalance(network, address, "GUSD")),
+      source: "onchain",
+    });
+  });
+
+  // POST sequential node wizard — starts genesis→bootnode→rpc→fullnode→validator→lite→boostnode one at a time
+  app.post("/api/admin/test-nodes/:network/start-sequential", requireAdmin, async (req, res) => {
+    const network = req.params.network as "mainnet" | "testnet" | "devnet";
+    if (!["mainnet", "testnet", "devnet"].includes(network)) {
+      return res.status(400).json({ ok: false, error: "Invalid network" });
+    }
+    const steps: Array<{ step: number; type: string; ok: boolean; message: string }> = [];
+    const result = await testNodeManager.startSequential(network, (step, _total, type, ok, message) => {
+      steps.push({ step, type, ok, message });
+    });
+    res.json({ ok: result.ok, network, started: result.started, failed: result.failed, steps });
   });
 
   app.patch("/api/admin/test-nodes/:network/:type/bootup", requireAdmin, async (req, res) => {
