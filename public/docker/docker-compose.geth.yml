@@ -1,0 +1,117 @@
+# GydsChain — Geth-based node stack
+# Chain ID 13370 | Clique PoA
+#
+# Quick start (replace YOUR_DASHBOARD_URL):
+#   GENESIS_URL=https://YOUR_DASHBOARD_URL/api/chain/genesis.json \
+#   docker compose -f docker-compose.geth.yml up -d
+#
+# With local genesis.json file:
+#   docker compose -f docker-compose.geth.yml up -d
+#   (mount genesis.json into /etc/gyds/genesis.json via the volume below)
+
+version: "3.9"
+
+x-geth-base: &geth-base
+  build:
+    context: ../..
+    dockerfile: public/docker/Dockerfile.geth
+  restart: unless-stopped
+  networks:
+    - gydsnet
+  environment:
+    CHAIN_ID: "13370"
+    NETWORK_ID: "13370"
+    GENESIS_URL: "${GENESIS_URL:-}"
+
+services:
+
+  # ── Genesis / Boot node (first node, initialises chain) ─────────────────────
+  genesis:
+    <<: *geth-base
+    container_name: gyds-genesis
+    environment:
+      CHAIN_ID: "13370"
+      NETWORK_ID: "13370"
+      GENESIS_URL: "${GENESIS_URL:-}"
+      RPC_PORT: "8545"
+      WS_PORT: "8546"
+      P2P_PORT: "30303"
+      # Set SIGNER_ADDRESS + SIGNER_PASSWORD_FILE to enable validator/mining
+      SIGNER_ADDRESS: "${SIGNER_ADDRESS:-}"
+      SIGNER_PASSWORD_FILE: "/etc/gyds/signer.password"
+    volumes:
+      - genesis-data:/var/lib/gyds
+      # Optional: mount your own genesis.json and/or signer password
+      - ./genesis.json:/etc/gyds/genesis.json:ro
+      - ./signer.password:/etc/gyds/signer.password:ro
+    ports:
+      - "8545:8545"     # HTTP RPC
+      - "8546:8546"     # WebSocket
+      - "30303:30303"   # P2P TCP
+      - "30303:30303/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "-X", "POST", "-H", "Content-Type: application/json",
+             "--data", "{\"jsonrpc\":\"2.0\",\"method\":\"net_version\",\"params\":[],\"id\":1}",
+             "http://localhost:8545"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
+
+  # ── Full node (syncs from genesis node) ─────────────────────────────────────
+  fullnode:
+    <<: *geth-base
+    container_name: gyds-fullnode
+    environment:
+      CHAIN_ID: "13370"
+      NETWORK_ID: "13370"
+      GENESIS_URL: "${GENESIS_URL:-}"
+      RPC_PORT: "8547"
+      WS_PORT: "8548"
+      P2P_PORT: "30304"
+      BOOTNODE_ENODE: "${GENESIS_ENODE:-}"
+    volumes:
+      - fullnode-data:/var/lib/gyds
+      - ./genesis.json:/etc/gyds/genesis.json:ro
+    ports:
+      - "8547:8547"
+      - "8548:8548"
+      - "30304:30304"
+    depends_on:
+      genesis:
+        condition: service_healthy
+
+  # ── RPC gateway node (public-facing, no signing) ────────────────────────────
+  rpcnode:
+    <<: *geth-base
+    container_name: gyds-rpc
+    environment:
+      CHAIN_ID: "13370"
+      NETWORK_ID: "13370"
+      GENESIS_URL: "${GENESIS_URL:-}"
+      RPC_PORT: "8549"
+      WS_PORT: "8550"
+      P2P_PORT: "30305"
+      BOOTNODE_ENODE: "${GENESIS_ENODE:-}"
+    volumes:
+      - rpcnode-data:/var/lib/gyds
+      - ./genesis.json:/etc/gyds/genesis.json:ro
+    ports:
+      - "8549:8549"
+      - "8550:8550"
+      - "30305:30305"
+    depends_on:
+      genesis:
+        condition: service_healthy
+
+volumes:
+  genesis-data:
+  fullnode-data:
+  rpcnode-data:
+
+networks:
+  gydsnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16

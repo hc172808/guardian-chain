@@ -8,7 +8,7 @@ import { TOKENOMICS } from '@/config/wallets';
 import { MiningAlgorithm } from '@/lib/blockchain';
 import { motion } from 'framer-motion';
 import { Pickaxe, Play, Pause, Lock, Cpu, MonitorPlay, Users, Calculator, BookOpen,
-         BarChart3, Activity, Server, Zap, Clock, Hash } from 'lucide-react';
+         BarChart3, Activity, Server, Zap, Clock, Hash, Trophy, Medal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { RequireAuth } from '@/components/auth/RequireAuth';
@@ -43,6 +43,15 @@ function PoolStatsTab() {
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'mining_getPoolInfo', params: {} }),
     }).then(r => r.json()).then(d => d.result),
     refetchInterval: 10000,
+  });
+
+  const { data: leaderboard } = useQuery<{
+    rank: number; address: string; totalEarned: number; shareCount: number; lastSeen: string;
+  }[]>({
+    queryKey: ['mining-leaderboard'],
+    queryFn: () => fetch('/api/mining/leaderboard').then(r => r.json()),
+    refetchInterval: 30000,
+    initialData: [],
   });
 
   if (isLoading) return <div className="text-center text-muted-foreground py-12">Loading pool stats…</div>;
@@ -155,6 +164,71 @@ function PoolStatsTab() {
         <p className="text-xs text-muted-foreground mt-2">
           RPC endpoint: <code className="text-primary">https://netlifegy.com/api/mining/rpc</code> · Chain ID 13370
         </p>
+      </GlassCard>
+
+      {/* Mining Leaderboard */}
+      <GlassCard className="p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Trophy className="h-4 w-4 text-amber-400" />
+          <h3 className="font-semibold text-sm">Mining Leaderboard</h3>
+          <Badge variant="outline" className="ml-auto text-xs">Top 25 Miners</Badge>
+        </div>
+
+        {leaderboard && leaderboard.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground border-b border-border/40">
+                  <th className="text-left py-2 pr-3 font-medium w-10">#</th>
+                  <th className="text-left py-2 pr-3 font-medium">Miner Address</th>
+                  <th className="text-right py-2 pr-3 font-medium">Total Earned</th>
+                  <th className="text-right py-2 font-medium hidden sm:table-cell">Shares</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboard.map((miner) => (
+                  <tr key={miner.address} className="border-b border-border/20 hover:bg-white/5 transition-colors">
+                    <td className="py-2 pr-3">
+                      {miner.rank === 1 ? (
+                        <Medal className="h-3.5 w-3.5 text-amber-400" />
+                      ) : miner.rank === 2 ? (
+                        <Medal className="h-3.5 w-3.5 text-gray-400" />
+                      ) : miner.rank === 3 ? (
+                        <Medal className="h-3.5 w-3.5 text-amber-600" />
+                      ) : (
+                        <span className="text-muted-foreground">{miner.rank}</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 font-mono">
+                      <span className="text-foreground">
+                        {miner.address.slice(0, 8)}…{miner.address.slice(-6)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 text-right">
+                      <span className={cn(
+                        'font-semibold',
+                        miner.rank === 1 ? 'text-amber-400' :
+                        miner.rank === 2 ? 'text-gray-300' :
+                        miner.rank === 3 ? 'text-amber-600' : 'text-green-400'
+                      )}>
+                        {miner.totalEarned.toFixed(6)} GYDS
+                      </span>
+                    </td>
+                    <td className="py-2 text-right text-muted-foreground hidden sm:table-cell">
+                      {miner.shareCount.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-muted-foreground">
+            <Trophy className="h-8 w-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No mining rewards recorded yet.</p>
+            <p className="text-xs mt-1">Start mining to appear on the leaderboard!</p>
+          </div>
+        )}
       </GlassCard>
     </div>
   );

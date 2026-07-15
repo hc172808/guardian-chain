@@ -2106,6 +2106,118 @@ export function registerRoutes(app: Express) {
     res.json(getPoolStats());
   });
 
+  // ── Mining leaderboard — top earners from mining rewards ───────────────────
+  app.get("/api/mining/leaderboard", async (_req, res) => {
+    const { pool: pgPool } = await import("./db");
+    try {
+      const { rows } = await pgPool.query(`
+        SELECT
+          wallet_address,
+          SUM(amount)   AS total_earned,
+          COUNT(*)      AS share_count,
+          MAX(created_at) AS last_seen
+        FROM token_operations
+        WHERE operation_type = 'mining_reward'
+          AND status = 'confirmed'
+        GROUP BY wallet_address
+        ORDER BY total_earned DESC
+        LIMIT 25
+      `);
+      res.json(rows.map((r: any, i: number) => ({
+        rank:         i + 1,
+        address:      r.wallet_address,
+        totalEarned:  Number(r.total_earned),
+        shareCount:   Number(r.share_count),
+        lastSeen:     r.last_seen,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Genesis JSON builder — reads ALL confirmed balances from DB ─────────────
+  // Public so the install script can curl it; sensitive fields excluded.
+  app.get("/api/chain/genesis.json", async (req, res) => {
+    const { pool: pgPool } = await import("./db");
+    const chainId = 13370;
+    const FOUNDER = (process.env.FOUNDER_WALLET ?? '0xd43455e4ef3E472d81aaA848046FF9a55285F5Fc').toLowerCase();
+
+    try {
+      // Aggregate all confirmed on-chain token balances by EVM address.
+      // Skip gyd:/gusd: prefix entries — those are stable-coin ledger entries
+      // that live in the DB, not on the base EVM layer.
+      const { rows } = await pgPool.query(`
+        SELECT wallet_address, SUM(amount) AS total
+        FROM token_operations
+        WHERE status = 'confirmed'
+          AND wallet_address NOT LIKE '%:%'
+          AND wallet_address ~* '^0x[0-9a-fA-F]{40}$'
+        GROUP BY wallet_address
+        HAVING SUM(amount) > 0
+      `);
+
+      const alloc: Record<string, { balance: string }> = {};
+
+      // Always include founder with at least the specified allocation
+      alloc[FOUNDER] = { balance: '0x' + (BigInt('1000000000') * BigInt('1000000000000000000')).toString(16) };
+
+      for (const row of rows) {
+        const addr = row.wallet_address.toLowerCase();
+        const wei  = BigInt(Math.floor(Number(row.total))) * BigInt('1000000000000000000');
+        if (alloc[addr]) {
+          // Merge with founder override (take max)
+          const existing = BigInt(alloc[addr].balance);
+          alloc[addr] = { balance: '0x' + (existing > wei ? existing : wei).toString(16) };
+        } else {
+          alloc[addr] = { balance: '0x' + wei.toString(16) };
+        }
+      }
+
+      const genesis = {
+        config: {
+          chainId,
+          homesteadBlock: 0,
+          eip150Block: 0,
+          eip155Block: 0,
+          eip158Block: 0,
+          byzantiumBlock: 0,
+          constantinopleBlock: 0,
+          petersburgBlock: 0,
+          istanbulBlock: 0,
+          berlinBlock: 0,
+          londonBlock: 0,
+          clique: { period: 120, epoch: 30000 },
+        },
+        difficulty: '1',
+        gasLimit: '0x47b760',
+        // Clique: 32-byte vanity + 20-byte sealer address + 65-byte seal
+        extradata: '0x' + '0'.repeat(64) + FOUNDER.slice(2) + '0'.repeat(130),
+        alloc,
+      };
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename="genesis.json"');
+      res.json(genesis);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Install scripts — served as plain text for curl | bash usage ───────────
+  app.get("/scripts/:scriptName", (req, res) => {
+    const allowed = [
+      'install-gyds-node.sh', 'install-fullnode.sh', 'install-litenode.sh',
+      'install-rpcnode.sh', 'install-genesis.sh', 'setup-server.sh',
+      'install-all-nodes.sh', 'setup-wireguard-mesh.sh',
+    ];
+    const name = req.params.scriptName;
+    if (!allowed.includes(name)) return res.status(404).send('Script not found\n');
+    const scriptPath = path.join(process.cwd(), 'public', 'scripts', name);
+    if (!fs.existsSync(scriptPath)) return res.status(404).send(`${name} not found\n`);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.sendFile(scriptPath);
+  });
+
   // ── Server-side balance endpoint ──────────────────────────────────────────
   app.get("/api/user/balance", requireAuth, async (req, res) => {
     const user = req.user as any;

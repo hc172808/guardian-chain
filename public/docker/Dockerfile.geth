@@ -1,0 +1,49 @@
+# GydsChain Node — Geth-based (go-ethereum)
+# Chain ID 13370 | Clique PoA | Block time 120s
+#
+# Build:
+#   docker build -f public/docker/Dockerfile.geth -t gyds-geth-node .
+#
+# Or via docker compose:
+#   docker compose -f public/docker/docker-compose.geth.yml up -d
+
+FROM ethereum/client-go:v1.13.14 AS geth
+
+FROM alpine:3.20
+
+RUN apk add --no-cache \
+    ca-certificates \
+    curl \
+    jq \
+    bash \
+    tini
+
+COPY --from=geth /usr/local/bin/geth /usr/local/bin/geth
+
+RUN addgroup -S gyds && adduser -S gyds -G gyds
+
+RUN mkdir -p /var/lib/gyds /etc/gyds /var/log/gyds \
+    && chown -R gyds:gyds /var/lib/gyds /etc/gyds /var/log/gyds
+
+# Entrypoint script
+COPY public/docker/geth-entrypoint.sh /usr/local/bin/geth-entrypoint.sh
+RUN chmod +x /usr/local/bin/geth-entrypoint.sh
+
+EXPOSE 8545 8546 30303 30303/udp
+
+ENV CHAIN_ID=13370
+ENV DATA_DIR=/var/lib/gyds
+ENV RPC_PORT=8545
+ENV WS_PORT=8546
+ENV P2P_PORT=30303
+ENV GENESIS_URL=""
+ENV NETWORK_ID=13370
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=5 \
+    CMD curl -sf -X POST -H "Content-Type: application/json" \
+        --data '{"jsonrpc":"2.0","method":"net_version","params":[],"id":1}' \
+        "http://localhost:${RPC_PORT}" | grep -q '"result"' || exit 1
+
+USER gyds
+
+ENTRYPOINT ["tini", "--", "/usr/local/bin/geth-entrypoint.sh"]

@@ -182,24 +182,47 @@ export const PremineManager = () => {
         </button>
         {showGenesis && (
           <div className="mt-4 space-y-3">
+            {/* Live DB genesis — primary method */}
+            <div className="p-3 rounded-lg bg-green-500/5 border border-green-500/20 space-y-2">
+              <p className="text-xs font-semibold text-green-300 flex items-center gap-1.5">
+                <CheckCircle className="h-3.5 w-3.5" /> Live genesis.json — built from ALL dashboard balances
+              </p>
+              <p className="text-xs text-muted-foreground">
+                This reads every confirmed token operation from the database and generates a genesis.json
+                with the correct <strong>on-chain</strong> pre-mine allocations. Use this file to initialize
+                your Geth node — balances will appear in any EVM wallet.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" className="gap-1.5 text-xs flex-1" asChild>
+                  <a href="/api/chain/genesis.json" download="genesis.json">
+                    <Download className="h-3 w-3" /> Download genesis.json (from DB)
+                  </a>
+                </Button>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => copyText('/api/chain/genesis.json', toast)}>
+                  <Copy className="h-3 w-3" /> Copy URL
+                </Button>
+              </div>
+            </div>
+
             <p className="text-xs text-muted-foreground">
-              Use this when initializing your local GYDS node. Run:{' '}
-              <code className="bg-secondary/50 px-1 rounded">geth --datadir ./data init genesis.json</code>
+              Preview (current form values only — download above uses live DB data):
             </p>
             <pre className="text-xs font-mono bg-background rounded-lg p-3 border border-border/50 max-h-52 overflow-y-auto whitespace-pre-wrap">{genesisJson}</pre>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" className="gap-1.5 text-xs flex-1" onClick={() => downloadFile(genesisJson, 'genesis.json')}>
-                <Download className="h-3 w-3" /> Download genesis.json
+                <Download className="h-3 w-3" /> Download (preview only)
               </Button>
               <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => copyText(genesisJson, toast)}>
                 <Copy className="h-3 w-3" /> Copy
               </Button>
             </div>
+
             <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 space-y-2">
-              <p className="text-xs font-medium text-blue-300 flex items-center gap-1.5"><Info className="h-3.5 w-3.5" /> Node Quick-Start Commands</p>
+              <p className="text-xs font-medium text-blue-300 flex items-center gap-1.5"><Info className="h-3.5 w-3.5" /> One-command server install</p>
               {[
+                ['Auto install', `curl -fsSL https://netlifegy.com/scripts/install-gyds-node.sh | DASHBOARD_URL=https://netlifegy.com bash`],
                 ['Init chain', `geth --datadir ./data init genesis.json`],
-                ['Start node', `geth --datadir ./data --networkid ${CHAIN_ID} --http --http.addr 0.0.0.0 --http.port 8545 --http.corsdomain "*" --allow-insecure-unlock console`],
+                ['Start node', `geth --datadir ./data --networkid ${CHAIN_ID} --http --http.addr 0.0.0.0 --http.port 8545 --http.corsdomain "*" --allow-insecure-unlock`],
                 ['Check balance', `geth attach http://localhost:8545 --exec 'eth.getBalance("${addr}")'`],
               ].map(([label, cmd]) => (
                 <div key={label} className="flex items-start gap-2">
