@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DASHBOARD_URL="${DASHBOARD_URL:-https://netlifegy.com}"
+DASHBOARD_URL="${DASHBOARD_URL:-https://app.netlifegy.com}"
 NODE_TYPE="${NODE_TYPE:-fullnode}"          # fullnode | rpcnode | validator
 GETH_VERSION="${GETH_VERSION:-1.13.14}"
 DATA_DIR="${DATA_DIR:-/var/lib/gyds}"

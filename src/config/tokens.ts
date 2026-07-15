@@ -96,7 +96,7 @@ export const CHAIN_CONFIG: ChainConfig = {
     ...(import.meta.env.VITE_RPC_LAN ? [`http://${import.meta.env.VITE_RPC_LAN}:8546`] : []),
   ],
   blockExplorerUrls: ['https://explorer.netlifegy.com'],
-  iconUrls: ['https://netlifegy.com/icon.png'],
+  iconUrls: ['https://app.netlifegy.com/icon.png'],
 };
 
 // Native coin addresses (protocol-level, not contracts)

@@ -89,7 +89,7 @@ export const NETWORK_CONFIG = {
     local: RPC_ENDPOINTS_LIST.local,
   },
   blockExplorerUrls: ['https://explorer.netlifegy.com'],
-  iconUrls: ['https://netlifegy.com/icon.png'],
+  iconUrls: ['https://app.netlifegy.com/icon.png'],
 };
 
 // Testnet

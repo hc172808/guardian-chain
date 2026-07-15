@@ -9,7 +9,8 @@ import {
   Activity, Cpu, Zap, Server, Clock, Copy, Check, Globe,
   Database, Rocket, Shield, MonitorDot, Link2, ChevronDown, ChevronUp,
   Anchor, Radio, FileText, Download, Trash2, Search, X as XIcon,
-  PlayCircle, StopCircle, AlertTriangle, CheckCircle2
+  PlayCircle, StopCircle, AlertTriangle, CheckCircle2,
+  TerminalSquare, Send
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -93,6 +94,139 @@ const NODE_META: Record<NodeType, { label: string; description: string; color: s
   },
 };
 
+const CONSOLE_SHORTCUTS = [
+  'eth.blockNumber', 'eth.chainId', 'net.peerCount', 'eth.gasPrice',
+  'eth.syncing', 'net.version', 'txpool.status', 'admin.peers',
+  'web3.version', 'eth.hashrate', 'eth.coinbase', 'help',
+];
+
+interface ConsoleEntry { type: 'input' | 'output' | 'error' | 'info'; text: string; }
+
+function NodeConsole({ network, type, running }: { network: Network; type: NodeType; running: boolean }) {
+  const [input, setInput] = useState('');
+  const [history, setHistory] = useState<ConsoleEntry[]>([
+    { type: 'info', text: `GYDS Node Console  ·  ${network}/${type}\nType "help" for available commands. Use ↑↓ to navigate history.` },
+  ]);
+  const [cmdHistory, setCmdHistory] = useState<string[]>([]);
+  const [histIdx, setHistIdx] = useState(-1);
+  const [loading, setLoading] = useState(false);
+  const outputRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const scrollBottom = () =>
+    setTimeout(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, 30);
+
+  const run = async (cmd: string) => {
+    const c = cmd.trim();
+    if (!c) return;
+    setHistory(h => [...h, { type: 'input', text: `> ${c}` }]);
+    setCmdHistory(h => [c, ...h.slice(0, 49)]);
+    setHistIdx(-1);
+    setInput('');
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/test-nodes/${network}/${type}/console`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ command: c }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setHistory(h => [...h, { type: 'output', text: data.result ?? 'null' }]);
+      } else {
+        setHistory(h => [...h, { type: 'error', text: data.error ?? 'Unknown error' }]);
+      }
+    } catch (e: any) {
+      setHistory(h => [...h, { type: 'error', text: `Network error: ${e.message}` }]);
+    } finally {
+      setLoading(false);
+      scrollBottom();
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { run(input); return; }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const idx = Math.min(histIdx + 1, cmdHistory.length - 1);
+      setHistIdx(idx);
+      if (cmdHistory[idx] !== undefined) setInput(cmdHistory[idx]);
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const idx = Math.max(histIdx - 1, -1);
+      setHistIdx(idx);
+      setInput(idx === -1 ? '' : (cmdHistory[idx] ?? ''));
+    }
+  };
+
+  if (!running) {
+    return (
+      <div className="p-3 rounded-lg bg-black/40 border border-border/20 text-center text-xs text-muted-foreground italic">
+        Start the node to enable the console
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div
+        ref={outputRef}
+        className="h-48 overflow-y-auto rounded-lg bg-black/80 border border-green-900/30 p-2 font-mono text-xs space-y-0.5 cursor-text"
+        onClick={() => inputRef.current?.focus()}
+      >
+        {history.map((e, i) => (
+          <p key={i} className={cn(
+            'leading-relaxed whitespace-pre-wrap break-all',
+            e.type === 'input'  ? 'text-cyan-300/90' :
+            e.type === 'error'  ? 'text-red-400' :
+            e.type === 'info'   ? 'text-blue-300/70' :
+            'text-green-300/85'
+          )}>{e.text}</p>
+        ))}
+        {loading && <p className="text-amber-400/80 animate-pulse">⧖ executing…</p>}
+      </div>
+
+      <div className="flex flex-wrap gap-1">
+        {CONSOLE_SHORTCUTS.map(cmd => (
+          <button
+            key={cmd}
+            onClick={() => run(cmd)}
+            disabled={loading}
+            className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all disabled:opacity-40"
+          >
+            {cmd}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-1.5 items-center">
+        <span className="text-primary text-sm font-mono shrink-0">›</span>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="eth.blockNumber  (↑↓ history, Enter to run)"
+          disabled={loading}
+          className="flex-1 bg-black/60 border border-border/30 rounded px-2 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 disabled:opacity-50"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Button
+          size="sm"
+          className="h-7 px-2 gap-1 shrink-0"
+          onClick={() => run(input)}
+          disabled={loading || !input.trim()}
+        >
+          <Send className="w-3 h-3" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function useCopy(text: string) {
   const [copied, setCopied] = useState(false);
   const copy = useCallback(() => {
@@ -137,6 +271,7 @@ function NodeCard({
 }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [logsOpen, setLogsOpen] = useState(false);
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const meta = NODE_META[type];
   const netCfg = NETWORK_CFG[network];
@@ -245,13 +380,30 @@ function NodeCard({
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="font-mono text-primary truncate">{endpointUrl}</span>
           <CopyBtn text={endpointUrl} />
-          <button
-            onClick={() => setLogsOpen(o => !o)}
-            className="flex items-center gap-1 ml-auto text-muted-foreground hover:text-foreground border border-border/30 rounded px-2 py-0.5"
-          >
-            <Terminal className="w-3 h-3" />
-            {logsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </button>
+          <div className="flex items-center gap-1 ml-auto">
+            <button
+              onClick={() => { setLogsOpen(o => !o); if (!logsOpen) setConsoleOpen(false); }}
+              className={cn(
+                'flex items-center gap-1 text-muted-foreground hover:text-foreground border rounded px-2 py-0.5 transition-all',
+                logsOpen ? 'border-primary/40 text-primary bg-primary/5' : 'border-border/30'
+              )}
+            >
+              <Terminal className="w-3 h-3" />
+              <span className="text-[10px]">Logs</span>
+              {logsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+            <button
+              onClick={() => { setConsoleOpen(o => !o); if (!consoleOpen) setLogsOpen(false); }}
+              className={cn(
+                'flex items-center gap-1 text-muted-foreground hover:text-foreground border rounded px-2 py-0.5 transition-all',
+                consoleOpen ? 'border-green-500/40 text-green-400 bg-green-500/5' : 'border-border/30'
+              )}
+            >
+              <TerminalSquare className="w-3 h-3" />
+              <span className="text-[10px]">Console</span>
+              {consoleOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          </div>
         </div>
       )}
 
@@ -270,6 +422,10 @@ function NodeCard({
               )}>{line}</p>
             ))}
         </div>
+      )}
+
+      {consoleOpen && (
+        <NodeConsole network={network} type={type} running={status.running} />
       )}
     </GlassCard>
   );

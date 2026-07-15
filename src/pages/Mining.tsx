@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useQuery } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -54,6 +55,26 @@ function PoolStatsTab() {
     initialData: [],
   });
 
+  const MAX_HISTORY = 60;
+  const [chartData, setChartData] = useState<{ t: string; miners: number; diff: number }[]>([]);
+  const firstRender = useRef(true);
+
+  useEffect(() => {
+    if (!data) return;
+    const now = new Date();
+    const t = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const miners = data.activeSessions ?? 0;
+    const diff = Math.round((data.currentJob?.difficulty ?? 0) / 1000);
+    setChartData(prev => {
+      if (!firstRender.current && prev.length > 0) {
+        const last = prev[prev.length - 1];
+        if (last.miners === miners && last.diff === diff) return prev;
+      }
+      firstRender.current = false;
+      return [...prev.slice(-(MAX_HISTORY - 1)), { t, miners, diff }];
+    });
+  }, [data]);
+
   if (isLoading) return <div className="text-center text-muted-foreground py-12">Loading pool stats…</div>;
   if (isError)   return <div className="text-center text-destructive py-12">Failed to load pool stats.</div>;
 
@@ -91,6 +112,94 @@ function PoolStatsTab() {
           </GlassCard>
         ))}
       </div>
+
+      {/* Hashrate / Activity Chart */}
+      {chartData.length > 1 && (
+        <GlassCard className="p-4">
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="h-4 w-4 text-primary" />
+            <h3 className="font-semibold text-sm">Pool Activity</h3>
+            <Badge variant="outline" className="ml-auto text-xs text-muted-foreground border-border/40">
+              Last {chartData.length} samples · 5 s/sample
+            </Badge>
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="colorMiners" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="colorDiff" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+              <XAxis
+                dataKey="t"
+                tick={{ fill: '#6b7280', fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                yAxisId="miners"
+                orientation="left"
+                tick={{ fill: '#6b7280', fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                width={28}
+                allowDecimals={false}
+                label={{ value: 'Miners', angle: -90, position: 'insideLeft', offset: 10, fill: '#6b7280', fontSize: 9 }}
+              />
+              <YAxis
+                yAxisId="diff"
+                orientation="right"
+                tick={{ fill: '#6b7280', fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                width={36}
+                tickFormatter={v => `${v}K`}
+                label={{ value: 'Diff (K)', angle: 90, position: 'insideRight', offset: 12, fill: '#6b7280', fontSize: 9 }}
+              />
+              <Tooltip
+                contentStyle={{ background: 'rgba(10,10,20,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }}
+                labelStyle={{ color: '#9ca3af' }}
+                formatter={(value: number, name: string) =>
+                  name === 'diff' ? [`${value}K`, 'Difficulty (K)'] : [value, 'Active Miners']
+                }
+              />
+              <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
+              <Area
+                yAxisId="miners"
+                type="monotone"
+                dataKey="miners"
+                name="miners"
+                stroke="#6366f1"
+                strokeWidth={1.5}
+                fill="url(#colorMiners)"
+                dot={false}
+                activeDot={{ r: 3, fill: '#6366f1' }}
+              />
+              <Area
+                yAxisId="diff"
+                type="monotone"
+                dataKey="diff"
+                name="diff"
+                stroke="#f59e0b"
+                strokeWidth={1.5}
+                fill="url(#colorDiff)"
+                dot={false}
+                activeDot={{ r: 3, fill: '#f59e0b' }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+          <p className="text-[10px] text-muted-foreground/60 text-center mt-1">
+            Active miners (left axis) and difficulty in thousands (right axis) — rolling 5-minute window
+          </p>
+        </GlassCard>
+      )}
 
       {/* Current job */}
       {data?.currentJob && (
@@ -154,7 +263,7 @@ function PoolStatsTab() {
         </p>
         <div className="bg-black/40 rounded-lg p-3 font-mono text-xs text-green-400 space-y-1">
           <div># Download &amp; install</div>
-          <div>wget https://netlifegy.com/miner/miner.tar.gz</div>
+          <div>wget https://app.netlifegy.com/miner/miner.tar.gz</div>
           <div>tar xzf miner.tar.gz &amp;&amp; cd miner</div>
           <div>npm install</div>
           <div className="mt-2"># Edit config.json — set minerAddress to your GYDS wallet</div>
@@ -162,7 +271,7 @@ function PoolStatsTab() {
           <div className="mt-2"># Dashboard at http://YOUR-SERVER-IP:4500</div>
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          RPC endpoint: <code className="text-primary">https://netlifegy.com/api/mining/rpc</code> · Chain ID 13370
+          RPC endpoint: <code className="text-primary">https://app.netlifegy.com/api/mining/rpc</code> · Chain ID 13370
         </p>
       </GlassCard>
 

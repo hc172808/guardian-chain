@@ -1846,6 +1846,148 @@ export function registerRoutes(app: Express) {
     res.json(result);
   });
 
+  // POST console — /api/admin/test-nodes/:network/:type/console
+  // Accepts Geth JS notation or raw JSON-RPC method names and proxies to the node
+  app.post("/api/admin/test-nodes/:network/:type/console", requireAdmin, async (req, res) => {
+    const network = req.params.network as ValidNetwork;
+    const type    = req.params.type    as ValidNodeType;
+    if (!VALID_NETWORKS.includes(network))  return res.status(400).json({ ok: false, error: "Invalid network" });
+    if (!VALID_NODE_TYPES.includes(type))   return res.status(400).json({ ok: false, error: "Invalid node type" });
+
+    const rawCmd = (req.body?.command ?? "").trim();
+    if (!rawCmd) return res.status(400).json({ ok: false, error: "Empty command" });
+
+    // Special commands
+    if (rawCmd === "help") {
+      return res.json({ ok: true, result: [
+        "── Geth console shortcuts ─────────────────────────────",
+        "  eth.blockNumber           → current block height",
+        "  eth.chainId               → chain ID hex",
+        "  eth.gasPrice              → current gas price",
+        "  eth.getBalance('0x...')   → balance in wei",
+        "  eth.getBlockByNumber('latest', true)",
+        "  eth.syncing               → sync status",
+        "  net.peerCount             → connected peers",
+        "  net.version               → network/chain ID",
+        "  net.listening             → true/false",
+        "  txpool.status             → pending/queued counts",
+        "  txpool.content            → full mempool",
+        "  admin.peers               → connected peer list",
+        "  admin.nodeInfo            → node info",
+        "  web3.version              → client version",
+        "  mining.getWork            → current mining job",
+        "  mining.submitHashrate('0x...', '0x...')",
+        "── Direct RPC (also accepted) ─────────────────────────",
+        "  eth_blockNumber, net_peerCount, eth_chainId …",
+        "────────────────────────────────────────────────────────",
+        "Type 'help' to show this message again.",
+      ].join("\n"), formatted: "help" });
+    }
+
+    // ── Parse Geth JS notation → { method, params } ──────────────────────────
+    type ParsedRpc = { method: string; params: unknown[] };
+
+    function parseGethCommand(cmd: string): ParsedRpc {
+      // Already underscore-style (direct JSON-RPC): eth_blockNumber
+      if (/^[a-z]+_[a-zA-Z]+$/.test(cmd)) return { method: cmd, params: [] };
+
+      // Try to parse dotted JS notation: eth.getBalance("0x...", "latest")
+      const dotMatch = cmd.match(/^([a-z]+)\.([a-zA-Z]+)\s*(?:\((.*)\))?$/s);
+      if (!dotMatch) return { method: cmd, params: [] };
+
+      const [, ns, fn, argsStr = ""] = dotMatch;
+
+      // Map known namespace+function aliases
+      const aliases: Record<string, string> = {
+        "web3.version":              "web3_clientVersion",
+        "web3.clientVersion":        "web3_clientVersion",
+        "mining.getWork":            "eth_getWork",
+        "mining.submitHashrate":     "eth_submitHashrate",
+        "mining.submitWork":         "eth_submitWork",
+        "admin.nodeInfo":            "web3_clientVersion",
+      };
+      const aliasKey = `${ns}.${fn}`;
+      const method = aliases[aliasKey] ?? `${ns}_${fn}`;
+
+      // Parse simple args: strings, hex, numbers, booleans
+      const params: unknown[] = [];
+      if (argsStr.trim()) {
+        // Split by commas not inside quotes
+        const parts = argsStr.split(/,(?=(?:[^"']*["'][^"']*["'])*[^"']*$)/).map(s => s.trim());
+        for (const p of parts) {
+          if (p === "true")  { params.push(true); continue; }
+          if (p === "false") { params.push(false); continue; }
+          if (p === "null" || p === "undefined") { params.push(null); continue; }
+          if (/^["'](.*)["']$/.test(p)) { params.push(p.replace(/^["']|["']$/g, "")); continue; }
+          if (/^0x[0-9a-fA-F]+$/.test(p)) { params.push(p); continue; }
+          if (/^-?\d+(\.\d+)?$/.test(p)) { params.push(Number(p)); continue; }
+          params.push(p.replace(/^["']|["']$/g, ""));
+        }
+      }
+
+      // Special default second params
+      if (method === "eth_getBalance" && params.length === 1) params.push("latest");
+      if (method === "eth_getTransactionCount" && params.length === 1) params.push("latest");
+      if (method === "eth_getBlockByNumber" && params.length === 1) params.push(false);
+      if (method === "eth_getBlockByHash" && params.length === 1) params.push(false);
+
+      return { method, params };
+    }
+
+    const { method, params } = parseGethCommand(rawCmd);
+
+    // ── Forward to the live node port ────────────────────────────────────────
+    const statuses = testNodeManager.status() as any;
+    const nodeStatus = statuses[network]?.[type];
+
+    if (!nodeStatus?.running) {
+      return res.json({ ok: false, error: `${network}/${type} node is not running. Start it first.` });
+    }
+
+    const port = nodeStatus.port;
+    try {
+      const upstream = await fetch(`http://localhost:${port}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await upstream.json() as any;
+
+      if (data.error) {
+        return res.json({ ok: false, error: `RPC error ${data.error.code}: ${data.error.message}` });
+      }
+
+      // Format the result nicely
+      const raw = data.result;
+      let formatted: string;
+      if (raw === null || raw === undefined) {
+        formatted = "null";
+      } else if (typeof raw === "string" && raw.startsWith("0x") && raw.length === 18) {
+        // Likely a wei value — show in GYDS too
+        try {
+          const wei = BigInt(raw);
+          const gyds = Number(wei) / 1e18;
+          formatted = `${raw} (${gyds.toFixed(6)} GYDS)`;
+        } catch { formatted = raw; }
+      } else if (typeof raw === "object") {
+        formatted = JSON.stringify(raw, null, 2);
+      } else if (typeof raw === "string" && raw.startsWith("0x") && /^0x[0-9a-f]+$/i.test(raw)) {
+        // Hex number — show decimal too
+        try {
+          const dec = parseInt(raw, 16);
+          formatted = `${raw} (${dec.toLocaleString()})`;
+        } catch { formatted = raw; }
+      } else {
+        formatted = String(raw);
+      }
+
+      return res.json({ ok: true, result: formatted, raw, method, params });
+    } catch (err: any) {
+      return res.json({ ok: false, error: `Request failed: ${err.message}` });
+    }
+  });
+
   // GET logs — /api/admin/test-nodes/:network/:type/logs
   app.get("/api/admin/test-nodes/:network/:type/logs", requireAdmin, (req, res) => {
     const network = req.params.network as ValidNetwork;
