@@ -1020,6 +1020,133 @@ export async function startupMigrate(pool: Pool): Promise<void> {
     )
   `);
 
+  // ── 17. Schema drift repairs (0004) ─────────────────────────────────────────
+  // These ALTER TABLE … ADD COLUMN IF NOT EXISTS statements fix gaps between the
+  // legacy CREATE TABLE definitions above and the columns the application code
+  // actually queries. All statements are idempotent — safe on every boot.
+
+  // payment_methods
+  for (const col of [
+    `ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS description  TEXT`,
+    `ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS instructions TEXT`,
+    `ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS icon         TEXT`,
+    `ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS is_enabled   BOOLEAN DEFAULT true`,
+    `ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS config_json  TEXT DEFAULT '{}'`,
+  ]) await run("payment_methods-cols", col);
+
+  // governance_treasury
+  for (const col of [
+    `ALTER TABLE governance_treasury ADD COLUMN IF NOT EXISTS usd_value NUMERIC`,
+    `ALTER TABLE governance_treasury ADD COLUMN IF NOT EXISTS address   TEXT`,
+  ]) await run("governance_treasury-cols", col);
+
+  // api_usage_logs — code uses key_id / status_code / logged_at
+  for (const col of [
+    `ALTER TABLE api_usage_logs ADD COLUMN IF NOT EXISTS key_id      UUID`,
+    `ALTER TABLE api_usage_logs ADD COLUMN IF NOT EXISTS status_code INTEGER`,
+    `ALTER TABLE api_usage_logs ADD COLUMN IF NOT EXISTS logged_at   TIMESTAMPTZ DEFAULT NOW()`,
+  ]) await run("api_usage_logs-cols", col);
+  await run("api_usage_logs-idx", `CREATE INDEX IF NOT EXISTS api_usage_key_ts ON api_usage_logs(key_id, logged_at DESC)`);
+
+  // nft_collections — code inserts floor_price, volume_24h, etc.; creator_id must accept ''
+  for (const col of [
+    `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS floor_price     NUMERIC  DEFAULT 0`,
+    `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS volume_24h      NUMERIC  DEFAULT 0`,
+    `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS change_24h      NUMERIC  DEFAULT 0`,
+    `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS total_items     INTEGER  DEFAULT 0`,
+    `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS image_emoji     TEXT     DEFAULT '🖼️'`,
+    `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS creator_address TEXT`,
+    `ALTER TABLE nft_collections ALTER COLUMN creator_id SET DEFAULT ''`,
+  ]) await run("nft_collections-cols", col);
+
+  // nft_tokens — code inserts owner_address, price, last_sale, rarity, image_emoji, listed
+  for (const col of [
+    `ALTER TABLE nft_tokens ADD COLUMN IF NOT EXISTS owner_address TEXT    DEFAULT '0x0000000000000000000000000000000000000000'`,
+    `ALTER TABLE nft_tokens ADD COLUMN IF NOT EXISTS price         NUMERIC DEFAULT 0`,
+    `ALTER TABLE nft_tokens ADD COLUMN IF NOT EXISTS last_sale     NUMERIC DEFAULT 0`,
+    `ALTER TABLE nft_tokens ADD COLUMN IF NOT EXISTS rarity        TEXT    DEFAULT 'Common'`,
+    `ALTER TABLE nft_tokens ADD COLUMN IF NOT EXISTS image_emoji   TEXT    DEFAULT '🖼️'`,
+    `ALTER TABLE nft_tokens ADD COLUMN IF NOT EXISTS listed        BOOLEAN DEFAULT true`,
+  ]) await run("nft_tokens-cols", col);
+
+  // insurance_pools — code inserts coverage_type, total_coverage, etc.; token must accept ''
+  for (const col of [
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS coverage_type  TEXT    DEFAULT 'general'`,
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS description    TEXT`,
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS total_coverage NUMERIC DEFAULT 0`,
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS premium_rate   NUMERIC DEFAULT 0.02`,
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS claim_period   INTEGER DEFAULT 30`,
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS min_coverage   NUMERIC DEFAULT 1000`,
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS max_coverage   NUMERIC DEFAULT 1000000`,
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS image_emoji    TEXT    DEFAULT '🛡️'`,
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS active         BOOLEAN DEFAULT true`,
+    `ALTER TABLE insurance_pools ALTER COLUMN token SET DEFAULT ''`,
+  ]) await run("insurance_pools-cols", col);
+
+  // price_history — code inserts coin, open, close, high, low, volume, timestamp
+  for (const col of [
+    `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS coin      TEXT        DEFAULT ''`,
+    `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS open      NUMERIC     DEFAULT 0`,
+    `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS close     NUMERIC     DEFAULT 0`,
+    `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS high      NUMERIC     DEFAULT 0`,
+    `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS low       NUMERIC     DEFAULT 0`,
+    `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS volume    BIGINT      DEFAULT 0`,
+    `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS timestamp TIMESTAMPTZ DEFAULT NOW()`,
+    `ALTER TABLE price_history ALTER COLUMN symbol SET DEFAULT ''`,
+    `ALTER TABLE price_history ALTER COLUMN price  SET DEFAULT 0`,
+  ]) await run("price_history-cols", col);
+  await run("price_history-idx", `CREATE INDEX IF NOT EXISTS price_history_coin_ts ON price_history(coin, timestamp DESC)`);
+
+  // rwa_assets — code inserts type, description, total_value, token_price, etc.
+  for (const col of [
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS type             TEXT    DEFAULT 'general'`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS description      TEXT`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS total_value      NUMERIC DEFAULT 0`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS token_price      NUMERIC DEFAULT 1`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS tokens_available INTEGER DEFAULT 0`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS total_tokens     INTEGER DEFAULT 1`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS apy              NUMERIC DEFAULT 0`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS currency         TEXT    DEFAULT 'USDT'`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS jurisdiction     TEXT`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS audited          BOOLEAN DEFAULT false`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS maturity         TEXT`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS doc_cid          TEXT`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS active           BOOLEAN DEFAULT true`,
+    `ALTER TABLE rwa_assets ALTER COLUMN creator_id SET DEFAULT ''`,
+    `ALTER TABLE rwa_assets ALTER COLUMN asset_type SET DEFAULT 'general'`,
+  ]) await run("rwa_assets-cols", col);
+
+  // network_snapshots — code uses active_validators, active_nodes, total_transactions, captured_at
+  for (const col of [
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS active_validators  INTEGER DEFAULT 0`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS active_nodes       INTEGER DEFAULT 0`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS total_transactions BIGINT  DEFAULT 0`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS total_tokens       INTEGER DEFAULT 0`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS captured_at        TIMESTAMPTZ DEFAULT NOW()`,
+  ]) await run("network_snapshots-cols", col);
+  await run("network_snapshots-idx", `CREATE INDEX IF NOT EXISTS network_snapshots_captured_idx ON network_snapshots(captured_at DESC)`);
+
+  // trade_history — code uses executed_at, taker_id, maker_id; user_id/total must accept defaults
+  for (const col of [
+    `ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ`,
+    `ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS taker_id    TEXT`,
+    `ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS maker_id    TEXT`,
+    `ALTER TABLE trade_history ALTER COLUMN user_id SET DEFAULT ''`,
+    `ALTER TABLE trade_history ALTER COLUMN total  SET DEFAULT 0`,
+  ]) await run("trade_history-cols", col);
+  await run("trade_history-idx", `CREATE INDEX IF NOT EXISTS idx_trade_hist_pair ON trade_history(pair, executed_at DESC)`);
+
+  // webhook_deliveries — code uses webhook_id, response_status, response_body, duration_ms, success, attempted_at
+  for (const col of [
+    `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS webhook_id      UUID`,
+    `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS response_status INTEGER`,
+    `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS response_body   TEXT`,
+    `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS duration_ms     INTEGER`,
+    `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS success         BOOLEAN DEFAULT false`,
+    `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS attempted_at    TIMESTAMPTZ DEFAULT NOW()`,
+  ]) await run("webhook_deliveries-cols", col);
+  await run("webhook_deliveries-idx", `CREATE INDEX IF NOT EXISTS wh_delivery_webhook_idx ON webhook_deliveries(webhook_id, attempted_at DESC)`);
+
   // ── Indexes for hot paths ────────────────────────────────────────────────────
   await run("idx-user-roles",       `CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id)`);
   await run("idx-wallets-user",     `CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets(user_id)`);
