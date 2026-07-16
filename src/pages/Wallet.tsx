@@ -262,9 +262,20 @@ const WalletContent = () => {
   const [bridgeHistory, setBridgeHistory] = useState<any[]>([]);
   const [bridgeLoading, setBridgeLoading] = useState(false);
 
-  // On-chain RPC balance
+  // On-chain RPC balance — network-aware: uses correct local port per network
   const walletAddresses = wallets.map(w => w.address);
-  const { gydsBalance: rpcGydsBalance, loading: rpcLoading, error: rpcError, lastFetched: rpcLastFetched, refresh: refreshRpc } = useRpcBalance(walletAddresses);
+  const {
+    gydsBalance: rpcGydsBalance,
+    perAddress:  rpcPerAddress,
+    chainId:     rpcChainId,
+    chainIdHex:  rpcChainIdHex,
+    symbol:      rpcSymbol,
+    networkName: rpcNetworkName,
+    loading:     rpcLoading,
+    error:       rpcError,
+    lastFetched: rpcLastFetched,
+    refresh:     refreshRpc,
+  } = useRpcBalance(walletAddresses, ctxNetwork);
 
   useEffect(() => {
     isBiometricAvailable().then(setBiometricAvailable);
@@ -1079,7 +1090,7 @@ const WalletContent = () => {
                   ? `${NETWORK_BADGE[ctxNetwork].border} ${NETWORK_BADGE[ctxNetwork].text} ${NETWORK_BADGE[ctxNetwork].bg}`
                   : 'border-primary/40 text-primary bg-primary/10'
               }`}>
-                {ctxNetwork !== 'all' ? NETWORK_BADGE[ctxNetwork].label : 'All Networks'} · Chain 13370
+                {rpcNetworkName} · Chain {rpcChainId} ({rpcChainIdHex})
               </span>
             </div>
             <p className="text-3xl font-bold text-foreground">
@@ -1102,7 +1113,8 @@ const WalletContent = () => {
               ) : rpcGydsBalance !== null ? (
                 <span className="flex items-center gap-1 text-emerald-400">
                   <Wifi className="h-3.5 w-3.5" />
-                  On-chain: {parseFloat(rpcGydsBalance).toLocaleString(undefined, { maximumFractionDigits: 4 })} GYDS
+                  On-chain total: {parseFloat(rpcGydsBalance).toLocaleString(undefined, { maximumFractionDigits: 4 })} {rpcSymbol}
+                  <span className="text-muted-foreground text-xs">({rpcNetworkName} · chain {rpcChainId})</span>
                   {rpcLastFetched && <span className="text-muted-foreground text-xs ml-1">· {rpcLastFetched.toLocaleTimeString()}</span>}
                 </span>
               ) : null}
@@ -1228,9 +1240,26 @@ const WalletContent = () => {
                     </div>
                     <div>
                       <p className="font-mono text-sm">{wallet.address}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Created {wallet.created_at && !isNaN(new Date(wallet.created_at).getTime()) ? new Date(wallet.created_at).toLocaleDateString() : 'recently'}
-                      </p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <p className="text-xs text-muted-foreground">
+                          Created {wallet.created_at && !isNaN(new Date(wallet.created_at).getTime()) ? new Date(wallet.created_at).toLocaleDateString() : 'recently'}
+                        </p>
+                        {/* Per-wallet on-chain balance for the selected network */}
+                        {(() => {
+                          const bal = rpcPerAddress[wallet.address.toLowerCase()];
+                          if (rpcLoading) return <span className="text-xs text-muted-foreground animate-pulse">checking…</span>;
+                          if (rpcError)   return <span className="text-xs text-muted-foreground flex items-center gap-1"><WifiOff className="h-3 w-3" />offline</span>;
+                          if (bal === undefined) return null;
+                          const n = parseFloat(bal);
+                          return (
+                            <span className={`text-xs font-medium flex items-center gap-1 ${n > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                              <Wifi className="h-3 w-3" />
+                              {n > 0 ? `${n.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${rpcSymbol}` : `0 ${rpcSymbol}`}
+                              <span className="text-muted-foreground font-normal">on {rpcNetworkName.replace('GYDS ', '')}</span>
+                            </span>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
                   <div className="flex gap-2">
