@@ -172,6 +172,103 @@ export function getChainBlockHeight(network: Network): number {
   return networkChain[network].blockHeight;
 }
 
+/**
+ * Convert a decimal string (e.g. "500" or "1.5") to wei (BigInt, 18 decimals)
+ * without going through JS Number, which loses precision for values ≥ 2^53.
+ */
+function decimalToWei(decimal: string): bigint {
+  const clean  = String(decimal ?? "0").trim();
+  const [intPart = "0", fracPart = ""] = clean.split(".");
+  const frac18 = fracPart.padEnd(18, "0").slice(0, 18);
+  return BigInt(intPart || "0") * 10n ** 18n + BigInt(frac18 || "0");
+}
+
+/** Token type normaliser — maps DB token_type / token_symbol strings to trie keys. */
+function normToken(raw: string): "GYDS" | "GYD" | "GUSD" | null {
+  const s = raw?.toLowerCase?.() ?? "";
+  if (s === "gyds") return "GYDS";
+  if (s === "gyd")  return "GYD";
+  if (s === "gusd") return "GUSD";
+  return null;
+}
+
+/**
+ * Seed the in-memory balance trie from persistent DB data.
+ * Called once on server start AFTER nodes are resumed.
+ *
+ * Sources:
+ *   1. faucet_claims  — every completed faucet drip credits the recipient
+ *   2. transactions   — confirmed to_address credits (from_address debits)
+ *
+ * Balances are credited to ALL networks so every RPC node
+ * (mainnet / testnet / devnet) reflects the same user balances.
+ */
+export async function seedBalanceTrie(): Promise<void> {
+  const start = Date.now();
+  let credited = 0;
+
+  try {
+    // ── 1. Faucet claims ────────────────────────────────────────────────────
+    const { rows: faucet } = await pgPool.query<{
+      wallet_address: string;
+      token_type: string;
+      total: string;
+    }>(`
+      SELECT LOWER(wallet_address) AS wallet_address,
+             LOWER(token_type)     AS token_type,
+             SUM(amount)::text     AS total
+      FROM   faucet_claims
+      GROUP  BY LOWER(wallet_address), LOWER(token_type)
+    `);
+
+    for (const row of faucet) {
+      const token = normToken(row.token_type);
+      if (!token) continue;
+      const wei = decimalToWei(row.total);
+      if (wei <= 0n) continue;
+      for (const net of ALL_NETWORKS) {
+        creditAddress(net, row.wallet_address, token, wei);
+      }
+      credited++;
+    }
+
+    // ── 2. Confirmed transactions (net credit per address) ──────────────────
+    const { rows: txs } = await pgPool.query<{
+      address: string;
+      token_symbol: string;
+      net_wei: string;
+    }>(`
+      SELECT addr                        AS address,
+             LOWER(token_symbol)         AS token_symbol,
+             SUM(direction * amount)::text AS net_wei
+      FROM (
+        SELECT LOWER(to_address)   AS addr,  token_symbol,  amount,  1 AS direction FROM transactions WHERE status IN ('confirmed','completed','success')
+        UNION ALL
+        SELECT LOWER(from_address) AS addr,  token_symbol,  amount, -1 AS direction FROM transactions WHERE status IN ('confirmed','completed','success')
+      ) t
+      GROUP BY addr, LOWER(token_symbol)
+    `);
+
+    for (const row of txs) {
+      const token = normToken(row.token_symbol);
+      if (!token) continue;
+      // net_wei from DB is a signed decimal string (e.g. "-500" or "250")
+      const isNeg  = row.net_wei.startsWith("-");
+      const absWei = decimalToWei(row.net_wei.replace("-", ""));
+      if (absWei === 0n) continue;
+      for (const net of ALL_NETWORKS) {
+        if (!isNeg) creditAddress(net, row.address, token, absWei);
+        else        debitAddress(net, row.address, token, absWei);
+      }
+      credited++;
+    }
+
+    console.log(`[balance-trie] Seeded ${credited} address/token pairs from DB in ${Date.now() - start}ms`);
+  } catch (e: any) {
+    console.warn("[balance-trie] Seed failed (non-fatal):", e.message);
+  }
+}
+
 const state: Record<Network, Record<NodeType, NodeState>> = {} as any;
 for (const network of ALL_NETWORKS) {
   state[network] = {} as any;
@@ -331,8 +428,13 @@ function jsonRpcDispatch(rpc: any, s: NodeState, cfg: NetworkCfg, opts: { booste
     case "eth_syncing":               return false;
     case "eth_getBalance": {
       const addr = String(rpc.params?.[0] ?? "").toLowerCase();
-      const key  = `GYDS:${addr}`;
-      return "0x" + (networkChain[s.network].balances.get(key) ?? 0n).toString(16);
+      return "0x" + (networkChain[s.network].balances.get(`GYDS:${addr}`) ?? 0n).toString(16);
+    }
+    // gyds_getTokenBalance(address, token) — returns GYD or GUSD balance as hex wei
+    case "gyds_getTokenBalance": {
+      const addr  = String(rpc.params?.[0] ?? "").toLowerCase();
+      const tok   = normToken(String(rpc.params?.[1] ?? "GYDS")) ?? "GYDS";
+      return "0x" + (networkChain[s.network].balances.get(`${tok}:${addr}`) ?? 0n).toString(16);
     }
     case "eth_getTransactionCount":   return "0x" + Math.floor(Math.random() * 100).toString(16);
     case "eth_estimateGas":           return "0x" + (21_000).toString(16);

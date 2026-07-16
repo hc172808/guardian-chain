@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, getNetworkBalance } from "./testNodes";
+import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
@@ -2152,6 +2152,36 @@ export function registerRoutes(app: Express) {
       }
     }
     res.json({ chainBlock: chainBlock || null, chainBlockHex, nodes: syncResults });
+  });
+
+  // POST admin — manually credit a wallet in the balance trie (testing / airdrops)
+  app.post("/api/admin/chain/credit", requireAdmin, async (req, res) => {
+    const { address, token = "GYDS", amount, network = "all" } = req.body ?? {};
+    if (!address || !amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+      return res.status(400).json({ ok: false, error: "address and positive amount required" });
+    }
+    const tokenKey = String(token).toUpperCase() as "GYDS" | "GYD" | "GUSD";
+    if (!["GYDS","GYD","GUSD"].includes(tokenKey)) {
+      return res.status(400).json({ ok: false, error: "token must be GYDS, GYD or GUSD" });
+    }
+    const amountWei = BigInt(Math.round(Number(amount) * 1e18));
+    const nets = network === "all"
+      ? (["mainnet","testnet","devnet"] as const)
+      : [network as "mainnet"|"testnet"|"devnet"];
+    for (const net of nets) creditAddress(net, String(address), tokenKey, amountWei);
+    const balances: Record<string, number> = {};
+    for (const net of nets) balances[net] = Number(getNetworkBalance(net, String(address), tokenKey)) / 1e18;
+    res.json({ ok: true, address, token: tokenKey, amount: Number(amount), credited_to: nets, new_balances: balances });
+  });
+
+  // POST admin — re-seed the balance trie from DB without restarting the server
+  app.post("/api/admin/chain/reseed", requireAdmin, async (req, res) => {
+    try {
+      await seedBalanceTrie();
+      res.json({ ok: true, message: "Balance trie re-seeded from faucet_claims + transactions" });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
   });
 
   // GET on-chain balance for an address from the in-memory balance trie

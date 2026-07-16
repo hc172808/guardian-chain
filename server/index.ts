@@ -33,7 +33,7 @@ import { Pool } from "pg";
 import { aiFirewallMiddleware, refreshSecuritySettings, ipBanGate, initIpBanTables, initLockoutTable, initIpWhitelistTable, getClientIp, clearCloudflareEdgeFalsePositives, isIpBlockEnforcementEnabled, clearAllBlockedIps } from "./security";
 import { initActivityFeed, handleUpgrade } from "./activityFeed";
 import { ensurePreferredCurrencyColumn } from "./exchangeRates";
-import { testNodeManager, loadPersistedTestNodeState } from "./testNodes";
+import { testNodeManager, loadPersistedTestNodeState, seedBalanceTrie } from "./testNodes";
 import { bootstrapDatabase } from "./bootstrap";
 import { startupMigrate } from "./startup-migrate";
 import { pool as dbPool } from "./db";
@@ -351,8 +351,12 @@ async function autoRestartPersistedNodes() {
     }
   }
 }
-// Delay 2s to let DB connections settle, then restore node state
-setTimeout(() => autoRestartPersistedNodes().catch(e => console.warn("[test-nodes] auto-restart error:", e.message)), 2000);
+// Delay 2s to let DB connections settle, then restore node state + seed balances
+setTimeout(async () => {
+  await autoRestartPersistedNodes().catch(e => console.warn("[test-nodes] auto-restart error:", e.message));
+  // Seed in-memory balance trie from DB (faucet_claims + confirmed transactions)
+  await seedBalanceTrie().catch(e => console.warn("[balance-trie] seed error:", e.message));
+}, 2000);
 
 // Price Alert LISTEN/NOTIFY via Postgres
 async function startPriceAlertListener() {
