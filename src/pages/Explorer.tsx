@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { LocalRpcIndicator } from '@/components/LocalRpcIndicator';
 
 interface NetworkStats {
   activeValidators: number;
@@ -122,9 +123,10 @@ const Explorer = () => {
               <p className="text-xs text-muted-foreground">explorer.netlifegy.com</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <LocalRpcIndicator />
             <ConnectionStatus isConnected={isConnected} error={error} gaveUp={gaveUp} />
-            <a href="https://netlifegy.com" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+            <a href="https://netlifegy.com" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 hidden sm:flex">
               netlifegy.com <ExternalLink className="h-3 w-3" />
             </a>
           </div>

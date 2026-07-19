@@ -435,6 +435,34 @@ export function registerRoutes(app: Express) {
     res.json(data);
   });
 
+  // ── RPC Status (public — used by Explorer header without login) ───────────
+  app.get("/api/nodes/rpc-status", (_req, res) => {
+    const all = (testNodeManager.status as any)() as any;
+    const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"];
+    const externalUrls: Record<string, string> = {
+      mainnet: "https://rpc.netlifegy.com",
+      testnet: "https://testnet-rpc.netlifegy.com",
+      devnet:  "https://devnet-rpc.netlifegy.com",
+    };
+    const NETS   = ["mainnet", "testnet", "devnet"] as const;
+    const NTYPES = ["rpc", "lite", "fullnode", "boostnode", "validator", "genesis", "bootnode"] as const;
+    const result: any = { externalUrls };
+    for (const network of NETS) {
+      const netStatus = all[network] ?? {};
+      const running = NTYPES
+        .filter(t => netStatus[t]?.running)
+        .map(t => ({ type: t, port: netStatus[t].port, blockHeight: netStatus[t].blockHeight, peers: netStatus[t].peers }))
+        .sort((a, b) => prioritized.indexOf(a.type) - prioritized.indexOf(b.type));
+      result[network] = {
+        hasLocal: running.length > 0, running,
+        proxyUrl: running.length > 0 ? `/api/rpc?network=${network}` : null,
+        bestType: running[0]?.type ?? null,
+        externalUrl: externalUrls[network],
+      };
+    }
+    res.json(result);
+  });
+
   app.get("/api/nodes/:id", requireAuth, async (req, res) => {
     try {
       const { rows } = await pgPool.query(
@@ -2477,32 +2505,6 @@ export function registerRoutes(app: Express) {
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
-  });
-
-  // ── RPC Status: per-network running nodes ──────────────────────────────────
-  app.get("/api/nodes/rpc-status", (_req, res) => {
-    const all = testNodeManager.status() as any;
-    const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"];
-    const externalUrls: Record<string, string> = {
-      mainnet: "https://rpc.netlifegy.com",
-      testnet: "https://testnet-rpc.netlifegy.com",
-      devnet:  "https://devnet-rpc.netlifegy.com",
-    };
-    const result: any = { externalUrls };
-    for (const network of VALID_NETWORKS) {
-      const netStatus = all[network] ?? {};
-      const running = VALID_NODE_TYPES
-        .filter(t => netStatus[t]?.running)
-        .map(t => ({ type: t, port: netStatus[t].port, blockHeight: netStatus[t].blockHeight, peers: netStatus[t].peers }))
-        .sort((a, b) => prioritized.indexOf(a.type) - prioritized.indexOf(b.type));
-      result[network] = {
-        hasLocal: running.length > 0, running,
-        proxyUrl: running.length > 0 ? `/api/rpc?network=${network}` : null,
-        bestType: running[0]?.type ?? null,
-        externalUrl: externalUrls[network],
-      };
-    }
-    res.json(result);
   });
 
   // ── RPC Proxy: forward JSON-RPC to best running node for a network ─────────

@@ -934,23 +934,20 @@ const AdminContent = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <GlassCard className="p-4 text-center">
-          <p className="text-2xl font-bold">{nodes.filter(n => n.nodeType === 'litenode').length}</p>
-          <p className="text-sm text-muted-foreground">Lite Nodes</p>
-        </GlassCard>
-        <GlassCard className="p-4 text-center">
-          <p className="text-2xl font-bold">{nodes.filter(n => n.nodeType === 'fullnode').length}</p>
-          <p className="text-sm text-muted-foreground">Full Nodes</p>
-        </GlassCard>
-        <GlassCard className="p-4 text-center">
-          <p className="text-2xl font-bold">{nodes.filter(n => !n.isApproved).length}</p>
-          <p className="text-sm text-muted-foreground">Pending Approval</p>
-        </GlassCard>
-        <GlassCard className="p-4 text-center">
-          <p className="text-2xl font-bold">{nodes.filter(n => n.isApproved).length}</p>
-          <p className="text-sm text-muted-foreground">Approved</p>
-        </GlassCard>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+        {[
+          { label: 'RPC Nodes',       count: nodes.filter(n => ['rpc','rpcnode'].includes(n.nodeType)).length,      color: 'text-primary' },
+          { label: 'Lite Nodes',      count: nodes.filter(n => ['lite','litenode'].includes(n.nodeType)).length,    color: 'text-cyan-400' },
+          { label: 'Full Nodes',      count: nodes.filter(n => ['fullnode'].includes(n.nodeType)).length,           color: 'text-violet-400' },
+          { label: 'Validators',      count: nodes.filter(n => ['validator','validatornode'].includes(n.nodeType)).length, color: 'text-emerald-400' },
+          { label: 'Pending',         count: nodes.filter(n => !n.isApproved).length,                              color: 'text-yellow-400' },
+          { label: 'Approved',        count: nodes.filter(n => n.isApproved).length,                               color: 'text-green-400' },
+        ].map(({ label, count, color }) => (
+          <GlassCard key={label} className="p-4 text-center">
+            <p className={`text-2xl font-bold ${color}`}>{count}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+          </GlassCard>
+        ))}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
