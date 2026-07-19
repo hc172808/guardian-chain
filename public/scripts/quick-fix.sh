@@ -2,12 +2,14 @@
 # ============================================================
 #  GYDSchain — Nginx Quick-Fix Script
 #  Fixes the "Welcome to nginx!" page on Ubuntu servers.
+#  Also updates the app code and restarts PM2 when needed.
 #
 #  Usage:
 #    sudo bash quick-fix.sh
 #    sudo bash quick-fix.sh --domain app.netlifegy.com
 #    sudo bash quick-fix.sh --ip          (catch-all IP mode)
 #    sudo bash quick-fix.sh --status      (diagnose only, no changes)
+#    sudo bash quick-fix.sh --update      (git pull + build + PM2 reload)
 #
 #  What it does:
 #    1. Diagnoses why Nginx shows the default page
@@ -36,6 +38,7 @@ NGINX_SITE="gydschain"
 NGINX_AVAILABLE="/etc/nginx/sites-available/${NGINX_SITE}"
 NGINX_ENABLED="/etc/nginx/sites-enabled/${NGINX_SITE}"
 APP_PORT="${APP_PORT:-5001}"
+UPDATE_ONLY=false
 
 # ── Arg parse ────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -43,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --domain) DOMAIN="$2"; shift 2 ;;
     --ip)     DOMAIN="_"; shift ;;
     --status) STATUS_ONLY=true; shift ;;
+    --update) UPDATE_ONLY=true; shift ;;
     -h|--help)
       grep '^#  ' "$0" | sed 's/^#  //'
       exit 0 ;;
@@ -54,6 +58,38 @@ done
 if [[ $EUID -ne 0 ]]; then
   err "This script must be run as root (sudo bash quick-fix.sh)"
   exit 1
+fi
+
+# ── UPDATE mode: git pull + npm build + PM2 reload ───────────
+if $UPDATE_ONLY; then
+  hdr "Updating GYDSchain app"
+  if [[ ! -d "${APP_DIR}/.git" ]]; then
+    err "No git repo found at ${APP_DIR}. Run setup-server.sh first."
+    exit 1
+  fi
+  cd "${APP_DIR}"
+  APP_USER="$(stat -c '%U' .)"
+  info "Pulling latest code…"
+  sudo -u "$APP_USER" git pull --ff-only
+  info "Installing dependencies…"
+  sudo -u "$APP_USER" npm ci --prefer-offline 2>&1 | tail -3
+  info "Building frontend…"
+  sudo -u "$APP_USER" npm run build 2>&1 | tail -5
+  info "Reloading PM2…"
+  pm2 reload gydschain --update-env 2>/dev/null \
+    || pm2 restart gydschain --update-env 2>/dev/null \
+    || true
+  pm2 save 2>/dev/null || true
+  sleep 3
+  if curl -sf "http://localhost:${APP_PORT}/api/auth/captcha" \
+       | grep -q 'challengeId\|hcaptcha'; then
+    ok "Captcha endpoint is working ✓"
+    ok "Update complete — refresh your browser."
+  else
+    warn "Captcha endpoint still not responding."
+    warn "Check PM2 logs: pm2 logs gydschain --lines 30"
+  fi
+  exit 0
 fi
 
 # ── 1. DIAGNOSE ──────────────────────────────────────────────

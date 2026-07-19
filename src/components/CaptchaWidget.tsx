@@ -201,7 +201,10 @@ const MathChallengeWidget = ({
   const onExpireRef = useRef(onExpire);
   useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
-  const fetchChallenge = useCallback(async (autoFocus: boolean = true) => {
+  const fetchChallenge = useCallback(async (autoFocus: boolean = true, attempt: number = 0) => {
+    const MAX_ATTEMPTS = 3;
+    const RETRY_DELAY_MS = 2000;
+
     setLoading(true);
     setError('');
     setAnswer('');
@@ -210,23 +213,34 @@ const MathChallengeWidget = ({
       const res = await fetch('/api/auth/captcha');
       const contentType = res.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json')) {
-        // The server sent back HTML (usually the SPA index page) instead of JSON —
-        // this means the running server doesn't have this route yet, most likely
-        // because it's running older code than the frontend. A clear message
-        // instead of a raw JSON-parse error ("Unexpected token '<' ... <!DOCTYPE").
-        throw new Error('Security check unavailable — the server may need to be updated/restarted. Please try again shortly.');
+        // Server returned HTML (SPA index page) — route doesn't exist on this build.
+        // Auto-retry a few times in case the server is still starting up.
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+          return fetchChallenge(autoFocus, attempt + 1);
+        }
+        throw new Error(
+          'Security check unavailable. Run "gyds-redeploy" on your server to update, then refresh this page.'
+        );
       }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Failed to load security check');
+      if (!res.ok) {
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+          return fetchChallenge(autoFocus, attempt + 1);
+        }
+        throw new Error(data.error ?? 'Failed to load security check');
+      }
       setChallengeId(data.challengeId);
       setQuestion(data.question);
     } catch (e: any) {
+      if (attempt < MAX_ATTEMPTS - 1 && !e.message.includes('gyds-redeploy')) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+        return fetchChallenge(autoFocus, attempt + 1);
+      }
       setError(e.message);
     } finally {
       setLoading(false);
-      // Only steal focus into the answer box when the user explicitly asked
-      // for a new challenge (reset/refresh) — never on the initial mount,
-      // where it would yank focus away from whatever field they're typing in.
       if (autoFocus) setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, []);
@@ -286,10 +300,23 @@ const MathChallengeWidget = ({
           Loading question…
         </div>
       ) : error ? (
-        <div className="flex items-center gap-2 text-destructive text-xs">
-          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-          {error}
-          <button type="button" onClick={() => fetchChallenge()} className="underline ml-auto">Retry</button>
+        <div className="space-y-2">
+          <div className="flex items-start gap-2 text-destructive text-xs">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <span className="flex-1">{error}</span>
+          </div>
+          {error.includes('gyds-redeploy') && (
+            <div className="rounded-md bg-black/60 border border-border/40 px-2.5 py-1.5 font-mono text-[11px] text-green-300 select-all">
+              gyds-redeploy
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => fetchChallenge()}
+            className="text-xs underline text-primary hover:text-primary/80"
+          >
+            Retry
+          </button>
         </div>
       ) : (
         <div className="flex items-center gap-3">
