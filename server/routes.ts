@@ -933,7 +933,7 @@ export function registerRoutes(app: Express) {
   app.post("/api/admin/stablecoins/:id/approve", requireAdmin, async (req, res) => {
     const user = req.user as any;
     try {
-      const addr = `0x${require('crypto').randomBytes(20).toString('hex')}`;
+      const addr = `0x${crypto.randomBytes(20).toString('hex')}`;
       const { rows: [sc] } = await pgPool.query(
         `UPDATE user_stablecoins SET status='active', is_approved=true, approved_by=$1, approved_at=NOW(), address=$2, updated_at=NOW() WHERE id=$3 RETURNING *`,
         [user.id, addr, req.params.id]
@@ -2035,8 +2035,7 @@ export function registerRoutes(app: Express) {
   // ── Node log file routes ───────────────────────────────────────────────────
   // GET /api/admin/test-nodes/logfile — returns last N lines from the combined log file
   app.get("/api/admin/test-nodes/logfile", requireAdmin, (_req, res) => {
-    const { fs: fsModule } = (() => { try { return { fs: require("fs") }; } catch { return { fs: null }; } })();
-    const fsMod = require("fs") as typeof import("fs");
+    const fsMod = fs;
     const filePath = getNodeLogFilePath();
     try {
       if (!fsMod.existsSync(filePath)) {
@@ -2055,7 +2054,7 @@ export function registerRoutes(app: Express) {
 
   // GET /api/admin/test-nodes/logfile/download — streams the raw log file as a download
   app.get("/api/admin/test-nodes/logfile/download", requireAdmin, (_req, res) => {
-    const fsMod = require("fs") as typeof import("fs");
+    const fsMod = fs;
     const filePath = getNodeLogFilePath();
     try {
       if (!fsMod.existsSync(filePath)) {
@@ -5211,5 +5210,331 @@ export function registerRoutes(app: Express) {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DeFi Extended Routes
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── Staking Stats ──────────────────────────────────────────────────────────
+  app.get('/api/staking/stats', async (_req, res) => {
+    try {
+      const { rows } = await pgPool.query(`
+        SELECT
+          COALESCE(SUM(CASE WHEN to_address = 'staking-pool' THEN amount ELSE 0 END), 0)
+            - COALESCE(SUM(CASE WHEN from_address = 'staking-pool' THEN amount ELSE 0 END), 0)
+          AS total_staked,
+          COUNT(DISTINCT CASE WHEN to_address = 'staking-pool' THEN user_id END) AS stakers,
+          COUNT(*) FILTER (WHERE to_address = 'staking-pool' AND created_at > NOW() - INTERVAL '24h') AS stakes_24h
+        FROM transactions WHERE status = 'confirmed'
+      `);
+      const totalStaked = Math.max(0, parseFloat(rows[0]?.total_staked ?? '0'));
+      const stakers = parseInt(rows[0]?.stakers ?? '0');
+      // Dynamic APR: base 12% + bonus up to 80% based on lock demand
+      const dynamicApr = Math.min(92, 12 + (totalStaked > 0 ? Math.log10(totalStaked + 1) * 8 : 60));
+      const exchangeRate = 1 + (totalStaked / 10_000_000) * 0.04; // xGYD ratio grows with TVL
+      res.json({
+        totalStaked,
+        totalStakedUsd: totalStaked * 0.0000001,
+        stakers,
+        stakes24h: parseInt(rows[0]?.stakes_24h ?? '0'),
+        apr: parseFloat(dynamicApr.toFixed(2)),
+        exchangeRate: parseFloat(Math.max(1, exchangeRate).toFixed(6)),
+        buybacks24h: totalStaked * 0.0000001 * 0.003,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Farming Pools ─────────────────────────────────────────────────────────
+  app.get('/api/farms', async (_req, res) => {
+    try {
+      // Derive farming APR from pool data + bonus multipliers
+      const { rows: poolRows } = await pgPool.query(`
+        SELECT id, token_a_symbol, token_b_symbol, tvl, volume_24h, apr, fee_tier
+        FROM liquidity_pools WHERE is_active = true ORDER BY tvl DESC
+      `);
+      const MULTIPLIERS: Record<string, { mult: string; tag?: string }> = {
+        'GYDS-USDT': { mult: '40x', tag: 'hot' },
+        'GYDS-ETH':  { mult: '20x', tag: 'boosted' },
+        'GYDS-BNB':  { mult: '10x' },
+        'USDT-USDC': { mult: '2x',  tag: 'new' },
+        'GYDS-MATIC':{ mult: '5x' },
+        'GYDS-SOL':  { mult: '8x',  tag: 'boosted' },
+        'GYD-USDT':  { mult: '15x', tag: 'hot' },
+      };
+      const farms = poolRows.map((p: any) => {
+        const key = `${p.token_a_symbol}-${p.token_b_symbol}`;
+        const cfg = MULTIPLIERS[key] ?? { mult: '1x' };
+        const multN = parseInt(cfg.mult);
+        return {
+          id: p.id,
+          name: `${p.token_a_symbol}-${p.token_b_symbol}`,
+          pair: `${p.token_a_symbol} / ${p.token_b_symbol}`,
+          apr: parseFloat(((p.apr || 20) * (multN / 2)).toFixed(1)),
+          tvl: parseFloat(p.tvl) || 0,
+          multiplier: cfg.mult,
+          feeTier: p.fee_tier,
+          tag: cfg.tag ?? null,
+          earned: 0,
+          stakedLP: 0,
+        };
+      });
+      // Add default farms if no pools exist yet
+      if (farms.length === 0) {
+        farms.push(
+          { id: 'f1', name: 'GYDS-USDT',  pair: 'GYDS / USDT',  apr: 142.5, tvl: 2_400_000, multiplier: '40x', feeTier: 0.3, tag: 'hot',     earned: 0, stakedLP: 0 },
+          { id: 'f2', name: 'GYDS-ETH',   pair: 'GYDS / ETH',   apr: 98.3,  tvl: 1_100_000, multiplier: '20x', feeTier: 0.3, tag: 'boosted', earned: 0, stakedLP: 0 },
+          { id: 'f3', name: 'GYDS-BNB',   pair: 'GYDS / BNB',   apr: 74.1,  tvl: 650_000,   multiplier: '10x', feeTier: 0.3, tag: null,      earned: 0, stakedLP: 0 },
+          { id: 'f4', name: 'USDT-USDC',  pair: 'USDT / USDC',  apr: 18.7,  tvl: 5_200_000, multiplier: '2x',  feeTier: 0.05, tag: 'new',    earned: 0, stakedLP: 0 },
+          { id: 'f5', name: 'GYDS-MATIC', pair: 'GYDS / MATIC', apr: 56.9,  tvl: 380_000,   multiplier: '5x',  feeTier: 0.3, tag: null,      earned: 0, stakedLP: 0 },
+        );
+      }
+      res.json(farms);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Vault Catalog ──────────────────────────────────────────────────────────
+  app.get('/api/vaults', async (_req, res) => {
+    try {
+      // Get real staked amounts per vault from vault_positions
+      const { rows } = await pgPool.query(`
+        SELECT vault_id,
+          SUM(CAST(amount AS NUMERIC)) AS total_deposited,
+          COUNT(*) AS depositors
+        FROM vault_positions WHERE status = 'active' GROUP BY vault_id
+      `).catch(() => ({ rows: [] as any[] }));
+      const tvlMap = Object.fromEntries(rows.map((r: any) => [r.vault_id, {
+        tvl: parseFloat(r.total_deposited) || 0,
+        depositors: parseInt(r.depositors) || 0,
+      }]));
+      const vaults = [
+        { id: 'gyds-stake',     name: 'GYDS Auto-Stake',          icon: '◇',  token: 'GYDS',        strategy: 'Stake GYDS, auto-compound rewards every 24h. No lock-up.',                                                     apy: 18.5, baseTvl: 8_500_000,  risk: 'low',    autoCompound: true,  lockDays: null, capacity: 20_000_000 },
+        { id: 'lp-compound',    name: 'GYDS/GYD LP Vault',        icon: '🔄', token: 'GYDS-GYD LP', strategy: 'Deposit GYDS/GYD LP tokens. Vault auto-compounds swap fees + farming rewards.',                               apy: 42.3, baseTvl: 3_200_000,  risk: 'medium', autoCompound: true,  lockDays: 7,    capacity: 10_000_000 },
+        { id: 'gyd-stable',     name: 'GYD Stablecoin Yield',     icon: 'S',  token: 'GYD',         strategy: 'Deposit GYD stablecoin, earn yield from protocol revenue sharing.',                                           apy: 8.2,  baseTvl: 1_800_000,  risk: 'low',    autoCompound: true,  lockDays: null, capacity: 5_000_000 },
+        { id: 'gyds-boost',     name: 'GYDS Boosted Vault',       icon: '⚡', token: 'GYDS',        strategy: '30-day lock for boosted rewards. 3× multiplier on staking APY.',                                              apy: 55.5, baseTvl: 2_100_000,  risk: 'medium', autoCompound: false, lockDays: 30,   capacity: 5_000_000 },
+        { id: 'validator-boost',name: 'Validator Rewards Vault',  icon: '🛡️', token: 'GYDS',        strategy: 'Delegate to top validators via the vault. Vault optimizes delegation automatically.',                        apy: 25.8, baseTvl: 12_000_000, risk: 'low',    autoCompound: true,  lockDays: null, capacity: 50_000_000 },
+        { id: 'gyds-perp-lp',  name: 'Perp Liquidity Vault',     icon: '📈', token: 'GYDS',        strategy: 'Provide liquidity to perpetual markets. Earn funding fees when traders pay funding.',                         apy: 34.2, baseTvl: 900_000,    risk: 'high',   autoCompound: true,  lockDays: 14,   capacity: 8_000_000 },
+        { id: 'gyd-predict-lp',name: 'Prediction Market LP',      icon: '🎯', token: 'GYD',         strategy: 'Be the house on prediction markets. Earn 3% fees from all settled bets.',                                     apy: 22.1, baseTvl: 450_000,    risk: 'high',   autoCompound: false, lockDays: null, capacity: 3_000_000 },
+      ];
+      res.json(vaults.map(v => ({
+        ...v,
+        tvl: (tvlMap[v.id]?.tvl || 0) + v.baseTvl,
+        depositors: tvlMap[v.id]?.depositors || 0,
+        filled: (tvlMap[v.id]?.tvl || 0) + v.baseTvl,
+      })));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Perpetuals ─────────────────────────────────────────────────────────────
+  (async () => {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS perp_positions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id INTEGER NOT NULL,
+        market VARCHAR(50) NOT NULL,
+        side VARCHAR(10) NOT NULL,
+        size NUMERIC NOT NULL,
+        leverage INTEGER NOT NULL,
+        entry_price NUMERIC NOT NULL,
+        liquidation_price NUMERIC NOT NULL,
+        margin NUMERIC NOT NULL,
+        pnl NUMERIC DEFAULT 0,
+        funding_paid NUMERIC DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'open',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        closed_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS perp_orders (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id INTEGER NOT NULL,
+        market VARCHAR(50) NOT NULL,
+        side VARCHAR(10) NOT NULL,
+        order_type VARCHAR(20) NOT NULL,
+        size NUMERIC NOT NULL,
+        leverage INTEGER NOT NULL,
+        price NUMERIC,
+        status VARCHAR(20) DEFAULT 'open',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `).catch(() => {});
+  })();
+
+  app.get('/api/perps/markets', (_req, res) => {
+    const GYDS = 0.0000001;
+    res.json([
+      { pair: 'GYDS/USD',  price: GYDS,                         change: 2.4,  funding: 0.0012, oi: 1_240_000, maxLeverage: 50, minSize: 100 },
+      { pair: 'GYDS/ETH',  price: GYDS / 3400,                  change: -1.1, funding: 0.0008, oi: 580_000,   maxLeverage: 20, minSize: 100 },
+      { pair: 'GYDS/BTC',  price: GYDS / 65000,                 change: 0.8,  funding: 0.0005, oi: 320_000,   maxLeverage: 20, minSize: 100 },
+      { pair: 'GYD/USDT',  price: 1.00,                         change: 0.01, funding: 0.0001, oi: 890_000,   maxLeverage: 10, minSize: 10 },
+    ]);
+  });
+
+  app.get('/api/perps/positions', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { rows } = await pgPool.query(
+      `SELECT * FROM perp_positions WHERE user_id=$1 AND status='open' ORDER BY created_at DESC`, [user.id]
+    ).catch(() => ({ rows: [] as any[] }));
+    res.json(rows);
+  });
+
+  app.post('/api/perps/positions', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { market, side, size, leverage, entryPrice } = req.body;
+    if (!market || !side || !size || !leverage) return res.status(400).json({ error: 'market, side, size, leverage required' });
+    const margin = parseFloat(size) / leverage;
+    const liqPrice = side === 'long'
+      ? parseFloat(entryPrice) * (1 - 1 / leverage * 0.9)
+      : parseFloat(entryPrice) * (1 + 1 / leverage * 0.9);
+    const { rows } = await pgPool.query(
+      `INSERT INTO perp_positions (user_id,market,side,size,leverage,entry_price,liquidation_price,margin)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [user.id, market, side, size, leverage, entryPrice, liqPrice, margin]
+    );
+    res.json(rows[0]);
+  });
+
+  app.patch('/api/perps/positions/:id', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { pnl, fundingPaid } = req.body;
+    const { rows } = await pgPool.query(
+      `UPDATE perp_positions SET pnl=$1, funding_paid=$2 WHERE id=$3 AND user_id=$4 RETURNING *`,
+      [pnl ?? 0, fundingPaid ?? 0, req.params.id, user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Position not found' });
+    res.json(rows[0]);
+  });
+
+  app.delete('/api/perps/positions/:id', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { rows } = await pgPool.query(
+      `UPDATE perp_positions SET status='closed', closed_at=NOW() WHERE id=$1 AND user_id=$2 RETURNING *`,
+      [req.params.id, user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Position not found' });
+    res.json({ ok: true, position: rows[0] });
+  });
+
+  // ── Prediction Markets ────────────────────────────────────────────────────
+  (async () => {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS prediction_markets (
+        id VARCHAR(50) PRIMARY KEY,
+        question TEXT NOT NULL,
+        category VARCHAR(50),
+        yes_pool NUMERIC DEFAULT 0,
+        no_pool NUMERIC DEFAULT 0,
+        volume NUMERIC DEFAULT 0,
+        ends_at TIMESTAMPTZ,
+        resolved BOOLEAN DEFAULT false,
+        outcome BOOLEAN,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS prediction_bets (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id INTEGER NOT NULL,
+        market_id VARCHAR(50) NOT NULL,
+        side VARCHAR(5) NOT NULL,
+        amount NUMERIC NOT NULL,
+        payout NUMERIC NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      INSERT INTO prediction_markets (id,question,category,yes_pool,no_pool,volume,ends_at)
+      VALUES
+        ('pm-gyds-1usd','Will GYDS price exceed $1.00 by end of Q3 2026?','Price',182400,94800,277200,'2026-09-30'),
+        ('pm-gyds-100v','Will GYDSchain reach 100 active validators by Dec 2026?','Network',56000,88000,144000,'2026-12-31'),
+        ('pm-eth-4k','Will ETH price be above $4,000 on Aug 1, 2026?','Price',410000,230000,640000,'2026-08-01'),
+        ('pm-gyds-tvl10m','Will GYDSchain TVL exceed $10M by mainnet launch?','DeFi',72000,28000,100000,'2026-10-01'),
+        ('pm-btc-120k','BTC above $120,000 on Jan 1, 2027?','Price',320000,280000,600000,'2027-01-01'),
+        ('pm-gyds-main','GYDSchain mainnet launch before Dec 2026?','Network',95000,45000,140000,'2026-12-31')
+      ON CONFLICT (id) DO NOTHING;
+    `).catch(() => {});
+  })();
+
+  app.get('/api/predict/markets', async (_req, res) => {
+    const { rows } = await pgPool.query(
+      `SELECT * FROM prediction_markets ORDER BY volume DESC`
+    ).catch(() => ({ rows: [] as any[] }));
+    res.json(rows);
+  });
+
+  app.post('/api/predict/markets', requireAdmin, async (req, res) => {
+    const { id, question, category, endsAt } = req.body;
+    if (!id || !question) return res.status(400).json({ error: 'id and question required' });
+    const { rows } = await pgPool.query(
+      `INSERT INTO prediction_markets (id,question,category,ends_at) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [id, question, category ?? 'General', endsAt ?? null]
+    );
+    res.json(rows[0]);
+  });
+
+  app.patch('/api/predict/markets/:id/resolve', requireAdmin, async (req, res) => {
+    const { outcome } = req.body;
+    if (typeof outcome !== 'boolean') return res.status(400).json({ error: 'outcome boolean required' });
+    const { rows } = await pgPool.query(
+      `UPDATE prediction_markets SET resolved=true, outcome=$1 WHERE id=$2 RETURNING *`,
+      [outcome, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Market not found' });
+    // Settle winning bets
+    await pgPool.query(
+      `UPDATE prediction_bets SET status='won' WHERE market_id=$1 AND side=$2 AND status='pending'`,
+      [req.params.id, outcome ? 'yes' : 'no']
+    ).catch(() => {});
+    await pgPool.query(
+      `UPDATE prediction_bets SET status='lost' WHERE market_id=$1 AND side=$2 AND status='pending'`,
+      [req.params.id, outcome ? 'no' : 'yes']
+    ).catch(() => {});
+    res.json(rows[0]);
+  });
+
+  app.get('/api/predict/bets', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { rows } = await pgPool.query(
+      `SELECT pb.*, pm.question, pm.category, pm.resolved, pm.outcome
+       FROM prediction_bets pb
+       JOIN prediction_markets pm ON pm.id = pb.market_id
+       WHERE pb.user_id=$1 ORDER BY pb.created_at DESC`,
+      [user.id]
+    ).catch(() => ({ rows: [] as any[] }));
+    res.json(rows);
+  });
+
+  app.post('/api/predict/bets', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { marketId, side, amount } = req.body;
+    if (!marketId || !side || !amount) return res.status(400).json({ error: 'marketId, side, amount required' });
+    const amt = parseFloat(amount);
+    if (amt <= 0) return res.status(400).json({ error: 'amount must be positive' });
+    const { rows: mkts } = await pgPool.query(`SELECT * FROM prediction_markets WHERE id=$1`, [marketId]);
+    if (!mkts[0]) return res.status(404).json({ error: 'Market not found' });
+    if (mkts[0].resolved) return res.status(400).json({ error: 'Market already resolved' });
+    const mkt = mkts[0];
+    const yesPool = parseFloat(mkt.yes_pool) + (side === 'yes' ? amt : 0);
+    const noPool  = parseFloat(mkt.no_pool)  + (side === 'no'  ? amt : 0);
+    const pct     = side === 'yes' ? yesPool / (yesPool + noPool) : noPool / (yesPool + noPool);
+    const payout  = parseFloat(((amt / pct) * 0.97).toFixed(4));
+    // Update market pools
+    await pgPool.query(
+      `UPDATE prediction_markets SET yes_pool=$1, no_pool=$2, volume=volume+$3 WHERE id=$4`,
+      [yesPool, noPool, amt, marketId]
+    );
+    const { rows } = await pgPool.query(
+      `INSERT INTO prediction_bets (user_id,market_id,side,amount,payout) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [user.id, marketId, side, amt, payout]
+    );
+    res.json({ ...rows[0], payout });
+  });
+
+  app.delete('/api/predict/bets/:id', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { rows } = await pgPool.query(
+      `SELECT * FROM prediction_bets WHERE id=$1 AND user_id=$2`, [req.params.id, user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Bet not found' });
+    if (rows[0].status !== 'pending') return res.status(400).json({ error: 'Cannot cancel settled bet' });
+    await pgPool.query(`DELETE FROM prediction_bets WHERE id=$1`, [req.params.id]);
+    res.json({ ok: true });
   });
 }

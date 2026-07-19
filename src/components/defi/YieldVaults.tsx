@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { TrendingUp, Lock, RefreshCw, Zap, ChevronDown, ChevronUp, LogOut } from 'lucide-react';
+import { TrendingUp, Lock, RefreshCw, Zap, ChevronDown, ChevronUp, LogOut, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Vault {
@@ -23,6 +24,7 @@ interface Vault {
   capacity: number;
   filled: number;
   icon: string;
+  depositors: number;
 }
 
 interface VaultPosition {
@@ -39,36 +41,36 @@ interface VaultPosition {
   depositedAt: string;
 }
 
-const VAULTS: Vault[] = [
+const VAULTS_FALLBACK: Vault[] = [
   {
     id: 'gyds-stake', name: 'GYDS Auto-Stake', icon: '◇', token: 'GYDS',
     strategy: 'Stake GYDS, auto-compound rewards every 24h. No lock-up.',
     apy: 18.5, tvl: 8_500_000, risk: 'low', autoCompound: true,
-    capacity: 20_000_000, filled: 8_500_000,
+    capacity: 20_000_000, filled: 8_500_000, depositors: 1240
   },
   {
     id: 'lp-compound', name: 'GYDS/GYD LP Vault', icon: '🔄', token: 'GYDS-GYD LP',
     strategy: 'Deposit GYDS/GYD LP tokens. Vault auto-compounds swap fees + farming rewards.',
     apy: 42.3, tvl: 3_200_000, risk: 'medium', autoCompound: true, lockDays: 7,
-    capacity: 10_000_000, filled: 3_200_000,
+    capacity: 10_000_000, filled: 3_200_000, depositors: 450
   },
   {
     id: 'gyd-stable', name: 'GYD Stablecoin Yield', icon: '$', token: 'GYD',
     strategy: 'Deposit GYD stablecoin, earn yield from protocol revenue sharing.',
     apy: 8.2, tvl: 1_800_000, risk: 'low', autoCompound: true,
-    capacity: 5_000_000, filled: 1_800_000,
+    capacity: 5_000_000, filled: 1_800_000, depositors: 890
   },
   {
     id: 'gyds-boost', name: 'GYDS Boosted Vault', icon: '⚡', token: 'GYDS',
     strategy: '30-day lock for boosted rewards. 3× multiplier on staking APY.',
     apy: 55.5, tvl: 2_100_000, risk: 'medium', autoCompound: false, lockDays: 30,
-    capacity: 5_000_000, filled: 2_100_000,
+    capacity: 5_000_000, filled: 2_100_000, depositors: 320
   },
   {
     id: 'validator-boost', name: 'Validator Rewards Vault', icon: '🛡️', token: 'GYDS',
     strategy: 'Delegate to top validators via the vault. Vault optimizes delegation automatically.',
     apy: 25.8, tvl: 12_000_000, risk: 'low', autoCompound: true,
-    capacity: 50_000_000, filled: 12_000_000,
+    capacity: 50_000_000, filled: 12_000_000, depositors: 2100
   },
 ];
 
@@ -81,6 +83,8 @@ const RISK_CONFIG = {
 export const YieldVaults = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [vaults, setVaults] = useState<Vault[]>([]);
+  const [loadingVaults, setLoadingVaults] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [depositAmount, setDepositAmount] = useState<Record<string, string>>({});
   const [compoundFreq, setCompoundFreq] = useState<Record<string, string>>({});
@@ -88,6 +92,22 @@ export const YieldVaults = () => {
   const [withdrawing, setWithdrawing] = useState<string | null>(null);
   const [positions, setPositions] = useState<VaultPosition[]>([]);
   const [loadingPositions, setLoadingPositions] = useState(false);
+
+  const fetchVaults = useCallback(async () => {
+    setLoadingVaults(true);
+    try {
+      const res = await fetch('/api/vaults');
+      if (res.ok) {
+        setVaults(await res.json());
+      } else {
+        setVaults(VAULTS_FALLBACK);
+      }
+    } catch (err) {
+      setVaults(VAULTS_FALLBACK);
+    } finally {
+      setLoadingVaults(false);
+    }
+  }, []);
 
   const fetchPositions = useCallback(async () => {
     if (!user) return;
@@ -100,7 +120,10 @@ export const YieldVaults = () => {
     }
   }, [user]);
 
-  useEffect(() => { fetchPositions(); }, [fetchPositions]);
+  useEffect(() => {
+    fetchVaults();
+    fetchPositions();
+  }, [fetchVaults, fetchPositions]);
 
   const deposit = async (vault: Vault) => {
     if (!user) { toast({ title: 'Sign in to deposit', variant: 'destructive' }); return; }
@@ -176,7 +199,7 @@ export const YieldVaults = () => {
     }
   };
 
-  const totalTvl = VAULTS.reduce((s, v) => s + v.tvl, 0);
+  const protocolTvl = useMemo(() => vaults.reduce((s, v) => s + v.tvl, 0), [vaults]);
 
   return (
     <div className="space-y-4">
@@ -184,27 +207,33 @@ export const YieldVaults = () => {
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <TrendingUp className="w-5 h-5 text-primary" /> Yield Vaults
         </h2>
-        <Badge variant="secondary" className="text-xs">
-          TVL: {(totalTvl / 1_000_000).toFixed(1)}M GYDS
-        </Badge>
+        <div className="flex gap-2">
+          <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+            Protocol TVL: ${(protocolTvl / 1_000_000).toFixed(1)}M
+          </Badge>
+        </div>
       </div>
 
       {/* Stats strip */}
       <div className="grid grid-cols-3 gap-2 text-center">
-        {[
-          { label: 'Best APY',  value: `${Math.max(...VAULTS.map(v => v.apy))}%` },
-          { label: 'Vaults',    value: VAULTS.length },
-          { label: 'Auto-comp', value: `${VAULTS.filter(v => v.autoCompound).length}` },
-        ].map(s => (
-          <GlassCard key={s.label} className="p-2">
-            <p className="text-sm font-bold text-primary">{s.value}</p>
-            <p className="text-[10px] text-muted-foreground">{s.label}</p>
-          </GlassCard>
-        ))}
+        {loadingVaults ? (
+          [1, 2, 3].map(i => <Skeleton key={i} className="h-12 rounded-xl" />)
+        ) : (
+          [
+            { label: 'Best APY',  value: `${Math.max(...vaults.map(v => v.apy), 0)}%` },
+            { label: 'Vaults',    value: vaults.length },
+            { label: 'Auto-comp', value: `${vaults.filter(v => v.autoCompound).length}` },
+          ].map(s => (
+            <GlassCard key={s.label} className="p-2">
+              <p className="text-sm font-bold text-primary">{s.value}</p>
+              <p className="text-[10px] text-muted-foreground">{s.label}</p>
+            </GlassCard>
+          ))
+        )}
       </div>
 
       {/* My Positions */}
-      {user && positions.length > 0 && (
+      {user && (positions.length > 0 || loadingPositions) && (
         <GlassCard className="p-4">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold">My Positions</p>
@@ -213,198 +242,208 @@ export const YieldVaults = () => {
             </button>
           </div>
           <div className="space-y-2">
-            {positions.map(pos => {
-              const isLocked = !!pos.lockedUntil && new Date(pos.lockedUntil) > new Date();
-              return (
-                <motion.div key={pos.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                  className="flex items-center justify-between text-xs bg-muted/20 rounded-lg p-2.5 gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{pos.vaultName}</p>
-                    <p className="text-muted-foreground">{parseFloat(pos.amount).toLocaleString()} {pos.token}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-emerald-400 font-bold">{parseFloat(pos.apy).toFixed(1)}% APY</p>
-                    {isLocked && pos.lockedUntil && (
-                      <p className="text-amber-400 text-[10px] flex items-center gap-0.5 justify-end">
-                        <Lock className="w-2.5 h-2.5" /> {new Date(pos.lockedUntil).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => toggleAutoCompound(pos)}
-                    title={pos.autoCompound ? 'Auto-compound ON — click to disable' : 'Auto-compound OFF — click to enable'}
-                    className={cn('shrink-0 transition-colors p-0.5 rounded', pos.autoCompound ? 'text-primary' : 'text-muted-foreground/40 hover:text-primary/60')}
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => withdraw(pos)}
-                    disabled={withdrawing === pos.id || isLocked}
-                    className={cn('shrink-0 transition-colors', isLocked ? 'text-muted-foreground/30 cursor-not-allowed' : 'text-muted-foreground hover:text-red-400')}
-                    title={isLocked ? 'Position is locked' : 'Withdraw'}
-                  >
-                    {withdrawing === pos.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
-                  </button>
-                </motion.div>
-              );
-            })}
+            {loadingPositions && positions.length === 0 ? (
+              <Skeleton className="h-10 w-full" />
+            ) : (
+              positions.map(pos => {
+                const isLocked = !!pos.lockedUntil && new Date(pos.lockedUntil) > new Date();
+                return (
+                  <motion.div key={pos.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="flex items-center justify-between text-xs bg-muted/20 rounded-lg p-2.5 gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{pos.vaultName}</p>
+                      <p className="text-muted-foreground">{parseFloat(pos.amount).toLocaleString()} {pos.token}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-emerald-400 font-bold">{parseFloat(pos.apy).toFixed(1)}% APY</p>
+                      {isLocked && pos.lockedUntil && (
+                        <p className="text-amber-400 text-[10px] flex items-center gap-0.5 justify-end">
+                          <Lock className="w-2.5 h-2.5" /> {new Date(pos.lockedUntil).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => toggleAutoCompound(pos)}
+                      title={pos.autoCompound ? 'Auto-compound ON — click to disable' : 'Auto-compound OFF — click to enable'}
+                      className={cn('shrink-0 transition-colors p-0.5 rounded', pos.autoCompound ? 'text-primary' : 'text-muted-foreground/40 hover:text-primary/60')}
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => withdraw(pos)}
+                      disabled={withdrawing === pos.id || isLocked}
+                      className={cn('shrink-0 transition-colors', isLocked ? 'text-muted-foreground/30 cursor-not-allowed' : 'text-muted-foreground hover:text-red-400')}
+                      title={isLocked ? 'Position is locked' : 'Withdraw'}
+                    >
+                      {withdrawing === pos.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+                    </button>
+                  </motion.div>
+                );
+              })
+            )}
           </div>
         </GlassCard>
       )}
 
       {/* Vault cards */}
       <div className="space-y-3">
-        {VAULTS.map((vault, i) => {
-          const risk = RISK_CONFIG[vault.risk];
-          const isExpanded = expanded === vault.id;
-          const fillPct = (vault.filled / vault.capacity) * 100;
+        {loadingVaults ? (
+          [1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 w-full rounded-xl" />)
+        ) : (
+          vaults.map((vault, i) => {
+            const risk = RISK_CONFIG[vault.risk];
+            const isExpanded = expanded === vault.id;
+            const fillPct = (vault.filled / vault.capacity) * 100;
 
-          return (
-            <motion.div key={vault.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
-              <GlassCard className="overflow-hidden">
-                <button
-                  className="w-full p-4 flex items-center gap-3 text-left hover:bg-sidebar-accent/30 transition-colors"
-                  onClick={() => setExpanded(isExpanded ? null : vault.id)}
-                >
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-neon-cyan/10 flex items-center justify-center text-xl shrink-0">
-                    {vault.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <p className="font-semibold text-sm">{vault.name}</p>
-                      {vault.autoCompound && (
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-0.5">
-                          <RefreshCw className="w-2.5 h-2.5" /> Auto
-                        </Badge>
-                      )}
-                      {vault.lockDays && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 text-amber-400 border-amber-500/30">
-                          <Lock className="w-2.5 h-2.5" /> {vault.lockDays}d
-                        </Badge>
-                      )}
+            return (
+              <motion.div key={vault.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
+                <GlassCard className="overflow-hidden">
+                  <button
+                    className="w-full p-4 flex items-center gap-3 text-left hover:bg-sidebar-accent/30 transition-colors"
+                    onClick={() => setExpanded(isExpanded ? null : vault.id)}
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-neon-cyan/10 flex items-center justify-center text-xl shrink-0">
+                      {vault.icon}
                     </div>
-                    <p className="text-xs text-muted-foreground">{vault.token}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-lg font-bold text-emerald-400">{vault.apy}%</p>
-                    <p className="text-[10px] text-muted-foreground">APY</p>
-                  </div>
-                  {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-                </button>
-
-                <AnimatePresence>
-                  {isExpanded && (
-                    <motion.div
-                      initial={{ height: 0 }}
-                      animate={{ height: 'auto' }}
-                      exit={{ height: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="px-4 pb-4 space-y-3 border-t border-border/20">
-                        <p className="text-xs text-muted-foreground pt-3">{vault.strategy}</p>
-
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="p-2 bg-muted/20 rounded-lg">
-                            <p className="text-muted-foreground">TVL</p>
-                            <p className="font-bold">{(vault.tvl / 1_000_000).toFixed(1)}M {vault.token}</p>
-                          </div>
-                          <div className="p-2 bg-muted/20 rounded-lg">
-                            <p className="text-muted-foreground">Capacity</p>
-                            <div className="flex items-center gap-1 mt-1">
-                              <Progress value={fillPct} className="h-1 flex-1" />
-                              <span className="font-bold">{fillPct.toFixed(0)}%</span>
-                            </div>
-                          </div>
-                          <div className="p-2 bg-muted/20 rounded-lg">
-                            <p className="text-muted-foreground">Risk level</p>
-                            <Badge variant="outline" className={cn('text-[10px] mt-0.5', risk.color)}>{risk.label}</Badge>
-                          </div>
-                          <div className="p-2 bg-muted/20 rounded-lg">
-                            <p className="text-muted-foreground">Lock-up</p>
-                            <p className="font-bold">{vault.lockDays ? `${vault.lockDays} days` : 'None'}</p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          {vault.autoCompound && (
-                            <div>
-                              <label className="text-xs text-muted-foreground">Compound Frequency</label>
-                              <div className="flex gap-1 mt-1">
-                                {(['daily', 'weekly', 'monthly'] as const).map(f => (
-                                  <button key={f} onClick={() => setCompoundFreq(prev => ({ ...prev, [vault.id]: f }))}
-                                    className={cn('flex-1 py-1 rounded text-xs border transition-all capitalize',
-                                      (compoundFreq[vault.id] ?? 'daily') === f
-                                        ? 'border-primary bg-primary/10 text-primary'
-                                        : 'border-border/30 text-muted-foreground hover:text-foreground')}>
-                                    {f}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          <div className="flex gap-2">
-                            <Input
-                              type="number"
-                              placeholder={`Amount in ${vault.token}`}
-                              value={depositAmount[vault.id] ?? ''}
-                              onChange={e => setDepositAmount(prev => ({ ...prev, [vault.id]: e.target.value }))}
-                              className="text-sm"
-                            />
-                            <Button onClick={() => deposit(vault)} disabled={depositing === vault.id} className="shrink-0">
-                              {depositing === vault.id
-                                ? <RefreshCw className="w-4 h-4 animate-spin" />
-                                : <Zap className="w-4 h-4" />
-                              }
-                            </Button>
-                          </div>
-                          {depositAmount[vault.id] && parseFloat(depositAmount[vault.id]) > 0 && (() => {
-                            const amt = parseFloat(depositAmount[vault.id]);
-                            const freq = compoundFreq[vault.id] ?? 'daily';
-                            const n = freq === 'daily' ? 365 : freq === 'weekly' ? 52 : 12;
-                            const r = vault.apy / 100 / n;
-                            const compounded = amt * Math.pow(1 + r, n) - amt;
-                            const simple = amt * vault.apy / 100;
-                            return (
-                              <div className="space-y-1">
-                                <div className="grid grid-cols-3 gap-1 text-xs">
-                                  <div className="p-1.5 bg-muted/20 rounded text-center">
-                                    <p className="text-muted-foreground text-[10px]">Daily</p>
-                                    <p className="font-bold text-emerald-400">{(amt * vault.apy / 100 / 365).toFixed(2)}</p>
-                                  </div>
-                                  <div className="p-1.5 bg-muted/20 rounded text-center">
-                                    <p className="text-muted-foreground text-[10px]">Monthly</p>
-                                    <p className="font-bold text-emerald-400">{(amt * vault.apy / 100 / 12).toFixed(2)}</p>
-                                  </div>
-                                  <div className="p-1.5 bg-muted/20 rounded text-center">
-                                    <p className="text-muted-foreground text-[10px]">Yearly</p>
-                                    <p className="font-bold text-emerald-400">{simple.toFixed(2)}</p>
-                                  </div>
-                                </div>
-                                {vault.autoCompound && (
-                                  <p className="text-xs text-muted-foreground">
-                                    {freq.charAt(0).toUpperCase()+freq.slice(1)} compounding: <span className="text-emerald-400 font-bold">+{(compounded - simple).toFixed(2)} extra</span> vs simple interest
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </div>
-
-                        {/* LP fee compounding note for LP vault */}
-                        {vault.id === 'lp-compound' && (
-                          <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs">
-                            <p className="text-blue-400 font-medium mb-1">⚙️ LP Fee Compounding</p>
-                            <p className="text-muted-foreground">Swap fees earned (0.3% per trade) are harvested and re-invested into the pool position on every compound cycle, growing your LP share automatically.</p>
-                          </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="font-semibold text-sm">{vault.name}</p>
+                        {vault.autoCompound && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-0.5">
+                            <RefreshCw className="w-2.5 h-2.5" /> Auto
+                          </Badge>
+                        )}
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 border-primary/20 bg-primary/5">
+                          <Users className="w-2.5 h-2.5" /> {vault.depositors}
+                        </Badge>
+                        {vault.lockDays && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 text-amber-400 border-amber-500/30">
+                            <Lock className="w-2.5 h-2.5" /> {vault.lockDays}d
+                          </Badge>
                         )}
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </GlassCard>
-            </motion.div>
-          );
-        })}
+                      <p className="text-xs text-muted-foreground">{vault.token}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-lg font-bold text-emerald-400">{vault.apy}%</p>
+                      <p className="text-[10px] text-muted-foreground">APY</p>
+                    </div>
+                    {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                  </button>
+
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div
+                        initial={{ height: 0 }}
+                        animate={{ height: 'auto' }}
+                        exit={{ height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="px-4 pb-4 space-y-3 border-t border-border/20">
+                          <p className="text-xs text-muted-foreground pt-3">{vault.strategy}</p>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="p-2 bg-muted/20 rounded-lg">
+                              <p className="text-muted-foreground">TVL</p>
+                              <p className="font-bold">{(vault.tvl / 1_000_000).toFixed(1)}M {vault.token}</p>
+                            </div>
+                            <div className="p-2 bg-muted/20 rounded-lg">
+                              <p className="text-muted-foreground">Capacity</p>
+                              <div className="flex items-center gap-1 mt-1">
+                                <Progress value={fillPct} className="h-1 flex-1" />
+                                <span className="font-bold">{fillPct.toFixed(0)}%</span>
+                              </div>
+                            </div>
+                            <div className="p-2 bg-muted/20 rounded-lg">
+                              <p className="text-muted-foreground">Risk level</p>
+                              <Badge variant="outline" className={cn('text-[10px] mt-0.5', risk.color)}>{risk.label}</Badge>
+                            </div>
+                            <div className="p-2 bg-muted/20 rounded-lg">
+                              <p className="text-muted-foreground">Lock-up</p>
+                              <p className="font-bold">{vault.lockDays ? `${vault.lockDays} days` : 'None'}</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            {vault.autoCompound && (
+                              <div>
+                                <label className="text-xs text-muted-foreground">Compound Frequency</label>
+                                <div className="flex gap-1 mt-1">
+                                  {(['daily', 'weekly', 'monthly'] as const).map(f => (
+                                    <button key={f} onClick={() => setCompoundFreq(prev => ({ ...prev, [vault.id]: f }))}
+                                      className={cn('flex-1 py-1 rounded text-xs border transition-all capitalize',
+                                        (compoundFreq[vault.id] ?? 'daily') === f
+                                          ? 'border-primary bg-primary/10 text-primary'
+                                          : 'border-border/30 text-muted-foreground hover:text-foreground')}>
+                                      {f}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="flex gap-2">
+                              <Input
+                                type="number"
+                                placeholder={`Amount in ${vault.token}`}
+                                value={depositAmount[vault.id] ?? ''}
+                                onChange={e => setDepositAmount(prev => ({ ...prev, [vault.id]: e.target.value }))}
+                                className="text-sm"
+                              />
+                              <Button onClick={() => deposit(vault)} disabled={depositing === vault.id} className="shrink-0">
+                                {depositing === vault.id
+                                  ? <RefreshCw className="w-4 h-4 animate-spin" />
+                                  : <Zap className="w-4 h-4" />
+                                }
+                              </Button>
+                            </div>
+                            {depositAmount[vault.id] && parseFloat(depositAmount[vault.id]) > 0 && (() => {
+                              const amt = parseFloat(depositAmount[vault.id]);
+                              const freq = compoundFreq[vault.id] ?? 'daily';
+                              const n = freq === 'daily' ? 365 : freq === 'weekly' ? 52 : 12;
+                              const r = vault.apy / 100 / n;
+                              const compounded = amt * Math.pow(1 + r, n) - amt;
+                              const simple = amt * vault.apy / 100;
+                              return (
+                                <div className="space-y-1">
+                                  <div className="grid grid-cols-3 gap-1 text-xs">
+                                    <div className="p-1.5 bg-muted/20 rounded text-center">
+                                      <p className="text-muted-foreground text-[10px]">Daily</p>
+                                      <p className="font-bold text-emerald-400">{(amt * vault.apy / 100 / 365).toFixed(2)}</p>
+                                    </div>
+                                    <div className="p-1.5 bg-muted/20 rounded text-center">
+                                      <p className="text-muted-foreground text-[10px]">Monthly</p>
+                                      <p className="font-bold text-emerald-400">{(amt * vault.apy / 100 / 12).toFixed(2)}</p>
+                                    </div>
+                                    <div className="p-1.5 bg-muted/20 rounded text-center">
+                                      <p className="text-muted-foreground text-[10px]">Yearly</p>
+                                      <p className="font-bold text-emerald-400">{simple.toFixed(2)}</p>
+                                    </div>
+                                  </div>
+                                  {vault.autoCompound && (
+                                    <p className="text-xs text-muted-foreground">
+                                      {freq.charAt(0).toUpperCase()+freq.slice(1)} compounding: <span className="text-emerald-400 font-bold">+{(compounded - simple).toFixed(2)} extra</span> vs simple interest
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+
+                          {vault.id === 'lp-compound' && (
+                            <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs">
+                              <p className="text-blue-400 font-medium mb-1">⚙️ LP Fee Compounding</p>
+                              <p className="text-muted-foreground">Swap fees earned (0.3% per trade) are harvested and re-invested into the pool position on every compound cycle, growing your LP share automatically.</p>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </GlassCard>
+              </motion.div>
+            );
+          })
+        )}
       </div>
     </div>
   );
