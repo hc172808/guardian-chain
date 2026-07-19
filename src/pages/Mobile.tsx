@@ -104,6 +104,8 @@ function usePullToRefresh(onRefresh: () => Promise<void>) {
 // ── Status Bar ────────────────────────────────────────────────────────────────
 const StatusBar = () => {
   const [time, setTime] = useState('');
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
+
   useEffect(() => {
     const update = () => {
       const now = new Date();
@@ -113,6 +115,18 @@ const StatusBar = () => {
     const t = setInterval(update, 10000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    // Use Battery Status API where available
+    const nav = navigator as any;
+    if (nav.getBattery) {
+      nav.getBattery().then((bat: any) => {
+        setBatteryLevel(Math.round(bat.level * 100));
+        bat.addEventListener('levelchange', () => setBatteryLevel(Math.round(bat.level * 100)));
+      }).catch(() => {});
+    }
+  }, []);
+
   return (
     <div className="flex items-center justify-between px-5 pt-2 pb-1 text-xs font-semibold">
       <span className="text-foreground">{time}</span>
@@ -121,7 +135,7 @@ const StatusBar = () => {
         <Wifi className="h-3.5 w-3.5" />
         <div className="flex items-center gap-0.5">
           <Battery className="h-3.5 w-3.5" />
-          <span className="text-[10px]">87%</span>
+          {batteryLevel !== null && <span className="text-[10px]">{batteryLevel}%</span>}
         </div>
       </div>
     </div>
@@ -218,6 +232,8 @@ const HomeTab = () => {
   const [walletBalance, setWalletBalance] = useState<string>('');
   const [recentTxReal, setRecentTxReal] = useState<any[]>([]);
   const [netStats, setNetStats] = useState<any>(null);
+  const [stakingStats, setStakingStats] = useState<{ apr: number; exchangeRate: number } | null>(null);
+  const [stakedAmount, setStakedAmount] = useState<number>(0);
   const [faucetInfo, setFaucetInfo] = useState<{ canClaim: boolean; lastClaim?: string }>({ canClaim: false });
   const [claiming, setClaiming] = useState(false);
 
@@ -235,6 +251,12 @@ const HomeTab = () => {
     }).catch(() => {});
     fetch('/api/network-stats').then(r => r.json()).then(d => {
       if (d?.stats) setNetStats(d.stats);
+    }).catch(() => {});
+    fetch('/api/staking/stats').then(r => r.json()).then(d => {
+      if (d?.apr !== undefined) setStakingStats({ apr: d.apr, exchangeRate: d.exchangeRate ?? 1 });
+    }).catch(() => {});
+    fetch('/api/validator-delegations').then(r => r.json()).then((d: any[]) => {
+      if (Array.isArray(d)) setStakedAmount(d.reduce((s, x) => s + Number(x.amount ?? 0), 0));
     }).catch(() => {});
     fetch('/api/faucet/claims').then(r => r.json()).then((claims: any[]) => {
       if (!Array.isArray(claims) || claims.length === 0) { setFaucetInfo({ canClaim: true }); return; }
@@ -342,8 +364,18 @@ const HomeTab = () => {
               {balanceHidden ? '••••••' : totalUsd}
             </p>
             <p className="text-xs text-white/60 flex items-center gap-1">
-              <ArrowUp className="h-3 w-3 text-green-300" />
-              <span className="text-green-300 font-medium">+4.2%</span>
+              {netStats?.priceChange24h !== undefined && netStats.priceChange24h !== 0 ? (
+                <>
+                  {netStats.priceChange24h >= 0
+                    ? <ArrowUp className="h-3 w-3 text-green-300" />
+                    : <ArrowDown className="h-3 w-3 text-red-300" />}
+                  <span className={netStats.priceChange24h >= 0 ? 'text-green-300 font-medium' : 'text-red-300 font-medium'}>
+                    {netStats.priceChange24h >= 0 ? '+' : ''}{netStats.priceChange24h}%
+                  </span>
+                </>
+              ) : (
+                <ArrowUp className="h-3 w-3 text-green-300" />
+              )}
               <span className="ml-0.5">today</span>
             </p>
             <button
@@ -363,8 +395,12 @@ const HomeTab = () => {
               ))}
               <div className="flex-1 bg-white/10 rounded-xl p-2.5">
                 <p className="text-[10px] text-white/60 uppercase tracking-wider">Staked</p>
-                <p className="text-sm font-bold text-white mt-0.5">{balanceHidden ? '••••' : '5,000'}</p>
-                <p className="text-[10px] text-cyan-300 mt-0.5">12.4% APY</p>
+                <p className="text-sm font-bold text-white mt-0.5">
+                  {balanceHidden ? '••••' : stakedAmount > 0 ? stakedAmount.toLocaleString() : '0'}
+                </p>
+                <p className="text-[10px] text-cyan-300 mt-0.5">
+                  {stakingStats ? `${stakingStats.apr.toFixed(1)}% APY` : '…'}
+                </p>
               </div>
             </div>
           </div>
@@ -515,12 +551,13 @@ const ExplorerTab = () => {
   };
 
   const baseHeight = netStats?.blockHeight ? Number(netStats.blockHeight) : 1234567;
+  // Use deterministic tx counts derived from block height so they don't flicker on re-render
   const latestBlocks = loading
     ? []
     : [0, 1, 2, 3].map((offset) => {
         const h = baseHeight - offset;
-        const txs = netStats?.tps ? Math.floor(Math.random() * 20 + 5) : [12, 8, 21, 6][offset];
-        const times = ['2s ago', '14s ago', '28s ago', '42s ago'];
+        const txs = ((h + offset * 7) % 18) + 4; // deterministic 4–21 range
+        const times = ['just now', '14s ago', '28s ago', '42s ago'];
         const miners = ['0xabcd…ef12', '0x3456…7890', '0xcdef…0123', '0x8899…aabb'];
         return { height: h, txs, time: times[offset], miner: miners[offset] };
       });
@@ -623,18 +660,37 @@ const ExplorerTab = () => {
 // ── DeFi Tab ──────────────────────────────────────────────────────────────────
 const DefiTab = () => {
   const go = useMobileNavigate();
+  const [defiStats, setDefiStats] = useState<{ tvl: number; vol24h: number; pools: number; apr: number } | null>(null);
+
+  useEffect(() => {
+    Promise.allSettled([
+      fetch('/api/pools').then(r => r.json()),
+      fetch('/api/staking/stats').then(r => r.json()),
+    ]).then(([poolsRes, stakingRes]) => {
+      const pools = poolsRes.status === 'fulfilled' && Array.isArray(poolsRes.value) ? poolsRes.value : [];
+      const staking = stakingRes.status === 'fulfilled' ? stakingRes.value : {};
+      const tvl = pools.reduce((s: number, p: any) => s + (parseFloat(p.totalValueLocked ?? p.tvl ?? 0)), 0);
+      const vol = pools.reduce((s: number, p: any) => s + (parseFloat(p.volume24h ?? p.volume ?? 0)), 0);
+      setDefiStats({ tvl, vol24h: vol, pools: pools.length, apr: staking.apr ?? 72 });
+    });
+  }, []);
+
+  const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(0)}K` : `${n.toFixed(0)}`;
 
   const stats = [
-    { label: 'TVL',     value: '$2.4M',  icon: CircleDollarSign, color: 'text-green-400' },
-    { label: 'Vol 24h', value: '$183K',  icon: BarChart3,         color: 'text-primary' },
-    { label: 'Pools',   value: '24',     icon: Layers,            color: 'text-purple-400' },
-    { label: 'Your APY',value: '12.4%',  icon: Flame,             color: 'text-amber-400' },
+    { label: 'TVL',      value: defiStats ? fmt(defiStats.tvl)           : '…', icon: CircleDollarSign, color: 'text-green-400' },
+    { label: 'Vol 24h',  value: defiStats ? fmt(defiStats.vol24h)        : '…', icon: BarChart3,         color: 'text-primary' },
+    { label: 'Pools',    value: defiStats ? String(defiStats.pools)      : '…', icon: Layers,            color: 'text-purple-400' },
+    { label: 'Stake APY',value: defiStats ? `${defiStats.apr.toFixed(1)}%` : '…', icon: Flame,           color: 'text-amber-400' },
   ];
+
+  const aprLabel = defiStats ? `${defiStats.apr.toFixed(1)}% APY rewards` : 'Competitive APY rewards';
+  const aprBadge = defiStats ? `${defiStats.apr.toFixed(1)}%` : '…';
 
   const items = [
     { label: 'Swap Tokens',       icon: ArrowLeftRight, desc: 'Instant GYDS ↔ GYD swap',          tab: 'swap',      color: 'text-purple-400', bg: 'bg-purple-400/10', badge: 'HOT' },
     { label: 'Liquidity Pools',   icon: Droplets,       desc: 'Add LP & earn trading fees',        tab: 'pools',     color: 'text-blue-400',   bg: 'bg-blue-400/10',   badge: null },
-    { label: 'Stake GYDS',        icon: TrendingUp,     desc: '12.4% APY rewards',                 tab: 'stake',     color: 'text-green-400',  bg: 'bg-green-400/10',  badge: '12.4%' },
+    { label: 'Stake GYDS',        icon: TrendingUp,     desc: aprLabel,                            tab: 'stake',     color: 'text-green-400',  bg: 'bg-green-400/10',  badge: aprBadge },
     { label: 'Order Book',        icon: Activity,       desc: 'Limit & market orders',             tab: 'orderbook', color: 'text-amber-400',  bg: 'bg-amber-400/10',  badge: null },
     { label: 'Yield Vaults',      icon: Zap,            desc: 'Auto-compound strategies',          tab: 'vaults',    color: 'text-cyan-400',   bg: 'bg-cyan-400/10',   badge: 'NEW' },
     { label: 'Cross-Chain Bridge',icon: Globe,          desc: '25 supported networks',             tab: 'bridge',    color: 'text-pink-400',   bg: 'bg-pink-400/10',   badge: null },
@@ -889,7 +945,7 @@ const WalletTab = () => {
           </div>
           <div className="flex-1">
             <p className="text-xs font-semibold">Staking Rewards Ready</p>
-            <p className="text-[10px] text-muted-foreground">{pendingRewards} GYDS pending · 12.4% APY</p>
+            <p className="text-[10px] text-muted-foreground">{pendingRewards} GYDS pending · earning staking rewards</p>
           </div>
           <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-cyan-500/20 text-cyan-400">Claim →</span>
         </button>
@@ -1309,7 +1365,7 @@ const MobilePage = () => {
           <button onClick={() => user ? go('/profile') : go('/auth')} className="p-1.5 rounded-xl bg-card border border-border/60">
             {user
               ? <div className="w-5 h-5 rounded-lg bg-primary/20 flex items-center justify-center text-[10px] font-bold text-primary">{(user.firstName?.[0] ?? 'U').toUpperCase()}</div>
-              : <Bell className="h-4 w-4 text-muted-foreground" />
+              : <LogIn className="h-4 w-4 text-muted-foreground" />
             }
           </button>
         </div>
