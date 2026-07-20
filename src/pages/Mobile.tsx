@@ -238,14 +238,18 @@ const HomeTab = () => {
   const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
-    if (!user?.walletAddress) {
-      fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
-        if (ws?.[0]?.address) setWalletAddr(ws[0].address);
-        if (ws?.[0]?.balance) setWalletBalance(ws[0].balance);
-      }).catch(() => {});
-    } else {
-      setWalletAddr(user.walletAddress);
-    }
+    // Always fetch wallet address + live balance
+    fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
+      if (ws?.[0]?.address) setWalletAddr(ws[0].address);
+    }).catch(() => {});
+    // Fetch authoritative balance from /api/user/balance
+    fetch('/api/user/balance').then(r => r.json()).then((b: any) => {
+      if (b && (b.gyds !== undefined || b.gyd !== undefined)) {
+        const gyds = Number(b.gyds ?? 0);
+        setWalletBalance(gyds > 0 ? gyds.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
+      }
+    }).catch(() => {});
+    if (user?.walletAddress) setWalletAddr(user.walletAddress);
     fetch('/api/transactions').then(r => r.json()).then((txs: any[]) => {
       if (Array.isArray(txs)) setRecentTxReal(txs.slice(0, 4));
     }).catch(() => {});
@@ -849,20 +853,31 @@ const WalletTab = () => {
   const { copied, copy } = useCopy();
   const [walletAddr, setWalletAddr] = useState<string>(user?.walletAddress ?? '');
   const [walletBalance, setWalletBalance] = useState<string>('');
+  const [gydBalance, setGydBalance] = useState<string>('0.00');
   const [showReceive, setShowReceive] = useState(false);
   const [nfts, setNfts] = useState<any[]>([]);
   const [delegations, setDelegations] = useState<any[]>([]);
   const [pendingRewards, setPendingRewards] = useState<string>('');
+  const [txHistory, setTxHistory] = useState<any[]>([]);
+  const [txFilter, setTxFilter] = useState<'all' | 'send' | 'receive' | 'swap' | 'stake'>('all');
+  const [txPage, setTxPage] = useState(0);
+  const TX_PAGE_SIZE = 8;
 
   useEffect(() => {
-    if (!user?.walletAddress) {
-      fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
-        if (ws?.[0]?.address) setWalletAddr(ws[0].address);
-        if (ws?.[0]?.balance) setWalletBalance(String(ws[0].balance));
-      }).catch(() => {});
-    } else {
-      setWalletAddr(user.walletAddress);
-    }
+    // Always fetch wallet address
+    fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
+      if (ws?.[0]?.address) setWalletAddr(ws[0].address);
+    }).catch(() => {});
+    if (user?.walletAddress) setWalletAddr(user.walletAddress);
+    // Authoritative balance from /api/user/balance
+    fetch('/api/user/balance').then(r => r.json()).then((b: any) => {
+      if (b) {
+        const gyds = Number(b.gyds ?? 0);
+        const gyd = Number(b.gyd ?? 0);
+        setWalletBalance(gyds > 0 ? gyds.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
+        setGydBalance(gyd > 0 ? gyd.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
+      }
+    }).catch(() => {});
     fetch('/api/nft/my-tokens').then(r => r.json()).then((t: any[]) => {
       if (Array.isArray(t)) setNfts(t.slice(0, 3));
     }).catch(() => {});
@@ -873,6 +888,9 @@ const WalletTab = () => {
         if (total > 0) setPendingRewards(total.toLocaleString());
       }
     }).catch(() => {});
+    fetch('/api/transactions').then(r => r.json()).then((txs: any[]) => {
+      if (Array.isArray(txs)) setTxHistory(txs);
+    }).catch(() => {});
   }, [user]);
 
   const address = walletAddr || '—';
@@ -881,10 +899,19 @@ const WalletTab = () => {
   const stakedBal = delegations.reduce((s,d)=>s+Number(d.amount??0),0);
   const gydsNum = parseFloat(gydsBalance.replace(/,/g, '')) || 0;
   const assets = [
-    { symbol: 'GYDS', name: 'GYDSchain',  balance: gydsBalance, usd: gydsNum > 0 ? `$${(gydsNum * 0.0847).toFixed(2)}` : '$0.00', change: '',  up: null,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10',    path: '/wallet',                         state: undefined },
-    { symbol: 'GYD',  name: 'GYD Stable', balance: '0.00',      usd: '$0.00',    change: '',  up: null,  icon: CircleDollarSign, color: 'text-blue-400',  bg: 'bg-blue-400/10',   path: '/defi',                           state: { tab: 'stablecoin' } },
+    { symbol: 'GYDS', name: 'GYDSchain',  balance: gydsBalance, usd: gydsNum > 0 ? `${(gydsNum * 0.0847).toFixed(2)}` : '$0.00', change: '',  up: null,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10',    path: '/wallet',  state: undefined },
+    { symbol: 'GYD',  name: 'GYD Stable', balance: gydBalance,  usd: '$0.00',    change: '',  up: null,  icon: CircleDollarSign, color: 'text-blue-400',  bg: 'bg-blue-400/10',   path: '/defi',    state: { tab: 'stablecoin' } },
     { symbol: 'sGYDS',name: 'Staked GYDS',balance: stakedBal > 0 ? stakedBal.toLocaleString() : '0', usd: '', change: '', up: null, icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-400/10', path: '/defi', state: { tab: 'stake' } },
   ];
+
+  // Derived tx display data
+  const TX_TYPE_LABEL: Record<string, string> = { send: 'Sent', receive: 'Received', swap: 'Swapped', stake: 'Staked', unstake: 'Unstaked', mint: 'Minted', burn: 'Burned' };
+  const filteredTx = txFilter === 'all' ? txHistory : txHistory.filter(tx => {
+    const t = (tx.transactionType ?? tx.type ?? '').toLowerCase();
+    return t === txFilter || (txFilter === 'receive' && t === 'received');
+  });
+  const pagedTx = filteredTx.slice(txPage * TX_PAGE_SIZE, (txPage + 1) * TX_PAGE_SIZE);
+  const totalPages = Math.ceil(filteredTx.length / TX_PAGE_SIZE);
 
   return (
     <div className="space-y-4 pb-2">
@@ -1053,15 +1080,100 @@ const WalletTab = () => {
         </div>
       )}
 
+      {/* Transaction History */}
+      <div>
+        <div className="flex items-center justify-between mb-2.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Transaction History</p>
+          <span className="text-[10px] text-muted-foreground">{filteredTx.length} txs</span>
+        </div>
+        {/* Filter chips */}
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-1 mb-2">
+          {(['all', 'send', 'receive', 'swap', 'stake'] as const).map(f => (
+            <button key={f} onClick={() => { setTxFilter(f); setTxPage(0); }}
+              className={cn('shrink-0 text-[10px] font-semibold px-3 py-1.5 rounded-full border transition-all capitalize',
+                txFilter === f
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-card text-muted-foreground border-border/60 hover:border-primary/40'
+              )}
+            >{f}</button>
+          ))}
+        </div>
+        {pagedTx.length === 0 ? (
+          <div className="flex flex-col items-center py-8 rounded-2xl bg-card border border-border/60 text-muted-foreground">
+            <Activity className="h-7 w-7 mb-2 opacity-30" />
+            <p className="text-xs">No transactions{txFilter !== 'all' ? ` for "${txFilter}"` : ' yet'}</p>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {pagedTx.map((tx: any, i: number) => {
+              const type = (tx.transactionType ?? tx.type ?? 'send').toLowerCase();
+              const isOut = type === 'send' || type === 'burn' || type === 'stake';
+              const label = TX_TYPE_LABEL[type] ?? type.charAt(0).toUpperCase() + type.slice(1);
+              const sym = tx.tokenSymbol ?? tx.token_symbol ?? 'GYDS';
+              const amt = Number(tx.amount ?? 0);
+              const amtStr = `${isOut ? '-' : '+'}${amt.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${sym}`;
+              const hash = tx.txHash ?? tx.tx_hash ?? '';
+              const shortHash = hash ? `${hash.slice(0, 6)}…${hash.slice(-4)}` : '—';
+              const when = tx.createdAt ?? tx.created_at;
+              const timeStr = when ? (() => {
+                const d = new Date(when);
+                const diff = Date.now() - d.getTime();
+                if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
+                if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+                if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+                return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+              })() : '—';
+              return (
+                <div key={tx.id ?? i} className="flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60">
+                  <div className={cn('p-2 rounded-xl shrink-0',
+                    type === 'send' ? 'bg-red-400/10' : type === 'receive' ? 'bg-green-400/10' :
+                    type === 'swap' ? 'bg-purple-400/10' : type === 'stake' ? 'bg-cyan-400/10' : 'bg-muted/30'
+                  )}>
+                    {type === 'send'    && <ArrowUp       className="h-4 w-4 text-red-400" />}
+                    {type === 'receive' && <ArrowDown      className="h-4 w-4 text-green-400" />}
+                    {type === 'swap'    && <ArrowLeftRight className="h-4 w-4 text-purple-400" />}
+                    {type === 'stake'   && <TrendingUp     className="h-4 w-4 text-cyan-400" />}
+                    {!['send','receive','swap','stake'].includes(type) && <Activity className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold">{label}</p>
+                    <p className="text-[10px] text-muted-foreground font-mono truncate">{shortHash} · {timeStr}</p>
+                    {tx.status && (
+                      <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded-full inline-block mt-0.5',
+                        tx.status === 'confirmed' ? 'bg-green-400/10 text-green-400' :
+                        tx.status === 'pending'   ? 'bg-amber-400/10 text-amber-400' : 'bg-red-400/10 text-red-400'
+                      )}>{tx.status}</span>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={cn('text-xs font-bold', isOut ? 'text-red-400' : 'text-green-400')}>{amtStr}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-2">
+            <button onClick={() => setTxPage(p => Math.max(0, p - 1))} disabled={txPage === 0}
+              className="text-[10px] font-medium px-3 py-1.5 rounded-xl bg-card border border-border/60 disabled:opacity-40 active:scale-95 transition-all">← Prev</button>
+            <span className="text-[10px] text-muted-foreground">{txPage + 1} / {totalPages}</span>
+            <button onClick={() => setTxPage(p => Math.min(totalPages - 1, p + 1))} disabled={txPage >= totalPages - 1}
+              className="text-[10px] font-medium px-3 py-1.5 rounded-xl bg-card border border-border/60 disabled:opacity-40 active:scale-95 transition-all">Next →</button>
+          </div>
+        )}
+      </div>
+
       {/* Quick links */}
       <div className="grid grid-cols-2 gap-2">
         {[
-          { label: 'Tx History',    icon: Activity,   path: '/transactions' },
           { label: 'Watchlist',     icon: Star,       path: '/watchlist' },
           { label: 'NFT Gallery',   icon: ImageIcon,  path: '/nft' },
           { label: 'Network Info',  icon: Globe,      path: '/network' },
           { label: 'Faucet',        icon: Droplets,   path: '/faucet' },
           { label: 'Multi-Sig',     icon: Shield,     path: '/multisig' },
+          { label: 'Send/Receive',  icon: Send,       path: '/wallet' },
         ].map(item => (
           <button key={item.label} onClick={() => go(item.path)}
             className="flex items-center gap-2.5 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-95 transition-all"
