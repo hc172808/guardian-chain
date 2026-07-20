@@ -96,6 +96,7 @@ export const transactions = pgTable("transactions", {
   tokenSymbol: text("token_symbol").notNull().default("GYD"),
   createdAt: timestamp("created_at").defaultNow(),
   confirmedAt: timestamp("confirmed_at"),
+  network: text("network").notNull().default("testnet"),
 });
 
 export const documentation = pgTable("documentation", {
@@ -126,6 +127,7 @@ export const tokenOperations = pgTable("token_operations", {
   createdBy: text("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   status: text("status").notNull().default("pending"),
+  network: text("network").notNull().default("testnet"),
 });
 
 export const tokenPrice = pgTable("token_price", {
@@ -346,6 +348,7 @@ export const faucetClaims = pgTable("faucet_claims", {
   txHash: text("tx_hash"),
   ipAddress: text("ip_address"),
   createdAt: timestamp("created_at").defaultNow(),
+  network: text("network").notNull().default("testnet"),
 });
 
 export const orders = pgTable("orders", {

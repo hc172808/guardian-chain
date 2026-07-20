@@ -63,8 +63,8 @@ export const UserBalanceCard = () => {
         setGydBalance(Number(onChain.gyd));
         setGusdBalance(Number(onChain.gusd));
       } else {
-        // Fall back to DB-computed balance
-        const serverBalance = await api.get('/api/user/balance').catch(() => null);
+        // Fall back to DB-computed balance — filter by the selected network
+        const serverBalance = await api.get(`/api/user/balance?network=${netKey}`).catch(() => null);
         if (serverBalance && (serverBalance.gyds !== undefined || serverBalance.gyd !== undefined)) {
           setGydsBalance(Number(serverBalance.gyds ?? 0));
           setGydBalance(Number(serverBalance.gyd ?? 0));

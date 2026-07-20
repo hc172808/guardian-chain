@@ -317,6 +317,7 @@ export const storage = {
     const status      = data.status ?? 'pending';
     const confirmedAt = (data.confirmedAt !== undefined ? data.confirmedAt : data.confirmed_at) ?? null;
     const tokenSymbol = (data.tokenSymbol !== undefined ? data.tokenSymbol : data.token_symbol) ?? 'GYD';
+    const network     = data.network ?? 'testnet';
 
     if (!fromAddress) throw new Error('from_address is required');
     if (!toAddress)   throw new Error('to_address is required');
@@ -324,14 +325,14 @@ export const storage = {
 
     const { rows } = await pgPool.query(
       `INSERT INTO transactions
-         (from_address, to_address, amount, fee, tx_hash, status, wallet_id, user_id, token_symbol, confirmed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (from_address, to_address, amount, fee, tx_hash, status, wallet_id, user_id, token_symbol, confirmed_at, network)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING id, from_address AS "fromAddress", to_address AS "toAddress",
                  amount, fee, tx_hash AS "txHash", status,
                  wallet_id AS "walletId", user_id AS "userId",
                  COALESCE(token_symbol, 'GYD') AS "tokenSymbol",
                  created_at AS "createdAt", confirmed_at AS "confirmedAt"`,
-      [fromAddress, toAddress, amount, fee, txHash, status, walletId, userId, tokenSymbol, confirmedAt]
+      [fromAddress, toAddress, amount, fee, txHash, status, walletId, userId, tokenSymbol, confirmedAt, network]
     );
     return rows[0];
   },

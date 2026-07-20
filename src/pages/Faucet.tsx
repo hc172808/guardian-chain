@@ -127,7 +127,7 @@ const FaucetPage = () => {
       const res = await fetch('/api/faucet/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token_type: type, wallet_address: targetAddress, hcaptcha_token: captchaToken }),
+        body: JSON.stringify({ token_type: type, wallet_address: targetAddress, hcaptcha_token: captchaToken, network: 'testnet' }),
       });
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || 'Claim failed');

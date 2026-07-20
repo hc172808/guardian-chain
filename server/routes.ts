@@ -1467,9 +1467,13 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const AMOUNTS: Record<string, number> = { gyd: 100, gyds: 0.5, gusd: 100 };
     const COOLDOWN_MS = 24 * 60 * 60 * 1000;
-    const { token_type, wallet_address, hcaptcha_token } = req.body;
+    const { token_type, wallet_address, hcaptcha_token, network: reqNetwork } = req.body;
     const tokenType = String(token_type ?? "").toLowerCase();
     const walletAddress = String(wallet_address ?? "").trim();
+    // Default to testnet — faucet is for testing only
+    const network = ["mainnet", "testnet", "devnet"].includes(String(reqNetwork ?? ""))
+      ? String(reqNetwork) as "mainnet" | "testnet" | "devnet"
+      : "testnet";
 
     // Verify hCaptcha if secret is configured
     if (process.env.HCAPTCHA_SECRET_KEY) {
@@ -1499,9 +1503,9 @@ export function registerRoutes(app: Express) {
 
     const amount = AMOUNTS[tokenType];
     const txHash = `0xfaucet-${tokenType}-${Date.now().toString(16)}-${crypto.randomUUID().slice(0, 8)}`;
-    await storage.insertFaucetClaim({ userId: user.id, walletAddress, tokenType, amount: String(amount), txHash, ipAddress: req.ip ?? null });
-    await storage.insertTokenOperation({ operationType: tokenType === "gyd" ? "mint_gyd" : tokenType === "gusd" ? "mint_gusd" : "mint_gyds", amount: String(amount), walletAddress, txHash, status: "confirmed", createdBy: user.id });
-    // Also insert a transaction record so the balance shows regardless of which address was claimed to
+    await storage.insertFaucetClaim({ userId: user.id, walletAddress, tokenType, amount: String(amount), txHash, ipAddress: req.ip ?? null, network });
+    await storage.insertTokenOperation({ operationType: tokenType === "gyd" ? "mint_gyd" : tokenType === "gusd" ? "mint_gusd" : "mint_gyds", amount: String(amount), walletAddress, txHash, status: "confirmed", createdBy: user.id, network });
+    // Also insert a transaction record so the balance shows for the correct network
     await storage.insertTransaction({
       from_address: '0x000000000000000000000000000000000000fac3',
       to_address: walletAddress,
@@ -1513,17 +1517,16 @@ export function registerRoutes(app: Express) {
       user_id: user.id,
       token_symbol: tokenType.toUpperCase(),
       confirmed_at: new Date().toISOString(),
+      network,
     });
-    await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "faucet_claim", category: "token", targetType: "token", targetId: tokenType, details: { amount, wallet_address: walletAddress, tx_hash: txHash }, ipAddress: req.ip ?? null });
+    await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "faucet_claim", category: "token", targetType: "token", targetId: tokenType, details: { amount, wallet_address: walletAddress, tx_hash: txHash, network }, ipAddress: req.ip ?? null });
 
-    // Credit on-chain balance trie so all running local nodes reflect the claim
+    // Credit on-chain balance trie for the requested network ONLY
     const tokenKey = tokenType === "gyd" ? "GYD" : tokenType === "gusd" ? "GUSD" : "GYDS";
     const amountWei = BigInt(Math.round(amount * 1e18));
-    for (const net of ["mainnet", "testnet", "devnet"] as const) {
-      creditAddress(net, walletAddress, tokenKey as "GYDS" | "GYD" | "GUSD", amountWei);
-    }
+    creditAddress(network, walletAddress, tokenKey as "GYDS" | "GYD" | "GUSD", amountWei);
 
-    res.json({ ok: true, tx_hash: txHash, amount, token_type: tokenType });
+    res.json({ ok: true, tx_hash: txHash, amount, token_type: tokenType, network });
     broadcastActivity({ type: 'faucet', title: 'Faucet Claim', detail: `${amount} ${tokenType.toUpperCase()} → ${walletAddress.slice(0, 10)}…`, user: user.username ?? user.walletAddress?.slice(0, 10), ip: req.ip ?? undefined });
 
     // Server-side notification: faucet drip
@@ -2544,6 +2547,7 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Server-side balance endpoint ──────────────────────────────────────────
+  // ?network=mainnet|testnet|devnet  (omit for a global sum across all networks)
   app.get("/api/user/balance", requireAuth, async (req, res) => {
     const user = req.user as any;
     const { pool: pgPool } = await import("./db");
@@ -2551,13 +2555,20 @@ export function registerRoutes(app: Express) {
       const walletsRes = await pgPool.query(`SELECT address FROM wallets WHERE user_id=$1`, [user.id]).catch(() => ({ rows: [] }));
       const addresses: string[] = walletsRes.rows.map((r: any) => r.address.toLowerCase());
 
+      // Allow callers to scope balance to a single network
+      const netFilter = typeof req.query.network === "string" && ["mainnet","testnet","devnet"].includes(req.query.network)
+        ? req.query.network : null;
+
       let gyds = 0, gyd = 0, gusd = 0;
 
       if (addresses.length > 0) {
-        const addrList = addresses.map((_: any, i: number) => `$${i + 1}`).join(",");
+        const addrList = addresses.map((_: any, i: number) => `${i + 1}`).join(",");
+        const netClause = netFilter ? ` AND network=${addresses.length + 1}` : "";
+        const netArgs   = netFilter ? [...addresses, netFilter] : addresses;
+
         const ops = await pgPool.query(
-          `SELECT operation_type, amount, wallet_address FROM token_operations WHERE status='confirmed' AND LOWER(wallet_address) = ANY(ARRAY[${addrList}])`,
-          addresses
+          `SELECT operation_type, amount FROM token_operations WHERE status='confirmed' AND LOWER(wallet_address) = ANY(ARRAY[${addrList}])${netClause}`,
+          netArgs
         ).catch(() => ({ rows: [] }));
 
         for (const op of ops.rows) {
@@ -2572,8 +2583,8 @@ export function registerRoutes(app: Express) {
         }
 
         const txRes = await pgPool.query(
-          `SELECT from_address, to_address, token_symbol, amount, fee FROM transactions WHERE status='confirmed' AND (LOWER(from_address) = ANY(ARRAY[${addrList}]) OR LOWER(to_address) = ANY(ARRAY[${addrList}]))`,
-          addresses
+          `SELECT from_address, to_address, token_symbol, amount, fee FROM transactions WHERE status='confirmed' AND (LOWER(from_address) = ANY(ARRAY[${addrList}]) OR LOWER(to_address) = ANY(ARRAY[${addrList}]))${netClause}`,
+          netArgs
         ).catch(() => ({ rows: [] }));
 
         for (const tx of txRes.rows) {
@@ -2588,7 +2599,7 @@ export function registerRoutes(app: Express) {
         }
       }
 
-      res.json({ gyds: Math.max(0, gyds), gyd: Math.max(0, gyd), gusd: Math.max(0, gusd), addresses });
+      res.json({ gyds: Math.max(0, gyds), gyd: Math.max(0, gyd), gusd: Math.max(0, gusd), addresses, network: netFilter ?? "all" });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
