@@ -8,16 +8,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { getUserAddresses, computeUserBalances } from '@/lib/balances';
+import { useNetwork, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
 
-const NETWORKS = ['Testnet', 'Mainnet', 'Devnet'] as const;
-type Network = typeof NETWORKS[number];
-
-const NETWORK_COLORS: Record<Network, string> = {
-  Testnet: 'text-amber-400 border-amber-400/30 bg-amber-400/10',
-  Mainnet: 'text-emerald-400 border-emerald-400/30 bg-emerald-400/10',
-  Devnet:  'text-blue-400 border-blue-400/30 bg-blue-400/10',
+// Chain IDs and symbols per network — kept in sync with server/testNodes.ts NETWORK_CFGS
+const NET_META: Record<NetworkKind, { chainId: number; symbol: string }> = {
+  mainnet: { chainId: 13370, symbol: 'GYDS'  },
+  testnet: { chainId: 13371, symbol: 'tGYDS' },
+  devnet:  { chainId: 13372, symbol: 'dGYDS' },
 };
 
 const fmtQty = (n: number) =>
@@ -28,16 +26,20 @@ export const UserBalanceCard = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { fmt, symbol, ratesUnavailable } = useCurrency();
+  // Use the global network context so the balance card stays in sync with
+  // whichever network the user selected in the top NetworkSelector.
+  const { selectedNetwork } = useNetwork();
 
-  const [gydsBalance, setGydsBalance]   = useState(0);
-  const [gydBalance,  setGydBalance]    = useState(0);
-  const [gusdBalance, setGusdBalance]   = useState(0);
-  const [address,     setAddress]       = useState('');
-  const [loading,     setLoading]       = useState(true);
-  const [network, setNetwork]           = useState<Network>(
-    () => (localStorage.getItem('gyds_network') as Network) || 'Testnet'
-  );
-  const [gydsPrice, setGydsPrice]       = useState(0.05);
+  // Resolve 'all' → 'mainnet' for on-chain reads
+  const network: NetworkKind = selectedNetwork === 'all' ? 'mainnet' : selectedNetwork;
+  const netMeta = NET_META[network];
+
+  const [gydsBalance, setGydsBalance] = useState(0);
+  const [gydBalance,  setGydBalance]  = useState(0);
+  const [gusdBalance, setGusdBalance] = useState(0);
+  const [address,     setAddress]     = useState('');
+  const [loading,     setLoading]     = useState(true);
+  const [gydsPrice,   setGydsPrice]   = useState(0.05);
 
   const loadBalances = useCallback(async () => {
     if (!user) { setLoading(false); return; }
@@ -50,31 +52,23 @@ export const UserBalanceCard = () => {
       if (walletAddress) setAddress(walletAddress);
       if (priceData?.price) setGydsPrice(Number(priceData.price));
 
-      // Try on-chain balance first (live from local nodes)
-      const netKey = (network === 'Mainnet' ? 'mainnet' : network === 'Testnet' ? 'testnet' : 'devnet');
+      // ── 1. Try on-chain first (in-memory trie, per-network) ─────────────
       const onChain = walletAddress
-        ? await api.get(`/api/chain/balance/${walletAddress}?network=${netKey}`).catch(() => null)
+        ? await api.get(`/api/chain/balance/${walletAddress}?network=${network}`).catch(() => null)
         : null;
 
       if (onChain?.ok && onChain.source === 'onchain' &&
           (onChain.gyds > 0 || onChain.gyd > 0 || onChain.gusd > 0)) {
-        // Use on-chain data — nodes are running and have balances
         setGydsBalance(Number(onChain.gyds));
         setGydBalance(Number(onChain.gyd));
         setGusdBalance(Number(onChain.gusd));
       } else {
-        // Fall back to DB-computed balance — filter by the selected network
-        const serverBalance = await api.get(`/api/user/balance?network=${netKey}`).catch(() => null);
-        if (serverBalance && (serverBalance.gyds !== undefined || serverBalance.gyd !== undefined)) {
+        // ── 2. Fall back to DB balance scoped to this network ─────────────
+        const serverBalance = await api.get(`/api/user/balance?network=${network}`).catch(() => null);
+        if (serverBalance && serverBalance.gyds !== undefined) {
           setGydsBalance(Number(serverBalance.gyds ?? 0));
-          setGydBalance(Number(serverBalance.gyd ?? 0));
+          setGydBalance(Number(serverBalance.gyd  ?? 0));
           setGusdBalance(Number(serverBalance.gusd ?? 0));
-        } else {
-          const myAddresses = await getUserAddresses(user.id);
-          const balances = await computeUserBalances(user.id, myAddresses);
-          setGydsBalance(balances.gydsBalance);
-          setGydBalance(balances.gydBalance);
-          setGusdBalance(balances.gusdBalance);
         }
       }
     } catch {}
@@ -82,15 +76,14 @@ export const UserBalanceCard = () => {
   }, [user, network]);
 
   useEffect(() => {
+    setLoading(true);
+    setGydsBalance(0);
+    setGydBalance(0);
+    setGusdBalance(0);
     loadBalances();
-    const iv = setInterval(loadBalances, 5000);
+    const iv = setInterval(loadBalances, 8000);
     return () => clearInterval(iv);
   }, [loadBalances]);
-
-  const switchNetwork = (n: Network) => {
-    setNetwork(n);
-    localStorage.setItem('gyds_network', n);
-  };
 
   const copyAddress = () => {
     if (!address) return;
@@ -121,6 +114,7 @@ export const UserBalanceCard = () => {
     );
   }
 
+  const badge   = NETWORK_BADGE[network];
   const usdGyds  = gydsBalance * gydsPrice;
   const usdGyd   = gydBalance  * 1.00;
   const usdGusd  = gusdBalance * 1.00;
@@ -149,17 +143,11 @@ export const UserBalanceCard = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {NETWORKS.map(n => (
-              <button
-                key={n}
-                onClick={() => switchNetwork(n)}
-                className={`text-xs px-2 py-1 rounded-full border font-medium transition-all ${
-                  network === n ? NETWORK_COLORS[n] : 'text-muted-foreground border-muted-foreground/20 hover:border-muted-foreground/40'
-                }`}
-              >
-                {n}
-              </button>
-            ))}
+            {/* Active network badge — controlled by the global NetworkSelector */}
+            <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${badge.border} ${badge.bg} ${badge.text} flex items-center gap-1.5`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
+              {badge.label}
+            </span>
             <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-400/30">Live</Badge>
             <button onClick={loadBalances} className="text-muted-foreground hover:text-primary transition-colors">
               <RefreshCw className="h-4 w-4" />
@@ -176,7 +164,7 @@ export const UserBalanceCard = () => {
         {/* Balance Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-5">
           <div>
-            <p className="text-xs text-muted-foreground mb-1">GYDS</p>
+            <p className="text-xs text-muted-foreground mb-1">{netMeta.symbol}</p>
             <p className="text-xl font-bold text-primary">{fmtQty(gydsBalance)}</p>
             <p className="text-xs text-muted-foreground">{fmt(usdGyds)}</p>
           </div>
@@ -200,8 +188,8 @@ export const UserBalanceCard = () => {
           </div>
           <div>
             <p className="text-xs text-muted-foreground mb-1">Network</p>
-            <p className={`text-sm font-semibold ${NETWORK_COLORS[network].split(' ')[0]}`}>{network}</p>
-            <p className="text-xs text-muted-foreground">Chain 13370</p>
+            <p className={`text-sm font-semibold ${badge.text}`}>{badge.label}</p>
+            <p className="text-xs text-muted-foreground">Chain {netMeta.chainId}</p>
           </div>
         </div>
 

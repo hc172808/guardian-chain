@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GlassCard } from '../ui/GlassCard';
 import { CheckCircle, Clock, ExternalLink, Loader2, Blocks as BlocksIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
+import { useNetwork, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
 
 interface RecentTx {
   id: string;
@@ -15,44 +16,68 @@ interface RecentTx {
   created_at: string;
   block_height: number | null;
   tx_hash: string | null;
+  token_symbol?: string;
+  network?: string;
 }
 
 export const RecentBlocks = () => {
+  const { selectedNetwork } = useNetwork();
+  const network: NetworkKind = selectedNetwork === 'all' ? 'mainnet' : selectedNetwork;
+  const badge = NETWORK_BADGE[network];
+
   const [transactions, setTransactions] = useState<RecentTx[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading,      setLoading]      = useState(true);
+
+  const fetchTxs = useCallback(async () => {
+    try {
+      // Fetch user transactions then filter client-side by network
+      // (the /api/transactions endpoint returns the user's own txs)
+      const data = await api.get('/api/transactions').catch(() => []);
+      const rows: RecentTx[] = Array.isArray(data) ? data : [];
+
+      // Filter by selected network when not 'all'
+      const filtered = selectedNetwork === 'all'
+        ? rows
+        : rows.filter(tx => !tx.network || tx.network === network);
+
+      setTransactions(filtered.slice(0, 8));
+    } catch {}
+    setLoading(false);
+  }, [network, selectedNetwork]);
 
   useEffect(() => {
-    const fetch = async () => {
-      // Show recent confirmed transactions as "blocks" activity
-      const { data } = await supabase
-        .from('transactions')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(8);
-      if (data) setTransactions(data as RecentTx[]);
-      setLoading(false);
-    };
-    fetch();
-  }, []);
+    setLoading(true);
+    fetchTxs();
+    const iv = setInterval(fetchTxs, 10_000);
+    return () => clearInterval(iv);
+  }, [fetchTxs]);
 
   return (
     <GlassCard>
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold">Recent Activity</h3>
-        <Link 
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-semibold">Recent Activity</h3>
+          {/* Show which network's transactions are displayed */}
+          <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${badge.border} ${badge.bg} ${badge.text}`}>
+            {badge.label}
+          </span>
+        </div>
+        <Link
           to="/explorer"
           className="text-sm text-primary hover:text-primary/80 flex items-center gap-1"
         >
           View All <ExternalLink className="w-3 h-3" />
         </Link>
       </div>
-      
+
       {loading ? (
-        <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
       ) : transactions.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           <BlocksIcon className="h-10 w-10 mx-auto mb-3 opacity-50" />
-          <p>No activity yet</p>
+          <p>No activity on {badge.label} yet</p>
           <p className="text-xs mt-1">Transactions will appear here once the network is active</p>
         </div>
       ) : (
@@ -76,7 +101,7 @@ export const RecentBlocks = () => {
                   </div>
                 )}
               </div>
-              
+
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm font-medium truncate">
@@ -85,19 +110,23 @@ export const RecentBlocks = () => {
                   <span className={cn(
                     'text-xs px-2 py-0.5 rounded-full',
                     tx.status === 'confirmed'
-                      ? 'bg-primary/10 text-primary' 
+                      ? 'bg-primary/10 text-primary'
                       : 'bg-yellow-500/10 text-yellow-500'
                   )}>
                     {tx.status === 'confirmed' ? 'Confirmed' : 'Pending'}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground font-mono truncate mt-1">
-                  {tx.from_address ? tx.from_address.slice(0, 10) + '...' : 'System'} → {tx.to_address ? tx.to_address.slice(0, 10) + '...' : 'Unknown'}
+                  {tx.from_address ? tx.from_address.slice(0, 10) + '...' : 'System'}
+                  {' → '}
+                  {tx.to_address   ? tx.to_address.slice(0, 10)   + '...' : 'Unknown'}
                 </p>
               </div>
-              
+
               <div className="text-right flex-shrink-0">
-                <p className="text-sm font-medium">{Number(tx.amount).toLocaleString()} GYDS</p>
+                <p className="text-sm font-medium">
+                  {Number(tx.amount).toLocaleString()} {tx.token_symbol || 'GYDS'}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   {new Date(tx.created_at).toLocaleTimeString()}
                 </p>

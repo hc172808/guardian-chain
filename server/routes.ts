@@ -1543,27 +1543,34 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Network Stats ──────────────────────────────────────────────────────────
-  app.get("/api/network-stats", withCache(5_000), async (_req, res) => {
+  app.get("/api/network-stats", async (req, res) => {
+    // Accept ?network=mainnet|testnet|devnet  (default: mainnet)
+    const netParam = (["mainnet","testnet","devnet"].includes(req.query.network as string)
+      ? req.query.network : "mainnet") as "mainnet" | "testnet" | "devnet";
+
+    const NET_CHAIN_IDS: Record<string, number> = { mainnet: 13370, testnet: 13371, devnet: 13372 };
+    const chainId = NET_CHAIN_IDS[netParam] ?? 13370;
+
     // ── 1. DB-sourced baseline ───────────────────────────────────────────────
     const [dbStats, tokenPriceRow] = await Promise.all([
       storage.getNetworkStats(),
       storage.getTokenPrice().catch(() => null),
     ]);
 
-    // ── 2. On-chain: query best available running node ───────────────────────
+    // ── 2. In-memory chain state (always available after first node start) ───
     let onchainBlockHeight: number | null = null;
     let onchainPeerCount:   number | null = null;
     let onchainTps:         number | null = null;
 
-    // Try in-memory chain state first (always available if any node has run)
     try {
-      const h = getChainBlockHeight("mainnet");
+      const h = getChainBlockHeight(netParam);
       if (h > 0) onchainBlockHeight = h;
     } catch {}
 
-    // Then try live RPC call to the first running RPC/fullnode/lite node
-    const runningNodes = testNodeManager.getRunningNodes();
-    const rpcNode = runningNodes.find(n => ["rpc", "fullnode", "lite", "validator"].includes(n.type));
+    // ── 3. Live JSON-RPC from best running node for this network ─────────────
+    const allRunningNodes = testNodeManager.getRunningNodes();
+    const netNodes = allRunningNodes.filter(n => n.network === netParam);
+    const rpcNode  = netNodes.find(n => ["rpc", "fullnode", "lite", "validator"].includes(n.type));
 
     if (rpcNode) {
       const rpcUrl = `http://localhost:${rpcNode.port}`;
@@ -1580,58 +1587,53 @@ export function registerRoutes(app: Express) {
             signal: AbortSignal.timeout(2000),
           }).then(r => r.json()).catch(() => null),
         ]);
+        if (blockRes?.result) { const h = parseInt(blockRes.result, 16); if (h > 0) onchainBlockHeight = h; }
+        if (peerRes?.result)  { onchainPeerCount = parseInt(peerRes.result, 16); }
 
-        if (blockRes?.result) {
-          const h = parseInt(blockRes.result, 16);
-          if (h > 0) onchainBlockHeight = h;
-        }
-        if (peerRes?.result) {
-          onchainPeerCount = parseInt(peerRes.result, 16);
-        }
-
-        // Estimate TPS from last 10 blocks
-        if (onchainBlockHeight && onchainBlockHeight > 10) {
+        // Estimate TPS from last 5 blocks
+        if (onchainBlockHeight && onchainBlockHeight > 5) {
           try {
-            const blockTxCounts = await Promise.all(
+            const counts = await Promise.all(
               Array.from({ length: 5 }, (_, i) => {
-                const blockNum = "0x" + (onchainBlockHeight! - i).toString(16);
+                const bn = "0x" + (onchainBlockHeight! - i).toString(16);
                 return fetch(rpcUrl, {
                   method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ jsonrpc: "2.0", id: 10 + i, method: "eth_getBlockByNumber", params: [blockNum, false] }),
+                  body: JSON.stringify({ jsonrpc: "2.0", id: 10 + i, method: "eth_getBlockByNumber", params: [bn, false] }),
                   signal: AbortSignal.timeout(2000),
                 }).then(r => r.json()).then(d => (d?.result?.transactions?.length ?? 0)).catch(() => 0);
               })
             );
-            const avgTxPerBlock = blockTxCounts.reduce((a, b) => a + b, 0) / blockTxCounts.length;
-            onchainTps = Math.round(avgTxPerBlock / 5); // 5s block time
+            onchainTps = Math.round(counts.reduce((a, b) => a + b, 0) / counts.length / 5);
           } catch {}
         }
       } catch {}
     }
 
-    // ── 3. Merge and respond ─────────────────────────────────────────────────
+    // ── 4. Merge and respond ─────────────────────────────────────────────────
     const tokenPrice   = tokenPriceRow ? Number(tokenPriceRow.price) : 0.0847;
     const blockHeight  = onchainBlockHeight ?? 0;
-    const peerCount    = onchainPeerCount ?? runningNodes.length;
-    const tps          = onchainTps ?? (runningNodes.length > 0 ? 1250 : 0);
-    const avgBlockTime = 5; // 5 s target block time
+    const peerCount    = onchainPeerCount ?? netNodes.length;
+    const tps          = onchainTps ?? (netNodes.length > 0 ? 1250 : 0);
 
     res.json({
       ok: true,
       timestamp: new Date().toISOString(),
-      chainId: 13370,
+      network:  netParam,
+      chainId,
       stats: {
         ...dbStats,
+        network:       netParam,
+        chainId,
         blockHeight,
         tokenPrice,
-        priceChange24h: 0,          // updated by price-alerts system
+        priceChange24h: 0,
         tps,
-        avgBlockTime,
+        avgBlockTime:   5,
         peerCount,
         validatorCount: dbStats.activeValidators,
-        runningNodes:   runningNodes.length,
+        runningNodes:   netNodes.length,
         posFinality:    99.99,
-        onchain:        onchainBlockHeight !== null, // true = live node data
+        onchain:        onchainBlockHeight !== null,
       },
     });
   });
