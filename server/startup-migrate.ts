@@ -1050,6 +1050,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // nft_collections — code inserts floor_price, volume_24h, etc.; creator_id must accept ''
   for (const col of [
+    `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS creator_id      TEXT     DEFAULT ''`,
     `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS floor_price     NUMERIC  DEFAULT 0`,
     `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS volume_24h      NUMERIC  DEFAULT 0`,
     `ALTER TABLE nft_collections ADD COLUMN IF NOT EXISTS change_24h      NUMERIC  DEFAULT 0`,
@@ -1071,6 +1072,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // insurance_pools — code inserts coverage_type, total_coverage, etc.; token must accept ''
   for (const col of [
+    `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS token          TEXT    DEFAULT ''`,
     `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS coverage_type  TEXT    DEFAULT 'general'`,
     `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS description    TEXT`,
     `ALTER TABLE insurance_pools ADD COLUMN IF NOT EXISTS total_coverage NUMERIC DEFAULT 0`,
@@ -1085,6 +1087,8 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // price_history — code inserts coin, open, close, high, low, volume, timestamp
   for (const col of [
+    `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS symbol    TEXT        DEFAULT ''`,
+    `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS price     NUMERIC     DEFAULT 0`,
     `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS coin      TEXT        DEFAULT ''`,
     `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS open      NUMERIC     DEFAULT 0`,
     `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS close     NUMERIC     DEFAULT 0`,
@@ -1099,6 +1103,8 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // rwa_assets — code inserts type, description, total_value, token_price, etc.
   for (const col of [
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS creator_id       TEXT    DEFAULT ''`,
+    `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS asset_type       TEXT    DEFAULT 'general'`,
     `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS type             TEXT    DEFAULT 'general'`,
     `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS description      TEXT`,
     `ALTER TABLE rwa_assets ADD COLUMN IF NOT EXISTS total_value      NUMERIC DEFAULT 0`,
@@ -1128,6 +1134,8 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // trade_history — code uses executed_at, taker_id, maker_id; user_id/total must accept defaults
   for (const col of [
+    `ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS user_id     TEXT        DEFAULT ''`,
+    `ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS total       NUMERIC     DEFAULT 0`,
     `ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ`,
     `ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS taker_id    TEXT`,
     `ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS maker_id    TEXT`,
