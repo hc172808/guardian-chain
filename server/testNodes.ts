@@ -232,7 +232,44 @@ export async function seedBalanceTrie(): Promise<void> {
       credited++;
     }
 
-    // ── 2. Confirmed transactions (net credit per address) ──────────────────
+    // ── 2. Token operations (premines, mints) — per network ─────────────────
+    const { rows: ops } = await pgPool.query<{
+      wallet_address: string;
+      operation_type: string;
+      total: string;
+      network: string;
+    }>(`
+      SELECT LOWER(wallet_address) AS wallet_address,
+             LOWER(operation_type) AS operation_type,
+             SUM(amount)::text     AS total,
+             COALESCE(network, 'mainnet') AS network
+      FROM   token_operations
+      WHERE  status = 'confirmed'
+      GROUP  BY LOWER(wallet_address), LOWER(operation_type), COALESCE(network, 'mainnet')
+    `).catch(() => ({ rows: [] }));
+
+    for (const row of ops) {
+      const opType = row.operation_type ?? "";
+      let token: "GYDS" | "GYD" | "GUSD" | null = null;
+      let sign = 1;
+      if (opType.includes("gusd"))       token = "GUSD";
+      else if (opType.includes("gyds"))  token = "GYDS";
+      else if (opType.includes("gyd"))   token = "GYD";
+      if (opType.includes("burn"))       sign = -1;
+      if (!token) continue;
+      const wei = decimalToWei(row.total);
+      if (wei <= 0n) continue;
+      const nets: Network[] = (opType.includes("premine") || opType.includes("mint"))
+        ? ALL_NETWORKS                          // premines/mints visible on all networks
+        : (ALL_NETWORKS.includes(row.network as Network) ? [row.network as Network] : ALL_NETWORKS);
+      for (const net of nets) {
+        if (sign > 0) creditAddress(net, row.wallet_address, token, wei);
+        else          debitAddress(net, row.wallet_address, token, wei);
+      }
+      credited++;
+    }
+
+    // ── 3. Confirmed transactions (net credit per address) ──────────────────
     const { rows: txs } = await pgPool.query<{
       address: string;
       token_symbol: string;

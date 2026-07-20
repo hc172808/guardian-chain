@@ -636,6 +636,10 @@ export function registerRoutes(app: Express) {
       }
     }
 
+    const reqNetwork = (["mainnet","testnet","devnet"].includes(req.body.network)
+      ? req.body.network : "mainnet") as "mainnet" | "testnet" | "devnet";
+    const targetAddress = (wallet_address ?? rest.walletAddress ?? "").toLowerCase();
+
     const row = await storage.insertTokenOperation({
       ...rest,
       amount,
@@ -644,7 +648,25 @@ export function registerRoutes(app: Express) {
       walletAddress: wallet_address ?? rest.walletAddress,
       txHash: finalTxHash,
       createdBy: user.id,
+      network: reqNetwork,
     });
+
+    // Credit the in-memory balance trie immediately so balance shows on-chain
+    if (targetAddress && amount) {
+      const amtNum = parseFloat(String(amount));
+      if (amtNum > 0) {
+        const tokenKey: "GYDS" | "GYD" | "GUSD" =
+          opType?.includes("gusd") ? "GUSD" : opType?.includes("gyd") && !opType?.includes("gyds") ? "GYD" : "GYDS";
+        const amountWei = BigInt(Math.round(amtNum * 1e18));
+        // Credit on the requested network; also credit testnet/devnet for premines
+        const networks: Array<"mainnet" | "testnet" | "devnet"> =
+          (opType?.includes("premine") || opType?.includes("mint"))
+            ? ["mainnet", "testnet", "devnet"]
+            : [reqNetwork];
+        for (const net of networks) creditAddress(net, targetAddress, tokenKey, amountWei);
+      }
+    }
+
     res.json({ ...toSnakeOperation(row), on_chain: onChain, on_chain_error: onChainError });
   });
 
@@ -2564,7 +2586,8 @@ export function registerRoutes(app: Express) {
       let gyds = 0, gyd = 0, gusd = 0;
 
       if (addresses.length > 0) {
-        const addrList = addresses.map((_: any, i: number) => `${i + 1}`).join(",");
+        // Build parameterized placeholders: $1,$2,... for each address
+        const addrList  = addresses.map((_: any, i: number) => `${i + 1}`).join(",");
         const netClause = netFilter ? ` AND network=${addresses.length + 1}` : "";
         const netArgs   = netFilter ? [...addresses, netFilter] : addresses;
 

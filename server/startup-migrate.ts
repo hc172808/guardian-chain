@@ -526,9 +526,12 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       tx_hash        TEXT,
       created_by     TEXT,
       created_at     TIMESTAMPTZ DEFAULT NOW(),
-      status         TEXT DEFAULT 'pending' NOT NULL
+      status         TEXT DEFAULT 'pending' NOT NULL,
+      network        TEXT DEFAULT 'mainnet'
     )
   `);
+  // Ensure network column exists on pre-existing tables
+  await run("token_operations-network", `ALTER TABLE token_operations ADD COLUMN IF NOT EXISTS network TEXT DEFAULT 'mainnet'`);
 
   // ── 9. Validator tables ──────────────────────────────────────────────────────
   await run("network_validators", `
@@ -572,9 +575,11 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       amount         NUMERIC NOT NULL,
       tx_hash        TEXT,
       ip_address     TEXT,
-      created_at     TIMESTAMPTZ DEFAULT NOW()
+      created_at     TIMESTAMPTZ DEFAULT NOW(),
+      network        TEXT DEFAULT 'testnet'
     )
   `);
+  await run("faucet_claims-network", `ALTER TABLE faucet_claims ADD COLUMN IF NOT EXISTS network TEXT DEFAULT 'testnet'`);
 
   await run("network_snapshots", `
     CREATE TABLE IF NOT EXISTS network_snapshots (
