@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -52,6 +53,7 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
   const { toast } = useToast();
   const { user } = useAuth();
   const { address } = useWalletConnect();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const loadPositions = async () => {
@@ -222,8 +224,12 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
             <p className="text-sm text-muted-foreground">Start earning by providing liquidity or swapping tokens.</p>
           </div>
           <div className="flex gap-2 justify-center">
-            <Button className="gap-2"><Plus className="h-4 w-4" /> Add Liquidity</Button>
-            <Button variant="outline" className="gap-2"><Repeat className="h-4 w-4" /> Swap Tokens</Button>
+            <Button className="gap-2" onClick={() => navigate('/defi', { state: { tab: 'pools' } })}>
+              <Plus className="h-4 w-4" /> Add Liquidity
+            </Button>
+            <Button variant="outline" className="gap-2" onClick={() => navigate('/defi', { state: { tab: 'swap' } })}>
+              <Repeat className="h-4 w-4" /> Swap Tokens
+            </Button>
           </div>
         </GlassCard>
       ) : (
@@ -325,13 +331,103 @@ const OverlayPanel = ({ type, position, onBack }: { type: OverlayType, position:
     );
   }
 
-  // Fallback for other overlays (deposit/withdraw/lock/transfer)
+  // Deposit / Withdraw / Transfer overlay
+  return <ActionPanel type={type} position={position} onBack={onBack} />;
+};
+
+const ActionPanel = ({ type, position, onBack }: { type: OverlayType; position: Position; onBack: () => void }) => {
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
+
+  const isWithdraw = type === 'withdraw';
+  const max = isWithdraw ? position.balance : undefined;
+  const label = type === 'deposit' ? 'Deposit' : type === 'withdraw' ? 'Withdraw' : type === 'transfer' ? 'Transfer' : 'Action';
+  const icon = type === 'deposit' ? <Plus className="h-4 w-4" /> : type === 'withdraw' ? <Minus className="h-4 w-4" /> : <ArrowLeftRight className="h-4 w-4" />;
+
+  const handleSubmit = async () => {
+    const val = parseFloat(amount);
+    if (!val || val <= 0) { toast({ title: 'Enter a valid amount', variant: 'destructive' }); return; }
+    if (isWithdraw && val > position.balance) { toast({ title: 'Amount exceeds balance', variant: 'destructive' }); return; }
+    setBusy(true);
+    await new Promise(r => setTimeout(r, 1200));
+    setBusy(false);
+    toast({ title: `${label} submitted`, description: `${val} ${position.tokenA.symbol}/${position.tokenB.symbol} — pending confirmation` });
+    onBack();
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3"><Button variant="ghost" size="sm" onClick={onBack}>← Back</Button><h2 className="text-xl font-bold capitalize">{type} — {position.tokenA.symbol}/{position.tokenB.symbol}</h2></div>
-      <GlassCard className="p-8 text-center text-muted-foreground border-dashed">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-        Processing {type} interface...
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="sm" onClick={onBack}>← Back</Button>
+        <h2 className="text-xl font-bold">{label} — {position.tokenA.symbol}/{position.tokenB.symbol}</h2>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <GlassCard className="p-4 text-center">
+          <div className="text-xs text-muted-foreground uppercase mb-1">Your Balance</div>
+          <div className="text-xl font-bold">${position.balance.toFixed(2)}</div>
+        </GlassCard>
+        <GlassCard className="p-4 text-center">
+          <div className="text-xs text-muted-foreground uppercase mb-1">Pending Yield</div>
+          <div className="text-xl font-bold text-primary">+${position.pendingYield.toFixed(4)}</div>
+        </GlassCard>
+        <GlassCard className="p-4 text-center">
+          <div className="text-xs text-muted-foreground uppercase mb-1">APR</div>
+          <div className="text-xl font-bold">{position.apr}%</div>
+        </GlassCard>
+      </div>
+
+      <GlassCard className="p-6 space-y-5">
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <label className="text-muted-foreground">Amount ({position.tokenA.symbol})</label>
+            {max !== undefined && (
+              <button className="text-primary text-xs hover:underline" onClick={() => setAmount(String(max))}>
+                Max: ${max.toFixed(2)}
+              </button>
+            )}
+          </div>
+          <div className="relative">
+            <Input
+              type="number"
+              min="0"
+              step="any"
+              placeholder="0.00"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              className="pr-20 text-lg font-mono"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium">
+              {position.tokenA.symbol}
+            </span>
+          </div>
+          {amount && !isNaN(parseFloat(amount)) && (
+            <p className="text-xs text-muted-foreground">≈ ${parseFloat(amount).toFixed(2)} USD</p>
+          )}
+        </div>
+
+        {type === 'deposit' && (
+          <div className="rounded-lg bg-primary/10 border border-primary/20 p-3 text-sm text-primary space-y-1">
+            <p className="font-medium">You will receive LP tokens</p>
+            <p className="text-xs text-muted-foreground">LP tokens represent your share of the pool and accrue fees automatically.</p>
+          </div>
+        )}
+        {type === 'withdraw' && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm text-muted-foreground"><span>Withdrawal amount</span><span>${amount ? parseFloat(amount).toFixed(2) : '0.00'}</span></div>
+            <div className="flex justify-between text-sm text-muted-foreground"><span>Pending yield included</span><span className="text-primary">+${position.pendingYield.toFixed(4)}</span></div>
+            <div className="border-t border-border/30 pt-2 flex justify-between font-semibold">
+              <span>You receive</span>
+              <span>${((parseFloat(amount) || 0) + position.pendingYield).toFixed(4)}</span>
+            </div>
+          </div>
+        )}
+
+        <Button className="w-full h-12 gap-2 text-base" onClick={handleSubmit} disabled={busy || !amount}>
+          {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : icon}
+          {busy ? 'Processing...' : `${label} Liquidity`}
+        </Button>
       </GlassCard>
     </div>
   );
