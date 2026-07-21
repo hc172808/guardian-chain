@@ -658,11 +658,9 @@ export function registerRoutes(app: Express) {
         const tokenKey: "GYDS" | "GYD" | "GUSD" =
           opType?.includes("gusd") ? "GUSD" : opType?.includes("gyd") && !opType?.includes("gyds") ? "GYD" : "GYDS";
         const amountWei = BigInt(Math.round(amtNum * 1e18));
-        // Credit on the requested network; also credit testnet/devnet for premines
+        // Premines go to all networks (genesis allocation); regular mints only to the requested network
         const networks: Array<"mainnet" | "testnet" | "devnet"> =
-          (opType?.includes("premine") || opType?.includes("mint"))
-            ? ["mainnet", "testnet", "devnet"]
-            : [reqNetwork];
+          opType?.includes("premine") ? ["mainnet", "testnet", "devnet"] : [reqNetwork];
         for (const net of networks) creditAddress(net, targetAddress, tokenKey, amountWei);
       }
     }
@@ -2576,8 +2574,15 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const { pool: pgPool } = await import("./db");
     try {
+      // Collect all addresses: wallets table + users.wallet_address (covers founder wallet)
       const walletsRes = await pgPool.query(`SELECT address FROM wallets WHERE user_id=$1`, [user.id]).catch(() => ({ rows: [] }));
-      const addresses: string[] = walletsRes.rows.map((r: any) => r.address.toLowerCase());
+      const userRow    = await pgPool.query(`SELECT wallet_address FROM users WHERE id=$1`, [user.id]).catch(() => ({ rows: [] }));
+      const rawAddresses: string[] = [
+        ...walletsRes.rows.map((r: any) => r.address),
+        ...(userRow.rows[0]?.wallet_address ? [userRow.rows[0].wallet_address] : []),
+      ];
+      // Deduplicate and lowercase
+      const addresses: string[] = [...new Set(rawAddresses.map((a: string) => a.toLowerCase()))].filter(Boolean);
 
       // Allow callers to scope balance to a single network
       const netFilter = typeof req.query.network === "string" && ["mainnet","testnet","devnet"].includes(req.query.network)
@@ -2586,9 +2591,9 @@ export function registerRoutes(app: Express) {
       let gyds = 0, gyd = 0, gusd = 0;
 
       if (addresses.length > 0) {
-        // Build parameterized placeholders: $1,$2,... for each address
+        // $1,$2,... placeholders for addresses; network param appended at the end if needed
         const addrList  = addresses.map((_: any, i: number) => `${i + 1}`).join(",");
-        const netClause = netFilter ? ` AND network=${addresses.length + 1}` : "";
+        const netClause = netFilter ? ` AND (network=${addresses.length + 1} OR operation_type LIKE 'premine_%')` : "";
         const netArgs   = netFilter ? [...addresses, netFilter] : addresses;
 
         const ops = await pgPool.query(
@@ -2607,8 +2612,10 @@ export function registerRoutes(app: Express) {
           else if (t === "burn_gusd") gusd -= amt;
         }
 
+        // Transactions: network-filtered; premines (faucet address 0x…fac3) always pass through
+        const txNetClause = netFilter ? ` AND (network=${addresses.length + 1} OR LOWER(from_address)='0x000000000000000000000000000000000000fac3')` : "";
         const txRes = await pgPool.query(
-          `SELECT from_address, to_address, token_symbol, amount, fee FROM transactions WHERE status='confirmed' AND (LOWER(from_address) = ANY(ARRAY[${addrList}]) OR LOWER(to_address) = ANY(ARRAY[${addrList}]))${netClause}`,
+          `SELECT from_address, to_address, token_symbol, amount, fee FROM transactions WHERE status='confirmed' AND (LOWER(from_address) = ANY(ARRAY[${addrList}]) OR LOWER(to_address) = ANY(ARRAY[${addrList}]))${txNetClause}`,
           netArgs
         ).catch(() => ({ rows: [] }));
 

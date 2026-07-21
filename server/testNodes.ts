@@ -213,12 +213,14 @@ export async function seedBalanceTrie(): Promise<void> {
       wallet_address: string;
       token_type: string;
       total: string;
+      network: string;
     }>(`
-      SELECT LOWER(wallet_address) AS wallet_address,
-             LOWER(token_type)     AS token_type,
-             SUM(amount)::text     AS total
+      SELECT LOWER(wallet_address)            AS wallet_address,
+             LOWER(token_type)               AS token_type,
+             SUM(amount)::text               AS total,
+             COALESCE(network, 'testnet')    AS network
       FROM   faucet_claims
-      GROUP  BY LOWER(wallet_address), LOWER(token_type)
+      GROUP  BY LOWER(wallet_address), LOWER(token_type), COALESCE(network, 'testnet')
     `);
 
     for (const row of faucet) {
@@ -226,9 +228,9 @@ export async function seedBalanceTrie(): Promise<void> {
       if (!token) continue;
       const wei = decimalToWei(row.total);
       if (wei <= 0n) continue;
-      for (const net of ALL_NETWORKS) {
-        creditAddress(net, row.wallet_address, token, wei);
-      }
+      // Faucet claims are network-specific — only credit the tagged network
+      const net = (ALL_NETWORKS.includes((row as any).network as Network) ? (row as any).network : "testnet") as Network;
+      creditAddress(net, row.wallet_address, token, wei);
       credited++;
     }
 
@@ -259,9 +261,11 @@ export async function seedBalanceTrie(): Promise<void> {
       if (!token) continue;
       const wei = decimalToWei(row.total);
       if (wei <= 0n) continue;
-      const nets: Network[] = (opType.includes("premine") || opType.includes("mint"))
-        ? ALL_NETWORKS                          // premines/mints visible on all networks
-        : (ALL_NETWORKS.includes(row.network as Network) ? [row.network as Network] : ALL_NETWORKS);
+      // Premines = genesis allocation, visible on ALL networks
+      // Regular mints = network-specific (only credit the tagged network)
+      const nets: Network[] = opType.includes("premine")
+        ? ALL_NETWORKS
+        : (ALL_NETWORKS.includes(row.network as Network) ? [row.network as Network] : ["testnet"]);
       for (const net of nets) {
         if (sign > 0) creditAddress(net, row.wallet_address, token, wei);
         else          debitAddress(net, row.wallet_address, token, wei);
