@@ -67,7 +67,7 @@ export const RecentSwaps = () => {
             >
               <div className="flex items-center gap-2 min-w-0">
                 <div className="flex items-center gap-1 text-sm font-medium truncate">
-                  <span className="truncate max-w-[80px]">{tx.from_address.slice(0, 8)}…</span>
+                  <span className="truncate max-w-[80px]">{(tx.from_address ?? (tx as any).fromAddress ?? '—').slice(0, 8)}…</span>
                   <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
                   <span className="text-muted-foreground">Swap</span>
                 </div>

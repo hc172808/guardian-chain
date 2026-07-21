@@ -218,7 +218,7 @@ const LeaderboardPage = () => {
                     <span className="font-medium text-sm truncate">{v.name}</span>
                     <Badge variant="outline" className={cn('text-xs', v.status==='active'?'text-emerald-400 border-emerald-500/30':'text-muted-foreground')}>{v.status}</Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground font-mono mt-0.5">{v.address.slice(0,10)}…{v.address.slice(-6)}</p>
+                  <p className="text-xs text-muted-foreground font-mono mt-0.5">{(v.address ?? '').slice(0,10)}…{(v.address ?? '').slice(-6)}</p>
                 </div>
                 <div className="text-right shrink-0 space-y-0.5">
                   <p className="font-bold text-sm">{fmtBig(v.totalStaked)} GYDS</p>

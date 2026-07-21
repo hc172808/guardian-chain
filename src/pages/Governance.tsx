@@ -721,7 +721,7 @@ const GovernancePage = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             {d.delegate_username && <span className="text-sm font-medium">{d.delegate_username}</span>}
-                            <span className="text-xs font-mono text-muted-foreground">{d.delegate_address.slice(0,10)}…</span>
+                            <span className="text-xs font-mono text-muted-foreground">{(d.delegate_address ?? '').slice(0,10)}…</span>
                             <span className={`text-xs px-1.5 py-0.5 rounded-full ${d.active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-muted/30 text-muted-foreground'}`}>
                               {d.active ? 'active' : 'revoked'}
                             </span>

@@ -310,7 +310,7 @@ function PoolStatsTab() {
                     </td>
                     <td className="py-2 pr-3 font-mono">
                       <span className="text-foreground">
-                        {miner.address.slice(0, 8)}…{miner.address.slice(-6)}
+                        {(miner.address ?? '').slice(0, 8)}…{(miner.address ?? '').slice(-6)}
                       </span>
                     </td>
                     <td className="py-2 pr-3 text-right">

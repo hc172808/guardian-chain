@@ -145,7 +145,7 @@ const Validators = () => {
                         <div>
                           {validator.name && <p className="text-sm font-medium">{validator.name}</p>}
                           <span className="font-mono text-xs text-muted-foreground">
-                            {validator.address.slice(0, 10)}...{validator.address.slice(-8)}
+                            {(validator.address ?? '').slice(0, 10)}...{(validator.address ?? '').slice(-8)}
                           </span>
                         </div>
                       </td>

@@ -452,7 +452,7 @@ export const SwapInterface = () => {
 
       toast({
         title: 'Swap submitted to mempool',
-        description: `Tx ${result.txHash.slice(0, 10)}... pending. ${result.liveNodes} node(s) will mine it into the next block.`,
+        description: `Tx ${(result.txHash ?? '').slice(0, 10)}... pending. ${result.liveNodes} node(s) will mine it into the next block.`,
       });
 
       setPayAmount('');
