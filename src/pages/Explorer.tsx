@@ -469,7 +469,7 @@ const TransactionRow = ({ tx, index, isPending }: { tx: Transaction; index: numb
         </div>
       </div>
       <div className="text-right">
-        <p className="text-sm font-bold text-primary">{tx.amount.toFixed(4)} GYDS</p>
+        <p className="text-sm font-bold text-primary">{Number(tx.amount).toFixed(4)} GYDS</p>
         <p className="text-xs text-muted-foreground">{new Date(tx.timestamp).toLocaleTimeString()}</p>
       </div>
     </div>

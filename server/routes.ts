@@ -1079,13 +1079,31 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Liquidity Pools ────────────────────────────────────────────────────────
+  const serializePools = (data: Awaited<ReturnType<typeof storage.getActivePools>>) =>
+    data.map(p => ({
+      id: p.id,
+      creator_id: p.creatorId,
+      token_a_symbol: p.tokenASymbol,
+      token_b_symbol: p.tokenBSymbol,
+      token_a_address: p.tokenAAddress,
+      token_b_address: p.tokenBAddress,
+      fee_tier: Number(p.feeTier),
+      tvl: Number(p.tvl),
+      volume_24h: Number(p.volume24h),
+      fees_24h: Number(p.fees24h),
+      apr: Number(p.apr),
+      is_active: p.isActive,
+      created_at: p.createdAt,
+      updated_at: p.updatedAt,
+    }));
+
   app.get("/api/pools", withCache(12_000), async (_req, res) => {
     const data = await storage.getActivePools();
-    res.json(data);
+    res.json(serializePools(data));
   });
   app.get("/api/liquidity-pools", async (_req, res) => {
     const data = await storage.getActivePools();
-    res.json(data);
+    res.json(serializePools(data));
   });
 
   app.post("/api/pools", requireAuth, async (req, res) => {

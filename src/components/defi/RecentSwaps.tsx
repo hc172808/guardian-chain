@@ -74,7 +74,7 @@ export const RecentSwaps = () => {
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 <div className="text-right">
-                  <div className="text-sm font-semibold">{tx.amount.toFixed(4)}</div>
+                  <div className="text-sm font-semibold">{Number(tx.amount).toFixed(4)}</div>
                   <div className="text-xs text-muted-foreground">
                     {formatDistanceToNow(new Date(tx.created_at), { addSuffix: true })}
                   </div>
