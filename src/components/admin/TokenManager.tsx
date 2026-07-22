@@ -143,7 +143,7 @@ export const TokenManager = () => {
                     <Badge variant="outline" className="text-xs">{token.symbol}</Badge>
                     {!token.is_active && <Badge variant="destructive" className="text-xs">Blocked</Badge>}
                   </div>
-                  <p className="text-xs text-muted-foreground font-mono">{token.address.slice(0, 10)}...{token.address.slice(-6)}</p>
+                  <p className="text-xs text-muted-foreground font-mono">{(token.address ?? '').slice(0, 10)}...{(token.address ?? '').slice(-6)}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">

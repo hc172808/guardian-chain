@@ -371,7 +371,7 @@ export function GenesisManager() {
                     <div className="flex items-center gap-2 flex-wrap">
                       {v.label && <span className="text-sm font-medium">{v.label}</span>}
                       <Badge variant="outline" className="text-xs font-mono">
-                        {v.address.slice(0, 10)}…{v.address.slice(-6)}
+                        {(v.address ?? '').slice(0, 10)}…{(v.address ?? '').slice(-6)}
                       </Badge>
                       <Badge className="text-xs bg-primary/20 text-primary border-primary/30">
                         {v.stake.toLocaleString()} GYDS
@@ -451,7 +451,7 @@ export function GenesisManager() {
                     <div className="flex items-center gap-2 flex-wrap">
                       {p.label && <span className="text-sm font-medium">{p.label}</span>}
                       <code className="text-xs bg-black/30 px-1.5 py-0.5 rounded font-mono">
-                        {p.enode.slice(0, 30)}…
+                        {(p.enode ?? '').slice(0, 30)}…
                       </code>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">

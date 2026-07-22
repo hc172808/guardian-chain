@@ -381,7 +381,7 @@ export const NodeConfigManager = () => {
                         {node.hostname}{node.rpc_port ? `:${node.rpc_port}` : ''}
                       </code>
                     )}
-                    <code className="text-xs text-muted-foreground">{node.id.slice(0, 8)}</code>
+                    <code className="text-xs text-muted-foreground">{(node.id ?? '').slice(0, 8)}</code>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     {node.is_online ? (

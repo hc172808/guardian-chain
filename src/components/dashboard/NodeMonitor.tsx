@@ -121,7 +121,7 @@ export const NodeMonitor = () => {
                 ) : (
                   <WifiOff className="h-4 w-4 text-muted-foreground" />
                 )}
-                <span className="text-xs font-mono">{node.id.slice(0, 8)}...</span>
+                <span className="text-xs font-mono">{(node.id ?? '').slice(0, 8)}...</span>
                 <Badge variant="outline" className="text-xs">
                   {node.node_type}
                 </Badge>

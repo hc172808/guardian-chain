@@ -67,7 +67,7 @@ export const DelegateModal = ({ open, onOpenChange, validator, onSuccess }: Dele
         <div className="space-y-4 pt-2">
           <div className="p-3 rounded-lg bg-secondary/30">
             <p className="text-sm font-medium">{validator.name || 'Unnamed Validator'}</p>
-            <code className="text-xs text-muted-foreground">{validator.address.slice(0, 14)}...{validator.address.slice(-8)}</code>
+            <code className="text-xs text-muted-foreground">{(validator.address ?? '').slice(0, 14)}...{(validator.address ?? '').slice(-8)}</code>
             <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
               <span>Stake: {Number(validator.stake).toLocaleString()} GYDS</span>
               <span>Commission: {validator.commission}%</span>

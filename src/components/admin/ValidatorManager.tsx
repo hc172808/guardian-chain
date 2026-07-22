@@ -181,7 +181,7 @@ export const ValidatorManager = () => {
                 </div>
                 <div>
                   <p className="text-sm font-medium">{v.name || 'Unnamed'}</p>
-                  <code className="text-xs text-muted-foreground">{v.address.slice(0, 10)}...{v.address.slice(-6)}</code>
+                  <code className="text-xs text-muted-foreground">{(v.address ?? '').slice(0, 10)}...{(v.address ?? '').slice(-6)}</code>
                 </div>
               </div>
               <div className="flex items-center gap-3">

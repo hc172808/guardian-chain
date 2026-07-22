@@ -353,7 +353,7 @@ export const BurnMintManager = () => {
                         )}
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1 font-mono">{op.wallet_address.slice(0, 16)}...</p>
+                    <p className="text-xs text-muted-foreground mt-1 font-mono">{(op.wallet_address ?? '').slice(0, 16)}...</p>
                     <p className="text-xs text-muted-foreground">{new Date(op.created_at).toLocaleString()}</p>
                   </div>
                 ))}

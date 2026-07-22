@@ -143,7 +143,7 @@ export const NodeHealthDashboard = () => {
                   <WifiOff className="h-5 w-5 text-muted-foreground" />
                 )}
                 <div>
-                  <p className="font-mono text-sm">{node.id.slice(0, 12)}...</p>
+                  <p className="font-mono text-sm">{(node.id ?? '').slice(0, 12)}...</p>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge variant="outline">{node.node_type}</Badge>
                     {node.is_approved ? (

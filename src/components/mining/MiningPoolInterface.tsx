@@ -283,7 +283,7 @@ export const MiningPoolInterface = () => {
                     className="border-b border-border/50"
                   >
                     <TableCell className="font-mono text-xs">
-                      {miner.address.slice(0, 12)}...
+                      {(miner.address ?? '').slice(0, 12)}...
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="text-xs">

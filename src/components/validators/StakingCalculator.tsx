@@ -69,7 +69,7 @@ export const StakingCalculator = ({ validators }: Props) => {
               <SelectContent>
                 {activeValidators.map((v) => (
                   <SelectItem key={v.id} value={v.id}>
-                    {v.name || v.address.slice(0, 10) + '...'} ({v.commission}% commission)
+                    {v.name || (v.address ?? '').slice(0, 10) + '...'} ({v.commission}% commission)
                   </SelectItem>
                 ))}
               </SelectContent>
