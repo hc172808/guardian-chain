@@ -1000,13 +1000,47 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/pools", requireAuth, async (req, res) => {
     const user = req.user as any;
-    const row = await storage.insertPool({ ...req.body, creatorId: user.id });
-    res.json(row);
+    const b = req.body;
+    try {
+      const row = await storage.insertPool({
+        creatorId: user.id,
+        tokenASymbol: b.tokenASymbol ?? b.token_a_symbol,
+        tokenBSymbol: b.tokenBSymbol ?? b.token_b_symbol,
+        tokenAAddress: b.tokenAAddress ?? b.token_a_address ?? null,
+        tokenBAddress: b.tokenBAddress ?? b.token_b_address ?? null,
+        feeTier: String(b.feeTier ?? b.fee_tier ?? '0.3'),
+        tvl: String(b.tvl ?? '0'),
+        volume24h: String(b.volume24h ?? b.volume_24h ?? '0'),
+        fees24h: String(b.fees24h ?? b.fees_24h ?? '0'),
+        apr: String(b.apr ?? '0'),
+        isActive: b.isActive ?? b.is_active ?? true,
+      });
+      res.json(row);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
   });
   app.post("/api/liquidity-pools", requireAuth, async (req, res) => {
     const user = req.user as any;
-    const row = await storage.insertPool({ ...req.body, creatorId: user.id });
-    res.json(row);
+    const b = req.body;
+    try {
+      const row = await storage.insertPool({
+        creatorId: user.id,
+        tokenASymbol: b.tokenASymbol ?? b.token_a_symbol,
+        tokenBSymbol: b.tokenBSymbol ?? b.token_b_symbol,
+        tokenAAddress: b.tokenAAddress ?? b.token_a_address ?? null,
+        tokenBAddress: b.tokenBAddress ?? b.token_b_address ?? null,
+        feeTier: String(b.feeTier ?? b.fee_tier ?? '0.3'),
+        tvl: String(b.tvl ?? '0'),
+        volume24h: String(b.volume24h ?? b.volume_24h ?? '0'),
+        fees24h: String(b.fees24h ?? b.fees_24h ?? '0'),
+        apr: String(b.apr ?? '0'),
+        isActive: b.isActive ?? b.is_active ?? true,
+      });
+      res.json(row);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // ── Token Watchlist ────────────────────────────────────────────────────────
