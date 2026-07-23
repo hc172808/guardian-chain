@@ -801,6 +801,13 @@ const AdminContent = () => {
   const [pingingNodes, setPingingNodes] = useState<Set<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
+  // Add-node-URL form state
+  const [showAddNodeForm, setShowAddNodeForm] = useState(false);
+  const [addNodeUrl, setAddNodeUrl] = useState('');
+  const [addNodeType, setAddNodeType] = useState('rpcnode');
+  const [addingNode, setAddingNode] = useState(false);
+  const [serverIp, setServerIp] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isFounder && !isAdmin) {
       navigate('/');
@@ -878,6 +885,39 @@ const AdminContent = () => {
     } finally {
       setPingingNodes(prev => { const s = new Set(prev); s.delete(nodeId); return s; });
     }
+  };
+
+  const handleAddNodeUrl = async () => {
+    if (!addNodeUrl.trim()) return;
+    setAddingNode(true);
+    try {
+      const res = await fetch('/api/admin/nodes/add-url', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: addNodeUrl.trim(), nodeType: addNodeType }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error ?? 'Failed to add node');
+      toast({ title: '✅ Node added', description: `${addNodeType} → ${addNodeUrl.trim()}` });
+      setAddNodeUrl('');
+      setShowAddNodeForm(false);
+      fetchData();
+    } catch (e: any) {
+      toast({ title: 'Failed to add node', description: e.message, variant: 'destructive' });
+    } finally {
+      setAddingNode(false);
+    }
+  };
+
+  const fetchServerIp = async () => {
+    try {
+      const res = await fetch('/api/admin/server-ip', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setServerIp(data.primary ?? null);
+      }
+    } catch {}
   };
 
   const handleSetMainNode = async (nodeId: string) => {
@@ -1086,6 +1126,115 @@ const AdminContent = () => {
 
           {/* WireGuard Peer Manager */}
           <WireGuardPeerManager />
+
+          {/* Add Node URL panel */}
+          {(isFounder || isAdmin) && (
+            <GlassCard className="p-4 border-primary/20">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Link2 className="h-4 w-4 text-primary" />
+                  <span className="font-medium text-sm">Add Node by URL</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant={showAddNodeForm ? 'secondary' : 'outline'}
+                  className="gap-1.5 h-7 text-xs"
+                  onClick={() => {
+                    setShowAddNodeForm(v => !v);
+                    if (!showAddNodeForm) fetchServerIp();
+                  }}
+                >
+                  {showAddNodeForm ? <X className="h-3.5 w-3.5" /> : <><Server className="h-3.5 w-3.5" /> Add Node</>}
+                </Button>
+              </div>
+
+              {showAddNodeForm && (
+                <div className="space-y-3 pt-1">
+                  <p className="text-xs text-muted-foreground">
+                    Enter the node's RPC URL. <code className="bg-background/50 px-1 rounded">0.0.0.0</code> is auto-resolved to{' '}
+                    <code className="bg-background/50 px-1 rounded">127.0.0.1</code> (localhost).
+                  </p>
+
+                  {/* Quick-fill shortcuts */}
+                  <div className="flex flex-wrap gap-2">
+                    <span className="text-xs text-muted-foreground self-center">Quick fill:</span>
+                    {[
+                      { label: 'localhost:8545', value: 'http://127.0.0.1:8545' },
+                      { label: '0.0.0.0:8545', value: 'http://0.0.0.0:8545' },
+                      ...(serverIp ? [{ label: `${serverIp}:8545`, value: `http://${serverIp}:8545` }] : []),
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setAddNodeUrl(opt.value)}
+                        className="text-xs font-mono px-2 py-0.5 rounded border border-border/60 bg-background/40 hover:bg-primary/10 hover:border-primary/40 transition-colors"
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                    {!serverIp && (
+                      <button
+                        type="button"
+                        onClick={fetchServerIp}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        Detect server IP…
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <Label className="text-xs mb-1 block">Node URL</Label>
+                      <Input
+                        value={addNodeUrl}
+                        onChange={e => setAddNodeUrl(e.target.value)}
+                        placeholder="http://0.0.0.0:8545"
+                        className="font-mono text-sm h-9"
+                        onKeyDown={e => e.key === 'Enter' && handleAddNodeUrl()}
+                      />
+                    </div>
+                    <div className="w-36 shrink-0">
+                      <Label className="text-xs mb-1 block">Node Type</Label>
+                      <Select value={addNodeType} onValueChange={setAddNodeType}>
+                        <SelectTrigger className="h-9 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {['rpcnode', 'fullnode', 'litenode', 'boostnode', 'validatornode', 'genesis', 'bootnode'].map(t => (
+                            <SelectItem key={t} value={t}>{t}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Preview of resolved URL */}
+                  {addNodeUrl && (
+                    <p className="text-xs text-muted-foreground font-mono">
+                      Will connect to:{' '}
+                      <span className="text-primary">
+                        {addNodeUrl.replace(/^(https?:\/\/)?(0\.0\.0\.0|::)/, 'http://127.0.0.1')}
+                      </span>
+                    </p>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddNodeForm(false)}>Cancel</Button>
+                    <Button
+                      size="sm"
+                      onClick={handleAddNodeUrl}
+                      disabled={addingNode || !addNodeUrl.trim()}
+                      className="gap-1.5"
+                    >
+                      {addingNode ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      {addingNode ? 'Adding…' : 'Add Node'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </GlassCard>
+          )}
 
           <div className="border-t border-border/30 pt-4">
             <div className="flex items-center justify-between mb-3">

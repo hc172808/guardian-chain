@@ -14,6 +14,7 @@ import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhat
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
 import { broadcastTransfer, pollForConfirmation, checkRpcHealth, testEndpoints } from "./chainRpc";
 import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasuryBalance, sendTreasuryTransfer } from "./treasury";
@@ -414,6 +415,60 @@ export function registerRoutes(app: Express) {
       fs.writeFileSync(envPath, content, 'utf8');
     } catch {}
     res.json({ ok: true, rpcUrl: trimmed });
+  });
+
+  // ── Server IP helper (admin) ───────────────────────────────────────────────
+  app.get("/api/admin/server-ip", requireAdmin, (_req, res) => {
+    const ifaces = os.networkInterfaces();
+    const ips: string[] = [];
+    for (const iface of Object.values(ifaces)) {
+      if (!iface) continue;
+      for (const alias of iface) {
+        if (alias.family === 'IPv4' && !alias.internal) ips.push(alias.address);
+      }
+    }
+    res.json({ ips, primary: ips[0] ?? '127.0.0.1' });
+  });
+
+  // ── Add node by URL (admin/founder — auto-resolves localhost) ──────────────
+  app.post("/api/admin/nodes/add-url", requireAdmin, async (req, res) => {
+    const user = req.user as any;
+    const { url, nodeType = 'rpcnode' } = req.body ?? {};
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ ok: false, error: 'url is required' });
+    }
+    // Ensure a parseable URL
+    let parsed: URL;
+    try {
+      parsed = new URL(url.startsWith('http') ? url : `http://${url}`);
+    } catch {
+      return res.status(400).json({ ok: false, error: 'Invalid URL format. Use http://host:port' });
+    }
+    let host = parsed.hostname;
+    const port = parsed.port ? parseInt(parsed.port, 10) : 8545;
+
+    // Auto-resolve 0.0.0.0 → 127.0.0.1 (bind-all → loopback for connect)
+    if (host === '0.0.0.0' || host === '::' || host === '0:0:0:0:0:0:0:0') host = '127.0.0.1';
+
+    const isLoopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+
+    // For loopback nodes use the LOCAL: sentinel so the UI shows them as local
+    const wireguardPublicKey = isLoopback ? `LOCAL:${port}` : null;
+
+    const row = await storage.insertNode({
+      nodeType,
+      hostname: host,
+      ipAddress: host,
+      rpcPort: port,
+      wireguardPublicKey,
+      userId: user.id,
+      isApproved: true,
+      approvedBy: user.id,
+      approvedAt: new Date(),
+      isOnline: false,
+    });
+
+    res.json({ ok: true, node: row });
   });
 
   // ── Node Installations ─────────────────────────────────────────────────────
