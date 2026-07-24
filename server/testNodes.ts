@@ -543,6 +543,105 @@ function jsonRpcDispatch(rpc: any, s: NodeState, cfg: NetworkCfg, opts: { booste
     case "eth_mining":        return true;
     case "eth_hashrate":      return "0x" + Math.floor(Math.random() * 1e9).toString(16);
     case "eth_accounts":      return [];
+
+    // ── admin namespace ────────────────────────────────────────────────────────
+    case "admin_nodeInfo":    return {
+      id:        randHex(128),
+      name:      `GYDSchain/${cfg.label}/${s.type}/v1.0.0`,
+      enode:     `enode://${randHex(128)}@0.0.0.0:${s.port}`,
+      enr:       "enr:-" + randHex(64),
+      ip:        "0.0.0.0",
+      listenAddr: `0.0.0.0:${s.port}`,
+      ports:     { discovery: s.port, listener: s.port },
+      protocols: {
+        eth: { network: cfg.chainId, difficulty: 17179869184, genesis: "0x" + randHex(64), config: { chainId: cfg.chainId }, head: "0x" + randHex(64) },
+      },
+    };
+    case "admin_peers":       return Array.from({ length: s.peers }, (_, i) => ({
+      caps:       ["eth/66", "eth/67", "snap/1"],
+      enode:      `enode://${randHex(128)}@${Math.floor(Math.random()*256)}.${Math.floor(Math.random()*256)}.${Math.floor(Math.random()*256)}.${i + 1}:30303`,
+      id:         randHex(64),
+      name:       `GYDSchain/peer-${i}/v1.0.0`,
+      network:    { localAddress: `0.0.0.0:${s.port}`, remoteAddress: `${Math.floor(Math.random()*256)}.0.0.${i + 1}:30303`, inbound: false, trusted: false, static: false },
+      protocols:  { eth: { version: 67, difficulty: "0x" + (1e15).toString(16), head: "0x" + randHex(64) } },
+    }));
+    case "admin_addPeer":     return true;
+    case "admin_removePeer":  return true;
+    case "admin_addTrustedPeer":    return true;
+    case "admin_removeTrustedPeer": return true;
+    case "admin_datadir":     return `/var/lib/gyds/${cfg.label}/${s.type}`;
+    case "admin_exportChain": return true;
+    case "admin_importChain": return true;
+    case "admin_startHTTP":   return true;
+    case "admin_stopHTTP":    return true;
+    case "admin_startWS":     return true;
+    case "admin_stopWS":      return true;
+    case "admin_setSolc":     return "";
+    case "admin_sleep":       return 0;
+
+    // ── web3 namespace ─────────────────────────────────────────────────────────
+    case "web3_sha3":         return "0x" + randHex(64);   // keccak256 of input
+    // web3_clientVersion already handled above
+
+    // ── net namespace extras ──────────────────────────────────────────────────
+    case "net_listening":     return true;
+
+    // ── miner namespace ────────────────────────────────────────────────────────
+    case "miner_start":       return null;   // geth returns null on success
+    case "miner_stop":        return true;
+    case "miner_setEtherbase":   return true;
+    case "miner_setGasPrice":    return true;
+    case "miner_setGasLimit":    return true;
+    case "miner_setExtra":       return true;
+    case "miner_getHashrate":    return Math.floor(Math.random() * 1e9);
+    case "miner_setRecommitInterval": return null;
+
+    // ── personal namespace ────────────────────────────────────────────────────
+    case "personal_listAccounts":  return [];
+    case "personal_newAccount":    return "0x" + randHex(40);
+    case "personal_unlockAccount": return true;
+    case "personal_lockAccount":   return true;
+    case "personal_sendTransaction": return "0x" + randHex(64);
+    case "personal_sign":          return "0x" + randHex(130);
+    case "personal_ecRecover":     return "0x" + randHex(40);
+    case "personal_importRawKey":  return "0x" + randHex(40);
+    case "personal_listWallets":   return [];
+    case "personal_openWallet":    return null;
+    case "personal_deriveAccount": return "0x" + randHex(40);
+
+    // ── debug namespace ───────────────────────────────────────────────────────
+    case "debug_verbosity":          return null;
+    case "debug_vmodule":            return null;
+    case "debug_backtraceAt":        return null;
+    case "debug_memStats":           return { Alloc: Math.floor(Math.random()*1e8), TotalAlloc: Math.floor(Math.random()*1e9), Sys: Math.floor(Math.random()*5e8), NumGC: Math.floor(Math.random()*1000) };
+    case "debug_gcStats":            return { LastGC: new Date().toISOString(), NumGC: Math.floor(Math.random()*1000), PauseTotal: "1ms" };
+    case "debug_cpuProfile":         return null;
+    case "debug_startCPUProfile":    return null;
+    case "debug_stopCPUProfile":     return null;
+    case "debug_goTrace":            return null;
+    case "debug_startGoTrace":       return null;
+    case "debug_stopGoTrace":        return null;
+    case "debug_blockProfile":       return null;
+    case "debug_setBlockProfileRate":return null;
+    case "debug_mutexProfile":       return null;
+    case "debug_setMutexProfileFraction": return null;
+    case "debug_writeMemProfile":    return null;
+    case "debug_stacks":             return "goroutine 1 [running]:\nruntime/debug.Stack()\n";
+    case "debug_freeOSMemory":       return null;
+    case "debug_setGCPercent":       return 100;
+    case "debug_getBlockRlp":        return "0x" + randHex(256);
+    case "debug_printBlock":         return `Block #${s.blockHeight}: hash=0x${randHex(64)}`;
+    case "debug_seedHash":           return "0x" + randHex(64);
+    case "debug_chaindbProperty":    return "";
+    case "debug_chaindbCompact":     return null;
+    case "debug_setHead":            return null;
+    case "debug_dumpBlock":          return { root: "0x" + randHex(64), accounts: {} };
+    case "debug_accountRange":       return { accounts: {}, next: "0x" + "0".repeat(40) };
+    case "debug_storageRangeAt":     return { storage: {}, nextKey: null };
+    case "debug_getModifiedAccountsByNumber": return [];
+    case "debug_getModifiedAccountsByHash":   return [];
+    case "debug_getBadBlocks":       return [];
+
     case "mining_connect":    return { sessionId: randHex(32), poolName: "GYDS-" + cfg.label + "-Pool", difficulty: "0000ffff", blockHeight: s.blockHeight, chainId: cfg.chainId };
     case "mining_disconnect": return { ok: true };
     case "mining_getWork":    return { jobId: randHex(16), target: "0000ffff" + "f".repeat(56), difficulty: "0000ffff", blockHeight: s.blockHeight, prevBlockHash: "0x" + randHex(64), timestamp: Math.floor(Date.now() / 1000), algorithm: "randomx" };
@@ -631,13 +730,15 @@ function makeHandler(network: Network, type: NodeType) {
         req.on("end", () => {
           try {
             const rpc = JSON.parse(body);
-            const result = rpc.method === "eth_blockNumber" ? "0x0"
-              : rpc.method === "eth_chainId" ? cfg.chainIdHex
-              : rpc.method === "net_version" ? String(cfg.chainId)
-              : rpc.method === "net_enode" ? getGenesisEnode(network)
+            let result: unknown =
+                rpc.method === "eth_blockNumber" ? "0x0"
+              : rpc.method === "eth_chainId"     ? cfg.chainIdHex
+              : rpc.method === "net_version"     ? String(cfg.chainId)
+              : rpc.method === "net_enode"       ? getGenesisEnode(network)
               : rpc.method === "eth_getBlockByNumber" && (rpc.params?.[0] === "0x0" || rpc.params?.[0] === "earliest")
                 ? blockObject(s, cfg, 0)
-              : null;
+              : "__FALLTHROUGH__";
+            if (result === "__FALLTHROUGH__") result = jsonRpcDispatch(rpc, s, cfg);
             res.writeHead(200, { "Content-Type": "application/json", ...cors() });
             res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result }));
           } catch { res.writeHead(400); res.end(JSON.stringify({ error: "Invalid JSON-RPC" })); }
@@ -679,14 +780,8 @@ function makeHandler(network: Network, type: NodeType) {
         req.on("end", () => {
           try {
             const rpc = JSON.parse(body);
-            const result = rpc.method === "net_peerCount" ? "0x" + s.peers.toString(16)
-              : rpc.method === "net_version"  ? String(cfg.chainId)
-              : rpc.method === "eth_chainId"  ? cfg.chainIdHex
-              : rpc.method === "admin_peers"  ? Array.from({ length: s.peers }, (_, i) => ({
-                  id: "0x" + randHex(64), name: `Geth/peer-${i}/v1.0.0`,
-                  network: { remoteAddress: `${Math.floor(Math.random()*256)}.0.0.${i}:30303` },
-                }))
-              : null;
+            // Route everything through the shared dispatcher so all namespaces work on bootnode too
+            const result = jsonRpcDispatch(rpc, s, cfg);
             res.writeHead(200, { "Content-Type": "application/json", ...cors() });
             res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result }));
           } catch { res.writeHead(400); res.end(JSON.stringify({ error: "Invalid JSON-RPC" })); }

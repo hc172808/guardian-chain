@@ -259,6 +259,8 @@ Environment=GYDS_P2P_PORT=${P2P_PORT}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json
+Environment=GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
+Environment=GYDS_WS_API=eth,net,web3,txpool,admin
 $([ -n "$BOOTSTRAP" ] && echo "Environment=GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}")
 ExecStart=${GYDS_BIN}/${BINARY} start
 ExecReload=/bin/kill -HUP \$MAINPID

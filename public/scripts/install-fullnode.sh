@@ -223,6 +223,8 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${DATA_DIR}
 ${ENV_BLOCK}
+Environment=GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
+Environment=GYDS_WS_API=eth,net,web3,txpool,admin
 ExecStart=${GYDS_BIN}/${BINARY} start
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure

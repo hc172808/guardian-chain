@@ -155,6 +155,9 @@ $([ -n "$BOOTSTRAP" ] && echo "export GYDS_BOOTSTRAP_NODES=\"${BOOTSTRAP}\"")
 exec "${GYDS_BIN}/${BINARY}" start
 EOF
 chmod +x "${GYDS_HOME}/start.sh"
+# Append API namespace env vars into the node env file immediately (also written below for systemd)
+grep -qxF "GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug" "${GYDS_HOME}/config/node.env" 2>/dev/null \
+  || printf '\nGYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug\nGYDS_WS_API=eth,net,web3,txpool,admin\n' >> "${GYDS_HOME}/config/node.env"
 
 # User systemd service (no root required)
 if command -v systemctl &>/dev/null && [[ -d "$HOME/.config" ]]; then
@@ -189,6 +192,8 @@ GYDS_P2P_PORT=${P2P_PORT}
 GYDS_DATA_DIR=${DATA_DIR}
 GYDS_LOG_LEVEL=${LOG_LEVEL}
 $([ -n "$BOOTSTRAP" ] && echo "GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}")
+GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
+GYDS_WS_API=eth,net,web3,txpool,admin
 EOF
 
   systemctl --user daemon-reload 2>/dev/null || true
