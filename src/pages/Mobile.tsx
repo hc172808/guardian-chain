@@ -869,8 +869,8 @@ const WalletTab = () => {
       if (ws?.[0]?.address) setWalletAddr(ws[0].address);
     }).catch(() => {});
     if (user?.walletAddress) setWalletAddr(user.walletAddress);
-    // Authoritative balance from /api/user/balance (testnet — faucet is testnet-only)
-    fetch('/api/user/balance?network=testnet').then(r => r.json()).then((b: any) => {
+    // Authoritative balance from /api/user/balance — all networks combined
+    fetch('/api/user/balance').then(r => r.json()).then((b: any) => {
       if (b) {
         const gyds = Number(b.gyds ?? 0);
         const gyd = Number(b.gyd ?? 0);

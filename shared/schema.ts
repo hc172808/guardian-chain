@@ -79,6 +79,8 @@ export const nodeInstallations = pgTable("node_installations", {
   lastBlockHeight: bigint("last_block_height", { mode: "number" }).default(0),
   errorCount: integer("error_count").default(0),
   peerCount: integer("peer_count").default(0),
+  storageSizeGb: integer("storage_size_gb").default(0),
+  diskUsedGb: numeric("disk_used_gb").default("0"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

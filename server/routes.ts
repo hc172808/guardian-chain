@@ -533,6 +533,8 @@ export function registerRoutes(app: Express) {
         isOnline: r.is_online, isApproved: r.is_approved, isSynced: r.is_synced,
         lastBlockHeight: r.last_block_height, peerCount: r.peer_count,
         lastHeartbeat: r.last_heartbeat, createdAt: r.created_at,
+        storageSizeGb: r.storage_size_gb ?? 0,
+        diskUsedGb: Number(r.disk_used_gb ?? 0),
         profiles: { email: r.email },
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -2809,6 +2811,118 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // ── Server-side balance fetch (used by useRpcBalance hook in browser) ───────
+  // Browser can't reach localhost:PORT directly, so we proxy here server-side.
+  app.get("/api/rpc/balance", async (req, res) => {
+    const network  = ((req.query.network as string) || "mainnet") as ValidNetwork;
+    const addrsRaw = (req.query.addresses as string) ?? "";
+    const addresses = addrsRaw.split(",").map(a => a.trim().toLowerCase()).filter(a => /^0x[0-9a-f]{40}$/.test(a));
+
+    if (!addresses.length) return res.json({ perAddress: {}, total: "0", network, source: "empty" });
+
+    // Try a local running test-node first (server-side fetch is allowed)
+    const allNodes = testNodeManager.status() as any;
+    const netStatus = allNodes[VALID_NETWORKS.includes(network) ? network : "mainnet"] ?? {};
+    const tryTypes = ["rpc", "fullnode", "boostnode", "lite", "validator"] as const;
+    let livePort: number | null = null;
+    for (const t of tryTypes) { if (netStatus[t]?.running) { livePort = netStatus[t].port; break; } }
+
+    // Also consider DB-registered nodes that are online and have an IP
+    if (!livePort) {
+      const regNode = await pgPool.query(
+        `SELECT ip_address, hostname, rpc_port FROM node_installations WHERE is_approved=true AND is_online=true AND (ip_address IS NOT NULL OR hostname IS NOT NULL) LIMIT 1`
+      ).catch(() => ({ rows: [] }));
+      if (regNode.rows[0]) {
+        const h = regNode.rows[0].ip_address || regNode.rows[0].hostname;
+        const p = regNode.rows[0].rpc_port || 8545;
+        // We'll try this host below
+        const perAddress: Record<string, string> = {};
+        let totalEther = 0;
+        for (const addr of addresses) {
+          try {
+            const r = await fetch(`http://${h}:${p}`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [addr, "latest"], id: 1 }),
+              signal: AbortSignal.timeout(4000),
+            });
+            const j = await r.json();
+            const wei = j?.result ? BigInt(j.result) : BigInt(0);
+            const ether = Number(wei) / 1e18;
+            perAddress[addr] = ether.toString();
+            totalEther += ether;
+          } catch { perAddress[addr] = "0"; }
+        }
+        return res.json({ perAddress, total: totalEther.toString(), network, source: "registered-node" });
+      }
+    }
+
+    // Local test node available — fetch from it
+    if (livePort) {
+      const perAddress: Record<string, string> = {};
+      let totalEther = 0;
+      for (const addr of addresses) {
+        try {
+          const r = await fetch(`http://localhost:${livePort}`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [addr, "latest"], id: 1 }),
+            signal: AbortSignal.timeout(4000),
+          });
+          const j = await r.json();
+          const wei = j?.result ? BigInt(j.result) : BigInt(0);
+          const ether = Number(wei) / 1e18;
+          perAddress[addr] = ether.toString();
+          totalEther += ether;
+        } catch { perAddress[addr] = "0"; }
+      }
+      return res.json({ perAddress, total: totalEther.toString(), network, source: "local-node" });
+    }
+
+    // No node running — compute from token_operations + transactions (DB balance)
+    const addrParams = addresses.map((_: any, i: number) => `$${i + 1}`).join(",");
+    let totalEther = 0;
+    const perAddress: Record<string, string> = {};
+    for (const addr of addresses) perAddress[addr] = "0";
+
+    const ops = await pgPool.query(
+      `SELECT operation_type, amount, wallet_address FROM token_operations WHERE status='confirmed' AND LOWER(wallet_address) = ANY(ARRAY[${addrParams}])`,
+      addresses
+    ).catch(() => ({ rows: [] }));
+    const txs = await pgPool.query(
+      `SELECT from_address, to_address, amount, fee, token_symbol FROM transactions WHERE status='confirmed' AND (LOWER(from_address) = ANY(ARRAY[${addrParams}]) OR LOWER(to_address) = ANY(ARRAY[${addrParams}]))`,
+      addresses
+    ).catch(() => ({ rows: [] }));
+
+    const addrBal: Record<string, number> = {};
+    for (const addr of addresses) addrBal[addr] = 0;
+
+    for (const op of ops.rows) {
+      const addr = (op.wallet_address ?? "").toLowerCase();
+      const amt = Number(op.amount ?? 0);
+      const t = op.operation_type ?? "";
+      if (!addrBal[addr] && addrBal[addr] !== 0) continue;
+      if (t === "mint_gyds" || t === "premine_gyds" || t === "mint") addrBal[addr] += amt;
+      else if (t === "burn_gyds" || t === "burn") addrBal[addr] -= amt;
+    }
+    for (const tx of txs.rows) {
+      const sym = (tx.token_symbol ?? "GYDS").toUpperCase();
+      if (sym !== "GYDS" && sym !== "GYD") continue;
+      const from = (tx.from_address ?? "").toLowerCase();
+      const to   = (tx.to_address   ?? "").toLowerCase();
+      const amt  = Number(tx.amount ?? 0);
+      const fee  = Number(tx.fee ?? 0);
+      if (addrBal[from] !== undefined) addrBal[from] -= amt + fee;
+      if (addrBal[to]   !== undefined) addrBal[to]   += amt;
+    }
+
+    for (const [addr, bal] of Object.entries(addrBal)) {
+      const v = Math.max(0, bal);
+      perAddress[addr] = v.toString();
+      totalEther += v;
+    }
+
+    res.json({ perAddress, total: totalEther.toString(), network, source: "db" });
+  });
+
   app.post("/api/rpc", rpcLimiter, async (req, res) => {
     const network = ((req.query.network as string) || req.body?._network || "mainnet") as ValidNetwork;
     const all = testNodeManager.status() as any;
@@ -2954,7 +3068,7 @@ export function registerRoutes(app: Express) {
   // Auth: admin/founder session OR derived token (SHA-256 of nodeId + secret)
   app.post("/api/nodes/:id/heartbeat", async (req, res) => {
     const { id } = req.params;
-    const { blockHeight, peers, hashRate, syncProgress, token } = req.body ?? {};
+    const { blockHeight, peers, hashRate, syncProgress, token, diskUsedGb } = req.body ?? {};
 
     let authorized = req.isAuthenticated() && ((req.user as any)._isAdmin || (req.user as any)._isFounder);
     if (!authorized && token) {
@@ -2974,6 +3088,7 @@ export function registerRoutes(app: Express) {
         updates.syncProgress = Number(syncProgress);
         updates.isSynced = Number(syncProgress) >= 100;
       }
+      if (diskUsedGb !== undefined) updates.diskUsedGb = Number(diskUsedGb);
       const node = await storage.updateNode(id, updates);
       if (!node) return res.status(404).json({ error: 'Node not found' });
       res.json({ ok: true, timestamp: new Date().toISOString() });
@@ -4596,6 +4711,13 @@ export function registerRoutes(app: Express) {
     }
   }
   ensurePaymentTables().catch(console.error);
+
+  // Ensure node storage columns exist
+  pgPool.query(`
+    ALTER TABLE node_installations
+      ADD COLUMN IF NOT EXISTS storage_size_gb INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS disk_used_gb    NUMERIC(10,2) DEFAULT 0
+  `).catch(() => {});
 
   // Ensure wallet_releases table exists (platform: android/ios/windows/mac)
   pgPool.query(`

@@ -175,6 +175,8 @@ interface NodeInstallation {
   peerCount: number | null;
   lastHeartbeat: string | null;
   createdAt: string;
+  storageSizeGb: number;
+  diskUsedGb: number;
   profiles?: { email: string | null };
 }
 
@@ -808,6 +810,10 @@ const AdminContent = () => {
   const [addingNode, setAddingNode] = useState(false);
   const [serverIp, setServerIp] = useState<string | null>(null);
 
+  // Storage editing state: nodeId → draft GB value
+  const [editingStorageId, setEditingStorageId] = useState<string | null>(null);
+  const [storageGbDraft, setStorageGbDraft] = useState<string>('');
+
   useEffect(() => {
     if (!isFounder && !isAdmin) {
       navigate('/');
@@ -918,6 +924,23 @@ const AdminContent = () => {
         setServerIp(data.primary ?? null);
       }
     } catch {}
+  };
+
+  const handleSetNodeStorage = async (nodeId: string, sizeGb: number) => {
+    try {
+      const res = await fetch(`/api/nodes/${nodeId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storageSizeGb: sizeGb }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast({ title: '💾 Storage quota set', description: `${sizeGb} GB allocated to node` });
+      setEditingStorageId(null);
+      fetchData();
+    } catch (e: any) {
+      toast({ title: 'Failed to set storage', description: e.message, variant: 'destructive' });
+    }
   };
 
   const handleSetMainNode = async (nodeId: string) => {
@@ -1358,6 +1381,59 @@ const AdminContent = () => {
                           <ExternalLink className="h-3 w-3" />
                           {localRpcUrl}
                         </a>
+                      )}
+                      {/* Storage quota + usage */}
+                      {(isFounder || isAdmin) && (
+                        <div className="mt-1.5">
+                          {editingStorageId === node.id ? (
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                type="number"
+                                min={0}
+                                className="h-6 w-20 text-xs font-mono px-1.5"
+                                placeholder="GB"
+                                value={storageGbDraft}
+                                onChange={e => setStorageGbDraft(e.target.value)}
+                                autoFocus
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') handleSetNodeStorage(node.id, Number(storageGbDraft));
+                                  if (e.key === 'Escape') setEditingStorageId(null);
+                                }}
+                              />
+                              <span className="text-xs text-muted-foreground">GB</span>
+                              <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => handleSetNodeStorage(node.id, Number(storageGbDraft))}>
+                                <Check className="h-3 w-3 text-emerald-400" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => setEditingStorageId(null)}>
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 group">
+                              {node.storageSizeGb > 0 ? (
+                                <>
+                                  <div className="flex-1 max-w-[120px] bg-secondary/60 rounded-full h-1.5 overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-primary transition-all"
+                                      style={{ width: `${Math.min(100, (node.diskUsedGb / node.storageSizeGb) * 100)}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs text-muted-foreground font-mono">
+                                    {Number(node.diskUsedGb).toFixed(1)}/{node.storageSizeGb} GB
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-xs text-muted-foreground/50">No storage quota set</span>
+                              )}
+                              <button
+                                className="text-[10px] text-muted-foreground/60 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={e => { e.stopPropagation(); setEditingStorageId(node.id); setStorageGbDraft(String(node.storageSizeGb || '')); }}
+                              >
+                                set
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       )}
                       {/* WireGuard key for real remote nodes */}
                       {!isLocalNode && node.wireguardPublicKey && (

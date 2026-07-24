@@ -7,9 +7,11 @@ import { useToast } from '@/hooks/use-toast';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Area, AreaChart
 } from 'recharts';
+import { Input } from '@/components/ui/input';
 import {
   Server, Wifi, WifiOff, Activity, Copy, Key, Clock, Network,
-  MonitorDot, RefreshCw, ExternalLink, Loader2, TrendingUp, Users
+  MonitorDot, RefreshCw, ExternalLink, Loader2, TrendingUp, Users,
+  HardDrive, Check, X as XIcon
 } from 'lucide-react';
 
 interface PingEntry {
@@ -34,6 +36,8 @@ interface NodeDetails {
   peerCount: number | null;
   lastHeartbeat: string | null;
   createdAt: string;
+  storageSizeGb: number;
+  diskUsedGb: number;
   profiles?: { email: string | null };
 }
 
@@ -56,6 +60,8 @@ export function NodeDetailsDrawer({ nodeId, vpnTunnelIp, isMain, onClose }: Prop
   const [history, setHistory] = useState<PingEntry[]>([]);
   const [pinging, setPinging] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [editingStorage, setEditingStorage] = useState(false);
+  const [storageGbDraft, setStorageGbDraft] = useState('');
 
   const load = useCallback(async () => {
     if (!nodeId) return;
@@ -72,6 +78,24 @@ export function NodeDetailsDrawer({ nodeId, vpnTunnelIp, isMain, onClose }: Prop
   }, [nodeId]);
 
   useEffect(() => { if (nodeId) { setNode(null); setHistory([]); load(); } }, [nodeId, load]);
+
+  const handleSetStorage = async (sizeGb: number) => {
+    if (!nodeId) return;
+    try {
+      const res = await fetch(`/api/nodes/${nodeId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storageSizeGb: sizeGb }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast({ title: '💾 Storage quota updated', description: `${sizeGb} GB allocated` });
+      setEditingStorage(false);
+      await load();
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' });
+    }
+  };
 
   const handlePing = async () => {
     if (!nodeId) return;
@@ -268,6 +292,69 @@ export function NodeDetailsDrawer({ nodeId, vpnTunnelIp, isMain, onClose }: Prop
                 </ResponsiveContainer>
               </GlassCard>
             )}
+
+            {/* Storage Card */}
+            <GlassCard className="p-4 mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                  <HardDrive className="h-3.5 w-3.5" /> Storage
+                </p>
+                {!editingStorage && (
+                  <Button size="sm" variant="ghost" className="h-6 text-xs gap-1"
+                    onClick={() => { setEditingStorage(true); setStorageGbDraft(String(node.storageSizeGb || '')); }}>
+                    Set Quota
+                  </Button>
+                )}
+              </div>
+
+              {editingStorage ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number" min={0}
+                    className="h-7 w-24 text-xs font-mono"
+                    placeholder="GB"
+                    value={storageGbDraft}
+                    onChange={e => setStorageGbDraft(e.target.value)}
+                    autoFocus
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleSetStorage(Number(storageGbDraft));
+                      if (e.key === 'Escape') setEditingStorage(false);
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">GB</span>
+                  <Button size="icon" variant="ghost" className="h-6 w-6"
+                    onClick={() => handleSetStorage(Number(storageGbDraft))}>
+                    <Check className="h-3 w-3 text-emerald-400" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-6 w-6"
+                    onClick={() => setEditingStorage(false)}>
+                    <XIcon className="h-3 w-3" />
+                  </Button>
+                </div>
+              ) : node.storageSizeGb > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{Number(node.diskUsedGb).toFixed(1)} GB used</span>
+                    <span>{node.storageSizeGb} GB quota</span>
+                  </div>
+                  <div className="w-full bg-secondary/60 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        (node.diskUsedGb / node.storageSizeGb) > 0.9 ? 'bg-red-500' :
+                        (node.diskUsedGb / node.storageSizeGb) > 0.7 ? 'bg-yellow-500' : 'bg-primary'
+                      }`}
+                      style={{ width: `${Math.min(100, (node.diskUsedGb / node.storageSizeGb) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {((node.diskUsedGb / node.storageSizeGb) * 100).toFixed(1)}% used ·{' '}
+                    {(node.storageSizeGb - node.diskUsedGb).toFixed(1)} GB free
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground/60 italic">No storage quota set — click "Set Quota" to configure</p>
+              )}
+            </GlassCard>
 
             {/* WireGuard Peer Config */}
             {wgPeerConfig && (
