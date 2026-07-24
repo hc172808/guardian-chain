@@ -1653,7 +1653,9 @@ export function registerRoutes(app: Express) {
     }).catch(() => {});
   });
 
-  // ── Network Stats ──────────────────────────────────────────────────────────
+  // ── Network Stats (with last-good cache for RPC outages) ─────────────────
+  const _networkStatsCache: Record<string, { ts: number; data: unknown }> = {};
+
   app.get("/api/network-stats", async (req, res) => {
     // Accept ?network=mainnet|testnet|devnet  (default: mainnet)
     const netParam = (["mainnet","testnet","devnet"].includes(req.query.network as string)
@@ -1722,15 +1724,16 @@ export function registerRoutes(app: Express) {
 
     // ── 4. Merge and respond ─────────────────────────────────────────────────
     const tokenPrice   = tokenPriceRow ? Number(tokenPriceRow.price) : 0.0847;
-    const blockHeight  = onchainBlockHeight ?? 0;
+    const blockHeight  = onchainBlockHeight ?? (_networkStatsCache[netParam]?.data as any)?.stats?.blockHeight ?? 0;
     const peerCount    = onchainPeerCount ?? netNodes.length;
     const tps          = onchainTps ?? (netNodes.length > 0 ? 1250 : 0);
 
-    res.json({
+    const payload = {
       ok: true,
       timestamp: new Date().toISOString(),
       network:  netParam,
       chainId,
+      rpcAvailable: onchainBlockHeight !== null,
       stats: {
         ...dbStats,
         network:       netParam,
@@ -1746,7 +1749,12 @@ export function registerRoutes(app: Express) {
         posFinality:    99.99,
         onchain:        onchainBlockHeight !== null,
       },
-    });
+    };
+
+    // Cache this response for fallback on next request if RPC is unavailable
+    _networkStatsCache[netParam] = { ts: Date.now(), data: payload };
+
+    res.json(payload);
   });
 
   // ── Node Visibility (public GET, admin PUT) ────────────────────────────────
@@ -2683,7 +2691,7 @@ export function registerRoutes(app: Express) {
 
       if (addresses.length > 0) {
         // $1,$2,... placeholders for addresses; network param appended at the end if needed
-        const addrList  = addresses.map((_: any, i: number) => `${i + 1}`).join(",");
+        const addrList  = addresses.map((_: any, i: number) => `$${i + 1}`).join(",");
         const netClause = netFilter ? ` AND (network=${addresses.length + 1} OR operation_type LIKE 'premine_%')` : "";
         const netArgs   = netFilter ? [...addresses, netFilter] : addresses;
 

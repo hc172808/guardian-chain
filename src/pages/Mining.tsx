@@ -532,9 +532,27 @@ const MiningContent = () => {
   );
 };
 
+const MiningAccessGuard = () => {
+  const { isAdmin, isFounder } = useAuth();
+  if (!isAdmin && !isFounder) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+          <Lock className="h-12 w-12 text-muted-foreground" />
+          <h2 className="text-xl font-semibold">Admin & Founder Only</h2>
+          <p className="text-muted-foreground text-center max-w-sm">
+            Mining controls are restricted to administrators and founders. Contact an admin if you need access.
+          </p>
+        </div>
+      </Layout>
+    );
+  }
+  return <MiningContent />;
+};
+
 const Mining = () => (
   <RequireAuth>
-    <MiningContent />
+    <MiningAccessGuard />
   </RequireAuth>
 );
 

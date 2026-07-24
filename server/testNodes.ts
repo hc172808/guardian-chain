@@ -318,7 +318,7 @@ for (const network of ALL_NETWORKS) {
     state[network][type] = {
       running: false, startedAt: null, network, type,
       port: cfg.ports[type], server: null, logs: [],
-      blockHeight: 1_000, peers: INITIAL_PEERS[type], txPool: INITIAL_POOL[type],
+      blockHeight: (type === "genesis" || type === "bootnode") ? 0 : 1_000, peers: INITIAL_PEERS[type], txPool: INITIAL_POOL[type],
       blockTimer: null,
     };
   }
@@ -940,17 +940,19 @@ export const testNodeManager = {
           resolve({ ok: true, message: `${NODE_LABELS[type]} (${cfg.name}) started on port ${s.port}` });
         }
 
-        // Sync node to shared chain state immediately
+        // Sync node to shared chain state immediately (genesis/bootnode always stay at block 0)
         const chain = networkChain[network];
-        s.blockHeight = chain.blockHeight;
+        if (type !== "genesis" && type !== "bootnode") s.blockHeight = chain.blockHeight;
 
         // Start the shared 3-second block timer if this is the first node on this network
         if (chain.timer === null) {
           chain.timer = setInterval(() => {
             chain.blockHeight++;
-            // Mirror block height to all running nodes so status shows the same height
+            // Mirror block height to all running nodes except genesis/bootnode (they stay at 0)
             for (const t of ALL_NODE_TYPES) {
-              if (state[network][t].running) state[network][t].blockHeight = chain.blockHeight;
+              if (state[network][t].running && t !== "genesis" && t !== "bootnode") {
+                state[network][t].blockHeight = chain.blockHeight;
+              }
             }
           }, 3_000);
           addLog(network, type, `Shared block timer started — all ${network} nodes synced at block #${chain.blockHeight}`);

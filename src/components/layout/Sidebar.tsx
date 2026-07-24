@@ -33,13 +33,13 @@ function useLiveNetworkStats() {
   return stats;
 }
 
-interface NavItem { to: string; icon: any; label: string; featureKey?: string; }
+interface NavItem { to: string; icon: any; label: string; featureKey?: string; adminOnly?: boolean; }
 
 const coreNav: NavItem[] = [
   { to: '/',           icon: BarChart3,      label: 'Dashboard' },
   { to: '/explorer',   icon: Blocks,         label: 'Block Explorer', featureKey: 'explorer.search' },
   { to: '/validators', icon: Users,          label: 'Validators',     featureKey: 'network.validators' },
-  { to: '/mining',     icon: Pickaxe,        label: 'Mining',         featureKey: 'mining.dashboard' },
+  { to: '/mining',     icon: Pickaxe,        label: 'Mining',         featureKey: 'mining.dashboard', adminOnly: true },
   { to: '/tokens',     icon: Coins,          label: 'Token Factory',  featureKey: 'tokens.create' },
   { to: '/defi',       icon: ArrowRightLeft, label: 'DeFi',           featureKey: 'defi.swap' },
   { to: '/wallet',     icon: Wallet,         label: 'Wallet',         featureKey: 'wallet.create' },
@@ -95,7 +95,11 @@ const NavSection = ({
 }) => {
   const [open, setOpen] = useState(defaultOpen);
   const { isHidden, isAdmin } = useComponentVisibility();
-  const visible = items.filter(item => isAdmin || !item.featureKey || !isHidden(item.featureKey));
+  const { isFounder } = useAuth();
+  const visible = items.filter(item => {
+    if (item.adminOnly && !isAdmin && !isFounder) return false;
+    return isAdmin || !item.featureKey || !isHidden(item.featureKey);
+  });
   if (visible.length === 0) return null;
   return (
     <div>
