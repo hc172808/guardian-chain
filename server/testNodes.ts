@@ -731,10 +731,11 @@ function makeHandler(network: Network, type: NodeType) {
           try {
             const rpc = JSON.parse(body);
             let result: unknown =
-                rpc.method === "eth_blockNumber" ? "0x" + s.blockHeight.toString(16)
-              : rpc.method === "eth_chainId"     ? cfg.chainIdHex
-              : rpc.method === "net_version"     ? String(cfg.chainId)
-              : rpc.method === "net_enode"       ? getGenesisEnode(network)
+                rpc.method === "eth_blockNumber"    ? "0x" + s.blockHeight.toString(16)
+              : rpc.method === "eth_chainId"        ? cfg.chainIdHex
+              : rpc.method === "net_version"        ? String(cfg.chainId)
+              : rpc.method === "net_enode"          ? getGenesisEnode(network)
+              : rpc.method === "web3_clientVersion" ? `GYDSchain/${cfg.label}/genesis/v1.0.0`
               : rpc.method === "eth_getBlockByNumber" && (rpc.params?.[0] === "0x0" || rpc.params?.[0] === "earliest")
                 ? blockObject(s, cfg, 0)
               : "__FALLTHROUGH__";

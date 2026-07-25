@@ -148,3 +148,15 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 - **Layout import** — Must use `import { Layout } from '@/components/layout/Layout'` (named export, lowercase folder). `@/components/Layout` causes a Vite 500.
 - **`npm run db:push` hangs** — Always use `drizzle-kit generate` + `psql` pipe workaround in Replit.
 - **IP 190.108.214.85** — High-traffic attacker detected in monitoring logs (XSS + DDoS bursts). IP blocking is currently disabled (monitor-only). Enable via Admin → Security when ready for production.
+
+---
+
+## 🐛 Reported Issues (2026-07-25)
+
+- [ ] **Balance shows 0 after admin mint on mainnet** — `netClause` in `/api/user/balance` was missing `$` before placeholder index (SQL comparing `network=2` literal integer instead of `network=$2` string param). Also `operation_type='mint'` was not counted, only `mint_gyds`. Both fixed.
+- [ ] **txNetClause same missing-`$` bug** — transactions network filter had same issue. Fixed.
+- [ ] **Balance card always showed "Mainnet" regardless of running nodes** — `selectedNetwork='all'` resolved to 'mainnet' and scoped the DB query to mainnet only. Now 'all' queries without network scope (totals across all networks) and shows "All Networks" badge.
+- [ ] **Genesis node `web3.version` returned null** — genesis POST handler did not explicitly handle `web3_clientVersion` before falling through to `jsonRpcDispatch`. Added explicit case.
+- [ ] **Genesis node block showed 0 initially then synced** — fixed: now syncs with shared chain timer on start.
+- [ ] **Genesis node peers = 0** — fixed: initialised to 4 peers, peer-sync timer added (5s interval).
+- [ ] **Mining page accessible to all users** — fixed: restricted to admin/founder only (lock screen + sidebar/mobile nav hidden for regular users).

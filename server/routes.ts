@@ -2692,7 +2692,7 @@ export function registerRoutes(app: Express) {
       if (addresses.length > 0) {
         // $1,$2,... placeholders for addresses; network param appended at the end if needed
         const addrList  = addresses.map((_: any, i: number) => `$${i + 1}`).join(",");
-        const netClause = netFilter ? ` AND (network=${addresses.length + 1} OR operation_type LIKE 'premine_%')` : "";
+        const netClause = netFilter ? ` AND (network=$${addresses.length + 1} OR operation_type LIKE 'premine_%')` : "";
         const netArgs   = netFilter ? [...addresses, netFilter] : addresses;
 
         const ops = await pgPool.query(
@@ -2703,7 +2703,7 @@ export function registerRoutes(app: Express) {
         for (const op of ops.rows) {
           const amt = Number(op.amount ?? 0);
           const t = op.operation_type ?? "";
-          if (t === "mint_gyds" || t === "premine_gyds") gyds += amt;
+          if (t === "mint_gyds" || t === "premine_gyds" || t === "mint") gyds += amt;
           else if (t === "mint_gyd" || t === "premine_gyd") gyd += amt;
           else if (t === "mint_gusd" || t === "premine_gusd") gusd += amt;
           else if (t === "burn_gyds" || t === "burn") gyds -= amt;
@@ -2712,7 +2712,7 @@ export function registerRoutes(app: Express) {
         }
 
         // Transactions: network-filtered; premines (faucet address 0x…fac3) always pass through
-        const txNetClause = netFilter ? ` AND (network=${addresses.length + 1} OR LOWER(from_address)='0x000000000000000000000000000000000000fac3')` : "";
+        const txNetClause = netFilter ? ` AND (network=$${addresses.length + 1} OR LOWER(from_address)='0x000000000000000000000000000000000000fac3')` : "";
         const txRes = await pgPool.query(
           `SELECT from_address, to_address, token_symbol, amount, fee FROM transactions WHERE status='confirmed' AND (LOWER(from_address) = ANY(ARRAY[${addrList}]) OR LOWER(to_address) = ANY(ARRAY[${addrList}]))${txNetClause}`,
           netArgs

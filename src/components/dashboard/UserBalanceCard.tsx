@@ -30,9 +30,10 @@ export const UserBalanceCard = () => {
   // whichever network the user selected in the top NetworkSelector.
   const { selectedNetwork } = useNetwork();
 
-  // Resolve 'all' → 'mainnet' for on-chain reads
-  const network: NetworkKind = selectedNetwork === 'all' ? 'mainnet' : selectedNetwork;
-  const netMeta = NET_META[network];
+  // When a specific network is selected use it; 'all' means aggregate across all networks (no filter)
+  const network: NetworkKind | null = selectedNetwork === 'all' ? null : selectedNetwork;
+  const displayNetwork: NetworkKind = network ?? 'mainnet';
+  const netMeta = NET_META[displayNetwork];
 
   const [gydsBalance, setGydsBalance] = useState(0);
   const [gydBalance,  setGydBalance]  = useState(0);
@@ -53,9 +54,10 @@ export const UserBalanceCard = () => {
       if (priceData?.price) setGydsPrice(Number(priceData.price));
 
       // ── 1. Try on-chain first (in-memory trie, per-network) ─────────────
-      const onChain = walletAddress
-        ? await api.get(`/api/chain/balance/${walletAddress}?network=${network}`).catch(() => null)
+      const chainUrl = walletAddress
+        ? `/api/chain/balance/${walletAddress}${network ? `?network=${network}` : ''}`
         : null;
+      const onChain = chainUrl ? await api.get(chainUrl).catch(() => null) : null;
 
       if (onChain?.ok && onChain.source === 'onchain' &&
           (onChain.gyds > 0 || onChain.gyd > 0 || onChain.gusd > 0)) {
@@ -63,8 +65,9 @@ export const UserBalanceCard = () => {
         setGydBalance(Number(onChain.gyd));
         setGusdBalance(Number(onChain.gusd));
       } else {
-        // ── 2. Fall back to DB balance scoped to this network ─────────────
-        const serverBalance = await api.get(`/api/user/balance?network=${network}`).catch(() => null);
+        // ── 2. Fall back to DB balance (scoped to network if selected, else all) ──
+        const balUrl = network ? `/api/user/balance?network=${network}` : '/api/user/balance';
+        const serverBalance = await api.get(balUrl).catch(() => null);
         if (serverBalance && serverBalance.gyds !== undefined) {
           setGydsBalance(Number(serverBalance.gyds ?? 0));
           setGydBalance(Number(serverBalance.gyd  ?? 0));
@@ -73,7 +76,7 @@ export const UserBalanceCard = () => {
       }
     } catch {}
     setLoading(false);
-  }, [user, network]);
+  }, [user, network, displayNetwork]);
 
   useEffect(() => {
     setLoading(true);
@@ -114,7 +117,7 @@ export const UserBalanceCard = () => {
     );
   }
 
-  const badge   = NETWORK_BADGE[network];
+  const badge   = network ? NETWORK_BADGE[network] : { label: 'All Networks', dot: 'bg-primary', border: 'border-primary/50', bg: 'bg-primary/10', text: 'text-primary' };
   const usdGyds  = gydsBalance * gydsPrice;
   const usdGyd   = gydBalance  * 1.00;
   const usdGusd  = gusdBalance * 1.00;
@@ -189,7 +192,7 @@ export const UserBalanceCard = () => {
           <div>
             <p className="text-xs text-muted-foreground mb-1">Network</p>
             <p className={`text-sm font-semibold ${badge.text}`}>{badge.label}</p>
-            <p className="text-xs text-muted-foreground">Chain {netMeta.chainId}</p>
+            <p className="text-xs text-muted-foreground">{network ? `Chain ${netMeta.chainId}` : 'All chains'}</p>
           </div>
         </div>
 
