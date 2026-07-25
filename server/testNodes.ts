@@ -124,7 +124,7 @@ interface NodeState {
   blockTimer:  ReturnType<typeof setInterval> | null;
 }
 
-const INITIAL_PEERS: Record<NodeType, number> = { rpc: 4, lite: 2, fullnode: 10, boostnode: 18, validator: 5, genesis: 0, bootnode: 32 };
+const INITIAL_PEERS: Record<NodeType, number> = { rpc: 4, lite: 2, fullnode: 10, boostnode: 18, validator: 5, genesis: 4, bootnode: 32 };
 const INITIAL_POOL:  Record<NodeType, number> = { rpc: 0, lite: 0, fullnode: 12, boostnode: 40, validator: 3,  genesis: 0, bootnode: 0  };
 
 // ── Shared per-network chain state ────────────────────────────────────────────
@@ -956,8 +956,24 @@ export const testNodeManager = {
           addLog(network, type, `Shared block timer started — all ${network} nodes synced at block #${chain.blockHeight}`);
         }
 
-        // genesis and bootnode don't log per-block activity
-        if (BLOCK_INTERVALS[type] === 0) return;
+        // genesis and bootnode: no block logging, but still run a peer-sync timer
+        if (BLOCK_INTERVALS[type] === 0) {
+          s.blockTimer = setInterval(() => {
+            // Sync block height from shared chain
+            s.blockHeight = chain.blockHeight;
+            // Count running sibling nodes as peers, plus some simulated external peers
+            const siblingCount = ALL_NODE_TYPES.filter(
+              t => t !== type && state[network][t].running
+            ).length;
+            s.peers = siblingCount + Math.max(0, INITIAL_PEERS[type] - 4 + Math.floor(Math.random() * 3));
+            if (type === "genesis") {
+              addLog(network, type, `Block #${chain.blockHeight} | synced | ${s.peers} peers`);
+            } else {
+              addLog(network, type, `Peer discovery | ${s.peers} peers known`);
+            }
+          }, 5_000);
+          return;
+        }
 
         // Per-node activity logger (reads shared block height — does NOT increment it)
         s.blockTimer = setInterval(() => {
