@@ -15,7 +15,8 @@ import {
   Clock,
   Loader2,
   Wallet,
-  Radio
+  Radio,
+  ExternalLink,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -265,6 +266,17 @@ const TransactionsContent = () => {
                         <p className="text-xs text-muted-foreground">
                           {new Date(tx.created_at).toLocaleString()}
                         </p>
+                        {tx.tx_hash && (
+                          <a
+                            href={`https://explorer.netlifegy.com/tx/${tx.tx_hash}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline mt-0.5"
+                          >
+                            <ExternalLink className="h-2.5 w-2.5" />
+                            {tx.tx_hash.slice(0, 12)}…{tx.tx_hash.slice(-6)}
+                          </a>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">

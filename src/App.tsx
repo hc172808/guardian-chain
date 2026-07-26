@@ -55,6 +55,7 @@ import PreviewPage from "./pages/Preview";
 import SetupPage from "./pages/Setup";
 import { useTransactionNotifications } from "./hooks/useTransactionNotifications";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useAppTheme } from "@/components/layout/ThemeToggle";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import { NetworkProvider } from "@/contexts/NetworkContext";
 
@@ -88,6 +89,7 @@ const MobileRedirect = () => {
 
 const AppContent = () => {
   useTransactionNotifications();
+  useAppTheme(); // applies stored theme class to <html> on mount
   const { user, loading, isAdmin, isFounder } = useAuth();
   const { enabled, message, loading: maintLoading } = useMaintenance();
   const location = useLocation();

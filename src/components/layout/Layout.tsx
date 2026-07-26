@@ -7,6 +7,7 @@ import { UpgradeBanner } from './UpgradeBanner';
 import { NotificationBell } from './NotificationBell';
 import { InstallPrompt } from './InstallPrompt';
 import { WalletDownloadButton } from './WalletDownloadButton';
+import { ThemeToggle } from './ThemeToggle';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useMaintenance } from '@/hooks/useMaintenance';
 import { useCurrency, CURRENCIES } from '@/contexts/CurrencyContext';
@@ -135,6 +136,7 @@ export const Layout = ({ children }: LayoutProps) => {
         {/* Top-right header bar with currency selector + wallet download + notification bell (desktop only) */}
         {!isMobile && (
           <div className="fixed top-4 right-4 z-30 flex items-center gap-2">
+            <ThemeToggle />
             <NavCurrencySelector />
             <WalletDownloadButton />
             <NotificationBell />

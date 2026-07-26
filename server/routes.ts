@@ -9,6 +9,7 @@ import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { Pool } from "pg";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
+import { discordNodeDown, discordLargeBridgeTransfer, discordNewGovernanceProposal } from "./discord";
 import { sendBuyRequestStatusEmail, sendCashoutStatusEmail } from "./email";
 import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
 import multer from "multer";
@@ -1840,6 +1841,14 @@ export function registerRoutes(app: Express) {
       createdBy: user.id,
       endDate: endDate ? new Date(endDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
+    // Discord + admin Telegram alert for new proposal
+    discordNewGovernanceProposal(title, user.email ?? user.username ?? 'unknown', row.id).catch(() => {});
+    pgPool.query(`SELECT telegram_chat_id FROM users WHERE (roles @> '{admin}' OR roles @> '{founder}') AND telegram_chat_id IS NOT NULL`)
+      .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'governance', {
+        title: `📋 New Proposal`,
+        body: `<b>${title}</b>\nProposed by ${user.email ?? user.username ?? 'user'}.`,
+      }).catch(() => {})))
+      .catch(() => {});
     // Notify all users about new governance proposal
     storage.getAllUsersBasic?.().then((users: any[]) => {
       (users || []).forEach((u: any) => {
@@ -2089,6 +2098,14 @@ export function registerRoutes(app: Express) {
       saveTestNodeState(network, type, false).catch(() => {});
       const id = testNodeDbIds.get(`${network}:${type}`);
       if (id) storage.updateNode(id, { isOnline: false, lastHeartbeat: new Date() }).catch(() => {});
+      // Alert Discord + all admin Telegram chats
+      discordNodeDown(type, network).catch(() => {});
+      pgPool.query(`SELECT telegram_chat_id FROM users WHERE (roles @> '{admin}' OR roles @> '{founder}') AND telegram_chat_id IS NOT NULL`)
+        .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'system', {
+          title: `🔴 Node Offline`,
+          body: `<b>${type}</b> on <b>${network}</b> was stopped.`,
+        }).catch(() => {})))
+        .catch(() => {});
     }
     res.json(result);
   });
@@ -3388,6 +3405,17 @@ export function registerRoutes(app: Express) {
         amount: Number(amount), fee: Number(fee) || 0, txHash
       });
       res.json(transfer);
+      // Alert admins on large bridge transfers (>= 10,000 tokens)
+      const LARGE_THRESHOLD = 10_000;
+      if (Number(amount) >= LARGE_THRESHOLD) {
+        discordLargeBridgeTransfer(String(amount), fromChain, toChain, fromToken ?? 'GYDS').catch(() => {});
+        pgPool.query(`SELECT telegram_chat_id FROM users WHERE (roles @> '{admin}' OR roles @> '{founder}') AND telegram_chat_id IS NOT NULL`)
+          .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'system', {
+            title: `🌉 Large Bridge Transfer`,
+            body: `<b>${amount} ${fromToken ?? 'GYDS'}</b>\n${fromChain} → ${toChain}`,
+          }).catch(() => {})))
+          .catch(() => {});
+      }
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -5886,5 +5914,84 @@ export function registerRoutes(app: Express) {
     if (rows[0].status !== 'pending') return res.status(400).json({ error: 'Cannot cancel settled bet' });
     await pgPool.query(`DELETE FROM prediction_bets WHERE id=$1`, [req.params.id]);
     res.json({ ok: true });
+  });
+
+  // ── API Keys ────────────────────────────────────────────────────────────────
+  // Ensure api_keys table exists
+  pgPool.query(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      key_prefix TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      scopes TEXT[] DEFAULT '{}',
+      request_count INTEGER NOT NULL DEFAULT 0,
+      request_limit INTEGER NOT NULL DEFAULT 10000,
+      last_used_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ,
+      revoked BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {});
+
+  // GET /api/keys — list caller's keys
+  app.get('/api/keys', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { rows } = await pgPool.query(
+      `SELECT id, name, key_prefix, scopes, request_count, request_limit, last_used_at, expires_at, revoked, created_at
+       FROM api_keys WHERE user_id=$1 ORDER BY created_at DESC`,
+      [String(user.id)]
+    ).catch(() => ({ rows: [] as any[] }));
+    res.json(rows);
+  });
+
+  // POST /api/keys — create a new key
+  app.post('/api/keys', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { name, scopes } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+    // Check limit
+    const { rows: existing } = await pgPool.query(
+      `SELECT count(*) FROM api_keys WHERE user_id=$1 AND revoked=false`, [String(user.id)]
+    ).catch(() => ({ rows: [{ count: '0' }] }));
+    if (parseInt(existing[0]?.count ?? '0') >= 10) {
+      return res.status(400).json({ error: 'Maximum 10 active API keys per account' });
+    }
+    // Generate key: gyds_<32 random hex bytes>
+    const rawKey = `gyds_${crypto.randomBytes(32).toString('hex')}`;
+    const prefix = rawKey.slice(0, 14); // gyds_XXXXXXXX
+    const hash = crypto.createHash('sha256').update(rawKey).digest('hex');
+    const validScopes = (Array.isArray(scopes) ? scopes : []).filter((s: string) =>
+      ['read:chain','read:tokens','read:stats','write:tx','read:wallet'].includes(s)
+    );
+    const { rows } = await pgPool.query(
+      `INSERT INTO api_keys (user_id, name, key_prefix, key_hash, scopes)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, name, key_prefix, scopes, request_count, request_limit, created_at`,
+      [String(user.id), name.trim(), prefix, hash, validScopes]
+    );
+    res.json({ ...rows[0], key: rawKey });
+    // Audit log
+    storage.insertAuditLog?.({ userId: String(user.id), userEmail: user.email ?? '', action: 'api_key_created', category: 'developer', targetType: 'api_key', targetId: rows[0]?.id, details: { name: name.trim() }, ipAddress: req.ip ?? null }).catch(() => {});
+  });
+
+  // DELETE /api/keys/:id — revoke a key
+  app.delete('/api/keys/:id', requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const { rows } = await pgPool.query(
+      `UPDATE api_keys SET revoked=true WHERE id=$1 AND user_id=$2 RETURNING id`,
+      [req.params.id, String(user.id)]
+    ).catch(() => ({ rows: [] as any[] }));
+    if (!rows[0]) return res.status(404).json({ error: 'Key not found or not yours' });
+    res.json({ ok: true });
+    storage.insertAuditLog?.({ userId: String(user.id), userEmail: user.email ?? '', action: 'api_key_revoked', category: 'developer', targetType: 'api_key', targetId: req.params.id, details: {}, ipAddress: req.ip ?? null }).catch(() => {});
+  });
+
+  // Admin: GET all keys
+  app.get('/api/admin/keys', requireAdmin, async (_req, res) => {
+    const { rows } = await pgPool.query(
+      `SELECT ak.*, u.email FROM api_keys ak LEFT JOIN users u ON u.id::text=ak.user_id ORDER BY ak.created_at DESC LIMIT 200`
+    ).catch(() => ({ rows: [] as any[] }));
+    res.json(rows);
   });
 }

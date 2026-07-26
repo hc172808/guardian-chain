@@ -58,7 +58,6 @@ const ecosystemNav: NavItem[] = [
   { to: '/analytics',  icon: TrendingUp,    label: 'Analytics',         featureKey: 'analytics.view' },
   { to: '/community',  icon: MessageSquare, label: 'Community',         featureKey: 'community.post' },
   { to: '/referrals',  icon: Gift,          label: 'Referrals',         featureKey: 'referrals.view' },
-  { to: '/leaderboard',icon: Trophy,        label: 'Leaderboard',       featureKey: 'leaderboard.view' },
   { to: '/multisig',   icon: ShieldCheck,   label: 'Multi-Sig',         featureKey: 'multisig.create' },
   { to: '/identity',   icon: Fingerprint,   label: 'Identity',          featureKey: 'identity.did' },
   { to: '/rwa',        icon: Building2,   label: 'Real-World Assets', featureKey: 'rwa.invest' },

@@ -68,6 +68,52 @@
     --background: 220 20% 6%;
     --foreground: 180 10% 92%;
   }
+
+  /* ── Light theme ──────────────────────────────────────────────────────────── */
+  .theme-light {
+    --background: 210 20% 97%;
+    --foreground: 220 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 12%;
+
+    --primary: 173 70% 38%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 15% 92%;
+    --secondary-foreground: 220 25% 12%;
+
+    --muted: 210 15% 88%;
+    --muted-foreground: 215 15% 42%;
+
+    --accent: 160 70% 36%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 15% 85%;
+    --input: 210 15% 92%;
+    --ring: 173 70% 38%;
+
+    --sidebar-background: 210 20% 93%;
+    --sidebar-foreground: 220 25% 12%;
+    --sidebar-primary: 173 70% 38%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 15% 88%;
+    --sidebar-accent-foreground: 220 25% 12%;
+    --sidebar-border: 210 15% 82%;
+    --sidebar-ring: 173 70% 38%;
+  }
+
+  /* Keep dark theme explicitly applied when class is set */
+  .theme-dark {
+    --background: 220 20% 6%;
+    --foreground: 180 10% 92%;
+  }
 }
 
 @layer base {

@@ -10,7 +10,6 @@ import { PositionDetails } from '@/components/defi/PositionDetails';
 import { CrossChainBridge } from '@/components/defi/CrossChainBridge';
 import { OrderBook } from '@/components/defi/OrderBook';
 import { YieldVaults } from '@/components/defi/YieldVaults';
-import { ImpermanentLossCalc } from '@/components/defi/ImpermanentLossCalc';
 import { Perpetuals } from '@/components/defi/Perpetuals';
 import { PredictionMarkets } from '@/components/defi/PredictionMarkets';
 import { LPFarmingDashboard } from '@/components/defi/LPFarmingDashboard';
@@ -33,7 +32,6 @@ const TAB_MAP: Record<string, { featureKey: string; component: React.ReactNode }
   predict:    { featureKey: 'defi.predict',    component: <PredictionMarkets /> },
   launchpad:  { featureKey: 'defi.launchpad',  component: <Launchpad /> },
   portfolio:  { featureKey: 'defi.portfolio',  component: null },
-  ilcalc:     { featureKey: 'defi.ilcalc',     component: <ImpermanentLossCalc /> },
   position:   { featureKey: '', component: null }, // handled separately
 };
 

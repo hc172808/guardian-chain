@@ -1,6 +1,6 @@
 # ChainCore — Developer TODO
 
-> Last updated: 2026-07-15  
+> Last updated: 2026-07-26  
 > Stack: Vite+React+TS frontend · Express+Drizzle backend · PostgreSQL · Chain ID 13370 · Domain: app.netlifegy.com
 
 ---
@@ -18,17 +18,41 @@
 - [x] DB pruner cron (prunes stale snapshots, logs, tokens every 24h)
 - [x] IP whitelist auto-add on every successful login
 - [x] IP block enforcement toggle (default OFF)
+- [x] Database connection keepalive (pg pool with keepAlive + idleTimeout + min 2 warm connections)
 
 ### Pages & Navigation
-- [x] Admin panel (users, nodes, validators, tokens, monitoring, security, config)
+- [x] Admin panel (users, nodes, validators, tokens, monitoring, security, config, audit log)
 - [x] Explorer (blocks, transactions, validators)
-- [x] Wallet management (send, receive, transaction history)
-- [x] DeFi page (12 tabs: swap, pools, stake, farm, orderbook, vaults, bridge, perps, predict, launchpad, portfolio, il-calc)
+- [x] Wallet management (send, receive, transaction history with block explorer links)
+- [x] DeFi page (8 primary tabs + 4 Advanced via "More" drawer: orderbook, perps, predict, launchpad)
+- [x] IL Calculator moved inside Pools tab (via "IL Calculator" button)
 - [x] Token Launchpad
 - [x] Mining (pool, profitability calculator, pool stats, leaderboard)
 - [x] Node installation management (WireGuard + node setup)
-- [x] Governance, NFT, Analytics, Community, Developer, Leaderboard, MultiSig, Identity, RWA pages
+- [x] Governance, NFT, Analytics, Community, Developer, MultiSig, Identity, RWA pages
+- [x] Leaderboard page redirects to Referrals (XP gamification removed)
+- [x] Referrals page with tier system (Standard → Silver → Gold → Diamond)
 - [x] Sidebar with collapsible Core / Ecosystem / Resources sections
+
+### Auth & Security
+- [x] TOTP 2FA (`server/totp.ts` — built-in crypto, zero-dep RFC 6238)
+- [x] Email verification tokens (CREATE IF NOT EXISTS, token logged to console in dev)
+- [x] FOUNDER_WALLET env var support
+- [x] 3 roles: user, admin, founder
+- [x] hCaptcha integration on login/register
+- [x] Progressive login lockout (escalating durations, admin-configurable)
+- [x] Active sessions panel (view + revoke individual/all other sessions)
+- [x] 2FA backup codes (8 codes, SHA-256 hashed)
+
+### UI / UX
+- [x] Dark / Light theme toggle (sun/moon button in top-right header)
+- [x] Light theme CSS variables (`theme-light` class on `<html>`)
+- [x] Theme persisted in localStorage
+- [x] PWA manifest + service worker (stale-while-revalidate + background sync)
+- [x] Web push notifications (VAPID auto-generated)
+- [x] Biometric unlock (WebAuthn)
+- [x] Ledger hardware wallet support (WebHID)
+- [x] PWA install prompt (Android + iOS guide)
 
 ### Blockchain / Chain
 - [x] Genesis JSON builder (`GET /api/chain/genesis.json`) — builds real Geth genesis from DB token_operations
@@ -55,11 +79,22 @@
 - [x] NodeConsole UI component — terminal with command history (↑↓), shortcut buttons, color-coded output
 - [x] Sync check panel (block height comparison across networks)
 
-### Auth & Security
-- [x] TOTP 2FA (`server/totp.ts` — built-in crypto, zero-dep RFC 6238)
-- [x] Email verification tokens (CREATE IF NOT EXISTS, token logged to console in dev)
-- [x] FOUNDER_WALLET env var support
-- [x] 3 roles: user, admin, founder
+### Alerts & Notifications
+- [x] Telegram alerts — faucet, governance vote, buy/cashout status, **node offline**, **large bridge transfer**, **new governance proposal**
+- [x] Discord webhook alerts — node offline, large bridge transfer (≥10,000 tokens), new governance proposal (`DISCORD_WEBHOOK_URL` env var)
+- [x] In-app notification bell (user_notifications table, live polling)
+
+### Developer / API
+- [x] API key CRUD — `GET/POST /api/keys`, `DELETE /api/keys/:id`
+- [x] API key table (api_keys): UUID, name, prefix, SHA-256 hash, scopes, request count/limit, expiry, revoked flag
+- [x] Developer page — API Keys tab, Usage, Webhooks, Endpoints, Playground, SDKs
+- [x] Audit log table + `GET /api/audit-logs` (user scoped) + Admin Audit Log tab viewer
+
+### Payments & Revenue
+- [x] Payment methods + buy_requests tables; 5 seeded defaults (PayPal, MMG Guyana, Bank GY, VISA/MC, Crypto)
+- [x] cashout_requests with payment_method column
+- [x] Admin → Payments tab (PaymentMethodsManager) — methods toggle/edit, buy/cashout approve/reject
+- [x] Revenue dashboard — trust_payments, stablecoin creation fees, insurance premiums, bridge fees, buy/cashout; 30-day daily + 12-month monthly breakdown
 
 ### URL / Domain
 - [x] Dashboard URL: `https://app.netlifegy.com`
@@ -89,6 +124,8 @@
 - [ ] **RWA (Real-World Assets)** — UI-only. Define tokenization flow; deploy ERC-1400 or ERC-3525 contract.
 - [ ] **MultiSig wallet backend** — `POST /api/multisig/create` and `POST /api/multisig/sign` need implementing (consider Gnosis Safe contract).
 - [ ] **Analytics real data** — Page uses demo data. Hook into `network_snapshots` and `xp_events` tables for live charts.
+- [ ] **API key rate limiting middleware** — Keys are created and stored; enforce per-key rate limits (60 req/min burst, 10k req/month) on public API endpoints by reading `X-API-Key` header.
+- [ ] **Public REST API endpoints** — Expose `/api/public/chain`, `/api/public/tokens`, `/api/public/stats` protected by API key auth (not session cookie) for third-party integrations.
 
 ### Low Priority / Nice to Have
 
@@ -100,7 +137,9 @@
 - [ ] **Admin monitoring alerts** — `GET /api/admin/monitoring` returns health data. Add threshold-based alerts (email/bell) when validator count drops or RPC is unreachable.
 - [ ] **CSP nonce / strict-dynamic** — Current CSP uses `unsafe-inline` (needed by Vite HMR). For production, generate per-request nonces and remove `unsafe-inline`.
 - [ ] **i18n / localization** — UI is English-only. `react-i18next` scaffolding would allow community translations.
-- [ ] **Dark/light theme toggle** — App is dark-only. Adding a theme toggle is a UX improvement.
+- [ ] **Discord webhook UI** — `DISCORD_WEBHOOK_URL` must be set manually in env. Add a field in Admin → Server Config tab so admins can set it from the UI.
+- [ ] **Orderbook real backend** — Orderbook tab (now under "Advanced") uses mock data. Wire to `orders` table with a proper price-level aggregation query.
+- [ ] **Transaction history pagination** — Transactions page loads all at once. Add limit/offset pagination for accounts with large history.
 
 ---
 
@@ -124,6 +163,8 @@ FOUNDER_PASSWORD      Override default founder password
 ADMIN_PASSWORD        Override default admin password
 FOUNDER_WALLET        Override default founder wallet (0x6422d12b…)
 VITE_RPC_LAN          Optional LAN RPC endpoint for frontend
+DISCORD_WEBHOOK_URL   Discord channel webhook for node/bridge/governance alerts
+TELEGRAM_BOT_TOKEN    Telegram bot for per-user alerts
 ```
 
 ### Running locally
@@ -148,15 +189,19 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 - **Layout import** — Must use `import { Layout } from '@/components/layout/Layout'` (named export, lowercase folder). `@/components/Layout` causes a Vite 500.
 - **`npm run db:push` hangs** — Always use `drizzle-kit generate` + `psql` pipe workaround in Replit.
 - **IP 190.108.214.85** — High-traffic attacker detected in monitoring logs (XSS + DDoS bursts). IP blocking is currently disabled (monitor-only). Enable via Admin → Security when ready for production.
+- **Light theme partial coverage** — CSS variables cover all standard UI tokens. Custom glow effects (`neon-text`, `neon-glow`) are still dark-optimised and may look off in light mode.
 
 ---
 
 ## 🐛 Reported Issues (2026-07-25)
 
-- [ ] **Balance shows 0 after admin mint on mainnet** — `netClause` in `/api/user/balance` was missing `$` before placeholder index (SQL comparing `network=2` literal integer instead of `network=$2` string param). Also `operation_type='mint'` was not counted, only `mint_gyds`. Both fixed.
-- [ ] **txNetClause same missing-`$` bug** — transactions network filter had same issue. Fixed.
-- [ ] **Balance card always showed "Mainnet" regardless of running nodes** — `selectedNetwork='all'` resolved to 'mainnet' and scoped the DB query to mainnet only. Now 'all' queries without network scope (totals across all networks) and shows "All Networks" badge.
-- [ ] **Genesis node `web3.version` returned null** — genesis POST handler did not explicitly handle `web3_clientVersion` before falling through to `jsonRpcDispatch`. Added explicit case.
-- [ ] **Genesis node block showed 0 initially then synced** — fixed: now syncs with shared chain timer on start.
-- [ ] **Genesis node peers = 0** — fixed: initialised to 4 peers, peer-sync timer added (5s interval).
-- [ ] **Mining page accessible to all users** — fixed: restricted to admin/founder only (lock screen + sidebar/mobile nav hidden for regular users).
+- [x] **Balance shows 0 after admin mint on mainnet** — `netClause` in `/api/user/balance` was missing `$` before placeholder index. Fixed.
+- [x] **txNetClause same missing-`$` bug** — transactions network filter had same issue. Fixed.
+- [x] **Balance card always showed "Mainnet" regardless of running nodes** — Fixed: 'all' queries without network scope and shows "All Networks" badge.
+- [x] **Genesis node `web3.version` returned null** — Fixed: explicit `web3_clientVersion` case added.
+- [x] **Genesis node block showed 0 initially then synced** — Fixed: now syncs with shared chain timer on start.
+- [x] **Genesis node peers = 0** — Fixed: initialised to 4 peers, peer-sync timer added.
+- [x] **Mining page accessible to all users** — Fixed: restricted to admin/founder only.
+- [x] **Login "Invalid username or password" on server** — Seed had premature `return` skipping account creation. Fixed: seed now always upserts founder + admin accounts on startup.
+- [x] **Database connection drops** — pg pool had zero config. Fixed: keepAlive, idleTimeout, connectionTimeout, min:2 warm connections, pool error handler.
+- [x] **Coin logos not showing in Swap / Wallet** — No fallback to static files. Fixed: `/gyds-coin.jpg`, `/gyd-coin.png`, `/gusd-coin.png` used as fallback.

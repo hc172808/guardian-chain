@@ -11,7 +11,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Plus, Search, Filter, MoreHorizontal, Droplets, Lock, ArrowLeftRight, X, BarChart3, Wallet, Loader2, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Filter, MoreHorizontal, Droplets, Lock, ArrowLeftRight, X, BarChart3, Wallet, Loader2, AlertTriangle, Calculator } from 'lucide-react';
+import { ImpermanentLossCalc } from './ImpermanentLossCalc';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { CreatePool } from './CreatePool';
@@ -42,6 +43,7 @@ const formatValue = (value: number): string => {
 type PoolOverlay = { type: 'add' | 'remove' | 'lock' | 'analytics' | 'close'; pool: Pool } | null;
 
 export const PoolsList = () => {
+  const [view, setView] = useState<'pools' | 'calculator'>('pools');
   const [searchQuery, setSearchQuery] = useState('');
   const [pools, setPools] = useState<Pool[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,6 +101,17 @@ export const PoolsList = () => {
 
   if (showCreate) return <CreatePool onBack={() => { setShowCreate(false); loadPools(); }} />;
   if (overlay) return <PoolActionPanel overlay={overlay} onBack={() => { setOverlay(null); loadPools(); }} />;
+  if (view === 'calculator') return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button onClick={() => setView('pools')} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeftRight className="h-4 w-4" />
+          Back to Pools
+        </button>
+      </div>
+      <ImpermanentLossCalc />
+    </div>
+  );
 
   const totalTvl = pools.reduce((acc, p) => acc + p.tvl, 0);
   const totalVolume = pools.reduce((acc, p) => acc + p.volume_24h, 0);
@@ -116,13 +129,23 @@ export const PoolsList = () => {
         <p className="text-muted-foreground">Explore pools and deploy capital to earn trading fees.</p>
       </div>
 
-      <Button
-        variant="outline"
-        className="gap-2 border-amber-500/50 text-amber-500 hover:bg-amber-500/10 hover:text-amber-400"
-        onClick={() => setShowCreate(true)}
-      >
-        <Plus className="h-4 w-4" /> Create Pool
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          className="gap-2 border-amber-500/50 text-amber-500 hover:bg-amber-500/10 hover:text-amber-400"
+          onClick={() => setShowCreate(true)}
+        >
+          <Plus className="h-4 w-4" /> Create Pool
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-2 text-muted-foreground hover:text-foreground ml-auto"
+          onClick={() => setView('calculator')}
+        >
+          <Calculator className="h-4 w-4" /> IL Calculator
+        </Button>
+      </div>
 
       <GlassCard className="p-4 space-y-2">
         <div className="flex items-center justify-between">
