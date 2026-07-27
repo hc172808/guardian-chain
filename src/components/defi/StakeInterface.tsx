@@ -55,6 +55,8 @@ export const StakeInterface = () => {
   const { user } = useAuth();
   const { address, isConnected } = useWalletConnect();
   const { toast } = useToast();
+  // Allow staking with DB wallet when no browser wallet is connected
+  const effectiveAddress = address || user?.walletAddress || null;
 
   const fetchStats = useCallback(async () => {
     try {
@@ -113,8 +115,8 @@ export const StakeInterface = () => {
   const unstakeReceive = parseFloat(unstakeAmount || '0') * exchangeRate;
 
   const executeStake = async (type: 'stake' | 'unstake') => {
-    if (!user || !address) {
-      toast({ title: 'Login Required', description: 'Connect your wallet first.', variant: 'destructive' });
+    if (!user || !effectiveAddress) {
+      toast({ title: 'Login Required', description: 'Sign in first.', variant: 'destructive' });
       return;
     }
     const amount = parseFloat(type === 'stake' ? stakeAmount : unstakeAmount);
@@ -150,18 +152,26 @@ export const StakeInterface = () => {
         }
       }
 
-      // Fallback: record in DB
-      const { error } = await supabase.from('transactions').insert({
-        user_id: user.id,
-        from_address: type === 'stake' ? address : 'staking-pool',
-        to_address: type === 'stake' ? 'staking-pool' : address,
-        amount,
-        token_symbol: type === 'stake' ? 'GYD' : 'xGYD',
-        status: 'confirmed',
-        type: type === 'stake' ? 'stake' : 'unstake',
-        hash: `sim-${Date.now()}`,
+      // Fallback: record in DB via API
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from_address: type === 'stake' ? effectiveAddress : 'staking-pool',
+          to_address:   type === 'stake' ? 'staking-pool' : effectiveAddress,
+          amount,
+          fee: 0,
+          token_symbol: type === 'stake' ? 'GYD' : 'xGYD',
+          status: 'confirmed',
+          tx_hash: `sim-${type}-${Date.now()}`,
+          network: 'testnet',
+        }),
       });
-      if (error) throw error;
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error ?? 'Failed to record stake transaction');
+      }
 
       toast({
         title: type === 'stake' ? '🔒 Staked Successfully' : '🔓 Unstaked Successfully',
@@ -284,12 +294,12 @@ export const StakeInterface = () => {
 
             <Button
               className="w-full h-14 text-lg font-semibold"
-              disabled={isProcessing || !stakeAmount || parseFloat(stakeAmount) <= 0 || !isConnected}
+              disabled={isProcessing || !stakeAmount || parseFloat(stakeAmount) <= 0 || !user || !effectiveAddress}
               onClick={() => executeStake('stake')}
             >
               {isProcessing
                 ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Staking...</span>
-                : !isConnected ? 'Connect Wallet' : 'Stake GYD'}
+                : !user ? 'Sign In to Stake' : 'Stake GYD'}
             </Button>
           </TabsContent>
 
@@ -346,12 +356,12 @@ export const StakeInterface = () => {
 
             <Button
               className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
-              disabled={isProcessing || !unstakeAmount || parseFloat(unstakeAmount) <= 0 || !isConnected}
+              disabled={isProcessing || !unstakeAmount || parseFloat(unstakeAmount) <= 0 || !user || !effectiveAddress}
               onClick={() => executeStake('unstake')}
             >
               {isProcessing
                 ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Unstaking...</span>
-                : !isConnected ? 'Connect Wallet' : 'Unstake xGYD'}
+                : !user ? 'Sign In to Unstake' : 'Unstake xGYD'}
             </Button>
           </TabsContent>
         </Tabs>

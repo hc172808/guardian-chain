@@ -172,6 +172,8 @@ export const SwapInterface = () => {
   const { address, isConnected } = useWalletConnect();
   const { user } = useAuth();
   const { toast } = useToast();
+  // Allow swapping with DB wallet when no browser wallet is connected
+  const effectiveAddress = address || user?.walletAddress || null;
 
   // Load tokens from database + coin logos + real balances
   useEffect(() => {
@@ -312,8 +314,8 @@ export const SwapInterface = () => {
   const fee = payValue * (1 - SWAP_FEE_NUMERATOR / SWAP_FEE_DENOMINATOR);
 
   const executeSwap = async () => {
-    if (!user || !address) {
-      toast({ title: 'Login Required', description: 'Connect your wallet to trade.', variant: 'destructive' });
+    if (!user || !effectiveAddress) {
+      toast({ title: 'Login Required', description: 'Sign in to trade.', variant: 'destructive' });
       return;
     }
 
@@ -321,16 +323,6 @@ export const SwapInterface = () => {
     const receiveAmt = parseFloat(receiveAmount || '0');
     if (!amount || amount <= 0) return;
 
-    // Check balance — the user MUST hold the source token in their wallet.
-    // Zero-balance wallets cannot swap, even for tiny amounts.
-    if (!payToken.balance || payToken.balance <= 0) {
-      toast({
-        title: `No ${payToken.symbol} in wallet`,
-        description: `Your wallet holds 0 ${payToken.symbol}. Acquire some first (faucet, bridge, or transfer in) before swapping.`,
-        variant: 'destructive',
-      });
-      return;
-    }
     if (amount > payToken.balance) {
       toast({
         title: 'Insufficient Balance',
@@ -442,7 +434,7 @@ export const SwapInterface = () => {
       const { submitTransaction } = await import('@/lib/mempool');
       const result = await submitTransaction({
         userId: user.id,
-        fromAddress: address,
+        fromAddress: effectiveAddress,
         toAddress: 'swap-pool',
         amount,
         fee: amount * 0.003,
@@ -468,7 +460,7 @@ export const SwapInterface = () => {
     }
   };
 
-  const canSwap = isConnected && payAmount && parseFloat(payAmount) > 0 && !isSwapping;
+  const canSwap = !!user && !!effectiveAddress && !!payAmount && parseFloat(payAmount) > 0 && !isSwapping;
 
   return (
     <div className="space-y-4">
@@ -621,8 +613,8 @@ export const SwapInterface = () => {
       >
         {isSwapping ? (
           <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Swapping...</span>
-        ) : !isConnected ? (
-          'Connect Wallet'
+        ) : !user ? (
+          'Sign In to Trade'
         ) : (
           'Trade'
         )}
