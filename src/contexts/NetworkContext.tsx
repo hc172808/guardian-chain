@@ -43,7 +43,7 @@ function loadSelectedNetwork(): NetworkKind | 'all' {
     const raw = localStorage.getItem(SELECTED_KEY);
     if (raw === 'all' || ALL_NETWORKS.includes(raw as NetworkKind)) return raw as NetworkKind | 'all';
   } catch {}
-  return 'all';
+  return 'testnet'; // default to testnet until mainnet launch
 }
 
 export const NetworkProvider = ({ children }: { children: ReactNode }) => {

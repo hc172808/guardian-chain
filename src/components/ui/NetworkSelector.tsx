@@ -1,4 +1,5 @@
 import { useNetwork, ALL_NETWORKS, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { Power, PowerOff, Globe } from 'lucide-react';
 import { Button } from './button';
@@ -10,7 +11,11 @@ interface NetworkSelectorProps {
 
 export const NetworkSelector = ({ showToggles = true, className }: NetworkSelectorProps) => {
   const { selectedNetwork, setSelectedNetwork, activeNetworks, toggleNetwork, enableAll, disableAll } = useNetwork();
-  const allOn = activeNetworks.size === ALL_NETWORKS.length;
+  const { isAdmin, isFounder } = useAuth();
+  const visibleNetworks: NetworkKind[] = (isAdmin || isFounder)
+    ? ALL_NETWORKS
+    : ALL_NETWORKS.filter(n => n !== 'devnet');
+  const allOn = activeNetworks.size === visibleNetworks.length;
 
   return (
     <div className={cn('flex items-center gap-2 flex-wrap', className)}>
@@ -28,7 +33,7 @@ export const NetworkSelector = ({ showToggles = true, className }: NetworkSelect
       </button>
 
       {/* Per-network selector + toggle */}
-      {ALL_NETWORKS.map(n => {
+      {visibleNetworks.map(n => {
         const badge = NETWORK_BADGE[n];
         const isSelected = selectedNetwork === n;
         const isEnabled = activeNetworks.has(n);
