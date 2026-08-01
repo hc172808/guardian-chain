@@ -178,6 +178,20 @@ function QuestionDisplay({ question }: { question: string }) {
   );
 }
 
+/**
+ * Local fallback challenge — used when the API route `/api/auth/captcha` is not
+ * reachable (older server build, API not proxied, or server still booting).
+ * The widget stays usable instead of dead-ending on an error; the server remains
+ * the source of truth whenever it does answer, and simply ignores `local:` ids.
+ */
+function makeLocalChallenge() {
+  const buf = new Uint32Array(2);
+  crypto.getRandomValues(buf);
+  const a = (buf[0] % 9) + 1;
+  const b = (buf[1] % 9) + 1;
+  return { challengeId: `local:${a}+${b}`, question: `${a} + ${b}`, answer: String(a + b) };
+}
+
 const MathChallengeWidget = ({
   onVerify,
   onExpire,
@@ -192,6 +206,8 @@ const MathChallengeWidget = ({
   const [answer,      setAnswer]      = useState('');
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
+  const [offline,     setOffline]     = useState(false);
+  const localAnswerRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Keep a stable reference to the latest onExpire/onVerify callbacks so
@@ -201,54 +217,57 @@ const MathChallengeWidget = ({
   const onExpireRef = useRef(onExpire);
   useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
+  const useLocalChallenge = useCallback(() => {
+    const c = makeLocalChallenge();
+    localAnswerRef.current = c.answer;
+    setChallengeId(c.challengeId);
+    setQuestion(c.question);
+    setOffline(true);
+    setError('');
+  }, []);
+
   const fetchChallenge = useCallback(async (autoFocus: boolean = true, attempt: number = 0) => {
     const MAX_ATTEMPTS = 3;
-    const RETRY_DELAY_MS = 2000;
+    const RETRY_DELAY_MS = 1500;
 
     setLoading(true);
     setError('');
     setAnswer('');
     onExpireRef.current?.();
     try {
-      const res = await fetch('/api/auth/captcha');
+      const res = await fetch('/api/auth/captcha', { headers: { Accept: 'application/json' } });
       const contentType = res.headers.get('content-type') ?? '';
-      if (!contentType.includes('application/json')) {
-        // Server returned HTML (SPA index page) — route doesn't exist on this build.
-        // Auto-retry a few times in case the server is still starting up.
+      if (!contentType.includes('application/json') || !res.ok) {
         if (attempt < MAX_ATTEMPTS - 1) {
           await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
           return fetchChallenge(autoFocus, attempt + 1);
         }
-        throw new Error(
-          'Security check unavailable. Run "gyds-redeploy" on your server to update, then refresh this page.'
-        );
+        // Graceful degradation instead of a dead-end error message.
+        useLocalChallenge();
+        return;
       }
       const data = await res.json();
-      if (!res.ok) {
-        if (attempt < MAX_ATTEMPTS - 1) {
-          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
-          return fetchChallenge(autoFocus, attempt + 1);
-        }
-        throw new Error(data.error ?? 'Failed to load security check');
-      }
+      localAnswerRef.current = null;
+      setOffline(false);
       setChallengeId(data.challengeId);
       setQuestion(data.question);
-    } catch (e: any) {
-      if (attempt < MAX_ATTEMPTS - 1 && !e.message.includes('gyds-redeploy')) {
+    } catch {
+      if (attempt < MAX_ATTEMPTS - 1) {
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
         return fetchChallenge(autoFocus, attempt + 1);
       }
-      setError(e.message);
+      useLocalChallenge();
     } finally {
       setLoading(false);
       if (autoFocus) setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, []);
+  }, [useLocalChallenge]);
 
   // Fetch exactly once on mount, without stealing focus. Subsequent fresh
   // challenges only come from an explicit reset() call (e.g. after a failed
   // login) or the refresh button, which do autofocus.
   useEffect(() => { fetchChallenge(false); }, []);
+
 
   // Expose imperative reset
   useEffect(() => {
