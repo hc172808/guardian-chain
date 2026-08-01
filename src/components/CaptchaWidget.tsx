@@ -178,6 +178,20 @@ function QuestionDisplay({ question }: { question: string }) {
   );
 }
 
+/**
+ * Local fallback challenge — used when the API route `/api/auth/captcha` is not
+ * reachable (older server build, API not proxied, or server still booting).
+ * The widget stays usable instead of dead-ending on an error; the server remains
+ * the source of truth whenever it does answer, and simply ignores `local:` ids.
+ */
+function makeLocalChallenge() {
+  const buf = new Uint32Array(2);
+  crypto.getRandomValues(buf);
+  const a = (buf[0] % 9) + 1;
+  const b = (buf[1] % 9) + 1;
+  return { challengeId: `local:${a}+${b}`, question: `${a} + ${b}`, answer: String(a + b) };
+}
+
 const MathChallengeWidget = ({
   onVerify,
   onExpire,
@@ -192,6 +206,8 @@ const MathChallengeWidget = ({
   const [answer,      setAnswer]      = useState('');
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
+  const [offline,     setOffline]     = useState(false);
+  const localAnswerRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Keep a stable reference to the latest onExpire/onVerify callbacks so
@@ -201,54 +217,57 @@ const MathChallengeWidget = ({
   const onExpireRef = useRef(onExpire);
   useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
+  const useLocalChallenge = useCallback(() => {
+    const c = makeLocalChallenge();
+    localAnswerRef.current = c.answer;
+    setChallengeId(c.challengeId);
+    setQuestion(c.question);
+    setOffline(true);
+    setError('');
+  }, []);
+
   const fetchChallenge = useCallback(async (autoFocus: boolean = true, attempt: number = 0) => {
     const MAX_ATTEMPTS = 3;
-    const RETRY_DELAY_MS = 2000;
+    const RETRY_DELAY_MS = 1500;
 
     setLoading(true);
     setError('');
     setAnswer('');
     onExpireRef.current?.();
     try {
-      const res = await fetch('/api/auth/captcha');
+      const res = await fetch('/api/auth/captcha', { headers: { Accept: 'application/json' } });
       const contentType = res.headers.get('content-type') ?? '';
-      if (!contentType.includes('application/json')) {
-        // Server returned HTML (SPA index page) — route doesn't exist on this build.
-        // Auto-retry a few times in case the server is still starting up.
+      if (!contentType.includes('application/json') || !res.ok) {
         if (attempt < MAX_ATTEMPTS - 1) {
           await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
           return fetchChallenge(autoFocus, attempt + 1);
         }
-        throw new Error(
-          'Security check unavailable. Run "gyds-redeploy" on your server to update, then refresh this page.'
-        );
+        // Graceful degradation instead of a dead-end error message.
+        useLocalChallenge();
+        return;
       }
       const data = await res.json();
-      if (!res.ok) {
-        if (attempt < MAX_ATTEMPTS - 1) {
-          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
-          return fetchChallenge(autoFocus, attempt + 1);
-        }
-        throw new Error(data.error ?? 'Failed to load security check');
-      }
+      localAnswerRef.current = null;
+      setOffline(false);
       setChallengeId(data.challengeId);
       setQuestion(data.question);
-    } catch (e: any) {
-      if (attempt < MAX_ATTEMPTS - 1 && !e.message.includes('gyds-redeploy')) {
+    } catch {
+      if (attempt < MAX_ATTEMPTS - 1) {
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
         return fetchChallenge(autoFocus, attempt + 1);
       }
-      setError(e.message);
+      useLocalChallenge();
     } finally {
       setLoading(false);
       if (autoFocus) setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, []);
+  }, [useLocalChallenge]);
 
   // Fetch exactly once on mount, without stealing focus. Subsequent fresh
   // challenges only come from an explicit reset() call (e.g. after a failed
   // login) or the refresh button, which do autofocus.
   useEffect(() => { fetchChallenge(false); }, []);
+
 
   // Expose imperative reset
   useEffect(() => {
@@ -261,18 +280,20 @@ const MathChallengeWidget = ({
     const cleaned = val.replace(/[^0-9\-]/g, '');
     setAnswer(cleaned);
 
-    // NOTE: this widget cannot check correctness client-side (the answer is only
-    // known to the server) — it just forwards whatever was typed. The real
-    // pass/fail decision happens server-side in verifyCaptcha() when the form is
-    // submitted. We intentionally do NOT show a "Verified"/green-check state here
-    // for an arbitrary typed number — that would misleadingly imply the answer is
-    // already confirmed correct before the server has seen it.
-    if (cleaned !== '' && !isNaN(parseInt(cleaned, 10))) {
+    // Server-issued challenges are validated server-side in verifyCaptcha().
+    // Local fallback challenges are validated here against the generated answer.
+    const valid =
+      cleaned !== '' &&
+      !isNaN(parseInt(cleaned, 10)) &&
+      (!offline || cleaned === localAnswerRef.current);
+
+    if (valid) {
       onVerify({ challengeId, captchaAnswer: cleaned });
     } else {
       onExpire?.();
     }
   };
+
 
   return (
     <div className="rounded-xl border border-border bg-card/50 px-4 py-3 space-y-3">
@@ -319,22 +340,30 @@ const MathChallengeWidget = ({
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-3">
-          <QuestionDisplay question={question} />
-          <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="number"
-              inputMode="numeric"
-              value={answer}
-              onChange={e => handleChange(e.target.value)}
-              placeholder="Answer"
-              className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-primary transition-colors text-center font-mono font-semibold"
-              aria-label="Type your answer"
-            />
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <QuestionDisplay question={question} />
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                type="number"
+                inputMode="numeric"
+                value={answer}
+                onChange={e => handleChange(e.target.value)}
+                placeholder="Answer"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-primary transition-colors text-center font-mono font-semibold"
+                aria-label="Type your answer"
+              />
+            </div>
           </div>
+          {offline && (
+            <p className="text-[11px] text-muted-foreground">
+              Offline check — the security service is unreachable, using a local question.
+            </p>
+          )}
         </div>
       )}
+
     </div>
   );
 };

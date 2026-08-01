@@ -1242,7 +1242,7 @@ const WalletContent = () => {
                       <p className="font-mono text-sm">{wallet.address}</p>
                       <div className="flex items-center gap-3 mt-0.5">
                         <p className="text-xs text-muted-foreground">
-                          Created {(() => { const d = wallet.created_at || wallet.createdAt; return d && !isNaN(new Date(d).getTime()) ? new Date(d).toLocaleDateString() : 'recently'; })()}
+                          Created {(() => { const d = wallet.created_at || (wallet as unknown as { createdAt?: string }).createdAt; return d && !isNaN(new Date(d).getTime()) ? new Date(d).toLocaleDateString() : 'recently'; })()}
                         </p>
                         {/* Per-wallet on-chain balance for the selected network */}
                         {(() => {

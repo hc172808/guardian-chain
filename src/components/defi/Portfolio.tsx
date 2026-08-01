@@ -271,6 +271,8 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
 };
 
 const OverlayPanel = ({ type, position, onBack }: { type: OverlayType, position: Position, onBack: () => void }) => {
+  const { toast } = useToast();
+
   if (type === 'terminal') {
     const timeInPos = () => {
       const diff = Date.now() - new Date(position.createdAt).getTime();
