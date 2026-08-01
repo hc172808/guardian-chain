@@ -319,7 +319,7 @@ CREATE TABLE "token_operations" (
 CREATE TABLE "token_price" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"price" numeric DEFAULT '0.0000001' NOT NULL,
-	"total_supply" numeric DEFAULT '100000000000' NOT NULL,
+	"total_supply" numeric DEFAULT '1000000000' NOT NULL,
 	"circulating_supply" numeric DEFAULT '0' NOT NULL,
 	"burned_total" numeric DEFAULT '0' NOT NULL,
 	"updated_at" timestamp DEFAULT now()

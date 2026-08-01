@@ -5,7 +5,7 @@ export const GENESIS_CONFIG = {
   // Genesis block configuration
   timestamp: new Date('2024-01-01T00:00:00Z').getTime() / 1000,
   chainId: 13370, // Updated to unique GYDS chain ID
-  initialSupply: 100_000_000_000, // 100 billion GYDS
+  initialSupply: 1_000_000_000, // 1 billion GYDS
   initialPrice: 0.0000001, // Starting price in USD
 };
 
@@ -14,7 +14,7 @@ export const RESERVED_WALLETS = {
   founder: {
     address: '0x0000000000000000000000000000000000000001',
     name: 'Founder Wallet',
-    allocation: 10_000_000_000, // 10% of total supply
+    allocation: 100_000_000, // 10% of total supply
     vestingMonths: 48,
     description: 'Founder allocation with 48-month vesting',
   },
@@ -23,7 +23,7 @@ export const RESERVED_WALLETS = {
   miningPool: {
     address: '0x0000000000000000000000000000000000000002',
     name: 'Mining Pool',
-    allocation: 40_000_000_000, // 40% of total supply
+    allocation: 400_000_000, // 40% of total supply
     description: 'Mining rewards distribution pool',
   },
 
@@ -31,7 +31,7 @@ export const RESERVED_WALLETS = {
   liquidityPool: {
     address: '0x0000000000000000000000000000000000000003',
     name: 'Liquidity Pool',
-    allocation: 20_000_000_000, // 20% of total supply
+    allocation: 200_000_000, // 20% of total supply
     description: 'DEX liquidity provision',
   },
 
@@ -39,7 +39,7 @@ export const RESERVED_WALLETS = {
   stakingRewards: {
     address: '0x0000000000000000000000000000000000000004',
     name: 'Staking Rewards',
-    allocation: 15_000_000_000, // 15% of total supply
+    allocation: 150_000_000, // 15% of total supply
     description: 'PoS validator staking rewards',
   },
 
@@ -47,7 +47,7 @@ export const RESERVED_WALLETS = {
   developmentFund: {
     address: '0x0000000000000000000000000000000000000005',
     name: 'Development Fund',
-    allocation: 10_000_000_000, // 10% of total supply
+    allocation: 100_000_000, // 10% of total supply
     vestingMonths: 24,
     description: 'Development and ecosystem growth',
   },
@@ -56,7 +56,7 @@ export const RESERVED_WALLETS = {
   team: {
     address: '0x0000000000000000000000000000000000000006',
     name: 'Team Wallet',
-    allocation: 5_000_000_000, // 5% of total supply
+    allocation: 50_000_000, // 5% of total supply
     vestingMonths: 36,
     description: 'Team allocation with 36-month vesting',
   },
@@ -75,7 +75,7 @@ export const TOKENOMICS = {
   name: 'GYDS',
   symbol: 'GYDS',
   decimals: 18,
-  maxSupply: 100_000_000_000,
+  maxSupply: 1_000_000_000,
   initialPrice: 0.0000001,
   
   // Emission schedule

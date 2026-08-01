@@ -168,7 +168,7 @@ export const FounderWalletConfig = ({ onWalletConfigured }: FounderWalletConfigP
               </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Allocation: {RESERVED_WALLETS.founder.allocation.toLocaleString()} GYDS ({(RESERVED_WALLETS.founder.allocation / 100_000_000_000 * 100).toFixed(0)}%)
+              Allocation: {RESERVED_WALLETS.founder.allocation.toLocaleString()} GYDS ({(RESERVED_WALLETS.founder.allocation / 1_000_000_000 * 100).toFixed(0)}%)
             </p>
           </GlassCard>
 

@@ -487,7 +487,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
     CREATE TABLE IF NOT EXISTS token_price (
       id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       price              NUMERIC DEFAULT '0.0000001' NOT NULL,
-      total_supply       NUMERIC DEFAULT '100000000000' NOT NULL,
+      total_supply       NUMERIC DEFAULT '1000000000' NOT NULL,
       circulating_supply NUMERIC DEFAULT '0' NOT NULL,
       burned_total       NUMERIC DEFAULT '0' NOT NULL,
       updated_at         TIMESTAMPTZ DEFAULT NOW()

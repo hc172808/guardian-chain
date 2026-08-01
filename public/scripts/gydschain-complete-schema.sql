@@ -981,7 +981,7 @@ CREATE TABLE public.token_operations (
 CREATE TABLE public.token_price (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     price numeric DEFAULT 0.0000001 NOT NULL,
-    total_supply numeric DEFAULT '100000000000'::numeric NOT NULL,
+    total_supply numeric DEFAULT '1000000000'::numeric NOT NULL,
     circulating_supply numeric DEFAULT '0'::numeric NOT NULL,
     burned_total numeric DEFAULT '0'::numeric NOT NULL,
     updated_at timestamp without time zone DEFAULT now()

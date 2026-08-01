@@ -30,7 +30,7 @@ export const GYDS_COIN: NativeCoinConfig = {
   name: 'GYDSchain',
   symbol: 'GYDS',
   decimals: 18,
-  maxSupply: 100_000_000_000,
+  maxSupply: 1_000_000_000,
   initialPrice: 0.0000001,
   isPegged: false,
   description: 'Native gas and staking coin - users never touch directly',

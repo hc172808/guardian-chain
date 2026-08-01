@@ -46,8 +46,8 @@ func DefaultGenesisConfig() *GenesisConfig {
         // Convert to wei (10^18)
         weiMultiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 
-        // 100 billion total supply
-        totalSupply := new(big.Int).Mul(big.NewInt(100_000_000_000), weiMultiplier)
+        // 1 billion total supply
+        totalSupply := new(big.Int).Mul(big.NewInt(1_000_000_000), weiMultiplier)
 
         return &GenesisConfig{
                 ChainID:       13370, // GYDS Mainnet Chain ID
@@ -58,39 +58,39 @@ func DefaultGenesisConfig() *GenesisConfig {
                         {
                                 Name:          "Founder Wallet",
                                 Address:       addressFromHex("0x0000000000000000000000000000000000000001"),
-                                Allocation:    new(big.Int).Mul(big.NewInt(10_000_000_000), weiMultiplier), // 10%
+                                Allocation:    new(big.Int).Mul(big.NewInt(100_000_000), weiMultiplier), // 10%
                                 VestingMonths: 48,
                                 Description:   "Founder allocation with 48-month vesting",
                         },
                         {
                                 Name:        "Mining Pool",
                                 Address:     addressFromHex("0x0000000000000000000000000000000000000002"),
-                                Allocation:  new(big.Int).Mul(big.NewInt(40_000_000_000), weiMultiplier), // 40%
+                                Allocation:  new(big.Int).Mul(big.NewInt(400_000_000), weiMultiplier), // 40%
                                 Description: "Mining rewards distribution pool",
                         },
                         {
                                 Name:        "Liquidity Pool",
                                 Address:     addressFromHex("0x0000000000000000000000000000000000000003"),
-                                Allocation:  new(big.Int).Mul(big.NewInt(20_000_000_000), weiMultiplier), // 20%
+                                Allocation:  new(big.Int).Mul(big.NewInt(200_000_000), weiMultiplier), // 20%
                                 Description: "DEX liquidity provision",
                         },
                         {
                                 Name:        "Staking Rewards",
                                 Address:     addressFromHex("0x0000000000000000000000000000000000000004"),
-                                Allocation:  new(big.Int).Mul(big.NewInt(15_000_000_000), weiMultiplier), // 15%
+                                Allocation:  new(big.Int).Mul(big.NewInt(150_000_000), weiMultiplier), // 15%
                                 Description: "PoS validator staking rewards",
                         },
                         {
                                 Name:          "Development Fund",
                                 Address:       addressFromHex("0x0000000000000000000000000000000000000005"),
-                                Allocation:    new(big.Int).Mul(big.NewInt(10_000_000_000), weiMultiplier), // 10%
+                                Allocation:    new(big.Int).Mul(big.NewInt(100_000_000), weiMultiplier), // 10%
                                 VestingMonths: 24,
                                 Description:   "Development and ecosystem growth",
                         },
                         {
                                 Name:          "Team Wallet",
                                 Address:       addressFromHex("0x0000000000000000000000000000000000000006"),
-                                Allocation:    new(big.Int).Mul(big.NewInt(5_000_000_000), weiMultiplier), // 5%
+                                Allocation:    new(big.Int).Mul(big.NewInt(50_000_000), weiMultiplier), // 5%
                                 VestingMonths: 36,
                                 Description:   "Team allocation with 36-month vesting",
                         },
