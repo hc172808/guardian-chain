@@ -280,18 +280,20 @@ const MathChallengeWidget = ({
     const cleaned = val.replace(/[^0-9\-]/g, '');
     setAnswer(cleaned);
 
-    // NOTE: this widget cannot check correctness client-side (the answer is only
-    // known to the server) — it just forwards whatever was typed. The real
-    // pass/fail decision happens server-side in verifyCaptcha() when the form is
-    // submitted. We intentionally do NOT show a "Verified"/green-check state here
-    // for an arbitrary typed number — that would misleadingly imply the answer is
-    // already confirmed correct before the server has seen it.
-    if (cleaned !== '' && !isNaN(parseInt(cleaned, 10))) {
+    // Server-issued challenges are validated server-side in verifyCaptcha().
+    // Local fallback challenges are validated here against the generated answer.
+    const valid =
+      cleaned !== '' &&
+      !isNaN(parseInt(cleaned, 10)) &&
+      (!offline || cleaned === localAnswerRef.current);
+
+    if (valid) {
       onVerify({ challengeId, captchaAnswer: cleaned });
     } else {
       onExpire?.();
     }
   };
+
 
   return (
     <div className="rounded-xl border border-border bg-card/50 px-4 py-3 space-y-3">
