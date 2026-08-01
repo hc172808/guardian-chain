@@ -56,3 +56,6 @@
 - [IP-block disabled + auto-whitelist](ip-block-disabled-whitelist.md) — ipBlockEnabled defaults false (monitoring-only); every login auto-whitelists the IP via ip_whitelist table but keeps logging activity.
 - [Server .env loading and lazy RPC config](env-loading-lazy-config.md) — no dotenv loader meant admin-saved config vanished on restart; module-level `process.env` consts bake in stale values due to ESM import hoisting — read env lazily instead.
 - [netlifegy chain RPC endpoints](netlifegy-rpc-endpoints.md) — rpc/rpc2/rpc3.netlifegy.com all timeout; app.netlifegy.com/api/rpc works for chainId/blockNumber but eth_getBalance returns a hardcoded 1 GYDS for any address — don't trust it as financially authoritative.
+- [Public API + rate limiting](public-api-rate-limit.md) — /api/public/chain|tokens|stats require X-API-Key (SHA-256 hash lookup); publicApiLimiter 60 req/min; validate:{ip:false} needed to silence IPv6 keyGenerator warning from express-rate-limit.
+- [Network snapshots API](network-snapshots-api.md) — GET /api/network-snapshots?hours=N added; used by Validators.tsx real chart and Analytics.tsx; data written by DB pruner cron hourly from RPC stats.
+- [todo progress Aug 2026](todo-progress.md) — 95 items done, 14 remaining; all remaining require live blockchain infra (contracts, VPS, RPC) or are production-only (CSP nonce) or i18n.

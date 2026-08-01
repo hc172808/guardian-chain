@@ -123,23 +123,23 @@
 - [ ] **Governance proposals on-chain** — Deploy a `GovernorBravo`-style contract; wire `POST /api/governance/propose` and `POST /api/governance/vote`.
 - [ ] **RWA (Real-World Assets)** — UI-only. Define tokenization flow; deploy ERC-1400 or ERC-3525 contract.
 - [ ] **MultiSig wallet backend** — `POST /api/multisig/create` and `POST /api/multisig/sign` need implementing (consider Gnosis Safe contract).
-- [ ] **Analytics real data** — Page uses demo data. Hook into `network_snapshots` and `xp_events` tables for live charts.
-- [ ] **API key rate limiting middleware** — Keys are created and stored; enforce per-key rate limits (60 req/min burst, 10k req/month) on public API endpoints by reading `X-API-Key` header.
-- [ ] **Public REST API endpoints** — Expose `/api/public/chain`, `/api/public/tokens`, `/api/public/stats` protected by API key auth (not session cookie) for third-party integrations.
+- [x] **Analytics real data** — Analytics page already fetches /api/network-snapshots (live TPS/validators/stake charts); GET /api/network-snapshots endpoint added; mining calc uses live overview data.
+- [x] **API key rate limiting middleware** — `requireApiKey` middleware in routes.ts validates X-API-Key header (SHA-256 hash lookup), enforces per-key monthly request limit, and applies `publicApiLimiter` (60 req/min). Usage incremented async on every hit.
+- [x] **Public REST API endpoints** — `GET /api/public/chain`, `/api/public/tokens` (paginated), `/api/public/stats` — all require X-API-Key; returns chain/token/validator/node aggregate data.
 
 ### Low Priority / Nice to Have
 
-- [ ] **SMTP / push notifications** — `user_notifications` table is wired to the bell. Auto-send email or web-push for governance votes, bridge completions, staking rewards.
-- [ ] **Leaderboard persistence** — Mining leaderboard uses in-memory `sessions` map. Add a `mining_payouts` table so history survives server restarts.
-- [ ] **Node console history in localStorage** — NodeConsole history resets on panel close. Persist per-node history in `localStorage` keyed by `${network}/${type}`.
-- [ ] **Mobile WireGuard config QR** — `GET /api/wireguard/config.qr` endpoint generates a QR PNG of the peer config for the mobile WireGuard app.
+- [x] **SMTP / push notifications** — Email on governance vote + bridge completion wired; `sendStakingRewardEmail` added to email.ts; all gated on SMTP_HOST. Bell notifications sent on bridge complete.
+- [x] **Leaderboard persistence** — `mining_payouts` table created at runtime in GET /api/mining/leaderboard; leaderboard merges token_operations + mining_payouts; POST /api/admin/mining/payout added.
+- [x] **Node console history in localStorage** — `NodeConsole` in TestNodeManager.tsx initializes `cmdHistory` from `localStorage` (key `gyds_console_hist_${network}_${type}`) and persists it via `useEffect` on every change. Up to 50 commands retained.
+- [x] **Mobile WireGuard config QR** — `GET /api/wireguard/config.qr` generates WireGuard peer config from user's latest approved node and returns a QR PNG via the `qrcode` package.
 - [ ] **Miner binary distribution** — `app.netlifegy.com/miner/miner.tar.gz` is referenced in Pool Stats setup guide but the file doesn't exist yet. Build and publish the Node.js miner tarball.
-- [ ] **Admin monitoring alerts** — `GET /api/admin/monitoring` returns health data. Add threshold-based alerts (email/bell) when validator count drops or RPC is unreachable.
+- [x] **Admin monitoring alerts** — `GET /api/admin/monitoring` now fires Discord webhook + bell notifications to admin/founder users when: all validators inactive, all RPC down, or DB unavailable. Returns `alerts[]` array in response.
 - [ ] **CSP nonce / strict-dynamic** — Current CSP uses `unsafe-inline` (needed by Vite HMR). For production, generate per-request nonces and remove `unsafe-inline`.
 - [ ] **i18n / localization** — UI is English-only. `react-i18next` scaffolding would allow community translations.
-- [ ] **Discord webhook UI** — `DISCORD_WEBHOOK_URL` must be set manually in env. Add a field in Admin → Server Config tab so admins can set it from the UI.
-- [ ] **Orderbook real backend** — Orderbook tab (now under "Advanced") uses mock data. Wire to `orders` table with a proper price-level aggregation query.
-- [ ] **Transaction history pagination** — Transactions page loads all at once. Add limit/offset pagination for accounts with large history.
+- [x] **Discord webhook UI** — Added "Discord Alerts" section to Admin → Server Config with a URL field; value written to `.env` + `gyds-config.env` on save; docs inline explaining which events trigger alerts.
+- [x] **Orderbook real backend** — `GET /api/orderbook/depth` aggregates open orders into bid/ask price levels with cumulative depth; real spread computed; recent trades returned from orders table.
+- [x] **Transaction history pagination** — GET /api/transactions now accepts `limit` (max 200) and `offset` query params; returns `{transactions, total, limit, offset}` for proper cursor-style pagination.
 
 ---
 

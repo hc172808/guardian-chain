@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
-import { Users, Shield, TrendingUp, Award, CheckCircle, XCircle, Loader2, ArrowUpRight } from 'lucide-react';
+import { Users, Shield, TrendingUp, Award, CheckCircle, XCircle, Loader2, ArrowUpRight, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,12 +24,22 @@ interface Validator {
   blocks_proposed: number;
 }
 
+interface NetSnapshot {
+  block_height: number;
+  tps: number;
+  active_validators: number;
+  total_stake: string;
+  captured_at: string;
+}
+
 const Validators = () => {
   const { user } = useAuth();
   const [validators, setValidators] = useState<Validator[]>([]);
   const [loading, setLoading] = useState(true);
   const [delegateTarget, setDelegateTarget] = useState<Validator | null>(null);
   const [delegateOpen, setDelegateOpen] = useState(false);
+  const [snapshots, setSnapshots] = useState<NetSnapshot[]>([]);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
 
   const fetchValidators = async () => {
     const { data } = await supabase
@@ -40,7 +50,16 @@ const Validators = () => {
     setLoading(false);
   };
 
+  const fetchSnapshots = useCallback(async () => {
+    setSnapshotLoading(true);
+    try {
+      const res = await fetch('/api/network-snapshots?hours=720', { credentials: 'include' });
+      if (res.ok) setSnapshots(await res.json());
+    } finally { setSnapshotLoading(false); }
+  }, []);
+
   useEffect(() => { fetchValidators(); }, []);
+  useEffect(() => { fetchSnapshots(); }, [fetchSnapshots]);
 
   const totalStake = validators.reduce((acc, v) => acc + Number(v.stake), 0);
   const activeValidators = validators.filter(v => v.is_active);
@@ -212,36 +231,90 @@ const Validators = () => {
           )}
         </GlassCard>
 
-        {/* Validator Performance History */}
+        {/* Validator Performance History — real network_snapshots data */}
         <GlassCard className="p-5 space-y-4">
-          <h3 className="font-semibold flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary" /> Performance History (30 days)
-          </h3>
-          <div className="space-y-3">
-            {(['Uptime', 'Blocks Proposed', 'Stake Growth'] as const).map(metric => (
-              <div key={metric}>
-                <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                  <span>{metric}</span>
-                  <span>{metric === 'Uptime' ? '99.2% avg' : metric === 'Blocks Proposed' ? '~1,440/day' : '+2.4%'}</span>
-                </div>
-                <div className="flex items-end gap-0.5 h-12 bg-muted/10 rounded-lg p-1">
-                  {Array.from({ length: 30 }, (_, i) => {
-                    const base = metric === 'Uptime' ? 97 : metric === 'Blocks Proposed' ? 80 : 40;
-                    const h = Math.min(100, base + Math.random() * (100 - base));
-                    return (
-                      <div key={i} className="flex-1 flex flex-col justify-end h-full">
-                        <div className={`w-full rounded-t ${metric === 'Uptime' ? 'bg-emerald-500/60' : metric === 'Blocks Proposed' ? 'bg-primary/60' : 'bg-amber-500/60'}`}
-                          style={{ height: `${h}%`, minHeight: 2 }}
-                          title={`Day ${i + 1}: ${h.toFixed(1)}%`}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-primary" /> Network Performance History
+            </h3>
+            <Button variant="ghost" size="sm" onClick={fetchSnapshots} disabled={snapshotLoading} className="h-7 gap-1 text-xs">
+              <RefreshCw className={`w-3 h-3 ${snapshotLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
           </div>
-          <p className="text-xs text-muted-foreground">Historical data is illustrative. Live charting with on-chain indexer on mainnet.</p>
+          {snapshots.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">
+              {snapshotLoading ? 'Loading…' : 'No snapshot data yet — data accumulates as the chain cron runs.'}
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {/* Active Validators chart */}
+              {(() => {
+                const vals = snapshots.map(s => Number(s.active_validators));
+                const max = Math.max(...vals, 1);
+                const avg = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1);
+                return (
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>Active Validators</span><span>{avg} avg</span>
+                    </div>
+                    <div className="flex items-end gap-px h-12 bg-muted/10 rounded-lg p-1">
+                      {vals.map((v, i) => (
+                        <div key={i} className="flex-1 flex flex-col justify-end h-full">
+                          <div className="w-full rounded-t bg-emerald-500/60" style={{ height: `${(v / max) * 100}%`, minHeight: 2 }}
+                            title={`${new Date(snapshots[i].captured_at).toLocaleDateString()}: ${v} validators`} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* TPS chart */}
+              {(() => {
+                const vals = snapshots.map(s => Number(s.tps));
+                const max = Math.max(...vals, 1);
+                const avg = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2);
+                return (
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>TPS</span><span>{avg} avg</span>
+                    </div>
+                    <div className="flex items-end gap-px h-12 bg-muted/10 rounded-lg p-1">
+                      {vals.map((v, i) => (
+                        <div key={i} className="flex-1 flex flex-col justify-end h-full">
+                          <div className="w-full rounded-t bg-primary/60" style={{ height: `${(v / max) * 100}%`, minHeight: 2 }}
+                            title={`${new Date(snapshots[i].captured_at).toLocaleDateString()}: ${v} TPS`} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* Total Stake chart */}
+              {(() => {
+                const vals = snapshots.map(s => Number(s.total_stake));
+                const max = Math.max(...vals, 1);
+                const latest = vals[vals.length - 1];
+                const fmtStake = (v: number) => v >= 1e9 ? `${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(2)}M` : v.toLocaleString();
+                return (
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>Total Stake (GYDS)</span><span>{fmtStake(latest)} latest</span>
+                    </div>
+                    <div className="flex items-end gap-px h-12 bg-muted/10 rounded-lg p-1">
+                      {vals.map((v, i) => (
+                        <div key={i} className="flex-1 flex flex-col justify-end h-full">
+                          <div className="w-full rounded-t bg-amber-500/60" style={{ height: `${(v / max) * 100}%`, minHeight: 2 }}
+                            title={`${new Date(snapshots[i].captured_at).toLocaleDateString()}: ${fmtStake(v)} GYDS`} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">{snapshots.length} snapshots · last 30 days · populated by the DB pruner cron every hour.</p>
         </GlassCard>
 
         <GlassCard className="border-primary/30">

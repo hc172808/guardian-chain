@@ -107,7 +107,10 @@ function NodeConsole({ network, type, running }: { network: Network; type: NodeT
   const [history, setHistory] = useState<ConsoleEntry[]>([
     { type: 'info', text: `GYDS Node Console  ·  ${network}/${type}\nType "help" for available commands. Use ↑↓ to navigate history.` },
   ]);
-  const [cmdHistory, setCmdHistory] = useState<string[]>([]);
+  const lsKey = `gyds_console_hist_${network}_${type}`;
+  const [cmdHistory, setCmdHistory] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(lsKey) ?? '[]'); } catch { return []; }
+  });
   const [histIdx, setHistIdx] = useState(-1);
   const [loading, setLoading] = useState(false);
   const outputRef = useRef<HTMLDivElement>(null);
@@ -115,6 +118,11 @@ function NodeConsole({ network, type, running }: { network: Network; type: NodeT
 
   const scrollBottom = () =>
     setTimeout(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, 30);
+
+  // Persist command history to localStorage whenever it changes
+  useEffect(() => {
+    try { localStorage.setItem(lsKey, JSON.stringify(cmdHistory.slice(0, 50))); } catch {}
+  }, [cmdHistory, lsKey]);
 
   const run = async (cmd: string) => {
     const c = cmd.trim();

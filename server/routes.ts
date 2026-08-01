@@ -10,7 +10,7 @@ import { Pool } from "pg";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { discordNodeDown, discordLargeBridgeTransfer, discordNewGovernanceProposal } from "./discord";
-import { sendBuyRequestStatusEmail, sendCashoutStatusEmail } from "./email";
+import { sendBuyRequestStatusEmail, sendCashoutStatusEmail, sendGovernanceNotificationEmail, sendBridgeCompletionEmail } from "./email";
 import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
 import multer from "multer";
 import path from "path";
@@ -331,10 +331,42 @@ export function registerRoutes(app: Express) {
   // ── Transactions ───────────────────────────────────────────────────────────
   app.get("/api/transactions", requireAuth, async (req, res) => {
     const user = req.user as any;
-    const data = user._isAdmin
-      ? await storage.getAllTransactions()
-      : await storage.getUserTransactions(user.id);
-    res.json(data);
+    const limit  = Math.min(parseInt(req.query.limit  as string ?? '50')  || 50,  200);
+    const offset = parseInt(req.query.offset as string ?? '0') || 0;
+    try {
+      if (user._isAdmin) {
+        const { rows } = await pgPool.query(
+          `SELECT id, from_address AS "fromAddress", to_address AS "toAddress",
+                  amount, fee, tx_hash AS "txHash", status,
+                  block_height AS "blockHeight", wallet_id AS "walletId",
+                  user_id AS "userId", created_at AS "createdAt", confirmed_at AS "confirmedAt"
+           FROM transactions ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+          [limit, offset]
+        );
+        const total = await pgPool.query(`SELECT COUNT(*) FROM transactions`);
+        return res.json({ transactions: rows, total: parseInt(total.rows[0]?.count ?? '0'), limit, offset });
+      }
+      const { rows } = await pgPool.query(
+        `SELECT DISTINCT t.id,
+                t.from_address AS "fromAddress", t.to_address AS "toAddress",
+                t.amount, t.fee, t.tx_hash AS "txHash", t.status,
+                t.block_height AS "blockHeight", t.wallet_id AS "walletId",
+                t.user_id AS "userId",
+                COALESCE(t.token_symbol, 'GYD') AS "tokenSymbol",
+                t.created_at AS "createdAt", t.confirmed_at AS "confirmedAt"
+         FROM transactions t
+         WHERE t.user_id = $1
+            OR LOWER(t.to_address) IN (SELECT LOWER(address) FROM wallets WHERE user_id = $1)
+         ORDER BY t.created_at DESC LIMIT $2 OFFSET $3`,
+        [user.id, limit, offset]
+      );
+      const countRes = await pgPool.query(
+        `SELECT COUNT(DISTINCT t.id) FROM transactions t
+         WHERE t.user_id = $1 OR LOWER(t.to_address) IN (SELECT LOWER(address) FROM wallets WHERE user_id = $1)`,
+        [user.id]
+      );
+      res.json({ transactions: rows, total: parseInt(countRes.rows[0]?.count ?? '0'), limit, offset });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   app.post("/api/transactions", requireAuth, async (req, res) => {
@@ -1529,6 +1561,44 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // GET /api/orderbook/depth — real bid/ask price-level aggregation from orders table
+  app.get("/api/orderbook/depth", async (_req, res) => {
+    try {
+      const [bidsRes, asksRes, recentTrades] = await Promise.all([
+        pgPool.query(
+          `SELECT ROUND(price::numeric, 6) AS price, SUM(amount::numeric) AS volume, COUNT(*) AS count
+           FROM orders WHERE side='buy' AND status='open' AND price IS NOT NULL
+           GROUP BY ROUND(price::numeric, 6)
+           ORDER BY price DESC LIMIT 20`
+        ).catch(() => ({ rows: [] as any[] })),
+        pgPool.query(
+          `SELECT ROUND(price::numeric, 6) AS price, SUM(amount::numeric) AS volume, COUNT(*) AS count
+           FROM orders WHERE side='sell' AND status='open' AND price IS NOT NULL
+           GROUP BY ROUND(price::numeric, 6)
+           ORDER BY price ASC LIMIT 20`
+        ).catch(() => ({ rows: [] as any[] })),
+        pgPool.query(
+          `SELECT price, amount, side, created_at AS executed_at
+           FROM orders WHERE status IN ('filled','cancelled') AND price IS NOT NULL
+           ORDER BY updated_at DESC LIMIT 30`
+        ).catch(() => ({ rows: [] as any[] })),
+      ]);
+      // Cumulative totals for depth chart
+      let cumBid = 0;
+      const bids = bidsRes.rows.map((r: any) => {
+        cumBid += Number(r.volume);
+        return { price: Number(r.price), volume: Number(r.volume), cumulative: cumBid, count: Number(r.count) };
+      });
+      let cumAsk = 0;
+      const asks = asksRes.rows.map((r: any) => {
+        cumAsk += Number(r.volume);
+        return { price: Number(r.price), volume: Number(r.volume), cumulative: cumAsk, count: Number(r.count) };
+      });
+      const spread = asks[0] && bids[0] ? Number(asks[0].price) - Number(bids[0].price) : null;
+      res.json({ bids, asks, spread, trades: recentTrades.rows, timestamp: new Date().toISOString() });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Vault Positions ────────────────────────────────────────────────────────
   app.get("/api/vault-positions", requireAuth, async (req, res) => {
     const user = req.user as any;
@@ -1880,7 +1950,7 @@ export function registerRoutes(app: Express) {
     storage.awardXp(user.id, 'governance_vote', 25, `Voted ${choice} on proposal #${id} +25 XP`).catch(() => {});
     broadcastActivity({ type: 'governance_vote', title: 'Governance Vote', detail: `Voted ${choice} on proposal #${id}`, user: user.username ?? user.walletAddress?.slice(0, 10) });
     (storage as any).createNotification(user.id.toString(), 'governance', '✅ Vote Recorded', `Your ${choice} vote on proposal #${id} was recorded. +25 XP`, '/governance').catch(() => {});
-    // Telegram + WhatsApp alerts on governance vote
+    // Email + Telegram + WhatsApp alerts on governance vote
     storage.getUserProfile(user.id).then((profile: any) => {
       const chatId = profile?.telegram_chat_id;
       if (chatId) sendTelegramAlert(chatId, 'governance', {
@@ -1892,6 +1962,8 @@ export function registerRoutes(app: Express) {
         title: `Proposal #${id}`,
         body: `You voted ${choice} on proposal #${id}. +25 XP awarded.`,
       }).catch(() => {});
+      const email = (user as any).email;
+      if (email) sendGovernanceNotificationEmail(email, `You voted ${choice} on proposal #${id}`, id).catch(() => {});
     }).catch(() => {});
   });
 
@@ -2576,6 +2648,22 @@ export function registerRoutes(app: Express) {
   app.get("/api/mining/leaderboard", async (_req, res) => {
     const { pool: pgPool } = await import("./db");
     try {
+      // Ensure mining_payouts table exists for persistent payout history
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS mining_payouts (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          wallet_address TEXT NOT NULL,
+          amount NUMERIC NOT NULL DEFAULT 0,
+          block_height INTEGER,
+          pool_name TEXT DEFAULT 'default',
+          share_count INTEGER DEFAULT 1,
+          paid_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS mining_payouts_wallet_idx ON mining_payouts(wallet_address);
+        CREATE INDEX IF NOT EXISTS mining_payouts_paid_idx ON mining_payouts(paid_at DESC);
+      `).catch(() => {});
+
+      // Combine token_operations (historical) with mining_payouts (explicit payout records)
       const { rows } = await pgPool.query(`
         SELECT
           wallet_address,
@@ -2586,19 +2674,53 @@ export function registerRoutes(app: Express) {
         WHERE operation_type = 'mining_reward'
           AND status = 'confirmed'
         GROUP BY wallet_address
-        ORDER BY total_earned DESC
-        LIMIT 25
-      `);
-      res.json(rows.map((r: any, i: number) => ({
-        rank:         i + 1,
-        address:      r.wallet_address,
-        totalEarned:  Number(r.total_earned),
-        shareCount:   Number(r.share_count),
-        lastSeen:     r.last_seen,
-      })));
+        UNION ALL
+        SELECT
+          wallet_address,
+          SUM(amount)   AS total_earned,
+          SUM(share_count) AS share_count,
+          MAX(paid_at)  AS last_seen
+        FROM mining_payouts
+        GROUP BY wallet_address
+      `).then(async (res) => {
+        // Merge by wallet_address
+        const merged: Record<string, { total: number; shares: number; last: string }> = {};
+        for (const r of res.rows) {
+          const k = r.wallet_address;
+          if (!merged[k]) merged[k] = { total: 0, shares: 0, last: r.last_seen };
+          merged[k].total += Number(r.total_earned);
+          merged[k].shares += Number(r.share_count);
+          if (r.last_seen > merged[k].last) merged[k].last = r.last_seen;
+        }
+        return Object.entries(merged)
+          .sort((a, b) => b[1].total - a[1].total)
+          .slice(0, 25)
+          .map(([address, d], i) => ({
+            rank: i + 1,
+            address,
+            totalEarned: d.total,
+            shareCount: d.shares,
+            lastSeen: d.last,
+          }));
+      });
+      res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // POST /api/mining/payout — record a payout to the persistent mining_payouts table
+  app.post("/api/mining/payout", requireAdmin, async (req, res) => {
+    try {
+      const { walletAddress, amount, blockHeight, poolName, shareCount } = req.body;
+      if (!walletAddress || !amount) return res.status(400).json({ error: 'walletAddress and amount required' });
+      await pgPool.query(
+        `INSERT INTO mining_payouts (wallet_address, amount, block_height, pool_name, share_count)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [walletAddress, Number(amount), blockHeight ?? null, poolName ?? 'default', shareCount ?? 1]
+      );
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Genesis JSON builder — reads ALL confirmed balances from DB ─────────────
@@ -3424,6 +3546,24 @@ export function registerRoutes(app: Express) {
       const { status, destTxHash } = req.body;
       const result = await storage.updateBridgeTransferStatus(req.params.id, status, destTxHash);
       res.json(result);
+      // Send email on bridge completion
+      if (status === 'completed' || status === 'confirmed') {
+        const user = req.user as any;
+        const email = user?.email;
+        if (email && result) {
+          sendBridgeCompletionEmail(email, {
+            fromChain: (result as any).from_chain ?? 'Unknown',
+            toChain: (result as any).to_chain ?? 'Unknown',
+            fromToken: (result as any).from_token ?? 'GYDS',
+            amount: String((result as any).amount ?? ''),
+            destTxHash,
+          }).catch(() => {});
+        }
+        (storage as any).createNotification(
+          String(user?.id), 'bridge', '🌉 Bridge Complete',
+          `Transfer completed${destTxHash ? ` · ${String(destTxHash).slice(0, 10)}…` : ''}`, '/defi'
+        ).catch(() => {});
+      }
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -3946,14 +4086,36 @@ export function registerRoutes(app: Express) {
       const nodeSummary = nodeRows?.rows?.[0] ?? { total: 0, synced: 0 };
       let dbOk = false;
       try { await pgPool?.query('SELECT 1'); dbOk = true; } catch { dbOk = false; }
+
+      // ── Threshold alerts ────────────────────────────────────────────────────
+      const activeCount = validators.filter((v: any) => v.status === 'active' || v.is_active).length;
+      const allRpcDown = (rpcHealth as any[]).every((r: any) => !r.reachable);
+      const alerts: string[] = [];
+      if (activeCount === 0 && validators.length > 0) alerts.push(`⚠️ All validators are inactive (${validators.length} registered)`);
+      if (allRpcDown) alerts.push('🔴 All RPC endpoints are unreachable');
+      if (!dbOk) alerts.push('🔴 Database connection failed');
+      if (alerts.length > 0) {
+        const discordMod = await import('./discord').catch(() => null);
+        if (discordMod?.discordAlert) {
+          for (const msg of alerts) discordMod.discordAlert(msg).catch(() => {});
+        }
+        pgPool?.query(
+          `INSERT INTO user_notifications (user_id, title, body, type)
+           SELECT id, 'Monitoring Alert', $1, 'alert'
+           FROM users WHERE 'admin' = ANY(roles) OR 'founder' = ANY(roles) LIMIT 5`,
+          [alerts.join(' | ')]
+        ).catch(() => {});
+      }
+
       res.json({
         timestamp: new Date().toISOString(),
-        validators: { total: validators.length, active: validators.filter((v: any) => v.status === 'active').length },
+        validators: { total: validators.length, active: activeCount },
         nodes: { total: Number(nodeSummary.total ?? 0), synced: Number(nodeSummary.synced ?? 0) },
         rpc: rpcHealth,
         db: dbOk,
         uptime: process.uptime(),
         memory: process.memoryUsage(),
+        alerts,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -5457,6 +5619,7 @@ export function registerRoutes(app: Express) {
     'WHATSAPP_PHONE_ID',
     'GYDS_BOOTSTRAP_NODES',
     'GYDS_RPC_URL', 'GYDS_RPC_BACKUP_URLS', 'GYDS_LOCAL_RPC_URL',
+    'DISCORD_WEBHOOK_URL',
   ];
   const SERVER_CONFIG_SECRET: string[] = [
     'GITHUB_TOKEN', 'HCAPTCHA_SECRET_KEY',
@@ -5532,6 +5695,7 @@ export function registerRoutes(app: Express) {
       if (toSave['GYDS_RPC_URL'])         gydsConf['GYDS_RPC_URL'] = toSave['GYDS_RPC_URL'];
       if (toSave['GYDS_RPC_BACKUP_URLS']) gydsConf['GYDS_RPC_BACKUP_URLS'] = toSave['GYDS_RPC_BACKUP_URLS'];
       if (toSave['GYDS_LOCAL_RPC_URL'])   gydsConf['GYDS_LOCAL_RPC_URL'] = toSave['GYDS_LOCAL_RPC_URL'];
+      if (toSave['DISCORD_WEBHOOK_URL'])  gydsConf['DISCORD_WEBHOOK_URL'] = toSave['DISCORD_WEBHOOK_URL'];
       const gydsLines = [
         '# GYDSchain shared config — managed via Admin → Server Config',
         ...Object.entries(gydsConf).map(([k, v]) => `${k}=${v}`),
@@ -5993,5 +6157,155 @@ export function registerRoutes(app: Express) {
       `SELECT ak.*, u.email FROM api_keys ak LEFT JOIN users u ON u.id::text=ak.user_id ORDER BY ak.created_at DESC LIMIT 200`
     ).catch(() => ({ rows: [] as any[] }));
     res.json(rows);
+  });
+
+  // ── WireGuard peer config QR code ─────────────────────────────────────────
+  app.get("/api/wireguard/config.qr", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+      // Pull the most recent approved node for this user to build a peer config
+      const nodeRes = await pgPool.query(
+        `SELECT wireguard_public_key, node_type FROM node_installations
+         WHERE user_id=$1 AND is_approved=true ORDER BY created_at DESC LIMIT 1`,
+        [String(user.id)]
+      ).catch(() => ({ rows: [] as any[] }));
+      const node = nodeRes.rows[0];
+      const serverPubKey = process.env.WG_SERVER_PUBLIC_KEY ?? '<SERVER_PUBLIC_KEY>';
+      const serverEndpoint = process.env.WG_SERVER_ENDPOINT ?? 'vpn.netlifegy.com:51820';
+      const allowedIPs = '10.8.0.0/24';
+      const dns = '10.8.0.1';
+      // Generate a placeholder private key hint if no real key is stored
+      const clientPrivKey = '<paste-your-client-private-key>';
+      const peerPubKey = node?.wireguard_public_key ?? '<your-node-public-key>';
+      const config = [
+        '[Interface]',
+        `PrivateKey = ${clientPrivKey}`,
+        `Address = 10.8.0.100/24`,
+        `DNS = ${dns}`,
+        '',
+        '[Peer]',
+        `PublicKey = ${serverPubKey}`,
+        `Endpoint = ${serverEndpoint}`,
+        `AllowedIPs = ${allowedIPs}`,
+        'PersistentKeepalive = 25',
+        `# Node type: ${node?.node_type ?? 'unknown'}`,
+        `# Node public key: ${peerPubKey}`,
+      ].join('\n');
+      const QRCode = await import('qrcode');
+      const png = await QRCode.default.toBuffer(config, { type: 'png', width: 320, margin: 2 });
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Content-Disposition', 'inline; filename="wg-config.png"');
+      res.send(png);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Network Snapshots history (for charts) ─────────────────────────────────
+  app.get('/api/network-snapshots', async (req, res) => {
+    try {
+      const hours = Math.min(parseInt(req.query.hours as string ?? '168') || 168, 720);
+      const rows = await (storage as any).getNetworkHistory(hours).catch(() => [] as any[]);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Public REST API (X-API-Key authenticated, 60 req/min per key) ──────────
+  const publicApiLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 60,
+    // Key by API key prefix when present; fall back to IP (skip IPv6 validation warning via skip fn)
+    keyGenerator: (req) => {
+      const key = req.headers['x-api-key'] as string | undefined;
+      if (key) return `apikey:${key.slice(0, 18)}`;
+      return (req.headers['x-forwarded-for'] as string ?? req.socket?.remoteAddress ?? 'unknown').split(',')[0].trim();
+    },
+    skip: () => false,
+    validate: { xForwardedForHeader: false, ip: false },
+    message: { error: 'Rate limit exceeded — max 60 requests per minute per API key.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  async function requireApiKey(req: Request, res: Response, next: any) {
+    const rawKey = (req.headers['x-api-key'] as string | undefined)?.trim();
+    if (!rawKey) return res.status(401).json({ error: 'Missing X-API-Key header. Obtain a key from the Developer portal.' });
+    try {
+      const { createHash } = await import('crypto');
+      const hash = createHash('sha256').update(rawKey).digest('hex');
+      const { rows } = await pgPool.query(
+        `SELECT id, user_id, scopes, request_count, request_limit, revoked, expires_at
+         FROM api_keys WHERE key_hash=$1 LIMIT 1`,
+        [hash]
+      );
+      if (!rows[0] || rows[0].revoked) return res.status(401).json({ error: 'Invalid or revoked API key.' });
+      if (rows[0].expires_at && new Date(rows[0].expires_at) < new Date()) return res.status(401).json({ error: 'API key has expired.' });
+      if (rows[0].request_count >= rows[0].request_limit) return res.status(429).json({ error: 'Monthly request limit reached for this API key.' });
+      (req as any).apiKey = rows[0];
+      // Async usage log (non-blocking)
+      pgPool.query(`UPDATE api_keys SET request_count=request_count+1, last_used_at=NOW() WHERE id=$1`, [rows[0].id]).catch(() => {});
+      next();
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  }
+
+  // GET /api/public/chain — basic chain info
+  app.get('/api/public/chain', publicApiLimiter, requireApiKey, async (_req, res) => {
+    try {
+      const snap = await pgPool.query(
+        `SELECT block_height, tps, active_validators, total_stake, captured_at
+         FROM network_snapshots ORDER BY captured_at DESC LIMIT 1`
+      ).catch(() => ({ rows: [] as any[] }));
+      const s = snap.rows[0];
+      res.json({
+        chain_id: 13370,
+        name: 'GYDSchain',
+        symbol: 'GYDS',
+        block_height: s ? Number(s.block_height) : null,
+        tps: s ? Number(s.tps) : null,
+        active_validators: s ? Number(s.active_validators) : null,
+        total_stake: s ? s.total_stake : null,
+        snapshot_at: s?.captured_at ?? null,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/public/tokens — token list (first 100)
+  app.get('/api/public/tokens', publicApiLimiter, requireApiKey, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string ?? '50') || 50, 100);
+      const offset = parseInt(req.query.offset as string ?? '0') || 0;
+      const { rows } = await pgPool.query(
+        `SELECT id, name, symbol, description, decimals, total_supply, contract_address, logo_url, is_verified, created_at
+         FROM tokens WHERE is_active=true ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+        [limit, offset]
+      ).catch(() => ({ rows: [] as any[] }));
+      const count = await pgPool.query(`SELECT COUNT(*) FROM tokens WHERE is_active=true`).catch(() => ({ rows: [{ count: '0' }] }));
+      res.json({ tokens: rows, total: parseInt(count.rows[0]?.count ?? '0'), limit, offset });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/public/stats — aggregate network stats
+  app.get('/api/public/stats', publicApiLimiter, requireApiKey, async (_req, res) => {
+    try {
+      const [validators, tokens, txs, nodes] = await Promise.all([
+        pgPool.query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status='active' OR is_active) as active FROM network_validators`).catch(() => ({ rows: [{ total: 0, active: 0 }] })),
+        pgPool.query(`SELECT COUNT(*) as total FROM tokens WHERE is_active=true`).catch(() => ({ rows: [{ total: 0 }] })),
+        pgPool.query(`SELECT COUNT(*) as total FROM transactions`).catch(() => ({ rows: [{ total: 0 }] })),
+        pgPool.query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_online) as online FROM node_installations`).catch(() => ({ rows: [{ total: 0, online: 0 }] })),
+      ]);
+      const snap = await pgPool.query(
+        `SELECT block_height, tps, total_stake FROM network_snapshots ORDER BY captured_at DESC LIMIT 1`
+      ).catch(() => ({ rows: [] as any[] }));
+      const s = snap.rows[0];
+      res.json({
+        chain_id: 13370,
+        validators: { total: Number(validators.rows[0]?.total ?? 0), active: Number(validators.rows[0]?.active ?? 0) },
+        tokens: Number(tokens.rows[0]?.total ?? 0),
+        transactions: Number(txs.rows[0]?.total ?? 0),
+        nodes: { total: Number(nodes.rows[0]?.total ?? 0), online: Number(nodes.rows[0]?.online ?? 0) },
+        block_height: s ? Number(s.block_height) : null,
+        tps: s ? Number(s.tps) : null,
+        total_stake: s ? s.total_stake : null,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 }

@@ -42,6 +42,7 @@ interface ConfigValues {
   GYDS_RPC_BACKUP_URLS: string;
   GYDS_LOCAL_RPC_URL: string;
   TREASURY_PRIVATE_KEY: string;
+  DISCORD_WEBHOOK_URL: string;
 }
 
 const EMPTY: ConfigValues = {
@@ -53,6 +54,7 @@ const EMPTY: ConfigValues = {
   GYDS_BOOTSTRAP_NODES: '',
   GYDS_RPC_URL: '', GYDS_RPC_BACKUP_URLS: '', GYDS_LOCAL_RPC_URL: '',
   TREASURY_PRIVATE_KEY: '',
+  DISCORD_WEBHOOK_URL: '',
 };
 
 interface TreasuryStatus {
@@ -346,6 +348,20 @@ export function ServerConfigManager() {
             />
           </Field>
         </div>
+      </Section>
+
+      <Section icon={MessageCircle} title="Discord Alerts" desc="Post monitoring alerts and governance events to a Discord channel" defaultOpen={false}>
+        <Field label="Discord Webhook URL" hint="Create a webhook in your Discord server Settings → Integrations → Webhooks. Paste the full URL here.">
+          <Input
+            value={values.DISCORD_WEBHOOK_URL}
+            onChange={e => set('DISCORD_WEBHOOK_URL')(e.target.value)}
+            placeholder="https://discord.com/api/webhooks/..."
+            className="bg-black/20 border-border/40 font-mono text-sm"
+          />
+        </Field>
+        <p className="text-xs text-muted-foreground">
+          When set, the app automatically posts alerts for: node down/up events, large bridge transfers, new governance proposals, and monitoring threshold breaches (all validators inactive, RPC unreachable, DB failure).
+        </p>
       </Section>
 
       <Section icon={MessageCircle} title="Telegram Alerts" desc="Send admin alerts to a Telegram chat" defaultOpen={false}>

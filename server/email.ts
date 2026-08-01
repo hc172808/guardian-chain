@@ -110,6 +110,40 @@ export async function sendGovernanceNotificationEmail(to: string, title: string,
   });
 }
 
+export async function sendBridgeCompletionEmail(to: string, opts: {
+  fromChain: string; toChain: string; fromToken: string; amount: string; destTxHash?: string;
+}) {
+  return sendEmail({
+    to,
+    subject: `✅ Bridge Transfer Complete — ${opts.amount} ${opts.fromToken}`,
+    text: `Your bridge transfer of ${opts.amount} ${opts.fromToken} from ${opts.fromChain} → ${opts.toChain} has completed. ${opts.destTxHash ? `Destination tx: ${opts.destTxHash}` : ''} View at ${APP_URL}/defi`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#0d1117;color:#e6edf3;padding:32px;border-radius:12px;">
+        <h1 style="color:#00e5b4;font-size:20px;">🌉 Bridge Transfer Complete</h1>
+        <p><strong>${opts.amount} ${opts.fromToken}</strong> moved from <strong>${opts.fromChain}</strong> → <strong>${opts.toChain}</strong></p>
+        ${opts.destTxHash ? `<p style="font-family:monospace;font-size:12px;color:#8b949e;word-break:break-all;">Destination tx: ${opts.destTxHash}</p>` : ''}
+        <a href="${APP_URL}/defi" style="background:#00e5b4;color:#0d1117;font-weight:700;padding:10px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">View DeFi</a>
+      </div>
+    `,
+  });
+}
+
+export async function sendStakingRewardEmail(to: string, opts: { amount: string; symbol: string; apr: number }) {
+  return sendEmail({
+    to,
+    subject: `🏆 Staking Reward: ${opts.amount} ${opts.symbol}`,
+    text: `You earned ${opts.amount} ${opts.symbol} in staking rewards (${opts.apr}% APR). View at ${APP_URL}/defi`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#0d1117;color:#e6edf3;padding:32px;border-radius:12px;">
+        <h1 style="color:#00e5b4;font-size:20px;">🏆 Staking Reward Received</h1>
+        <p>You earned <strong style="color:#00e5b4;font-size:24px;">${opts.amount} ${opts.symbol}</strong></p>
+        <p style="color:#8b949e;">${opts.apr}% APR · auto-compounded</p>
+        <a href="${APP_URL}/defi" style="background:#00e5b4;color:#0d1117;font-weight:700;padding:10px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">View Staking</a>
+      </div>
+    `,
+  });
+}
+
 export async function sendBuyRequestStatusEmail(to: string, opts: {
   status: string; reference: string; tokenAmount: string; tokenSymbol: string;
   paymentMethod: string; adminNote?: string;
