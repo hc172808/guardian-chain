@@ -46,8 +46,8 @@ func DefaultGenesisConfig() *GenesisConfig {
         // Convert to wei (10^18)
         weiMultiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 
-        // 100 billion total supply
-        totalSupply := new(big.Int).Mul(big.NewInt(100_000_000_000), weiMultiplier)
+        // 1 billion total supply
+        totalSupply := new(big.Int).Mul(big.NewInt(1_000_000_000), weiMultiplier)
 
         return &GenesisConfig{
                 ChainID:       13370, // GYDS Mainnet Chain ID

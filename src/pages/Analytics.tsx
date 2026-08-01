@@ -282,7 +282,7 @@ const AnalyticsPage = () => {
   }));
 
   const circ = overview ? +overview.circulatingSupply : 0;
-  const total = overview ? +overview.totalSupply : 100_000_000_000;
+  const total = overview ? +overview.totalSupply : 1_000_000_000;
   const circPct = total > 0 ? Math.round((circ / total) * 100) : 0;
   const stakePct = 100 - circPct;
 
@@ -355,7 +355,7 @@ const AnalyticsPage = () => {
         {/* Secondary metrics */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'Total Supply', value: loading ? '…' : fmtBig(overview?.totalSupply ?? '100000000000') + ' GYDS', icon: Coins },
+            { label: 'Total Supply', value: loading ? '…' : fmtBig(overview?.totalSupply ?? '1000000000') + ' GYDS', icon: Coins },
             { label: 'Circulating', value: loading ? '…' : fmtBig(overview?.circulatingSupply ?? '0') + ' GYDS', icon: Zap },
             { label: 'Burned Total', value: loading ? '…' : fmtBig(overview?.burnedTotal ?? '0') + ' GYDS', icon: Flame },
             { label: 'Launched Tokens', value: loading ? '…' : (overview?.launchedTokens ?? 0).toString(), icon: Package },
@@ -483,7 +483,7 @@ const AnalyticsPage = () => {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
                   { label: 'Chain ID', value: '13370' },
-                  { label: 'Max Supply', value: '100B GYDS' },
+                  { label: 'Max Supply', value: '1B GYDS' },
                   { label: 'Circulating', value: loading ? '…' : fmtBig(overview?.circulatingSupply ?? 0) },
                   { label: 'Burned', value: loading ? '…' : fmtBig(overview?.burnedTotal ?? 0) },
                   { label: 'Validators', value: loading ? '…' : String(overview?.activeValidators ?? 0) },

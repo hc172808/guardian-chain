@@ -63,7 +63,7 @@ func NewDualCoinManager() *DualCoinManager {
 			Name:          "GYDSchain",
 			Symbol:        "GYDS",
 			Decimals:      18,
-			MaxSupply:     new(big.Int).Mul(big.NewInt(100000000000), big.NewInt(1e18)), // 100B
+			MaxSupply:     new(big.Int).Mul(big.NewInt(1000000000), big.NewInt(1e18)), // 1B
 			InitialSupply: big.NewInt(0),
 			IsPegged:      false,
 		},

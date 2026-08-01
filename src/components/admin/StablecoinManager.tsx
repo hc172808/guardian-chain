@@ -57,7 +57,7 @@ export const StablecoinManager = () => {
   // GYDS token config
   const [gydsConfig, setGydsConfig] = useState<GYDSConfig>({
     price: 0.0000001,
-    totalSupply: 100_000_000_000,
+    totalSupply: 1_000_000_000,
     circulatingSupply: 0,
     burnedTotal: 0,
   });
