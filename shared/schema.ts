@@ -135,7 +135,7 @@ export const tokenOperations = pgTable("token_operations", {
 export const tokenPrice = pgTable("token_price", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   price: numeric("price").notNull().default("0.0000001"),
-  totalSupply: numeric("total_supply").notNull().default("100000000000"),
+  totalSupply: numeric("total_supply").notNull().default("1000000000"),
   circulatingSupply: numeric("circulating_supply").notNull().default("0"),
   burnedTotal: numeric("burned_total").notNull().default("0"),
   updatedAt: timestamp("updated_at").defaultNow(),

@@ -2015,7 +2015,7 @@ export function registerRoutes(app: Express) {
     ]);
     res.json({
       price:              tokenPriceRow?.price              ?? "0.0000001",
-      totalSupply:        tokenPriceRow?.totalSupply        ?? "100000000000",
+      totalSupply:        tokenPriceRow?.totalSupply        ?? "1000000000",
       circulatingSupply:  tokenPriceRow?.circulatingSupply  ?? "0",
       burnedTotal:        tokenPriceRow?.burnedTotal        ?? "0",
       activeValidators:   validatorCount,
