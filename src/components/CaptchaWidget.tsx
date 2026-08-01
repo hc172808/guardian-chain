@@ -340,22 +340,30 @@ const MathChallengeWidget = ({
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-3">
-          <QuestionDisplay question={question} />
-          <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="number"
-              inputMode="numeric"
-              value={answer}
-              onChange={e => handleChange(e.target.value)}
-              placeholder="Answer"
-              className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-primary transition-colors text-center font-mono font-semibold"
-              aria-label="Type your answer"
-            />
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <QuestionDisplay question={question} />
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                type="number"
+                inputMode="numeric"
+                value={answer}
+                onChange={e => handleChange(e.target.value)}
+                placeholder="Answer"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-primary transition-colors text-center font-mono font-semibold"
+                aria-label="Type your answer"
+              />
+            </div>
           </div>
+          {offline && (
+            <p className="text-[11px] text-muted-foreground">
+              Offline check — the security service is unreachable, using a local question.
+            </p>
+          )}
         </div>
       )}
+
     </div>
   );
 };
