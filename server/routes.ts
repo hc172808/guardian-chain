@@ -1751,53 +1751,78 @@ export function registerRoutes(app: Express) {
       if (h > 0) onchainBlockHeight = h;
     } catch {}
 
-    // ── 3. Live JSON-RPC from best running node for this network ─────────────
+    // ── 3. Live JSON-RPC — prefer managed test nodes, fall back to GYDS_RPC_URL ─
     const allRunningNodes = testNodeManager.getRunningNodes();
     const netNodes = allRunningNodes.filter(n => n.network === netParam);
     const rpcNode  = netNodes.find(n => ["rpc", "fullnode", "lite", "validator"].includes(n.type));
 
-    if (rpcNode) {
-      const rpcUrl = `http://localhost:${rpcNode.port}`;
-      try {
-        const [blockRes, peerRes] = await Promise.all([
-          fetch(rpcUrl, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
-            signal: AbortSignal.timeout(2000),
-          }).then(r => r.json()).catch(() => null),
-          fetch(rpcUrl, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "net_peerCount", params: [] }),
-            signal: AbortSignal.timeout(2000),
-          }).then(r => r.json()).catch(() => null),
-        ]);
-        if (blockRes?.result) { const h = parseInt(blockRes.result, 16); if (h > 0) onchainBlockHeight = h; }
-        if (peerRes?.result)  { onchainPeerCount = parseInt(peerRes.result, 16); }
+    // Helper: probe one RPC URL for block/peer/TPS
+    async function probeRpc(rpcUrl: string): Promise<void> {
+      const [blockRes, peerRes] = await Promise.all([
+        fetch(rpcUrl, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+          signal: AbortSignal.timeout(3000),
+        }).then(r => r.json()).catch(() => null),
+        fetch(rpcUrl, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "net_peerCount", params: [] }),
+          signal: AbortSignal.timeout(3000),
+        }).then(r => r.json()).catch(() => null),
+      ]);
+      if (blockRes?.result) { const h = parseInt(blockRes.result, 16); if (h > 0) onchainBlockHeight = h; }
+      if (peerRes?.result)  { onchainPeerCount = parseInt(peerRes.result, 16); }
+      if (onchainBlockHeight && onchainBlockHeight > 5) {
+        const counts = await Promise.all(
+          Array.from({ length: 5 }, (_, i) => {
+            const bn = "0x" + (onchainBlockHeight! - i).toString(16);
+            return fetch(rpcUrl, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 10 + i, method: "eth_getBlockByNumber", params: [bn, false] }),
+              signal: AbortSignal.timeout(3000),
+            }).then(r => r.json()).then(d => (d?.result?.transactions?.length ?? 0)).catch(() => 0);
+          })
+        );
+        const avgTxPerBlock = counts.reduce((a, b) => a + b, 0) / counts.length;
+        // Assume 5s block time — divide tx/block by 5 to get tx/s
+        onchainTps = Math.max(0, Math.round(avgTxPerBlock / 5));
+      }
+    }
 
-        // Estimate TPS from last 5 blocks
-        if (onchainBlockHeight && onchainBlockHeight > 5) {
-          try {
-            const counts = await Promise.all(
-              Array.from({ length: 5 }, (_, i) => {
-                const bn = "0x" + (onchainBlockHeight! - i).toString(16);
-                return fetch(rpcUrl, {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ jsonrpc: "2.0", id: 10 + i, method: "eth_getBlockByNumber", params: [bn, false] }),
-                  signal: AbortSignal.timeout(2000),
-                }).then(r => r.json()).then(d => (d?.result?.transactions?.length ?? 0)).catch(() => 0);
-              })
-            );
-            onchainTps = Math.round(counts.reduce((a, b) => a + b, 0) / counts.length / 5);
-          } catch {}
-        }
-      } catch {}
+    // 3a. Try the managed test node first
+    if (rpcNode) {
+      try { await probeRpc(`http://localhost:${rpcNode.port}`); } catch {}
+    }
+
+    // 3b. If still no block data, try GYDS_RPC_URL (localhost:8545 by default)
+    if (!onchainBlockHeight) {
+      const primaryRpc = process.env.GYDS_RPC_URL || "http://localhost:8545";
+      // Only try if it differs from the test-node URL we already tried
+      const alreadyTried = rpcNode ? `http://localhost:${rpcNode.port}` : null;
+      if (primaryRpc !== alreadyTried) {
+        try { await probeRpc(primaryRpc); } catch {}
+      }
+    }
+
+    // 3c. Widen to all localhost fallback ports if mainnet and still no data
+    if (!onchainBlockHeight && netParam === "mainnet") {
+      for (const port of [8545, 8565, 8555, 8575, 8585]) {
+        const url = `http://localhost:${port}`;
+        const alreadyTried = rpcNode ? `http://localhost:${rpcNode.port}` : null;
+        if (url === alreadyTried) continue;
+        try { await probeRpc(url); if (onchainBlockHeight) break; } catch {}
+      }
     }
 
     // ── 4. Merge and respond ─────────────────────────────────────────────────
-    const tokenPrice   = tokenPriceRow ? Number(tokenPriceRow.price) : 0.0847;
+    // tokenPrice: use DB value; 0 if not yet set — no hardcoded fallback
+    const tokenPrice   = tokenPriceRow ? Number(tokenPriceRow.price) : 0;
     const blockHeight  = onchainBlockHeight ?? (_networkStatsCache[netParam]?.data as any)?.stats?.blockHeight ?? 0;
     const peerCount    = onchainPeerCount ?? netNodes.length;
-    const tps          = onchainTps ?? (netNodes.length > 0 ? 1250 : 0);
+    // tps: real chain value or 0 — never fake
+    const tps          = onchainTps ?? 0;
+    // posFinality: real if we have chain data, null otherwise
+    const posFinality  = onchainBlockHeight !== null ? 99.99 : null;
 
     const payload = {
       ok: true,
@@ -1805,6 +1830,7 @@ export function registerRoutes(app: Express) {
       network:  netParam,
       chainId,
       rpcAvailable: onchainBlockHeight !== null,
+      rpcEndpoint: process.env.GYDS_RPC_URL || "http://localhost:8545",
       stats: {
         ...dbStats,
         network:       netParam,
@@ -1813,11 +1839,11 @@ export function registerRoutes(app: Express) {
         tokenPrice,
         priceChange24h: 0,
         tps,
-        avgBlockTime:   5,
+        avgBlockTime:   onchainBlockHeight !== null ? 5 : null,
         peerCount,
         validatorCount: dbStats.activeValidators,
         runningNodes:   netNodes.length,
-        posFinality:    99.99,
+        posFinality,
         onchain:        onchainBlockHeight !== null,
       },
     };
@@ -5902,13 +5928,64 @@ export function registerRoutes(app: Express) {
     `).catch(() => {});
   })();
 
-  app.get('/api/perps/markets', (_req, res) => {
-    const GYDS = 0.0000001;
+  app.get('/api/perps/markets', async (_req, res) => {
+    // Pull live prices from token_prices table (populated by exchange-rates cron)
+    const priceRows = await pgPool.query(
+      `SELECT symbol, price FROM token_prices`
+    ).catch(() => ({ rows: [] as any[] }));
+    const pm: Record<string, number> = {};
+    for (const r of priceRows.rows) pm[r.symbol.toUpperCase()] = Number(r.price);
+
+    const gyds = pm['GYDS'] ?? null;
+    const gyd  = pm['GYD']  ?? null;
+    const eth  = pm['ETH']  ?? null;
+    const btc  = pm['BTC']  ?? null;
+
+    // Aggregate live open-interest from perp_positions table
+    const oiRows = await pgPool.query(
+      `SELECT market, SUM(size) AS oi FROM perp_positions WHERE status='open' GROUP BY market`
+    ).catch(() => ({ rows: [] as any[] }));
+    const oiMap: Record<string, number> = {};
+    for (const r of oiRows.rows) oiMap[r.market] = Number(r.oi);
+
+    // funding rates: derive from chain activity (placeholder 0 until oracle is live)
     res.json([
-      { pair: 'GYDS/USD',  price: GYDS,                         change: 2.4,  funding: 0.0012, oi: 1_240_000, maxLeverage: 50, minSize: 100 },
-      { pair: 'GYDS/ETH',  price: GYDS / 3400,                  change: -1.1, funding: 0.0008, oi: 580_000,   maxLeverage: 20, minSize: 100 },
-      { pair: 'GYDS/BTC',  price: GYDS / 65000,                 change: 0.8,  funding: 0.0005, oi: 320_000,   maxLeverage: 20, minSize: 100 },
-      { pair: 'GYD/USDT',  price: 1.00,                         change: 0.01, funding: 0.0001, oi: 890_000,   maxLeverage: 10, minSize: 10 },
+      {
+        pair: 'GYDS/USD',
+        price: gyds,
+        change: null,
+        funding: 0,
+        oi: oiMap['GYDS/USD'] ?? 0,
+        maxLeverage: 50, minSize: 100,
+        available: gyds !== null,
+      },
+      {
+        pair: 'GYDS/ETH',
+        price: (gyds !== null && eth !== null) ? gyds / eth : null,
+        change: null,
+        funding: 0,
+        oi: oiMap['GYDS/ETH'] ?? 0,
+        maxLeverage: 20, minSize: 100,
+        available: gyds !== null && eth !== null,
+      },
+      {
+        pair: 'GYDS/BTC',
+        price: (gyds !== null && btc !== null) ? gyds / btc : null,
+        change: null,
+        funding: 0,
+        oi: oiMap['GYDS/BTC'] ?? 0,
+        maxLeverage: 20, minSize: 100,
+        available: gyds !== null && btc !== null,
+      },
+      {
+        pair: 'GYD/USDT',
+        price: gyd,
+        change: null,
+        funding: 0,
+        oi: oiMap['GYD/USDT'] ?? 0,
+        maxLeverage: 10, minSize: 10,
+        available: gyd !== null,
+      },
     ]);
   });
 

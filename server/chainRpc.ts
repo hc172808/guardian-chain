@@ -5,16 +5,26 @@ import crypto from "crypto";
 // resolved (ES module import hoisting), so a top-level const here would have
 // baked in stale/missing env values and silently ignored any admin-configured
 // RPC override.
+// All local node ports in priority order (rpc → fullnode → lite → boost → validator → genesis → bootnode)
+// mainnet ports: 8545,8565,8555,8575,8585,8590,8595
+// testnet ports: 8600,8602,8601,8603,8604,8605,8606
+// devnet  ports: 8650,8652,8651,8653,8654,8655,8656
+const LOCAL_FALLBACK_PORTS = [8545, 8565, 8555, 8575, 8585, 8590, 8595];
+
 function getRpcEndpoints(): string[] {
-  const backups = process.env.GYDS_RPC_BACKUP_URLS
+  const primary = process.env.GYDS_RPC_URL || "http://localhost:8545";
+  // If admin has configured explicit backup URLs, use those; otherwise fall through local ports
+  const configuredBackups = process.env.GYDS_RPC_BACKUP_URLS
     ? process.env.GYDS_RPC_BACKUP_URLS.split(",").map((s) => s.trim()).filter(Boolean)
-    : ["https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
-  const local = process.env.GYDS_LOCAL_RPC_URL ? [process.env.GYDS_LOCAL_RPC_URL.trim()] : [];
-  return [
-    process.env.GYDS_RPC_URL || "https://rpc.netlifegy.com",
-    ...backups,
-    ...local,
-  ].filter(Boolean) as string[];
+    : LOCAL_FALLBACK_PORTS.map(p => `http://localhost:${p}`);
+  const explicit = process.env.GYDS_LOCAL_RPC_URL ? [process.env.GYDS_LOCAL_RPC_URL.trim()] : [];
+  // Deduplicate while preserving order
+  const seen = new Set<string>();
+  return [primary, ...configuredBackups, ...explicit].filter(u => {
+    if (!u || seen.has(u)) return false;
+    seen.add(u);
+    return true;
+  });
 }
 
 const TIMEOUT_MS = 8000;
