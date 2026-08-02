@@ -357,29 +357,57 @@ cd "$APP_DIR"
 #   1. Force user-level registry to npmjs.org
 #   2. Delete the lock file so npm regenerates it cleanly
 #   3. Purge the npm cache so no stale .tgz files from the Replit mirror survive
+# ── Force public npm registry everywhere ─────────────────────────────────
+# Replit builds with an internal mirror (package-firewall.replit.local)
+# that is unreachable from external servers.  Clear every level:
+#   • global npmrc   → overrides anything set by npm config
+#   • user npmrc     → ~/.npmrc can pin Replit's registry
+#   • project .npmrc → may have been committed from Replit workspace
+#   • lock file      → contains resolved Replit-mirror URLs; regenerate it
+#   • cache          → stale .tgz files pointing to the internal mirror
+npm config set registry https://registry.npmjs.org/ --global
 npm config set registry https://registry.npmjs.org/
-# Also remove any project-level .npmrc that might override the registry
+echo "registry=https://registry.npmjs.org/" > /root/.npmrc
+echo "registry=https://registry.npmjs.org/" > /etc/npmrc 2>/dev/null || true
 rm -f .npmrc
 rm -f package-lock.json
 npm cache clean --force 2>/dev/null || true
-log "  npm registry → registry.npmjs.org (cache cleared, lock regenerated)"
+log "npm registry → registry.npmjs.org (all levels, cache cleared)"
+
+# Verify registry is reachable before spending time on install
+info "Checking registry connectivity..."
+if ! curl -sf --max-time 10 https://registry.npmjs.org/ > /dev/null 2>&1; then
+    warn "registry.npmjs.org unreachable — trying mirror..."
+    npm config set registry https://registry.npmmirror.com/ --global
+    npm config set registry https://registry.npmmirror.com/
+    echo "registry=https://registry.npmmirror.com/" > /root/.npmrc
+fi
 
 # ── Install dependencies ──────────────────────────────────────────────────
-info "Running npm install (this may take a few minutes)..."
-if ! npm install --legacy-peer-deps; then
-    err "npm install failed. Trying with --prefer-offline as fallback..."
-    npm install --legacy-peer-deps --prefer-offline || { err "npm install failed. Check /tmp/npm-debug.log"; exit 1; }
-fi
+info "Running npm install — this downloads ~300 packages; 3-10 min on first run."
+info "You will see each package name scroll by (no spinner). Do NOT interrupt."
+npm install \
+    --legacy-peer-deps \
+    --no-audit \
+    --no-fund \
+    --progress=false \
+    --loglevel=warn \
+    2>&1 | tee /tmp/gyds-npm-install.log || {
+        err "npm install failed — last 40 lines:"
+        tail -40 /tmp/gyds-npm-install.log >&2
+        exit 1
+    }
+log "Dependencies installed ($(ls node_modules | wc -l) packages)"
 
 # ── Build frontend ────────────────────────────────────────────────────────
 # Large React apps routinely exceed Node's default 512 MB heap during Vite
 # bundling. Give the build process 2 GB; fall back to 3 GB if that fails.
-info "Building frontend (NODE_OPTIONS=--max-old-space-size=2048)..."
-if ! NODE_OPTIONS="--max-old-space-size=2048" npm run build; then
+info "Building frontend — this takes 2-5 min, watch for progress below..."
+if ! NODE_OPTIONS="--max-old-space-size=2048" npm run build 2>&1 | tee /tmp/gyds-build.log; then
     warn "Build failed with 2 GB heap — retrying with 3 GB..."
-    if ! NODE_OPTIONS="--max-old-space-size=3072" npm run build; then
-        err "Build failed. Last 30 lines of vite output:"
-        NODE_OPTIONS="--max-old-space-size=3072" npm run build 2>&1 | tail -30 || true
+    if ! NODE_OPTIONS="--max-old-space-size=3072" npm run build 2>&1 | tee /tmp/gyds-build.log; then
+        err "Build failed. Full output:"
+        cat /tmp/gyds-build.log >&2
         exit 1
     fi
 fi
