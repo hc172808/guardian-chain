@@ -364,8 +364,25 @@ rm -f package-lock.json
 npm cache clean --force 2>/dev/null || true
 log "  npm registry → registry.npmjs.org (cache cleared, lock regenerated)"
 
-npm install --legacy-peer-deps
-npm run build
+# ── Install dependencies ──────────────────────────────────────────────────
+info "Running npm install (this may take a few minutes)..."
+if ! npm install --legacy-peer-deps; then
+    err "npm install failed. Trying with --prefer-offline as fallback..."
+    npm install --legacy-peer-deps --prefer-offline || { err "npm install failed. Check /tmp/npm-debug.log"; exit 1; }
+fi
+
+# ── Build frontend ────────────────────────────────────────────────────────
+# Large React apps routinely exceed Node's default 512 MB heap during Vite
+# bundling. Give the build process 2 GB; fall back to 3 GB if that fails.
+info "Building frontend (NODE_OPTIONS=--max-old-space-size=2048)..."
+if ! NODE_OPTIONS="--max-old-space-size=2048" npm run build; then
+    warn "Build failed with 2 GB heap — retrying with 3 GB..."
+    if ! NODE_OPTIONS="--max-old-space-size=3072" npm run build; then
+        err "Build failed. Last 30 lines of vite output:"
+        NODE_OPTIONS="--max-old-space-size=3072" npm run build 2>&1 | tail -30 || true
+        exit 1
+    fi
+fi
 log "Build complete → $APP_DIR/dist"
 
 step "4b/8 — DB schema migrations"
@@ -663,9 +680,12 @@ fi
 
 # ── 4. Build (skip with --skip-build for config-only changes) ─────────────
 if [[ "\$SKIP_BUILD" == "0" ]]; then
-    info "Building frontend..."
+    info "Building frontend (NODE_OPTIONS=--max-old-space-size=2048)..."
     cd "\$APP_DIR"
-    npm run build 2>&1 | tail -10
+    if ! NODE_OPTIONS="--max-old-space-size=2048" npm run build; then
+        warn "Build failed with 2 GB — retrying with 3 GB..."
+        NODE_OPTIONS="--max-old-space-size=3072" npm run build 2>&1 | tail -20 || { err "Build failed"; exit 1; }
+    fi
     log "Build complete"
 else
     warn "--skip-build passed — skipping Vite build"
