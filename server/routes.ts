@@ -528,9 +528,9 @@ export function registerRoutes(app: Express) {
     const all = (testNodeManager.status as any)() as any;
     const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"];
     const externalUrls: Record<string, string> = {
-      mainnet: "https://rpc.netlifegy.com",
-      testnet: "https://testnet-rpc.netlifegy.com",
-      devnet:  "https://devnet-rpc.netlifegy.com",
+      mainnet: process.env.GYDS_RPC_URL || "http://localhost:8545",
+      testnet: process.env.GYDS_TESTNET_RPC_URL || "http://localhost:8600",
+      devnet:  process.env.GYDS_DEVNET_RPC_URL  || "http://localhost:8650",
     };
     const NETS   = ["mainnet", "testnet", "devnet"] as const;
     const NTYPES = ["rpc", "lite", "fullnode", "boostnode", "validator", "genesis", "bootnode"] as const;
@@ -3000,20 +3000,27 @@ export function registerRoutes(app: Express) {
     let livePort: number | null = null;
     for (const t of tryTypes) { if (netStatus[t]?.running) { livePort = netStatus[t].port; break; } }
 
-    // Also consider DB-registered nodes that are online and have an IP
+    // If no managed test node, try GYDS_RPC_URL (localhost:8545) then registered DB nodes
     if (!livePort) {
-      const regNode = await pgPool.query(
-        `SELECT ip_address, hostname, rpc_port FROM node_installations WHERE is_approved=true AND is_online=true AND (ip_address IS NOT NULL OR hostname IS NOT NULL) LIMIT 1`
-      ).catch(() => ({ rows: [] }));
-      if (regNode.rows[0]) {
-        const h = regNode.rows[0].ip_address || regNode.rows[0].hostname;
-        const p = regNode.rows[0].rpc_port || 8545;
-        // We'll try this host below
+      // Try primary RPC first
+      const primaryRpc = process.env.GYDS_RPC_URL || "http://localhost:8545";
+      const candidateUrls: string[] = [primaryRpc];
+      // Add DB-registered online nodes
+      const regNodes = await pgPool.query(
+        `SELECT ip_address, hostname, rpc_port FROM node_installations WHERE is_approved=true AND is_online=true AND (ip_address IS NOT NULL OR hostname IS NOT NULL) LIMIT 3`
+      ).catch(() => ({ rows: [] as any[] }));
+      for (const row of regNodes.rows) {
+        const h = row.ip_address || row.hostname;
+        const p = row.rpc_port || 8545;
+        candidateUrls.push(`http://${h}:${p}`);
+      }
+      for (const rpcBase of candidateUrls) {
         const perAddress: Record<string, string> = {};
         let totalEther = 0;
+        let anySuccess = false;
         for (const addr of addresses) {
           try {
-            const r = await fetch(`http://${h}:${p}`, {
+            const r = await fetch(rpcBase, {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [addr, "latest"], id: 1 }),
               signal: AbortSignal.timeout(4000),
@@ -3021,11 +3028,12 @@ export function registerRoutes(app: Express) {
             const j = await r.json();
             const wei = j?.result ? BigInt(j.result) : BigInt(0);
             const ether = Number(wei) / 1e18;
-            perAddress[addr] = ether.toString();
+            perAddress[addr] = ether.toFixed(6);
             totalEther += ether;
+            anySuccess = true;
           } catch { perAddress[addr] = "0"; }
         }
-        return res.json({ perAddress, total: totalEther.toString(), network, source: "registered-node" });
+        if (anySuccess) return res.json({ perAddress, total: totalEther.toFixed(6), network, source: rpcBase });
       }
     }
 
@@ -3101,29 +3109,44 @@ export function registerRoutes(app: Express) {
     const all = testNodeManager.status() as any;
     const netStatus = all[VALID_NETWORKS.includes(network) ? network : "mainnet"] ?? {};
     const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"] as const;
-    let targetPort: number | null = null;
+
+    // Build ordered list of URLs to try: managed test nodes first, then GYDS_RPC_URL, then local port fallbacks
+    const urls: string[] = [];
     for (const t of prioritized) {
-      if (netStatus[t]?.running) { targetPort = netStatus[t].port; break; }
+      if (netStatus[t]?.running) urls.push(`http://localhost:${netStatus[t].port}`);
     }
-    if (!targetPort) {
-      return res.status(503).json({
-        jsonrpc: "2.0",
-        error: { code: -32603, message: `No ${network} test nodes running. Start a node in Admin → Test Nodes.` },
-        id: req.body?.id ?? null,
-      });
+    // Always include the configured primary RPC (localhost:8545 by default)
+    const primary = process.env.GYDS_RPC_URL || "http://localhost:8545";
+    if (!urls.includes(primary)) urls.push(primary);
+    // Localhost port fallbacks for mainnet
+    if (network === "mainnet") {
+      for (const p of [8545, 8565, 8555, 8575, 8585]) {
+        const u = `http://localhost:${p}`;
+        if (!urls.includes(u)) urls.push(u);
+      }
     }
-    try {
-      const upstream = await fetch(`http://localhost:${targetPort}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req.body),
-        signal: AbortSignal.timeout(10000),
-      });
-      const data = await upstream.json();
-      res.json(data);
-    } catch (e: any) {
-      res.status(502).json({ jsonrpc: "2.0", error: { code: -32603, message: `RPC proxy error: ${e.message}` }, id: req.body?.id ?? null });
+
+    const body = { ...req.body };
+    delete body._network; // strip internal field before forwarding
+
+    for (const url of urls) {
+      try {
+        const upstream = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(10000),
+        });
+        const data = await upstream.json();
+        res.json(data);
+        return;
+      } catch {}
     }
+    res.status(502).json({
+      jsonrpc: "2.0",
+      error: { code: -32603, message: `All RPC endpoints unreachable. Tried: ${urls.join(', ')}` },
+      id: req.body?.id ?? null,
+    });
   });
 
   // ── Live Explorer: fetch real blocks from a running test node ────────────
@@ -4490,15 +4513,60 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  defineJob({ id: 'network-snapshot', name: 'Network Snapshot', description: 'Captures a point-in-time snapshot of network metrics (TPS, block height, validators)', schedule: '*/15 * * * *', intervalMs: 900_000, enabled: true,
+  defineJob({ id: 'network-snapshot', name: 'Network Snapshot', description: 'Captures live chain metrics (block height, TPS, validators) from the RPC node into network_snapshots', schedule: '*/15 * * * *', intervalMs: 900_000, enabled: true,
     fn: async () => {
-      const stats = await storage.getNetworkStats().catch(() => null);
-      if (!stats) return 'No stats available';
+      // Prefer managed test-node, fall back to GYDS_RPC_URL (localhost:8545)
+      const allNodes = testNodeManager.status() as any;
+      const mainnetStatus = allNodes['mainnet'] ?? {};
+      const prioritized = ['rpc', 'fullnode', 'boostnode', 'lite', 'validator'] as const;
+      let rpcUrl: string | null = null;
+      for (const t of prioritized) {
+        if (mainnetStatus[t]?.running) { rpcUrl = `http://localhost:${mainnetStatus[t].port}`; break; }
+      }
+      if (!rpcUrl) rpcUrl = process.env.GYDS_RPC_URL || 'http://localhost:8545';
+
+      let blockHeight = 0;
+      let tps = 0;
+      let peerCount = 0;
+      try {
+        const [bnRes, peerRes] = await Promise.all([
+          fetch(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
+            signal: AbortSignal.timeout(4000) }).then(r => r.json()).catch(() => null),
+          fetch(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'net_peerCount', params: [] }),
+            signal: AbortSignal.timeout(4000) }).then(r => r.json()).catch(() => null),
+        ]);
+        if (bnRes?.result) blockHeight = parseInt(bnRes.result, 16);
+        if (peerRes?.result) peerCount = parseInt(peerRes.result, 16);
+
+        // Estimate TPS from last 5 blocks
+        if (blockHeight > 5) {
+          const counts = await Promise.all(
+            Array.from({ length: 5 }, (_, i) => {
+              const bn = '0x' + (blockHeight - i).toString(16);
+              return fetch(rpcUrl!, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jsonrpc: '2.0', id: 10 + i, method: 'eth_getBlockByNumber', params: [bn, false] }),
+                signal: AbortSignal.timeout(3000) }).then(r => r.json()).then(d => d?.result?.transactions?.length ?? 0).catch(() => 0);
+            })
+          );
+          tps = Math.max(0, Math.round(counts.reduce((a, b) => a + b, 0) / counts.length / 5));
+        }
+      } catch {}
+
+      // DB baseline for validator/stake counts
+      const dbStats = await storage.getNetworkStats().catch(() => null);
+      const activeValidators = dbStats?.activeValidators ?? 0;
+      const totalStake = dbStats?.totalStake ?? '0';
+
+      if (blockHeight === 0) return `RPC offline at ${rpcUrl} — no snapshot written`;
+
       await pgPool.query(
-        `INSERT INTO network_snapshots (block_height, tps, active_validators, total_stake, timestamp) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT DO NOTHING`,
-        [stats.blockHeight || 0, stats.tps || 0, stats.activeValidators || 0, stats.totalStake || '0']
+        `INSERT INTO network_snapshots (block_height, tps, active_validators, total_stake, timestamp)
+         VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT DO NOTHING`,
+        [blockHeight, tps, activeValidators, totalStake]
       ).catch(() => {});
-      return `Snapshot at block ${stats.blockHeight || 'unknown'}`;
+      return `Snapshot: block=${blockHeight} tps=${tps} validators=${activeValidators} peers=${peerCount} via ${rpcUrl}`;
     }
   });
 
@@ -4521,36 +4589,88 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  defineJob({ id: 'price-feed', name: 'Price Feed Update', description: 'Refreshes cached token prices and checks user price alert thresholds', schedule: '*/5 * * * *', intervalMs: 300_000, enabled: true,
+  defineJob({ id: 'price-feed', name: 'Price Feed Update', description: 'Refreshes cached token prices from DB/chain and checks user price alert thresholds', schedule: '*/5 * * * *', intervalMs: 300_000, enabled: true,
     fn: async () => {
+      // 1. Fetch live prices from token_prices table (populated by exchange-rates cron)
+      const priceRows = await pgPool.query(
+        `SELECT symbol, price FROM token_prices`
+      ).catch(() => ({ rows: [] as any[] }));
+      const pm: Record<string, number> = {};
+      for (const r of priceRows.rows) pm[(r.symbol as string).toUpperCase()] = Number(r.price);
+
+      // 2. Ping the live RPC to confirm chain is up; snapshot block height
+      const rpcUrl = process.env.GYDS_RPC_URL || "http://localhost:8545";
+      let rpcOnline = false;
+      try {
+        const r = await fetch(rpcUrl, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+          signal: AbortSignal.timeout(3000),
+        });
+        const j = await r.json();
+        if (j?.result) {
+          rpcOnline = true;
+          const blockHeight = parseInt(j.result, 16);
+          await pgPool.query(
+            `INSERT INTO network_snapshots (block_height, tps, active_validators, total_stake, timestamp)
+             VALUES ($1, 0, 0, '0', NOW()) ON CONFLICT DO NOTHING`,
+            [blockHeight]
+          ).catch(() => {});
+        }
+      } catch {}
+
+      // 3. Check price alerts against real DB prices — skip alerts if no price data
       const { rows } = await pgPool.query(
         `SELECT * FROM price_alerts WHERE enabled=true AND triggered=false`
-      ).catch(() => ({ rows: [] }));
+      ).catch(() => ({ rows: [] as any[] }));
       let triggered = 0;
       for (const alert of rows) {
-        const price = Math.random() * 2 + (alert.asset === 'GYD' ? 0.98 : 0.8);
-        const hit = (alert.condition === 'above' && price >= parseFloat(alert.threshold)) || (alert.condition === 'below' && price <= parseFloat(alert.threshold));
+        const asset = (alert.asset as string).toUpperCase();
+        const price = pm[asset] ?? pm['GYDS'] ?? pm['GYD'] ?? null;
+        if (price === null) continue; // no live price — skip rather than fabricate
+        const threshold = parseFloat(alert.threshold);
+        const hit = (alert.condition === 'above' && price >= threshold)
+                 || (alert.condition === 'below' && price <= threshold);
         if (hit) {
           await pgPool.query(`UPDATE price_alerts SET triggered=true, triggered_at=NOW() WHERE id=$1`, [alert.id]).catch(() => {});
           triggered++;
         }
       }
-      return `Checked ${rows.length} alerts, triggered ${triggered}`;
+      return `Checked ${rows.length} alerts, triggered ${triggered}. RPC: ${rpcOnline ? 'online' : 'offline'}. Prices: ${Object.keys(pm).join(', ') || 'none in DB'}`;
     }
   });
 
-  defineJob({ id: 'health-check', name: 'Health Check Ping', description: 'Pings all configured RPC endpoints and logs availability metrics', schedule: '*/15 * * * *', intervalMs: 900_000, enabled: true,
+  defineJob({ id: 'health-check', name: 'Health Check Ping', description: 'Pings configured RPC endpoints and logs availability', schedule: '*/15 * * * *', intervalMs: 900_000, enabled: true,
     fn: async () => {
-      const endpoints = ['http://localhost:5001/api/health/rpc'];
+      const endpoints = [
+        process.env.GYDS_RPC_URL || 'http://localhost:8545',
+        'http://localhost:5001/api/health/rpc',
+      ];
       const results: string[] = [];
       for (const url of endpoints) {
         try {
           const start = Date.now();
-          const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
-          results.push(`${url}: ${r.status} (${Date.now() - start}ms)`);
+          const isJsonRpc = !url.includes('/api/');
+          const body = isJsonRpc
+            ? JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] })
+            : undefined;
+          const r = await fetch(url, {
+            method: isJsonRpc ? 'POST' : 'GET',
+            headers: isJsonRpc ? { 'Content-Type': 'application/json' } : {},
+            body,
+            signal: AbortSignal.timeout(5000),
+          });
+          const ms = Date.now() - start;
+          if (isJsonRpc) {
+            const j = await r.json().catch(() => ({}));
+            const block = j?.result ? parseInt(j.result, 16) : null;
+            results.push(`${url}: block=${block ?? 'err'} (${ms}ms)`);
+          } else {
+            results.push(`${url}: ${r.status} (${ms}ms)`);
+          }
         } catch (e: any) { results.push(`${url}: FAIL ${e.message}`); }
       }
-      return results.join('\n');
+      return results.join(' | ');
     }
   });
 
