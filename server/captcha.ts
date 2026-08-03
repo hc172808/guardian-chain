@@ -25,12 +25,42 @@ interface Challenge {
 }
 
 const challengeStore = new Map<string, Challenge>();
+const usedFallbackChallenges = new Map<string, number>();
+const FALLBACK_TTL_MS = 10 * 60_000;
+
+function deriveFallbackOperands(nonce: string): [number, number] {
+  let hash = 2166136261;
+  for (const char of nonce) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  const unsigned = hash >>> 0;
+  return [(unsigned % 9) + 2, ((unsigned >>> 8) % 9) + 2];
+}
+
+function verifyFallbackChallenge(challengeId: string, answer: string | number): boolean {
+  const match = /^fallback:v1:(\d{13}):([a-f0-9]{32})$/.exec(challengeId);
+  if (!match) return false;
+  const issuedAt = Number(match[1]);
+  const nonce = match[2];
+  const now = Date.now();
+  if (!Number.isFinite(issuedAt) || issuedAt > now + 30_000 || now - issuedAt > FALLBACK_TTL_MS) return false;
+  if (usedFallbackChallenges.has(challengeId)) return false;
+  const [a, b] = deriveFallbackOperands(nonce);
+  const submitted = Number.parseInt(String(answer).trim(), 10);
+  if (!Number.isFinite(submitted) || submitted !== a + b) return false;
+  usedFallbackChallenges.set(challengeId, now + FALLBACK_TTL_MS);
+  return true;
+}
 
 // Prune expired challenges every 2 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [id, ch] of challengeStore) {
     if (ch.expiresAt < now) challengeStore.delete(id);
+  }
+  for (const [id, expiresAt] of usedFallbackChallenges) {
+    if (expiresAt < now) usedFallbackChallenges.delete(id);
   }
 }, 2 * 60_000);
 
@@ -70,6 +100,9 @@ export function generateChallenge(): { challengeId: string; question: string } {
 }
 
 export function verifyMathChallenge(challengeId: string, answer: string | number): boolean {
+  if (challengeId.startsWith('fallback:v1:')) {
+    return verifyFallbackChallenge(challengeId, answer);
+  }
   const ch = challengeStore.get(challengeId);
   if (!ch) return false;
 

@@ -16,6 +16,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { RefreshCw, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { createFallbackChallenge, reportCaptchaEvent } from '@/lib/captchaFallback';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 /** Shape sent to the server alongside username/password */
@@ -184,14 +185,6 @@ function QuestionDisplay({ question }: { question: string }) {
  * The widget stays usable instead of dead-ending on an error; the server remains
  * the source of truth whenever it does answer, and simply ignores `local:` ids.
  */
-function makeLocalChallenge() {
-  const buf = new Uint32Array(2);
-  crypto.getRandomValues(buf);
-  const a = (buf[0] % 9) + 1;
-  const b = (buf[1] % 9) + 1;
-  return { challengeId: `local:${a}+${b}`, question: `${a} + ${b}`, answer: String(a + b) };
-}
-
 const MathChallengeWidget = ({
   onVerify,
   onExpire,
@@ -218,12 +211,13 @@ const MathChallengeWidget = ({
   useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
   const useLocalChallenge = useCallback(() => {
-    const c = makeLocalChallenge();
+    const c = createFallbackChallenge();
     localAnswerRef.current = c.answer;
     setChallengeId(c.challengeId);
     setQuestion(c.question);
     setOffline(true);
     setError('');
+    void reportCaptchaEvent('fallback_activated');
   }, []);
 
   const fetchChallenge = useCallback(async (autoFocus: boolean = true, attempt: number = 0) => {
@@ -238,7 +232,11 @@ const MathChallengeWidget = ({
       const res = await fetch('/api/auth/captcha', { headers: { Accept: 'application/json' } });
       const contentType = res.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json') || !res.ok) {
+        if (contentType.includes('text/html')) {
+          void reportCaptchaEvent('html_response', { status: res.status, endpoint: '/api/auth/captcha' });
+        }
         if (attempt < MAX_ATTEMPTS - 1) {
+          void reportCaptchaEvent('retry', { attempt: attempt + 1, status: res.status });
           await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
           return fetchChallenge(autoFocus, attempt + 1);
         }
@@ -248,11 +246,13 @@ const MathChallengeWidget = ({
       }
       const data = await res.json();
       localAnswerRef.current = null;
+      if (attempt > 0) void reportCaptchaEvent('recovered', { attempts: attempt + 1 });
       setOffline(false);
       setChallengeId(data.challengeId);
       setQuestion(data.question);
     } catch {
       if (attempt < MAX_ATTEMPTS - 1) {
+        void reportCaptchaEvent('retry', { attempt: attempt + 1, reason: 'network_error' });
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
         return fetchChallenge(autoFocus, attempt + 1);
       }
@@ -357,9 +357,10 @@ const MathChallengeWidget = ({
             </div>
           </div>
           {offline && (
-            <p className="text-[11px] text-muted-foreground">
-              Offline check — the security service is unreachable, using a local question.
-            </p>
+            <div className="flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400" role="status">
+              <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+              <span>Security service routing is degraded. This temporary question is still verified by the login server.</span>
+            </div>
           )}
         </div>
       )}

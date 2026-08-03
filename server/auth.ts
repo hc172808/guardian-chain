@@ -18,6 +18,21 @@ const pgPool = pool;
 // ── WhatsApp OTP store (in-memory, short-lived) ───────────────────────────────
 interface WaOtpEntry { otp: string; userId: string; expiresAt: number; }
 const waOtpStore = new Map<string, WaOtpEntry>(); // key = username (lowercased)
+type CaptchaMonitorEvent = 'html_response' | 'retry' | 'fallback_activated' | 'recovered' | 'captcha_failed' | 'blocked_login';
+const captchaMonitor = {
+  startedAt: new Date().toISOString(),
+  counts: {} as Record<CaptchaMonitorEvent, number>,
+  recent: [] as Array<{ event: CaptchaMonitorEvent; at: string; ip: string; details?: Record<string, unknown> }>,
+};
+
+function recordCaptchaMonitorEvent(event: CaptchaMonitorEvent, ip: string, details?: Record<string, unknown>) {
+  captchaMonitor.counts[event] = (captchaMonitor.counts[event] ?? 0) + 1;
+  captchaMonitor.recent.unshift({ event, at: new Date().toISOString(), ip, details });
+  captchaMonitor.recent = captchaMonitor.recent.slice(0, 50);
+  if (event === 'html_response' || event === 'fallback_activated' || event === 'blocked_login') {
+    console.warn(`[captcha-monitor] ${event} ip=${ip}`, details ?? {});
+  }
+}
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of waOtpStore) if (v.expiresAt < now) waOtpStore.delete(k);
@@ -120,12 +135,47 @@ export async function setupAuth(app: Express): Promise<void> {
     res.json({ mode: 'math', challengeId, question });
   });
 
+  app.get("/api/auth/captcha/health", (_req, res) => {
+    const mode = captchaMode();
+    res.json({
+      ok: true,
+      service: 'captcha',
+      mode,
+      contentType: 'application/json',
+      serverVerification: true,
+      checkedAt: new Date().toISOString(),
+    });
+  });
+
+  app.post("/api/auth/captcha/events", authLimiter, (req: any, res) => {
+    const allowed = new Set<CaptchaMonitorEvent>(['html_response', 'retry', 'fallback_activated', 'recovered']);
+    const event = String(req.body?.event ?? '') as CaptchaMonitorEvent;
+    if (!allowed.has(event)) return res.status(400).json({ error: 'Unknown monitoring event' });
+    const ip = String(req.ip ?? req.socket?.remoteAddress ?? 'unknown');
+    const details = req.body?.details && typeof req.body.details === 'object' ? req.body.details : undefined;
+    recordCaptchaMonitorEvent(event, ip, details);
+    res.status(202).json({ ok: true });
+  });
+
+  app.get("/api/auth/captcha/monitor", requireAuth, (req: any, res) => {
+    const roles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
+    if (!roles.some((role: string) => role === 'admin' || role === 'founder')) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    const failures = (captchaMonitor.counts.html_response ?? 0) + (captchaMonitor.counts.fallback_activated ?? 0);
+    res.json({
+      status: failures > 0 ? 'degraded' : 'healthy',
+      ...captchaMonitor,
+    });
+  });
+
   // ── Register ───────────────────────────────────────────────────────────────
   app.post("/api/auth/register", authLimiter, async (req, res) => {
     try {
       // Verify captcha FIRST — before doing any DB work
       const captchaResult = await verifyCaptcha(req.body ?? {}, req.ip);
       if (!captchaResult.ok) {
+        recordCaptchaMonitorEvent('captcha_failed', ip, { username: submittedUsername });
         return res.status(400).json({ error: captchaResult.error, code: "CAPTCHA_FAILED" });
       }
 
@@ -221,6 +271,7 @@ export async function setupAuth(app: Express): Promise<void> {
 
     // Fast pre-check (uses 30s cache primed by ipBanGate on the same request)
     if (!privileged && isIpBannedCached(ip)) {
+      recordCaptchaMonitorEvent('blocked_login', ip, { reason: 'ip_banned' });
       return res.status(403).json({ error: "Your IP address has been banned from this service.", code: "IP_BANNED", ip });
     }
 

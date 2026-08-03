@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,15 +27,44 @@ interface HealthResult {
   };
 }
 
+interface CaptchaHealth {
+  ok: boolean;
+  mode: string;
+  serverVerification: boolean;
+  checkedAt: string;
+}
+
 export const HealthCheck = () => {
   const [result, setResult] = useState<HealthResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [captchaHealth, setCaptchaHealth] = useState<CaptchaHealth | null>(null);
+  const [captchaWarning, setCaptchaWarning] = useState<string | null>(null);
+
+  const checkCaptcha = async () => {
+    try {
+      const response = await fetch('/api/auth/captcha/health', { headers: { Accept: 'application/json' }, credentials: 'include' });
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.includes('application/json')) {
+        setCaptchaHealth(null);
+        setCaptchaWarning('Captcha health route returned the frontend HTML page. Check the /api reverse proxy and restart the API service.');
+        return;
+      }
+      const data = await response.json();
+      if (!response.ok || !data.ok || !data.serverVerification) throw new Error(data.error ?? 'Server verification unavailable');
+      setCaptchaHealth(data);
+      setCaptchaWarning(null);
+    } catch (e: any) {
+      setCaptchaHealth(null);
+      setCaptchaWarning(`Captcha service unavailable: ${e.message}`);
+    }
+  };
 
   const runHealthCheck = async () => {
     setLoading(true);
     setError(null);
     try {
+      await checkCaptcha();
       const data = await api.get('/api/health');
       setResult(data);
     } catch (e: any) {
@@ -44,6 +73,12 @@ export const HealthCheck = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    void checkCaptcha();
+    const timer = window.setInterval(checkCaptcha, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const StatusBadge = ({ ok, latency }: { ok: boolean; latency: number }) => (
     <Badge variant={ok ? 'default' : 'destructive'} className="font-mono text-xs">
@@ -89,9 +124,25 @@ export const HealthCheck = () => {
         <div className="p-3 mb-4 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
       )}
 
+      {captchaWarning && (
+        <div className="p-3 mb-4 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive text-sm" role="alert">
+          <strong>Login security check degraded.</strong> {captchaWarning}
+        </div>
+      )}
+
       {result ? (
         <div className="space-y-1">
           <ComponentRow icon={Database} label="Database" status={result.components.database} />
+          <ComponentRow
+            icon={Shield}
+            label={`Captcha (${captchaHealth?.mode ?? 'unknown'})`}
+            status={{
+              reachable: Boolean(captchaHealth?.ok && captchaHealth.serverVerification),
+              latency: 0,
+              error: captchaWarning ?? undefined,
+              url: '/api/auth/captcha/health',
+            }}
+          />
           {result.components.rpc.map((r, i) => (
             <ComponentRow key={i} icon={Globe} label={`RPC ${i === 0 ? '(Primary)' : `(Backup ${i})`}`} status={r} />
           ))}
