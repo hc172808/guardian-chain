@@ -27,15 +27,44 @@ interface HealthResult {
   };
 }
 
+interface CaptchaHealth {
+  ok: boolean;
+  mode: string;
+  serverVerification: boolean;
+  checkedAt: string;
+}
+
 export const HealthCheck = () => {
   const [result, setResult] = useState<HealthResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [captchaHealth, setCaptchaHealth] = useState<CaptchaHealth | null>(null);
+  const [captchaWarning, setCaptchaWarning] = useState<string | null>(null);
+
+  const checkCaptcha = async () => {
+    try {
+      const response = await fetch('/api/auth/captcha/health', { headers: { Accept: 'application/json' }, credentials: 'include' });
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.includes('application/json')) {
+        setCaptchaHealth(null);
+        setCaptchaWarning('Captcha health route returned the frontend HTML page. Check the /api reverse proxy and restart the API service.');
+        return;
+      }
+      const data = await response.json();
+      if (!response.ok || !data.ok || !data.serverVerification) throw new Error(data.error ?? 'Server verification unavailable');
+      setCaptchaHealth(data);
+      setCaptchaWarning(null);
+    } catch (e: any) {
+      setCaptchaHealth(null);
+      setCaptchaWarning(`Captcha service unavailable: ${e.message}`);
+    }
+  };
 
   const runHealthCheck = async () => {
     setLoading(true);
     setError(null);
     try {
+      await checkCaptcha();
       const data = await api.get('/api/health');
       setResult(data);
     } catch (e: any) {
@@ -44,6 +73,12 @@ export const HealthCheck = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    void checkCaptcha();
+    const timer = window.setInterval(checkCaptcha, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const StatusBadge = ({ ok, latency }: { ok: boolean; latency: number }) => (
     <Badge variant={ok ? 'default' : 'destructive'} className="font-mono text-xs">
