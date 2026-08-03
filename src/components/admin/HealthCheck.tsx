@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -124,9 +124,25 @@ export const HealthCheck = () => {
         <div className="p-3 mb-4 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
       )}
 
+      {captchaWarning && (
+        <div className="p-3 mb-4 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive text-sm" role="alert">
+          <strong>Login security check degraded.</strong> {captchaWarning}
+        </div>
+      )}
+
       {result ? (
         <div className="space-y-1">
           <ComponentRow icon={Database} label="Database" status={result.components.database} />
+          <ComponentRow
+            icon={Shield}
+            label={`Captcha (${captchaHealth?.mode ?? 'unknown'})`}
+            status={{
+              reachable: Boolean(captchaHealth?.ok && captchaHealth.serverVerification),
+              latency: 0,
+              error: captchaWarning ?? undefined,
+              url: '/api/auth/captcha/health',
+            }}
+          />
           {result.components.rpc.map((r, i) => (
             <ComponentRow key={i} icon={Globe} label={`RPC ${i === 0 ? '(Primary)' : `(Backup ${i})`}`} status={r} />
           ))}
