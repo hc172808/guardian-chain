@@ -119,10 +119,11 @@ export function handleMiningRpc(method: string, params: any): {
   switch (method) {
     // ── mining_connect ──────────────────────────────────────────────────────
     case 'mining_connect': {
-      const minerAddress = String(params?.minerAddress ?? '').trim().toLowerCase();
+      const rawAddress = String(params?.minerAddress ?? '').trim();
+      const minerAddress = rawAddress.toLowerCase();
       const workerName = String(params?.workerName ?? 'worker').trim().slice(0, 64);
-      if (!/^0x[0-9a-f]{40}$/.test(minerAddress)) {
-        return { error: { code: -32602, message: 'Invalid minerAddress — must be a valid 0x hex address.' } };
+      if (!minerAddress || minerAddress.length < 4) {
+        return { error: { code: -32602, message: 'Invalid minerAddress — must be a non-empty wallet address or user ID.' } };
       }
       const sessionId = crypto.randomUUID();
       sessions.set(sessionId, {

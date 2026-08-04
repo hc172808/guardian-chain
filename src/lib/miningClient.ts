@@ -57,9 +57,12 @@ export class MiningRPCClient {
     this.endpoint = endpoint;
   }
 
-  async connect(): Promise<boolean> {
+  async connect(minerAddress: string, workerName?: string): Promise<boolean> {
     try {
-      const response = await this.rpc('mining_connect', {});
+      const response = await this.rpc('mining_connect', {
+        minerAddress,
+        workerName: workerName ?? `web-miner-${Date.now()}`,
+      });
       if (response.sessionId) {
         this.sessionId = response.sessionId;
         this.connected = true;
@@ -199,7 +202,10 @@ export class MiningEngine {
   async start(): Promise<boolean> {
     if (this.running) return true;
 
-    const connected = await this.client.connect();
+    const connected = await this.client.connect(
+      this.config.minerAddress,
+      this.config.workerName,
+    );
     if (!connected) {
       console.error('Failed to connect to mining pool');
       return false;
