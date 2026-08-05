@@ -224,7 +224,7 @@ export async function setupAuth(app: Express): Promise<void> {
       // Verify captcha FIRST — before doing any DB work
       const captchaResult = await verifyCaptcha(req.body ?? {}, req.ip);
       if (!captchaResult.ok) {
-        recordCaptchaMonitorEvent('captcha_failed', ip, { username: submittedUsername, challengeId: req.body?.challengeId, route: 'register' });
+        recordCaptchaMonitorEvent('captcha_failed', String(req.ip ?? 'unknown'), { username: req.body?.username, challengeId: req.body?.challengeId, route: 'register' });
         return res.status(400).json({ error: captchaResult.error, code: "CAPTCHA_FAILED" });
       }
 
