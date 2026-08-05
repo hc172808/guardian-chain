@@ -12,27 +12,70 @@ import { pool } from "./db";
 import { storage } from "./storage";
 import { sendPasswordResetEmail, sendEmailVerification } from "./email";
 import { sendWhatsAppMessage } from "./whatsapp";
-import { verifyCaptcha, generateChallenge, captchaMode } from "./captcha";
+import { verifyCaptcha, generateChallenge, captchaMode, onFallbackAttempt, fallbackAttemptLog } from "./captcha";
+import { recordAlertSignal, alertConfig, alertLog } from "./captchaAlerts";
 const pgPool = pool;
 
 // ── WhatsApp OTP store (in-memory, short-lived) ───────────────────────────────
 interface WaOtpEntry { otp: string; userId: string; expiresAt: number; }
 const waOtpStore = new Map<string, WaOtpEntry>(); // key = username (lowercased)
 type CaptchaMonitorEvent = 'html_response' | 'retry' | 'fallback_activated' | 'recovered' | 'captcha_failed' | 'blocked_login';
+type CaptchaMonitorEntry = {
+  requestId: string;
+  event: CaptchaMonitorEvent;
+  at: string;
+  ip: string;
+  challengeId?: string;
+  details?: Record<string, unknown>;
+};
+const BUCKET_MS = 60_000;
+const BUCKET_RETENTION = 180; // 3 hours of 1-minute buckets
 const captchaMonitor = {
   startedAt: new Date().toISOString(),
   counts: {} as Record<CaptchaMonitorEvent, number>,
-  recent: [] as Array<{ event: CaptchaMonitorEvent; at: string; ip: string; details?: Record<string, unknown> }>,
+  recent: [] as CaptchaMonitorEntry[],
+  buckets: [] as Array<{ t: number } & Partial<Record<CaptchaMonitorEvent, number>>>,
 };
 
-function recordCaptchaMonitorEvent(event: CaptchaMonitorEvent, ip: string, details?: Record<string, unknown>) {
-  captchaMonitor.counts[event] = (captchaMonitor.counts[event] ?? 0) + 1;
-  captchaMonitor.recent.unshift({ event, at: new Date().toISOString(), ip, details });
-  captchaMonitor.recent = captchaMonitor.recent.slice(0, 50);
-  if (event === 'html_response' || event === 'fallback_activated' || event === 'blocked_login') {
-    console.warn(`[captcha-monitor] ${event} ip=${ip}`, details ?? {});
+function bucketFor(now: number) {
+  const t = Math.floor(now / BUCKET_MS) * BUCKET_MS;
+  let bucket = captchaMonitor.buckets[captchaMonitor.buckets.length - 1];
+  if (!bucket || bucket.t !== t) {
+    bucket = { t };
+    captchaMonitor.buckets.push(bucket);
+    if (captchaMonitor.buckets.length > BUCKET_RETENTION) captchaMonitor.buckets.shift();
   }
+  return bucket;
 }
+
+function recordCaptchaMonitorEvent(event: CaptchaMonitorEvent, ip: string, details?: Record<string, unknown>) {
+  const now = Date.now();
+  captchaMonitor.counts[event] = (captchaMonitor.counts[event] ?? 0) + 1;
+  const bucket = bucketFor(now);
+  bucket[event] = (bucket[event] ?? 0) + 1;
+  const requestId = crypto.randomBytes(8).toString('hex');
+  const challengeId = typeof details?.challengeId === 'string' ? (details.challengeId as string) : undefined;
+  captchaMonitor.recent.unshift({ requestId, event, at: new Date(now).toISOString(), ip, challengeId, details });
+  captchaMonitor.recent = captchaMonitor.recent.slice(0, 200);
+  if (event === 'html_response' || event === 'fallback_activated' || event === 'blocked_login') {
+    console.warn(`[captcha-monitor] ${event} req=${requestId} ip=${ip}`, details ?? {});
+  }
+  if (event === 'html_response' || event === 'blocked_login' || event === 'captcha_failed' || event === 'retry') {
+    void recordAlertSignal(event, { ip, requestId, challengeId, ...(details ?? {}) });
+  }
+  return requestId;
+}
+
+// Fallback-challenge attempts (by challenge ID) feed the same monitor stream.
+onFallbackAttempt((attempt) => {
+  if (attempt.outcome === 'accepted') return;
+  recordCaptchaMonitorEvent('captcha_failed', 'server', {
+    source: 'fallback',
+    challengeId: attempt.challengeId,
+    outcome: attempt.outcome,
+  });
+});
+
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of waOtpStore) if (v.expiresAt < now) waOtpStore.delete(k);
@@ -148,14 +191,15 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   app.post("/api/auth/captcha/events", authLimiter, (req: any, res) => {
-    const allowed = new Set<CaptchaMonitorEvent>(['html_response', 'retry', 'fallback_activated', 'recovered']);
+    const allowed = new Set<CaptchaMonitorEvent>(['html_response', 'retry', 'fallback_activated', 'recovered', 'blocked_login']);
     const event = String(req.body?.event ?? '') as CaptchaMonitorEvent;
     if (!allowed.has(event)) return res.status(400).json({ error: 'Unknown monitoring event' });
     const ip = String(req.ip ?? req.socket?.remoteAddress ?? 'unknown');
     const details = req.body?.details && typeof req.body.details === 'object' ? req.body.details : undefined;
-    recordCaptchaMonitorEvent(event, ip, details);
-    res.status(202).json({ ok: true });
+    const requestId = recordCaptchaMonitorEvent(event, ip, details);
+    res.status(202).json({ ok: true, requestId });
   });
+
 
   app.get("/api/auth/captcha/monitor", requireAuth, (req: any, res) => {
     const roles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
@@ -163,11 +207,16 @@ export async function setupAuth(app: Express): Promise<void> {
       return res.status(403).json({ error: 'Admin access required' });
     }
     const failures = (captchaMonitor.counts.html_response ?? 0) + (captchaMonitor.counts.fallback_activated ?? 0);
+    const requestId = typeof req.query.requestId === 'string' ? req.query.requestId : null;
     res.json({
       status: failures > 0 ? 'degraded' : 'healthy',
+      alerts: { config: alertConfig(), recent: alertLog.slice(0, 20) },
+      fallbackAttempts: fallbackAttemptLog.slice(0, 50),
+      drilldown: requestId ? captchaMonitor.recent.find(e => e.requestId === requestId) ?? null : undefined,
       ...captchaMonitor,
     });
   });
+
 
   // ── Register ───────────────────────────────────────────────────────────────
   app.post("/api/auth/register", authLimiter, async (req, res) => {
@@ -175,7 +224,7 @@ export async function setupAuth(app: Express): Promise<void> {
       // Verify captcha FIRST — before doing any DB work
       const captchaResult = await verifyCaptcha(req.body ?? {}, req.ip);
       if (!captchaResult.ok) {
-        recordCaptchaMonitorEvent('captcha_failed', ip, { username: submittedUsername });
+        recordCaptchaMonitorEvent('captcha_failed', String(req.ip ?? 'unknown'), { username: req.body?.username, challengeId: req.body?.challengeId, route: 'register' });
         return res.status(400).json({ error: captchaResult.error, code: "CAPTCHA_FAILED" });
       }
 
@@ -294,6 +343,7 @@ export async function setupAuth(app: Express): Promise<void> {
     if (!privileged) {
       const captchaResult = await verifyCaptcha(req.body ?? {}, ip);
       if (!captchaResult.ok) {
+        recordCaptchaMonitorEvent('captcha_failed', ip, { challengeId: req.body?.challengeId, route: 'login' });
         return res.status(400).json({ error: captchaResult.error, code: "CAPTCHA_FAILED" });
       }
     }

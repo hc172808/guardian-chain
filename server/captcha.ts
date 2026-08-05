@@ -26,7 +26,30 @@ interface Challenge {
 
 const challengeStore = new Map<string, Challenge>();
 const usedFallbackChallenges = new Map<string, number>();
-const FALLBACK_TTL_MS = 10 * 60_000;
+// Tightened replay window: offline-fallback challenges are only valid for
+// 2 minutes (was 10) and every attempt is logged by challenge ID below.
+const FALLBACK_TTL_MS = Number(process.env.CAPTCHA_FALLBACK_TTL_MS ?? 2 * 60_000);
+// Retain used IDs longer than the TTL so a replay is still recognised as a
+// replay (rather than silently expiring out of the set).
+const FALLBACK_REPLAY_RETENTION_MS = FALLBACK_TTL_MS * 5;
+
+type FallbackAttempt = { challengeId: string; at: string; outcome: 'accepted' | 'replayed' | 'expired' | 'invalid' };
+export const fallbackAttemptLog: FallbackAttempt[] = [];
+let fallbackAttemptSink: ((attempt: FallbackAttempt) => void) | null = null;
+
+/** Lets the monitoring layer observe every fallback challenge attempt. */
+export function onFallbackAttempt(sink: (attempt: FallbackAttempt) => void) {
+  fallbackAttemptSink = sink;
+}
+
+function logFallbackAttempt(challengeId: string, outcome: FallbackAttempt['outcome']) {
+  const attempt: FallbackAttempt = { challengeId, at: new Date().toISOString(), outcome };
+  fallbackAttemptLog.unshift(attempt);
+  fallbackAttemptLog.splice(100);
+  console.log(`[captcha-fallback] attempt id=${challengeId} outcome=${outcome}`);
+  try { fallbackAttemptSink?.(attempt); } catch {}
+}
+
 
 function deriveFallbackOperands(nonce: string): [number, number] {
   let hash = 2166136261;
@@ -40,18 +63,23 @@ function deriveFallbackOperands(nonce: string): [number, number] {
 
 function verifyFallbackChallenge(challengeId: string, answer: string | number): boolean {
   const match = /^fallback:v1:(\d{13}):([a-f0-9]{32})$/.exec(challengeId);
-  if (!match) return false;
+  if (!match) { logFallbackAttempt(challengeId, 'invalid'); return false; }
   const issuedAt = Number(match[1]);
   const nonce = match[2];
   const now = Date.now();
-  if (!Number.isFinite(issuedAt) || issuedAt > now + 30_000 || now - issuedAt > FALLBACK_TTL_MS) return false;
-  if (usedFallbackChallenges.has(challengeId)) return false;
+  if (!Number.isFinite(issuedAt) || issuedAt > now + 30_000 || now - issuedAt > FALLBACK_TTL_MS) {
+    logFallbackAttempt(challengeId, 'expired');
+    return false;
+  }
+  if (usedFallbackChallenges.has(challengeId)) { logFallbackAttempt(challengeId, 'replayed'); return false; }
   const [a, b] = deriveFallbackOperands(nonce);
   const submitted = Number.parseInt(String(answer).trim(), 10);
-  if (!Number.isFinite(submitted) || submitted !== a + b) return false;
-  usedFallbackChallenges.set(challengeId, now + FALLBACK_TTL_MS);
+  if (!Number.isFinite(submitted) || submitted !== a + b) { logFallbackAttempt(challengeId, 'invalid'); return false; }
+  usedFallbackChallenges.set(challengeId, now + FALLBACK_REPLAY_RETENTION_MS);
+  logFallbackAttempt(challengeId, 'accepted');
   return true;
 }
+
 
 // Prune expired challenges every 2 minutes
 setInterval(() => {
