@@ -29,7 +29,7 @@ export function createFallbackChallenge(now = Date.now()): FallbackChallenge {
 }
 
 export async function reportCaptchaEvent(
-  event: 'html_response' | 'retry' | 'fallback_activated' | 'recovered',
+  event: 'html_response' | 'retry' | 'fallback_activated' | 'recovered' | 'blocked_login',
   details: Record<string, unknown> = {},
 ): Promise<void> {
   try {
