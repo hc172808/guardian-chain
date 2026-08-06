@@ -1,7 +1,7 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  GYDSchain RPC NODE — Portainer Stack                                        ║
 # ║  Repo: https://github.com/hc172808/fullnode.git                              ║
-# ║  Chain ID: 13370 | Public RPC + WebSocket endpoint                           ║
+# ║  Chain ID: 198282 | Public RPC + WebSocket endpoint                           ║
 # ║  Subdomains: rpc.netlifegy.com  |  ws.netlifegy.com                          ║
 # ║                                                                               ║
 # ║  SETUP:                                                                       ║
@@ -34,7 +34,7 @@ version: "3.8"
 # GYDS_RPC_PORT      Internal RPC port             default: 8545
 # GYDS_WS_PORT       Internal WS port              default: 8546
 # GYDS_P2P_PORT      P2P port (open on firewall)   default: 30305
-# GYDS_CHAIN_ID      Chain ID                      default: 13370
+# GYDS_CHAIN_ID      Chain ID                      default: 198282
 # GYDS_UPSTREAM_RPC  Upstream full node RPC        default: http://10.0.0.2:8546
 # GYDS_STORAGE_GB    Storage GB                    default: 200
 # GYDS_RATE_LIMIT    Req/sec per IP                default: 100
@@ -80,7 +80,7 @@ services:
       GITHUB_TOKEN:        "${GITHUB_TOKEN:-}"
       GYDS_RPC_PORT:       "${GYDS_RPC_PORT:-8545}"
       GYDS_WS_PORT:        "${GYDS_WS_PORT:-8546}"
-      GYDS_CHAIN_ID:       "${GYDS_CHAIN_ID:-13370}"
+      GYDS_CHAIN_ID:       "${GYDS_CHAIN_ID:-198282}"
       GYDS_UPSTREAM_RPC:   "${GYDS_UPSTREAM_RPC:-http://10.0.0.2:8546}"
       GYDS_STORAGE_GB:     "${GYDS_STORAGE_GB:-200}"
     volumes:
@@ -156,7 +156,7 @@ services:
           server_name _;
 
           location /health {
-            return 200 '{\"status\":\"ok\",\"chain\":13370}';
+            return 200 '{\"status\":\"ok\",\"chain\":198282}';
             add_header Content-Type application/json;
           }
 

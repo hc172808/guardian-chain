@@ -53,7 +53,7 @@ server {
         add_header Access-Control-Allow-Origin  "*" always;
         add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
         add_header Access-Control-Allow-Headers "Content-Type, Authorization, X-API-Key" always;
-        add_header X-Chain-ID "13370" always;
+        add_header X-Chain-ID "198282" always;
 
         if (\$request_method = OPTIONS) {
             add_header Content-Length 0;
@@ -108,12 +108,12 @@ echo " GYDS RPC Proxy ready!"
 echo "======================================================"
 echo " HTTP RPC   : https://${DOMAIN}"
 echo " WebSocket  : wss://${DOMAIN}/ws"
-echo " Chain ID   : 13370"
+echo " Chain ID   : 198282"
 echo " Backend    : localhost:${BACKEND_PORT}"
 echo ""
 echo " MetaMask setup:"
 echo "   Network Name  : GYDSchain"
 echo "   RPC URL       : https://${DOMAIN}"
-echo "   Chain ID      : 13370"
+echo "   Chain ID      : 198282"
 echo "   Symbol        : GYDS"
 echo "======================================================"

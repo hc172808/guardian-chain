@@ -3,7 +3,7 @@
 #  GYDSchain Lite Node Installer — PUBLIC ACCESS
 #  Repo:     https://github.com/hc172808/litenode.git
 #  OS:       Ubuntu/Debian/CentOS/RHEL/macOS
-#  Chain ID: 13370  |  Block time: 5s  |  Domain: netlifegy.com
+#  Chain ID: 198282  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      bash install-litenode.sh   (no sudo required for user-mode)
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -16,7 +16,7 @@ GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
 BINARY="gyds-litenode"
-CHAIN_ID="${GYDS_CHAIN_ID:-13370}"
+CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 GO_VERSION="${GO_VERSION:-1.21.13}"
 
 GYDS_HOME="${GYDS_HOME:-$HOME/.gydschain}"

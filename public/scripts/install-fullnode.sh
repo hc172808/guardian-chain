@@ -3,7 +3,7 @@
 #  GYDSchain Full Node Installer — FOUNDER ONLY
 #  Repo:     https://github.com/hc172808/fullnode.git
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
-#  Chain ID: 13370  |  Block time: 5s  |  Domain: netlifegy.com
+#  Chain ID: 198282  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      sudo bash install-fullnode.sh
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -23,7 +23,7 @@ GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
 GO_VERSION="${GO_VERSION:-1.21.13}"
 
-CHAIN_ID="${GYDS_CHAIN_ID:-13370}"
+CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 RPC_PORT="${GYDS_RPC_PORT:-8545}"
 WS_PORT="${GYDS_WS_PORT:-8546}"
 P2P_PORT="${GYDS_P2P_PORT:-30303}"

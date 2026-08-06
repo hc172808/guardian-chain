@@ -184,10 +184,10 @@ const commandGroups: CommandGroup[] = [
         command: 'gydsd init',
         description: 'Initialize a new node with genesis configuration',
         flags: [
-          { flag: '--chain-id <id>', desc: 'Chain ID (default: 13370)' },
+          { flag: '--chain-id <id>', desc: 'Chain ID (default: 198282)' },
           { flag: '--data-dir <path>', desc: 'Data directory (default: ~/.gydschain)' },
         ],
-        example: 'gydsd init --chain-id 13370',
+        example: 'gydsd init --chain-id 198282',
       },
       {
         command: 'gydsd start',

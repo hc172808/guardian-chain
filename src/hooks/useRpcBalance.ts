@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 
 // Chain IDs per network
 export const NET_CHAIN: Record<string, { chainIdHex: string; chainId: number; symbol: string; name: string }> = {
-  mainnet: { chainId: 13370, chainIdHex: '0x343A', symbol: 'GYDS',  name: 'GYDS Mainnet' },
+  mainnet: { chainId: 198282, chainIdHex: '0x3068a', symbol: 'GYDS',  name: 'GYDS Mainnet' },
   testnet: { chainId: 13371, chainIdHex: '0x343B', symbol: 'tGYDS', name: 'GYDS Testnet' },
   devnet:  { chainId: 13372, chainIdHex: '0x343C', symbol: 'dGYDS', name: 'GYDS Devnet'  },
 };

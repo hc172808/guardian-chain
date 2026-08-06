@@ -271,7 +271,7 @@ function PoolStatsTab() {
           <div className="mt-2"># Dashboard at http://YOUR-SERVER-IP:4500</div>
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          RPC endpoint: <code className="text-primary">https://app.netlifegy.com/api/mining/rpc</code> · Chain ID 13370
+          RPC endpoint: <code className="text-primary">https://app.netlifegy.com/api/mining/rpc</code> · Chain ID 198282
         </p>
       </GlassCard>
 

@@ -66,7 +66,7 @@ All standard Ethereum JSON-RPC methods (`eth_blockNumber`, `eth_getBalance`, etc
 
 | Variable | Default | Description |
 |---|---|---|
-| `GYDS_CHAIN_ID` | `13370` | Network chain ID |
+| `GYDS_CHAIN_ID` | `198282` | Network chain ID |
 | `GYDS_RPC_PORT` | `8543` | JSON-RPC port |
 | `GYDS_P2P_PORT` | `30302` | P2P port |
 | `GYDS_BLOCK_TIME` | `120` | Block time in seconds |

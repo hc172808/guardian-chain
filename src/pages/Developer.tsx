@@ -194,7 +194,7 @@ const DeveloperPage = () => {
     setTryResult('Loading…');
     await new Promise(r => setTimeout(r, 600));
     const mock: Record<string, any> = {
-      '/v1/network/stats': { tps: 1250, validators: 87, block_height: 1_234_567, chain_id: 13370 },
+      '/v1/network/stats': { tps: 1250, validators: 87, block_height: 1_234_567, chain_id: 198282 },
       '/v1/tokens': [{ symbol: 'GYDS', supply: 20_000_000 }, { symbol: 'GYD', supply: 5_000_000 }],
       '/v1/oracle/prices': { GYDS: 0.0000001, GYD: 1.0, BTC: 65000 },
     };
@@ -677,7 +677,7 @@ const DeveloperPage = () => {
 
 const client = new GYDSClient({
   rpcUrl: 'https://rpc.netlifegy.com',
-  chainId: 13370,
+  chainId: 198282,
 });
 
 // Get chain stats
@@ -725,7 +725,7 @@ client.ws.onBlock((block) => {
 
 client = GYDSClient(
     rpc_url="https://rpc.netlifegy.com",
-    chain_id=13370,
+    chain_id=198282,
 )
 
 # Get chain stats
@@ -771,7 +771,7 @@ await client.ws.on_block(on_block)`}</pre>
                 </div>
                 <pre className="text-xs font-mono bg-muted/20 rounded-lg p-3 overflow-auto border border-border/30 text-foreground/60">{`client := gyds.NewClient(gyds.Config{
   RPCURL:  "https://rpc.netlifegy.com",
-  ChainID: 13370,
+  ChainID: 198282,
 })
 stats, _ := client.Network.Stats(ctx)
 fmt.Println("Height:", stats.BlockHeight)`}</pre>
@@ -793,7 +793,7 @@ fmt.Println("Height:", stats.BlockHeight)`}</pre>
                 </div>
                 <pre className="text-xs font-mono bg-muted/20 rounded-lg p-3 overflow-auto border border-border/30 text-foreground/40">{`let client = GYDSClient::new(Config {
     rpc_url: "https://rpc.netlifegy.com",
-    chain_id: 13370,
+    chain_id: 198282,
 })?;
 let stats = client.network().stats().await?;
 println!("Height: {}", stats.block_height);`}</pre>

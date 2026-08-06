@@ -211,7 +211,7 @@ const IdentityPage = () => {
                     <p className="text-xs text-muted-foreground">Your Decentralized Identifier (DID)</p>
                     <p className="font-mono text-sm text-primary mt-1 break-all">{didDoc?.did ?? '—'}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Anchored on GYDSchain · Chain ID 13370
+                      Anchored on GYDSchain · Chain ID 198282
                       {didDoc?.created_at && ` · Created ${new Date(didDoc.created_at).toLocaleDateString()}`}
                     </p>
                   </div>

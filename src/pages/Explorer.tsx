@@ -419,7 +419,7 @@ const Explorer = () => {
 
         {/* Footer */}
         <footer className="border-t border-border/50 pt-6 pb-8 text-center text-xs text-muted-foreground">
-          <p>GYDS Network Explorer • Chain ID: 13370 • <a href="https://netlifegy.com" className="text-primary hover:underline">netlifegy.com</a></p>
+          <p>GYDS Network Explorer • Chain ID: 198282 • <a href="https://netlifegy.com" className="text-primary hover:underline">netlifegy.com</a></p>
         </footer>
       </main>
     </div>

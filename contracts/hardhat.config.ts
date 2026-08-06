@@ -11,15 +11,15 @@ const config: HardhatUserConfig = {
   },
   networks: {
     hardhat: {
-      chainId: 13370,
+      chainId: 198282,
     },
     localhost: {
       url: "http://127.0.0.1:8545",
-      chainId: 13370,
+      chainId: 198282,
     },
     gydschain: {
       url: process.env.GYDS_RPC_URL ?? "https://rpc.netlifegy.com",
-      chainId: 13370,
+      chainId: 198282,
       accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
     },
   },

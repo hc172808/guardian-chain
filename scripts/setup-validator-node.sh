@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain — Validator Node Setup
-#  Ubuntu 22.04 LTS  |  Chain ID 13370  |  netlifegy.com
+#  Ubuntu 22.04 LTS  |  Chain ID 198282  |  netlifegy.com
 #
 #  Usage:
 #    sudo bash scripts/setup-validator-node.sh [options]
@@ -19,7 +19,7 @@ set -euo pipefail
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
 GYDS_VERSION="2.1.0"
-CHAIN_ID="13370"
+CHAIN_ID="198282"
 GYDS_USER="${GYDS_USER:-gydschain}"
 GYDS_HOME="${GYDS_HOME:-/var/lib/gydschain}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"

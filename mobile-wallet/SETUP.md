@@ -2,7 +2,7 @@
 
 **Source repo:** https://github.com/hc172808/your-digital-wallet
 
-The wallet app is a Vite + React + TypeScript PWA **already configured for GYDS chain 13370**
+The wallet app is a Vite + React + TypeScript PWA **already configured for GYDS chain 198282**
 with the same RPC endpoints (`rpc.netlifegy.com`), branding, and package ID `io.netlifegy.gyds`.
 It can be shipped as:
 
@@ -54,8 +54,8 @@ Edit `.env.local` — the defaults already work for GYDS mainnet:
 ```env
 VITE_RPC_URL=https://rpc.netlifegy.com
 VITE_RPC_FALLBACKS=https://rpc2.netlifegy.com,https://rpc3.netlifegy.com
-VITE_CHAIN_ID=13370
-VITE_CHAIN_ID_HEX=0x343A
+VITE_CHAIN_ID=198282
+VITE_CHAIN_ID_HEX=0x3068a
 VITE_NATIVE_SYMBOL=GYDS
 VITE_NETWORK_NAME=GYDS Network
 VITE_BLOCK_EXPLORER=https://explorer.netlifegy.com
@@ -259,6 +259,6 @@ Then in the wallet code call `${import.meta.env.VITE_API_BASE}/api/...` routes.
 | Package ID (Android) | `io.netlifegy.gyds` |
 | TWA Package ID | `io.netlifegy.gyds.twa` |
 | Bundle ID (iOS) | `io.netlifegy.gyds` |
-| Chain ID | 13370 |
+| Chain ID | 198282 |
 | Theme | `#0f1318` (dark) |
 | Repo | https://github.com/hc172808/your-digital-wallet |

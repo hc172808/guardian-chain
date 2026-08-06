@@ -68,7 +68,7 @@ Target directory: `public/blockchain-go/` (module `chaincore`). Existing `cmd/{b
 - `cmd/devnode/main.go` — single-process all-in-one (chain + PoS + mining + RPC) for local dev with pre-funded accounts.
 - `cmd/localnode/main.go` — same as devnode but binds strictly to `127.0.0.1` and disables peer discovery, matching `install-localnode.sh`.
 
-**Shared config** — add `internal/nodeconfig/config.go` with a tagged struct (`NodeType`, `DataDir`, `ListenAddr`, `RPCPort`, `Bootnodes`, `ChainID=13370`, `Validator{Wallet,Stake,Commission}`, `Mining{Enabled,Threads}`) plus JSON loader + flag binder used by every `cmd/*/main.go`.
+**Shared config** — add `internal/nodeconfig/config.go` with a tagged struct (`NodeType`, `DataDir`, `ListenAddr`, `RPCPort`, `Bootnodes`, `ChainID=198282`, `Validator{Wallet,Stake,Commission}`, `Mining{Enabled,Threads}`) plus JSON loader + flag binder used by every `cmd/*/main.go`.
 
 **Localhost topology helper** — `internal/network/localhost.go` exposing `LocalPorts()` returning distinct ports per node type (validator 30301/8551, rpc 30302/8552, boost 30303/8553, dev 30304/8554, lite 30305/8555, genesis 30300/8550) so multiple nodes can run side-by-side on one machine.
 

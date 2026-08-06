@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GydsChain Node Installer v3.0
 # Installs a real Geth-based GYDS node on Ubuntu/Debian
-# Chain ID 13370 | Clique PoA | Block time 120s
+# Chain ID 198282 | Clique PoA | Block time 120s
 #
 # Usage:
 #   curl -fsSL https://netlifegy.com/scripts/install-gyds-node.sh | bash
@@ -11,7 +11,7 @@
 # After install, add this network to MetaMask / Trust Wallet:
 #   Network Name : GYDS Network
 #   RPC URL      : http://YOUR_SERVER_IP:8545
-#   Chain ID     : 13370
+#   Chain ID     : 198282
 #   Symbol       : GYDS
 set -euo pipefail
 
@@ -24,7 +24,7 @@ RPC_PORT="${RPC_PORT:-8545}"
 WS_PORT="${WS_PORT:-8546}"
 P2P_PORT="${P2P_PORT:-30303}"
 SERVICE_USER="${SERVICE_USER:-gyds}"
-CHAIN_ID=13370
+CHAIN_ID=198282
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' NC='\033[0m'
@@ -37,7 +37,7 @@ die()    { echo -e "${R}✗ ERROR: $*${NC}"; exit 1; }
 banner "
 ╔══════════════════════════════════════════════════════╗
 ║   GydsChain Node Installer v3.0                      ║
-║   Chain ID 13370  |  Geth-based  |  Clique PoA       ║
+║   Chain ID 198282  |  Geth-based  |  Clique PoA       ║
 ╚══════════════════════════════════════════════════════╝"
 
 # ── Detect OS ─────────────────────────────────────────────────────────────────

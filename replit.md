@@ -10,7 +10,7 @@ A full-stack blockchain ecosystem dashboard for the GYDS network. Features an ex
 - **Auth** — Custom username/password + Web3 wallet signature auth via Passport.js sessions
 - **Styling** — Tailwind CSS + shadcn/ui component library
 - **State** — TanStack React Query + React context (AuthContext)
-- **Blockchain** — Chain ID 13370, domain `netlifegy.com`
+- **Blockchain** — Chain ID 198282, domain `netlifegy.com`
 
 ## Key Directories
 - `src/pages/` — top-level route pages (Admin, Auth, Explorer, Wallet, DeFi, Tokens, etc.)

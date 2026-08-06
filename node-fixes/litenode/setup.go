@@ -79,7 +79,7 @@ input:checked+.slider:before{transform:translateX(20px);background:#fff}
   <div class="header">
     <h1>⚡ GYDS Lite Node Setup</h1>
     <p>Header-only sync node for the GYDS Chain — no block production, minimal resources</p>
-    <span class="badge">Chain ID: 13370 · netlifegy.com</span>
+    <span class="badge">Chain ID: 198282 · netlifegy.com</span>
   </div>
   <div class="progress" id="progress">
     <div class="step-dot active" id="dot-1">1</div>
@@ -104,7 +104,7 @@ input:checked+.slider:before{transform:translateX(20px);background:#fff}
       </div>
       <div class="review-grid">
         <div class="review-item"><div class="key">Node Type</div><div class="val">Lite (Header Sync)</div></div>
-        <div class="review-item"><div class="key">Chain ID</div><div class="val">13370</div></div>
+        <div class="review-item"><div class="key">Chain ID</div><div class="val">198282</div></div>
         <div class="review-item"><div class="key">Block Time</div><div class="val">5 seconds</div></div>
         <div class="review-item"><div class="key">Disk Usage</div><div class="val">~50 MB (headers only)</div></div>
         <div class="review-item"><div class="key">CPU Usage</div><div class="val">Very low (~1–2%)</div></div>

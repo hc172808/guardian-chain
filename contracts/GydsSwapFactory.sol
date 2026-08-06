@@ -7,7 +7,7 @@ import "./GydsSwapPair.sol";
 /// @notice Deploys new GydsSwapPair contracts and maintains the registry.
 ///         One pair per (tokenA, tokenB) tuple — order-independent.
 ///
-/// Supported pairs on GydsChain (Chain ID 13370):
+/// Supported pairs on GydsChain (Chain ID 198282):
 ///   GYDS / USDT  →  GLP-GYDS-USDT
 ///   GYDS / BTC   →  GLP-GYDS-BTC
 ///   GYDS / ETH   →  GLP-GYDS-ETH

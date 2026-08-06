@@ -185,7 +185,7 @@ export const NodeConfigManager = () => {
     const config = {
       version: '1.0',
       network: 'GYDS Mainnet',
-      chain_id: 13370,
+      chain_id: 198282,
       generated_at: new Date().toISOString(),
       rpc_endpoints: [envRpcUrl || 'https://rpc.netlifegy.com'].filter(Boolean),
       nodes: nodes.map(n => ({

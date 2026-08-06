@@ -2,7 +2,7 @@ import { ethers } from "hardhat";
 
 async function main() {
   const [deployer] = await ethers.getSigners();
-  console.log("Deploying GydsSwap contracts to GYDSchain (Chain ID 13370)");
+  console.log("Deploying GydsSwap contracts to GYDSchain (Chain ID 198282)");
   console.log("Deployer:", deployer.address);
   console.log("Balance:", ethers.formatEther(await deployer.provider.getBalance(deployer.address)), "GYDS");
 
@@ -44,7 +44,7 @@ async function main() {
 
   console.log("\nDeployment complete. Summary:");
   console.log("─────────────────────────────────────────");
-  console.log("Network:           GYDSchain (Chain ID 13370)");
+  console.log("Network:           GYDSchain (Chain ID 198282)");
   console.log("WGYDS:            ", await wgyds.getAddress());
   console.log("GydsSwapFactory:  ", factoryAddr);
   console.log("GydsSwapRouter:   ", await router.getAddress());

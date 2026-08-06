@@ -97,7 +97,7 @@ export const AdminConsole = () => {
       switch (verb.toLowerCase()) {
         case 'help':    out(HELP); break;
         case 'clear':   setLines([]); break;
-        case 'version': out(`Frontend: GYDSchain Dashboard v2.1.0\nChain ID: 13370\nBlock time: 120s`); break;
+        case 'version': out(`Frontend: GYDSchain Dashboard v2.1.0\nChain ID: 198282\nBlock time: 120s`); break;
 
         case 'status': {
           const [users, nodes, tokens, txs] = await Promise.all([

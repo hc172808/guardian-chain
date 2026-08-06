@@ -155,7 +155,7 @@ if [[ -f "$S" ]]; then
   check_contains "$S" "logrotate"            "log rotation"
   check_contains "$S" "sysctl"               "kernel tuning"
   check_contains "$S" "CHAIN_ID"             "chain ID config"
-  check_contains "$S" "13370"                "correct chain ID"
+  check_contains "$S" "198282"                "correct chain ID"
   check_contains "$S" "netlifegy.com"        "domain reference"
   check_contains "$S" "gydschain"            "service user"
 fi
@@ -180,7 +180,7 @@ if [[ -f "$S" ]]; then
   check_contains "$S" "ProtectSystem"            "systemd hardening"
   check_contains "$S" "logrotate"                "log rotation"
   check_contains "$S" "CHAIN_ID"                 "chain ID"
-  check_contains "$S" "13370"                    "correct chain ID"
+  check_contains "$S" "198282"                    "correct chain ID"
   check_contains "$S" 'WALLET_ADDR.*=~'           "wallet address validation"
   check_contains "$S" "BACK UP"                  "key backup warning"
 fi
@@ -216,7 +216,7 @@ done
 echo ""
 echo -e "${BOLD}[ 9 ] Chain ID consistency${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
-info "Checking all scripts reference chain ID 13370 (not other IDs)..."
+info "Checking all scripts reference chain ID 198282 (not other IDs)..."
 WRONG_ID=0
 for s in "${ALL_SCRIPTS[@]}"; do
   [[ ! -f "$s" ]] && continue
@@ -224,14 +224,14 @@ for s in "${ALL_SCRIPTS[@]}"; do
   if grep -qE 'CHAIN_ID[=: ]+[0-9]+' "$s"; then
     IDS="$(grep -oE 'CHAIN_ID[=: ]+[0-9]+' "$s" | grep -oE '[0-9]+' | sort -u)"
     for id in $IDS; do
-      if [[ "$id" != "13370" && "$id" != "0" ]]; then
+      if [[ "$id" != "198282" && "$id" != "0" ]]; then
         warn "Unexpected chain ID $id in $(basename "$s")"
         WRONG_ID=1
       fi
     done
   fi
 done
-[[ "$WRONG_ID" -eq 0 ]] && pass "All chain IDs are 13370"
+[[ "$WRONG_ID" -eq 0 ]] && pass "All chain IDs are 198282"
 
 echo ""
 echo -e "${BOLD}[ 10 ] Help flag smoke test${NC}"

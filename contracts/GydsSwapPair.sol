@@ -5,7 +5,7 @@ import "./GLPToken.sol";
 import "./GydsSwapLibrary.sol";
 
 /// @title GydsSwapPair
-/// @notice Constant-product AMM pool (Uniswap V2 style) for GydsChain (Chain ID 13370).
+/// @notice Constant-product AMM pool (Uniswap V2 style) for GydsChain (Chain ID 198282).
 ///         Each pair holds two ERC-20 reserves and mints GLP-{T0}-{T1} LP tokens.
 ///
 /// Fee:     0.3% per swap  →  0.25% to LPs,  0.05% to protocol (feeTo)

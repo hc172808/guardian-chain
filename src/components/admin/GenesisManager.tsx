@@ -38,7 +38,7 @@ export function GenesisManager() {
     validators: [],
     peers: [],
     genesisNodeEnode: '',
-    chainId: 13370,
+    chainId: 198282,
     networkName: 'GYDSchain',
   });
   const [loading, setLoading] = useState(true);
@@ -206,7 +206,7 @@ export function GenesisManager() {
               </Button>
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Manage genesis validators, bootstrap peers, and enode addresses for the GYDSchain network (Chain ID 13370).
+              Manage genesis validators, bootstrap peers, and enode addresses for the GYDSchain network (Chain ID 198282).
             </p>
           </div>
         </div>

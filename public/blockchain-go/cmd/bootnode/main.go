@@ -37,13 +37,13 @@ func main() {
 	maxPeers := flag.Int("maxpeers", 100, "Maximum number of peers")
 	nodeKey := flag.String("node-key", "", "Path to node key file (auto-generated if missing)")
 	bootstrap := flag.String("bootstrap", "", "Comma-separated list of bootstrap peers (host:port)")
-	chainID := flag.Uint64("chain-id", 13370, "Chain ID")
+	chainID := flag.Uint64("chain-id", 198282, "Chain ID")
 	publicAddr := flag.String("public-addr", "", "Public address to advertise (e.g. bootnode1.netlifegy.com:30303)")
 	flag.Parse()
 
 	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
 	fmt.Printf("║           GYDSchain Bootnode v%-32s║\n", version)
-	fmt.Println("║         Peer Discovery Service - Chain ID 13370               ║")
+	fmt.Println("║         Peer Discovery Service - Chain ID 198282               ║")
 	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
 
 	if err := os.MkdirAll(*dataDir, 0o750); err != nil {

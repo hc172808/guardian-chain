@@ -17,7 +17,7 @@ const BRAND_COLORS = [
 const CHAIN_STATS = [
   { label: 'Chain Name', value: 'GYDSchain' },
   { label: 'Token Symbol', value: 'GYDS' },
-  { label: 'Chain ID', value: '13370' },
+  { label: 'Chain ID', value: '198282' },
   { label: 'RPC URL', value: 'https://rpc.netlifegy.com' },
   { label: 'Explorer', value: 'https://explorer.netlifegy.com' },
   { label: 'Consensus', value: 'Proof of Stake (PoS)' },
@@ -25,7 +25,7 @@ const CHAIN_STATS = [
   { label: 'Max TPS', value: '3,000+' },
   { label: 'Total Supply', value: '1,000,000,000 GYDS' },
   { label: 'Native Currency', value: 'GYDS (18 decimals)' },
-  { label: 'EVM Compatible', value: 'Yes (Chain ID 13370)' },
+  { label: 'EVM Compatible', value: 'Yes (Chain ID 198282)' },
   { label: 'Genesis Date', value: 'TBD (Mainnet)' },
 ];
 
@@ -40,7 +40,7 @@ const LOGOS = [
 
 const BOILERPLATE = `GYDSchain is a high-performance Layer-1 blockchain designed for the next generation of decentralized finance. Built on a Proof-of-Stake consensus mechanism with ~120-second block time (designed for double-spend prevention) and 3,000+ TPS capacity, GYDSchain provides a full DeFi ecosystem including an AMM DEX (GYDSwap), LP farming, cross-chain bridge (25+ networks), NFT marketplace, token launchpad, and on-chain governance — all accessible through a unified dashboard at netlifegy.com.
 
-Chain ID: 13370 | RPC: rpc.netlifegy.com | Explorer: explorer.netlifegy.com`;
+Chain ID: 198282 | RPC: rpc.netlifegy.com | Explorer: explorer.netlifegy.com`;
 
 const PressKit = () => {
   const { toast } = useToast();

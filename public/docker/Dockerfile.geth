@@ -1,5 +1,5 @@
 # GydsChain Node — Geth-based (go-ethereum)
-# Chain ID 13370 | Clique PoA | Block time 120s
+# Chain ID 198282 | Clique PoA | Block time 120s
 #
 # Build:
 #   docker build -f public/docker/Dockerfile.geth -t gyds-geth-node .
@@ -31,13 +31,13 @@ RUN chmod +x /usr/local/bin/geth-entrypoint.sh
 
 EXPOSE 8545 8546 30303 30303/udp
 
-ENV CHAIN_ID=13370
+ENV CHAIN_ID=198282
 ENV DATA_DIR=/var/lib/gyds
 ENV RPC_PORT=8545
 ENV WS_PORT=8546
 ENV P2P_PORT=30303
 ENV GENESIS_URL=""
-ENV NETWORK_ID=13370
+ENV NETWORK_ID=198282
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=5 \
     CMD curl -sf -X POST -H "Content-Type: application/json" \

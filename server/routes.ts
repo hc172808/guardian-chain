@@ -390,7 +390,7 @@ export function registerRoutes(app: Express) {
           toAddress,
           amountEther,
           signedRawTx: signedRaw,
-          chainId: parseInt(process.env.GYDS_CHAIN_ID ?? '13370'),
+          chainId: parseInt(process.env.GYDS_CHAIN_ID ?? '198282'),
         }).then(async (broadcast) => {
           const txId = row.id;
           console.log(`[chain] tx ${txId} → onChain=${broadcast.onChain} hash=${broadcast.txHash} endpoint=${broadcast.endpoint ?? 'n/a'}${broadcast.error ? ' err=' + broadcast.error : ''}`);
@@ -1732,8 +1732,8 @@ export function registerRoutes(app: Express) {
     const netParam = (["mainnet","testnet","devnet"].includes(req.query.network as string)
       ? req.query.network : "mainnet") as "mainnet" | "testnet" | "devnet";
 
-    const NET_CHAIN_IDS: Record<string, number> = { mainnet: 13370, testnet: 13371, devnet: 13372 };
-    const chainId = NET_CHAIN_IDS[netParam] ?? 13370;
+    const NET_CHAIN_IDS: Record<string, number> = { mainnet: 198282, testnet: 13371, devnet: 13372 };
+    const chainId = NET_CHAIN_IDS[netParam] ?? 198282;
 
     // ── 1. DB-sourced baseline ───────────────────────────────────────────────
     const [dbStats, tokenPriceRow] = await Promise.all([
@@ -2753,7 +2753,7 @@ export function registerRoutes(app: Express) {
   // Public so the install script can curl it; sensitive fields excluded.
   app.get("/api/chain/genesis.json", async (req, res) => {
     const { pool: pgPool } = await import("./db");
-    const chainId = 13370;
+    const chainId = 198282;
     const FOUNDER = (process.env.FOUNDER_WALLET ?? '0xd43455e4ef3E472d81aaA848046FF9a55285F5Fc').toLowerCase();
 
     try {
@@ -2941,8 +2941,8 @@ export function registerRoutes(app: Express) {
     }
 
     // Built-in responses — always work, no node needed
-    const CHAIN_ID_HEX = '0x343A'; // 13370
-    const NETWORK_ID   = '13370';
+    const CHAIN_ID_HEX = '0x3068a'; // 198282
+    const NETWORK_ID   = '198282';
 
     // Get latest block height from DB for a realistic eth_blockNumber
     const blkRow = await pgPool.query(
@@ -3827,7 +3827,7 @@ export function registerRoutes(app: Express) {
   app.get("/v1/network/stats", async (_req, res) => {
     try {
       const stats = await storage.getNetworkStats();
-      res.json({ tps: 1250, chain_id: 13370, block_time: 120, block_time_ms: 120000, ...stats });
+      res.json({ tps: 1250, chain_id: 198282, block_time: 120, block_time_ms: 120000, ...stats });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -4183,7 +4183,7 @@ export function registerRoutes(app: Express) {
     };
     const rpcChecks = await Promise.all(rpcEndpoints.map(checkRpc));
     const allRpcOk = rpcChecks.some((r: any) => r.reachable);
-    res.json({ status: allRpcOk ? "healthy" : "degraded", timestamp: new Date().toISOString(), chain_id: 13370, components: { rpc: rpcChecks } });
+    res.json({ status: allRpcOk ? "healthy" : "degraded", timestamp: new Date().toISOString(), chain_id: 198282, components: { rpc: rpcChecks } });
   });
 
   // ── Full infrastructure health check (replaces Supabase Edge Function) ──────
@@ -4234,7 +4234,7 @@ export function registerRoutes(app: Express) {
     res.status(overallHealthy ? 200 : 503).json({
       status: overallHealthy ? "healthy" : "degraded",
       timestamp: new Date().toISOString(),
-      chain_id: 13370,
+      chain_id: 198282,
       components: {
         database: dbCheck,
         rpc: rpcChecks,
@@ -6452,7 +6452,7 @@ export function registerRoutes(app: Express) {
       ).catch(() => ({ rows: [] as any[] }));
       const s = snap.rows[0];
       res.json({
-        chain_id: 13370,
+        chain_id: 198282,
         name: 'GYDSchain',
         symbol: 'GYDS',
         block_height: s ? Number(s.block_height) : null,
@@ -6493,7 +6493,7 @@ export function registerRoutes(app: Express) {
       ).catch(() => ({ rows: [] as any[] }));
       const s = snap.rows[0];
       res.json({
-        chain_id: 13370,
+        chain_id: 198282,
         validators: { total: Number(validators.rows[0]?.total ?? 0), active: Number(validators.rows[0]?.active ?? 0) },
         tokens: Number(tokens.rows[0]?.total ?? 0),
         transactions: Number(txs.rows[0]?.total ?? 0),

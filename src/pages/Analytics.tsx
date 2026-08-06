@@ -482,7 +482,7 @@ const AnalyticsPage = () => {
               <h2 className="font-semibold mb-4 text-sm">Tokenomics Summary</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
-                  { label: 'Chain ID', value: '13370' },
+                  { label: 'Chain ID', value: '198282' },
                   { label: 'Max Supply', value: '1B GYDS' },
                   { label: 'Circulating', value: loading ? '…' : fmtBig(overview?.circulatingSupply ?? 0) },
                   { label: 'Burned', value: loading ? '…' : fmtBig(overview?.burnedTotal ?? 0) },

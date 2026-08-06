@@ -319,7 +319,7 @@ const WalletAppSection = () => {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
             {[
-              { label: 'Chain ID', value: '13370' },
+              { label: 'Chain ID', value: '198282' },
               { label: 'App ID', value: 'io.netlifegy.gyds' },
               { label: 'RPC', value: 'rpc.netlifegy.com' },
               { label: 'Theme', value: '#0f1318 dark' },

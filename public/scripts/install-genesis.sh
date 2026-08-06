@@ -3,7 +3,7 @@
 #  GYDSchain Genesis Node Installer — FOUNDER ONLY
 #  Repo:     https://github.com/hc172808/genesis.git
 #  Sets up the genesis/bootstrap node that starts the GYDSchain network.
-#  Target OS: Ubuntu 20.04/22.04/24.04 | Debian 11/12  |  Chain ID 13370
+#  Target OS: Ubuntu 20.04/22.04/24.04 | Debian 11/12  |  Chain ID 198282
 #  Run:  sudo bash install-genesis.sh
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -19,7 +19,7 @@ GO_VERSION="${GO_VERSION:-1.21.13}"
 
 GENESIS_PORT="${GENESIS_PORT:-30300}"
 RPC_PORT="${GYDS_RPC_PORT:-8544}"
-CHAIN_ID="${GYDS_CHAIN_ID:-13370}"
+CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 STORAGE_SIZE="${STORAGE_SIZE:-500}"
 
 REPO_URL="https://github.com/hc172808/genesis.git"

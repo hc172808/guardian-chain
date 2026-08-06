@@ -399,7 +399,7 @@ server {
     location = /health {
         access_log off;
         add_header Content-Type "application/json";
-        return 200 '{"status":"ok","service":"gyds-dashboard","subdomain":"${SUBDOMAIN}","chain":13370}';
+        return 200 '{"status":"ok","service":"gyds-dashboard","subdomain":"${SUBDOMAIN}","chain":198282}';
     }
 
     # ── Block sensitive files ──

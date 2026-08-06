@@ -31,7 +31,7 @@ BIN_PATH="/usr/local/bin/gyds-bootnode"
 SERVICE_FILE="/etc/systemd/system/gyds-bootnode.service"
 CONFIG_FILE="/etc/gydschain/bootnode.toml"
 
-CHAIN_ID="${CHAIN_ID:-13370}"
+CHAIN_ID="${CHAIN_ID:-198282}"
 P2P_PORT="${P2P_PORT:-30303}"
 MAX_PEERS="${MAX_PEERS:-100}"
 PUBLIC_ADDR="${PUBLIC_ADDR:-}"           # e.g. bootnode1.netlifegy.com:30303

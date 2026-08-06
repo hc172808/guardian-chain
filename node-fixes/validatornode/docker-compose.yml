@@ -12,7 +12,7 @@ services:
     volumes:
       - validator_data:/data
     environment:
-      GYDS_CHAIN_ID: "13370"
+      GYDS_CHAIN_ID: "198282"
       GYDS_NODE_MODE: "validator"
       GYDS_RPC_PORT: "8543"
       GYDS_P2P_PORT: "30302"

@@ -164,9 +164,9 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
         chain := s.chain
         switch method {
         case "eth_chainId":
-                return fmt.Sprintf("0x%x", 13370)
+                return fmt.Sprintf("0x%x", 198282)
         case "net_version":
-                return "13370"
+                return "198282"
         case "eth_blockNumber":
                 return fmt.Sprintf("0x%x", chain.Height())
         case "eth_getBlockByNumber":

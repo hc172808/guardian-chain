@@ -26,8 +26,8 @@ type ChainConfig struct {
 // DefaultChainConfig returns the GYDS mainnet configuration
 func DefaultChainConfig() *ChainConfig {
         return &ChainConfig{
-                ChainID:          13370,
-                NetworkID:        13370,
+                ChainID:          198282,
+                NetworkID:        198282,
                 ProtocolVersion:  1,
                 ChainName:        "GYDS Network",
                 Symbol:           "GYDS",

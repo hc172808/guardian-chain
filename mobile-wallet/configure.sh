@@ -58,8 +58,8 @@ cat > "${WALLET_DIR}/.env.local" << EOF
 # ── Network ───────────────────────────────────────────────────────────────────
 VITE_RPC_URL=https://rpc.netlifegy.com
 VITE_RPC_FALLBACKS=https://rpc2.netlifegy.com,https://rpc3.netlifegy.com
-VITE_CHAIN_ID=13370
-VITE_CHAIN_ID_HEX=0x343A
+VITE_CHAIN_ID=198282
+VITE_CHAIN_ID_HEX=0x3068a
 VITE_NATIVE_SYMBOL=GYDS
 VITE_NETWORK_NAME=GYDS Network
 VITE_BLOCK_EXPLORER=https://explorer.netlifegy.com

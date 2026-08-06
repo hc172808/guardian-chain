@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Blocks, Zap, Shield, Globe, TrendingUp, Users, Coins, Lock, ChevronRight, ExternalLink, Github, Twitter, Send, CheckCircle, ArrowRight, Cpu, Network } from 'lucide-react';
 
 const STATS = [
-  { label: 'Chain ID', value: '13370', icon: <Network className="w-5 h-5" /> },
+  { label: 'Chain ID', value: '198282', icon: <Network className="w-5 h-5" /> },
   { label: 'Block Time', value: '~120s', icon: <Zap className="w-5 h-5" /> },
   { label: 'Consensus', value: 'PoS', icon: <Shield className="w-5 h-5" /> },
   { label: 'TPS', value: '3,000+', icon: <TrendingUp className="w-5 h-5" /> },
@@ -117,7 +117,7 @@ const Landing = () => {
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             <Badge variant="outline" className="mb-6 border-primary/30 text-primary bg-primary/10 px-4 py-1.5 text-sm gap-2">
               <span className="w-2 h-2 rounded-full bg-primary animate-pulse inline-block" />
-              Testnet Live — Chain ID 13370
+              Testnet Live — Chain ID 198282
             </Badge>
             <h1 className="text-5xl md:text-7xl font-black tracking-tight mb-6 leading-none">
               The Future of
@@ -341,7 +341,7 @@ const Landing = () => {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <Blocks className="h-4 w-4 text-primary" />
-            <span>GYDSchain © 2025 • Chain ID 13370</span>
+            <span>GYDSchain © 2025 • Chain ID 198282</span>
           </div>
           <div className="flex items-center gap-6">
             <Link to="/explorer" className="hover:text-foreground transition-colors">Explorer</Link>

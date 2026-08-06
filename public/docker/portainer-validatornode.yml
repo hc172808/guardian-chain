@@ -1,7 +1,7 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  GYDSchain VALIDATOR NODE — Portainer Stack                                  ║
 # ║  Repo: https://github.com/hc172808/fullnode.git                              ║
-# ║  Chain ID: 13370 | Active consensus participant — earns staking rewards      ║
+# ║  Chain ID: 198282 | Active consensus participant — earns staking rewards      ║
 # ║                                                                               ║
 # ║  SETUP:                                                                       ║
 # ║    1. wg genkey | tee /etc/gydschain/vn-privkey                              ║
@@ -36,7 +36,7 @@ version: "3.8"
 # GYDS_RPC_URL         Upstream full node RPC        default: https://rpc.netlifegy.com
 # GYDS_P2P_PORT        P2P port (open on firewall)   default: 30306
 # GYDS_RPC_PORT        Local RPC port                default: 8547
-# GYDS_CHAIN_ID        Chain ID                      default: 13370
+# GYDS_CHAIN_ID        Chain ID                      default: 198282
 # GYDS_STORAGE_GB      Storage GB                    default: 100
 # GYDS_STAKE_AMOUNT    GYDS staked to activate       default: 10000
 # GYDS_REWARD_ADDRESS  Wallet address for rewards    default: (required)
@@ -83,7 +83,7 @@ services:
       GYDS_RPC_URL:          "${GYDS_RPC_URL:-https://rpc.netlifegy.com}"
       GYDS_P2P_PORT:         "${GYDS_P2P_PORT:-30306}"
       GYDS_RPC_PORT:         "${GYDS_RPC_PORT:-8547}"
-      GYDS_CHAIN_ID:         "${GYDS_CHAIN_ID:-13370}"
+      GYDS_CHAIN_ID:         "${GYDS_CHAIN_ID:-198282}"
       GYDS_STORAGE_GB:       "${GYDS_STORAGE_GB:-100}"
       GYDS_STAKE_AMOUNT:     "${GYDS_STAKE_AMOUNT:-10000}"
       GYDS_REWARD_ADDRESS:   "${GYDS_REWARD_ADDRESS:-}"

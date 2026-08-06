@@ -7,7 +7,7 @@
 set -euo pipefail
 
 GYDS_VERSION="2.1.0"
-CHAIN_ID="${CHAIN_ID:-13370}"
+CHAIN_ID="${CHAIN_ID:-198282}"
 GYDS_HOME="${GYDS_HOME:-$HOME/.gyds}"
 BIN="$GYDS_HOME/bin"
 DATA="$GYDS_HOME/data"

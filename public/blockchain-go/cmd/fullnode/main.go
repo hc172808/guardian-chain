@@ -69,7 +69,7 @@ func main() {
 
         // Initialize blockchain
         chainConfig := blockchain.Config{
-                ChainID:           13370, // GYDS Mainnet Chain ID
+                ChainID:           198282, // GYDS Mainnet Chain ID
                 BlockTime:         120,   // 120 seconds (2 minutes)
                 MaxBlockSize:      2 * 1024 * 1024, // 2MB
                 MinGasPrice:       1000000000, // 1 Gwei

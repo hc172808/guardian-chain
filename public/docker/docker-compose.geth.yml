@@ -1,5 +1,5 @@
 # GydsChain — Geth-based node stack
-# Chain ID 13370 | Clique PoA
+# Chain ID 198282 | Clique PoA
 #
 # Quick start (replace YOUR_DASHBOARD_URL):
 #   GENESIS_URL=https://YOUR_DASHBOARD_URL/api/chain/genesis.json \
@@ -19,8 +19,8 @@ x-geth-base: &geth-base
   networks:
     - gydsnet
   environment:
-    CHAIN_ID: "13370"
-    NETWORK_ID: "13370"
+    CHAIN_ID: "198282"
+    NETWORK_ID: "198282"
     GENESIS_URL: "${GENESIS_URL:-}"
 
 services:
@@ -30,8 +30,8 @@ services:
     <<: *geth-base
     container_name: gyds-genesis
     environment:
-      CHAIN_ID: "13370"
-      NETWORK_ID: "13370"
+      CHAIN_ID: "198282"
+      NETWORK_ID: "198282"
       GENESIS_URL: "${GENESIS_URL:-}"
       RPC_PORT: "8545"
       WS_PORT: "8546"
@@ -63,8 +63,8 @@ services:
     <<: *geth-base
     container_name: gyds-fullnode
     environment:
-      CHAIN_ID: "13370"
-      NETWORK_ID: "13370"
+      CHAIN_ID: "198282"
+      NETWORK_ID: "198282"
       GENESIS_URL: "${GENESIS_URL:-}"
       RPC_PORT: "8547"
       WS_PORT: "8548"
@@ -86,8 +86,8 @@ services:
     <<: *geth-base
     container_name: gyds-rpc
     environment:
-      CHAIN_ID: "13370"
-      NETWORK_ID: "13370"
+      CHAIN_ID: "198282"
+      NETWORK_ID: "198282"
       GENESIS_URL: "${GENESIS_URL:-}"
       RPC_PORT: "8549"
       WS_PORT: "8550"

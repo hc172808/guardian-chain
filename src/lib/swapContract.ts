@@ -1,6 +1,6 @@
 // GydsSwap Contract Integration
 // Uses ethers.js to interact with the GydsSwapRouter, Factory, Pair, and Farm
-// contracts on the GYDSchain (Chain ID 13370).
+// contracts on the GYDSchain (Chain ID 198282).
 
 import { ethers } from 'ethers';
 import { ALL_RPC_ENDPOINTS } from '@/config/network';

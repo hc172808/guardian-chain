@@ -2,7 +2,7 @@
 
 The origin and bootstrap node for the GYDSchain network. Runs from block 0, archives all state, and acts as the primary P2P bootstrap peer for all other nodes.
 
-**Chain ID:** 13370 | **RPC:** port 8544 | **P2P:** port 30300 | **Binary:** `gyds-genesis`
+**Chain ID:** 198282 | **RPC:** port 8544 | **P2P:** port 30300 | **Binary:** `gyds-genesis`
 
 ## Quick Setup
 
@@ -58,7 +58,7 @@ GYDS_BOOTSTRAP_NODES=<GENESIS_SERVER_IP>:30300
 
 | Variable | Default | Description |
 |---|---|---|
-| `GYDS_CHAIN_ID` | `13370` | Chain ID |
+| `GYDS_CHAIN_ID` | `198282` | Chain ID |
 | `GYDS_RPC_PORT` | `8544` | JSON-RPC port |
 | `GYDS_P2P_PORT` | `30300` | P2P port |
 | `GYDS_DATA_DIR` | `./data` | Chain data directory |

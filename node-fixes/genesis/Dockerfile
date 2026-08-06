@@ -26,7 +26,7 @@ RUN apk add --no-cache ca-certificates curl
 
 COPY --from=builder /build/gyds-genesis /usr/local/bin/gyds-genesis
 
-ENV GYDS_CHAIN_ID=13370 \
+ENV GYDS_CHAIN_ID=198282 \
     GYDS_NODE_MODE=genesis \
     GYDS_RPC_PORT=8544 \
     GYDS_RPC_HOST=0.0.0.0 \

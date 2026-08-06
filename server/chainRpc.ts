@@ -143,7 +143,7 @@ export async function broadcastTransfer(params: {
   signedRawTx?: string;
 }): Promise<BroadcastResult> {
   const { fromAddress, toAddress, amountEther, signedRawTx } = params;
-  const chainId = params.chainId ?? 13370;
+  const chainId = params.chainId ?? 198282;
 
   if (signedRawTx) {
     try {

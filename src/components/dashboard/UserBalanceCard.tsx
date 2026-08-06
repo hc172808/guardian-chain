@@ -13,7 +13,7 @@ import { useCurrency } from '@/contexts/CurrencyContext';
 
 // Chain IDs and symbols per network — kept in sync with server/testNodes.ts NETWORK_CFGS
 const NET_META: Record<NetworkKind, { chainId: number; symbol: string }> = {
-  mainnet: { chainId: 13370, symbol: 'GYDS'  },
+  mainnet: { chainId: 198282, symbol: 'GYDS'  },
   testnet: { chainId: 13371, symbol: 'tGYDS' },
   devnet:  { chainId: 13372, symbol: 'dGYDS' },
 };

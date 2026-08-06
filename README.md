@@ -1,6 +1,6 @@
 # ChainCore — GYDS Blockchain Network Dashboard
 
-A full-stack blockchain ecosystem dashboard for the GYDS Network (Chain ID 13370).
+A full-stack blockchain ecosystem dashboard for the GYDS Network (Chain ID 198282).
 
 ## Stack
 
@@ -147,7 +147,7 @@ gyds-redeploy
 
 | Parameter | Value |
 |---|---|
-| Chain ID | 13370 |
+| Chain ID | 198282 |
 | Block Time | 120 seconds |
 | Domain | netlifegy.com |
 | RPC | rpc.netlifegy.com |

@@ -48,7 +48,7 @@ const NODE_TYPES: NodeType[] = ['rpc', 'lite', 'fullnode', 'boostnode', 'validat
 const NETWORKS:  Network[]   = ['mainnet', 'testnet', 'devnet'];
 
 const NETWORK_CFG = {
-  mainnet: { label: 'Mainnet', chainId: 13370, symbol: 'GYDS',  color: 'emerald', icon: '🌐',
+  mainnet: { label: 'Mainnet', chainId: 198282, symbol: 'GYDS',  color: 'emerald', icon: '🌐',
     rpcUrl: 'https://rpc.netlifegy.com', explorerUrl: 'https://explorer.netlifegy.com' },
   testnet: { label: 'Testnet', chainId: 13371, symbol: 'tGYDS', color: 'amber',   icon: '🧪',
     rpcUrl: 'https://testnet-rpc.netlifegy.com', explorerUrl: 'https://testnet-explorer.netlifegy.com' },
