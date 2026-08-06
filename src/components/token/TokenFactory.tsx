@@ -11,8 +11,14 @@ import { api } from '@/lib/api';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { getUserAddresses, computeUserBalances } from '@/lib/balances';
 import {
-  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart, Rocket
+  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart, Rocket, Info
 } from 'lucide-react';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -28,11 +34,42 @@ import {
 } from '@/lib/tokenAuthorities';
 import { writeTokenNetworkState, computeMarketCapUsd } from '@/lib/tokenPromotion';
 
+// ── Token standards supported on GYDSchain ───────────────────────────────────
+export const TOKEN_STANDARDS = [
+  {
+    value: 'GRC-20',
+    label: 'GRC-20 — Fungible Token',
+    description: 'Divisible, interchangeable tokens. Use for currencies, utility tokens, governance tokens, meme coins, and stablecoins. Equivalent to ERC-20 on Ethereum.',
+    decimalsDefault: 18,
+    supplyEditable: true,
+    use_cases: ['Utility', 'Governance', 'Meme', 'Stablecoin', 'Reward'],
+  },
+  {
+    value: 'GRC-721',
+    label: 'GRC-721 — Non-Fungible Token (NFT)',
+    description: 'Unique, indivisible tokens. Each token has a distinct ID. Use for digital art, collectibles, gaming items, and certificates. Equivalent to ERC-721.',
+    decimalsDefault: 0,
+    supplyEditable: true,
+    use_cases: ['Art', 'Collectibles', 'Gaming', 'Identity', 'Certificates'],
+  },
+  {
+    value: 'GRC-1155',
+    label: 'GRC-1155 — Multi-Token Standard',
+    description: 'Batch-mint both fungible and non-fungible tokens in a single contract. Efficient for gaming assets, bundles, and mixed portfolios. Equivalent to ERC-1155.',
+    decimalsDefault: 0,
+    supplyEditable: true,
+    use_cases: ['Gaming', 'Bundles', 'Mixed assets', 'Marketplaces'],
+  },
+] as const;
+
+export type TokenStandardValue = typeof TOKEN_STANDARDS[number]['value'];
+
 interface TokenCreationParams {
   name: string;
   symbol: string;
   decimals: number;
   initialSupply: string;
+  tokenStandard: TokenStandardValue;
   gydsLiquidity: string;
   authorities: Partial<Record<AuthorityKey, boolean>>;
   transferFeeBps: string; // for transfer_fee authority
@@ -56,6 +93,7 @@ export const TokenFactory = () => {
 
   const [params, setParams] = useState<TokenCreationParams>({
     name: '', symbol: '', decimals: 18, initialSupply: '1000000',
+    tokenStandard: 'GRC-20',
     gydsLiquidity: '1000',
     authorities: {},
     transferFeeBps: '0',
@@ -63,6 +101,8 @@ export const TokenFactory = () => {
     maxBuyPerWallet: '10000',
     dailyBuyLimit: '5000',
   });
+
+  const selectedStandard = TOKEN_STANDARDS.find(s => s.value === params.tokenStandard) ?? TOKEN_STANDARDS[0];
 
   // Load admin pricing and user GYDS balance
   useEffect(() => {
@@ -159,6 +199,7 @@ export const TokenFactory = () => {
         symbol: params.symbol,
         decimals: params.decimals,
         total_supply: parseFloat(params.initialSupply),
+        token_standard: params.tokenStandard,
         gyds_liquidity: parseFloat(params.gydsLiquidity),
         logo_url: logoUrl,
         lp_lock_type: params.lpLockType === 'burn' ? 'burned' : 'timelocked',
@@ -311,6 +352,56 @@ export const TokenFactory = () => {
                   <div className="flex items-center gap-2"><Badge variant="outline">1</Badge> Token Details</div>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pt-4">
+                  {/* Token Standard */}
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1">
+                      Token Standard
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-xs">
+                            <p className="font-semibold mb-1">GYDSchain Token Standards</p>
+                            <p><strong>GRC-20</strong> — Fungible (currencies, utility, meme)</p>
+                            <p><strong>GRC-721</strong> — Non-fungible / NFT (art, collectibles)</p>
+                            <p><strong>GRC-1155</strong> — Multi-token (gaming, bundles)</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </Label>
+                    <Select
+                      value={params.tokenStandard}
+                      onValueChange={(v: TokenStandardValue) => {
+                        const std = TOKEN_STANDARDS.find(s => s.value === v)!;
+                        setParams({
+                          ...params,
+                          tokenStandard: v,
+                          decimals: std.decimalsDefault,
+                        });
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TOKEN_STANDARDS.map(s => (
+                          <SelectItem key={s.value} value={s.value}>
+                            <span className="font-medium">{s.label}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="rounded-lg bg-secondary/40 border border-border/50 p-3 text-xs text-muted-foreground space-y-1">
+                      <p>{selectedStandard.description}</p>
+                      <p className="flex flex-wrap gap-1 pt-1">
+                        {selectedStandard.use_cases.map(uc => (
+                          <span key={uc} className="bg-primary/10 text-primary rounded px-1.5 py-0.5">{uc}</span>
+                        ))}
+                      </p>
+                    </div>
+                  </div>
+
                   {/* Logo Upload */}
                   <div className="space-y-2">
                     <Label>Token Logo</Label>

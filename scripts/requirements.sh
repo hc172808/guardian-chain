@@ -40,15 +40,17 @@ INSTALL_GO=true
 INSTALL_WIREGUARD=true
 INSTALL_CERTBOT=false
 MINIMAL=false
+PG_CLIENT_ONLY=false
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 
 for arg in "$@"; do
   case "$arg" in
-    --no-docker)    INSTALL_DOCKER=false ;;
-    --no-go)        INSTALL_GO=false ;;
-    --no-wireguard) INSTALL_WIREGUARD=false ;;
-    --certbot)      INSTALL_CERTBOT=true ;;
-    --minimal)      MINIMAL=true; INSTALL_DOCKER=false; INSTALL_GO=false; INSTALL_WIREGUARD=false ;;
+    --no-docker)      INSTALL_DOCKER=false ;;
+    --no-go)          INSTALL_GO=false ;;
+    --no-wireguard)   INSTALL_WIREGUARD=false ;;
+    --certbot)        INSTALL_CERTBOT=true ;;
+    --minimal)        MINIMAL=true; INSTALL_DOCKER=false; INSTALL_GO=false; INSTALL_WIREGUARD=false ;;
+    --pg-client-only) PG_CLIENT_ONLY=true ;;
     --noninteractive|--non-interactive) NONINTERACTIVE=1 ;;
     -h|--help)
       sed -n '3,17p' "$0" | sed 's/^# //' | sed 's/^#//'
@@ -56,6 +58,68 @@ for arg in "$@"; do
     *) warn "Unknown flag: $arg (ignored)" ;;
   esac
 done
+
+# ─── PostgreSQL client-only mode ──────────────────────────────────────────────
+# Use when you need psql/pg_dump/pg_restore to connect to a REMOTE database
+# without installing the full PostgreSQL server on this machine.
+if $PG_CLIENT_ONLY; then
+  banner "
+╔══════════════════════════════════════════════════════════════════════╗
+║   PostgreSQL Client Tools Installer (client-only mode)              ║
+║   Installs: psql, pg_dump, pg_restore, pg_isready, createdb        ║
+║   Does NOT install the PostgreSQL server                            ║
+╚══════════════════════════════════════════════════════════════════════╝"
+
+  detect_os
+  pkg_update 2>/dev/null || true
+  case "$PKG_FAMILY" in
+    debian)
+      # Add the official PostgreSQL apt repo so we get the latest client
+      if ! command -v psql &>/dev/null; then
+        install -d /usr/share/postgresql-common/pgdg
+        curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+          | gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg 2>/dev/null
+        echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] \
+https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+          > /etc/apt/sources.list.d/pgdg.list
+        apt-get update -qq 2>/dev/null
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq postgresql-client-16
+      fi
+      ;;
+    rhel|fedora)
+      dnf install -y -q postgresql 2>/dev/null || yum install -y -q postgresql 2>/dev/null || true
+      ;;
+    arch)
+      pacman -S --noconfirm --needed postgresql-libs 2>/dev/null
+      ;;
+  esac
+
+  # Test connection if DATABASE_URL is provided
+  if [[ -n "${DATABASE_URL:-}" ]]; then
+    echo ""
+    info "Testing connection to: ${DATABASE_URL%%@*}@..."
+    if psql "${DATABASE_URL}" -c "SELECT version();" 2>/dev/null; then
+      log "Connection OK"
+    else
+      err "Connection failed — check DATABASE_URL"
+      exit 1
+    fi
+  fi
+
+  log "PostgreSQL client tools installed:"
+  for tool in psql pg_dump pg_restore pg_isready createdb dropdb; do
+    command -v "$tool" &>/dev/null && log "  ✓ $tool ($(command -v $tool))" || warn "  ✗ $tool not found"
+  done
+
+  echo ""
+  echo -e "${CYAN}Usage examples:${NC}"
+  echo "  Connect to DB:    psql \"\$DATABASE_URL\""
+  echo "  Backup DB:        pg_dump \"\$DATABASE_URL\" -f backup.sql"
+  echo "  Restore DB:       psql \"\$DATABASE_URL\" -f backup.sql"
+  echo "  Check connection: pg_isready -d \"\$DATABASE_URL\""
+  echo "  Run test suite:   bash scripts/test-setup.sh --db-only"
+  exit 0
+fi
 
 # ─── Version pins ─────────────────────────────────────────────────────────────
 NODE_MAJOR=22          # Node.js LTS major version

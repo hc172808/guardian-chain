@@ -163,6 +163,7 @@ export const tokens = pgTable("tokens", {
   mintHolder: text("mint_holder"),
   mintLocked: boolean("mint_locked").notNull().default(false),
   address: text("address").notNull(),
+  tokenStandard: text("token_standard").notNull().default("GRC-20"),
   isActive: boolean("is_active").notNull().default(true),
   networkType: text("network_type").notNull().default("devnet"),
   mainnetPromotedAt: timestamp("mainnet_promoted_at"),

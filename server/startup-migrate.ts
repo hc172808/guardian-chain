@@ -240,6 +240,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       mint_holder         TEXT,
       mint_locked         BOOLEAN DEFAULT false NOT NULL,
       address             TEXT NOT NULL,
+      token_standard      TEXT DEFAULT 'GRC-20' NOT NULL,
       is_active           BOOLEAN DEFAULT true NOT NULL,
       network_type        TEXT DEFAULT 'devnet' NOT NULL,
       mainnet_promoted_at TIMESTAMPTZ,
@@ -1168,6 +1169,9 @@ export async function startupMigrate(pool: Pool): Promise<void> {
   await run("idx-audit-user",       `CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)`);
   await run("idx-xp-events",        `CREATE INDEX IF NOT EXISTS idx_xp_events_user ON xp_events(user_id)`);
   await run("idx-oracle-sub",       `CREATE INDEX IF NOT EXISTS oracle_sub_feed_idx ON oracle_submissions(feed_id, submitted_at DESC)`);
+
+  // ── tokens — add token_standard column for GRC-20 / GRC-721 / GRC-1155 ────
+  await run("tokens-token_standard", `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS token_standard TEXT DEFAULT 'GRC-20' NOT NULL`);
 
   const elapsed = Date.now() - start;
   if (errors.length > 0) {
