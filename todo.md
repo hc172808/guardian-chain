@@ -205,3 +205,13 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 - [x] **Login "Invalid username or password" on server** — Seed had premature `return` skipping account creation. Fixed: seed now always upserts founder + admin accounts on startup.
 - [x] **Database connection drops** — pg pool had zero config. Fixed: keepAlive, idleTimeout, connectionTimeout, min:2 warm connections, pool error handler.
 - [x] **Coin logos not showing in Swap / Wallet** — No fallback to static files. Fixed: `/gyds-coin.jpg`, `/gyd-coin.png`, `/gusd-coin.png` used as fallback.
+
+---
+
+## ✅ 2026-08-06 — Security-check controls & chain-ID migration
+
+- [x] **Admin UI for security-check tuning** — `src/components/admin/CaptchaSecuritySettings.tsx` (Admin → Health) edits rolling-window thresholds, alert cooldowns, offline-fallback replay expiry (default 2 min) and replay-memory multiplier live, with no redeploy.
+- [x] **Runtime settings store** — `server/captchaSettings.ts` seeds from env, persists to `.gyds-captcha-settings.json`, clamps every value, and is read live by `server/captcha.ts` + `server/captchaAlerts.ts`.
+- [x] **Endpoints** — `GET/PUT /api/auth/captcha/settings`, `POST /api/auth/captcha/settings/reset`, `POST /api/auth/captcha/attack-mode` (admin/founder only).
+- [x] **Server-side feature flag for attack conditions** — failure signals feed an attack detector; when the threshold trips (or an admin forces it), the offline fallback is disabled server-side (`isFallbackAllowed()`), while server-side verification keeps working whenever the API is reachable. `CaptchaWidget` honours the flag via `fallbackAllowed` on `/api/auth/captcha` (cached for offline cases) and shows a lockdown message instead of issuing a local challenge.
+- [x] **Chain ID migration 13370 → 198282** (hex `0x343A` → `0x3068a`) across 131 files: Go node configs/genesis, Solidity + Hardhat, docker/portainer stacks, install scripts, edge functions, server RPC config, frontend network config and docs.
