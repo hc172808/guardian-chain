@@ -1,7 +1,7 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  GYDSchain FULL NODE — Portainer Stack                                       ║
 # ║  Repo: https://github.com/hc172808/fullnode.git                              ║
-# ║  Chain ID: 13370 | Founder-level — stores the complete chain                 ║
+# ║  Chain ID: 198282 | Founder-level — stores the complete chain                 ║
 # ║                                                                               ║
 # ║  SETUP:                                                                       ║
 # ║    1. wg genkey | tee /etc/gydschain/fn-privkey                              ║
@@ -32,7 +32,7 @@ version: "3.8"
 # WG_CONF_PATH     WireGuard config on host       default: /etc/gydschain/wg-fullnode.conf
 # GYDS_RPC_PORT    RPC listen port               default: 8546
 # GYDS_P2P_PORT    P2P port (open on firewall)   default: 30303
-# GYDS_CHAIN_ID    Chain ID                      default: 13370
+# GYDS_CHAIN_ID    Chain ID                      default: 198282
 # GYDS_BLOCK_TIME  Block time seconds            default: 120
 # GYDS_STORAGE_GB  Data storage GB               default: 100
 # GYDS_MINING      Enable mining (true/false)    default: true
@@ -78,7 +78,7 @@ services:
       GITHUB_TOKEN:       "${GITHUB_TOKEN:-}"
       GYDS_RPC_PORT:      "${GYDS_RPC_PORT:-8546}"
       GYDS_P2P_PORT:      "${GYDS_P2P_PORT:-30303}"
-      GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-13370}"
+      GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-198282}"
       GYDS_BLOCK_TIME:    "${GYDS_BLOCK_TIME:-120}"
       GYDS_STORAGE_GB:    "${GYDS_STORAGE_GB:-100}"
       GYDS_MINING:        "${GYDS_MINING:-true}"

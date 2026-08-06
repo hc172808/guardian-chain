@@ -49,6 +49,7 @@ import { FirewallManager } from '@/components/admin/FirewallManager';
 import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { CaptchaMonitorDashboard } from '@/components/admin/CaptchaMonitorDashboard';
+import { CaptchaSecuritySettings } from '@/components/admin/CaptchaSecuritySettings';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 import { TokenManager } from '@/components/admin/TokenManager';
 import { NodeInstaller } from '@/components/admin/NodeInstaller';
@@ -1135,6 +1136,7 @@ const AdminContent = () => {
         <TabsContent value="health">
           <div className="space-y-6">
             <HealthCheck />
+            <CaptchaSecuritySettings />
             <CaptchaMonitorDashboard />
           </div>
         </TabsContent>

@@ -147,7 +147,7 @@ export default function Maintenance({ message }: Props) {
           transition={{ delay: 0.8 }}
           className="text-xs text-muted-foreground"
         >
-          Chain ID: 13370 &nbsp;·&nbsp; netlifegy.com &nbsp;·&nbsp;{' '}
+          Chain ID: 198282 &nbsp;·&nbsp; netlifegy.com &nbsp;·&nbsp;{' '}
           <button
             onClick={() => navigate('/auth')}
             className="text-primary/60 hover:text-primary transition-colors inline-flex items-center gap-0.5"

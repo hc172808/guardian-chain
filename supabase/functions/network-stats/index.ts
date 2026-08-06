@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       timestamp: new Date().toISOString(),
-      chainId: 13370,
+      chainId: 198282,
       stats: {
         activeValidators: validators.count ?? 0,
         activeMiners: miners.count ?? 0,

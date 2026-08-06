@@ -5,7 +5,7 @@ Last Updated: 2026-06-09
 Blockchain: GYDSchain
 Native Coin: GYDS
 Stablecoin: GYD
-Chain ID: 13370
+Chain ID: 198282
 Domain: netlifegy.com
 
 ## Legend

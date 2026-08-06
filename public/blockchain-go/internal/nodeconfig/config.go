@@ -73,7 +73,7 @@ func Defaults(role Role) Config {
 		RPCPort:     ports.RPC,
 		MaxPeers:    50,
 		StorageGB:   100,
-		ChainID:     13370,
+		ChainID:     198282,
 		BlockTime:   120,
 		MiningEnabled: role == RoleBoost || role == RoleDev || role == RoleLocal || role == RoleGenesis,
 		MiningThreads: 1,

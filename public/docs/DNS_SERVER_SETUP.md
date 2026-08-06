@@ -437,7 +437,7 @@ Edit `/etc/chaincore/node.env`:
 ```bash
 # Full Node Configuration
 NODE_TYPE=fullnode
-CHAIN_ID=13370
+CHAIN_ID=198282
 DATA_DIR=/var/lib/chaincore
 RPC_PORT=8546
 P2P_PORT=8545
@@ -577,4 +577,4 @@ sudo journalctl -u wg-quick@wg0
 ---
 
 **Last Updated:** 2024
-**Network:** GYDSchain Mainnet (Chain ID: 13370)
+**Network:** GYDSchain Mainnet (Chain ID: 198282)

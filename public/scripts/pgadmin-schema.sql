@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 --  GYDSchain — Complete Database Schema for pgAdmin Upload
---  Chain ID: 13370 (mainnet)  |  Dual coin: GYDS (gas) + GYD (stablecoin)
+--  Chain ID: 198282 (mainnet)  |  Dual coin: GYDS (gas) + GYD (stablecoin)
 --
 --  This file is the SAME as gydschain-complete-schema.sql but named for
 --  easy upload to pgAdmin. Open pgAdmin, right-click your database,
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     gas_price TEXT,
     status TEXT DEFAULT 'pending',
     block_number INTEGER,
-    chain_id INTEGER DEFAULT 13370,
+    chain_id INTEGER DEFAULT 198282,
     data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

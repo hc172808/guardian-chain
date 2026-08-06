@@ -27,7 +27,7 @@ ok()  { echo -e "\033[0;32m✓\033[0m $*"; }
 err() { echo -e "\033[0;31m✗\033[0m $*"; exit 1; }
 
 log "GYDS Validator Node Setup"
-log "Chain ID   : 13370"
+log "Chain ID   : 198282"
 log "RPC Port   : $RPC_PORT"
 log "P2P Port   : $P2P_PORT"
 log "Validator  : ${VALIDATOR_ADDRESS:-<not set>}"
@@ -75,7 +75,7 @@ WorkingDirectory=/opt/gyds-validatornode
 ExecStart=/usr/local/bin/gyds-validatornode start
 Restart=always
 RestartSec=10
-Environment=GYDS_CHAIN_ID=13370
+Environment=GYDS_CHAIN_ID=198282
 Environment=GYDS_NODE_MODE=validator
 Environment=GYDS_RPC_PORT=${RPC_PORT}
 Environment=GYDS_P2P_PORT=${P2P_PORT}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GydsChain Ecosystem Deployment v2.1.0
 # Deploys: Explorer, Indexer DB
-# Domain: netlifegy.com | Chain ID: 13370
+# Domain: netlifegy.com | Chain ID: 198282
 set -e
 
 RED='\033[0;31m'
@@ -12,7 +12,7 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════╗"
 echo "║     GydsChain Ecosystem Deployment v2.0                   ║"
-echo "║     netlifegy.com | Chain ID: 13370                       ║"
+echo "║     netlifegy.com | Chain ID: 198282                       ║"
 echo "╚═══════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 

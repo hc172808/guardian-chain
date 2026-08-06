@@ -87,7 +87,7 @@ cat > /opt/chaincore/config.json << EOF
   "node_type": "litenode",
   "rpc_endpoint": "${rpc}",
   "wireguard_public_key": "${publicKey || ''}",
-  "chain_id": 13370
+  "chain_id": 198282
 }
 EOF
 echo "Lite node installed. Please configure WireGuard and start the service."
@@ -108,7 +108,7 @@ cat > /opt/chaincore/config.json << EOF
   "node_type": "fullnode",
   "storage_gb": ${storage},
   "enable_mining": ${mining},
-  "chain_id": 13370,
+  "chain_id": 198282,
   "rpc_endpoints": ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com"]
 }
 EOF

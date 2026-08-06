@@ -41,5 +41,5 @@ export const EXTERNAL_CHAINS: BridgeChain[] = [
 ];
 
 export const GYDS_CHAIN = {
-  id: 'gyds', name: 'GYDS Network', symbol: 'GYDS', chainId: 13370, logo: '◇', color: 'from-primary to-primary/50',
+  id: 'gyds', name: 'GYDS Network', symbol: 'GYDS', chainId: 198282, logo: '◇', color: 'from-primary to-primary/50',
 };

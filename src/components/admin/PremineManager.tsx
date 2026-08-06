@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { RESERVED_WALLETS } from '@/config/wallets';
 
-const CHAIN_ID = 13370;
+const CHAIN_ID = 198282;
 const RPC_URLS = {
   mainnet: 'https://rpc.netlifegy.com',
   testnet: 'https://testnet-rpc.netlifegy.com',

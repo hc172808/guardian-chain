@@ -80,7 +80,7 @@ func (s *Server) Start() error {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"node":         "GYDSchain/validator-node/v1.0.0",
-			"chainId":      13370,
+			"chainId":      198282,
 			"syncing":      false,
 			"currentBlock": s.chain.Height(),
 			"validators":   s.validators.Count(),
@@ -185,9 +185,9 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
 	case "eth_blockNumber":
 		return respond(fmt.Sprintf("0x%x", height))
 	case "net_version":
-		return respond("13370")
+		return respond("198282")
 	case "eth_chainId":
-		return respond(fmt.Sprintf("0x%x", 13370))
+		return respond(fmt.Sprintf("0x%x", 198282))
 	case "eth_gasPrice":
 		return respond("0x4A817C800")
 	case "eth_maxPriorityFeePerGas":

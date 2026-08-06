@@ -1,7 +1,7 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  GYDSchain BOOST NODE — Portainer Stack                                      ║
 # ║  Repo: https://github.com/hc172808/fullnode.git                              ║
-# ║  Chain ID: 13370 | High-performance relay + mining accelerator               ║
+# ║  Chain ID: 198282 | High-performance relay + mining accelerator               ║
 # ║                                                                               ║
 # ║  SETUP:                                                                       ║
 # ║    1. wg genkey | tee /etc/gydschain/bn-privkey                              ║
@@ -32,7 +32,7 @@ version: "3.8"
 # WG_CONF_PATH      WireGuard config on host       default: /etc/gydschain/wg-boostnode.conf
 # GYDS_RPC_URL      Upstream full node RPC        default: https://rpc.netlifegy.com
 # GYDS_P2P_PORT     P2P port (open on firewall)   default: 30304
-# GYDS_CHAIN_ID     Chain ID                      default: 13370
+# GYDS_CHAIN_ID     Chain ID                      default: 198282
 # GYDS_STORAGE_GB   Storage GB                    default: 50
 # GYDS_BOOST_PEERS  Max peer connections          default: 100
 # GYDS_MINING       Enable mining (true/false)    default: true
@@ -78,7 +78,7 @@ services:
       GITHUB_TOKEN:       "${GITHUB_TOKEN:-}"
       GYDS_RPC_URL:       "${GYDS_RPC_URL:-https://rpc.netlifegy.com}"
       GYDS_P2P_PORT:      "${GYDS_P2P_PORT:-30304}"
-      GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-13370}"
+      GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-198282}"
       GYDS_STORAGE_GB:    "${GYDS_STORAGE_GB:-50}"
       GYDS_BOOST_PEERS:   "${GYDS_BOOST_PEERS:-100}"
       GYDS_MINING:        "${GYDS_MINING:-true}"

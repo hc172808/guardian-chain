@@ -1,6 +1,6 @@
 # GydsChain Explorer + Dashboard Dockerfile v2.2.0
 # Multi-stage build with security hardening
-# Domain: netlifegy.com | Chain ID: 13370
+# Domain: netlifegy.com | Chain ID: 198282
 #
 # Build from project root:
 #   docker build -f public/docker/Dockerfile.explorer -t gyds-explorer .

@@ -161,7 +161,7 @@ The schema file is at `public/scripts/gydschain-schema.sql` (mirrors `public/doc
 | `https://vpn.netlifegy.com` | WireGuard VPN |
 | `https://testnet-rpc.netlifegy.com` | Testnet RPC |
 
-Chain ID: **13370**
+Chain ID: **198282**
 
 ---
 

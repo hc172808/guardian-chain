@@ -2,7 +2,7 @@
 
 > A custom blockchain built in Go with PoS consensus, dual native coins, and a full deployment ecosystem.
 
-**Domain:** [netlifegy.com](https://netlifegy.com) · **Chain ID:** 13370 · **Block Time:** 5s · **Node Binary:** `gydsd`
+**Domain:** [netlifegy.com](https://netlifegy.com) · **Chain ID:** 198282 · **Block Time:** 5s · **Node Binary:** `gydsd`
 
 ---
 
@@ -35,7 +35,7 @@
 | Address Format     | `0x` + 40 hex characters           |
 | Database           | LevelDB (embedded)                |
 | P2P Networking     | WireGuard VPN overlay              |
-| Chain ID           | 13370                              |
+| Chain ID           | 198282                              |
 
 ### Dual Native Coins
 

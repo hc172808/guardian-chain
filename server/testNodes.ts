@@ -1,6 +1,6 @@
 /**
  * Multi-network test node manager — localhost "real" nodes
- * Supports: mainnet (13370), testnet (13371), devnet (13372)
+ * Supports: mainnet (198282), testnet (13371), devnet (13372)
  * 7 node types × 3 networks = 21 total node instances
  *
  * Port allocation:
@@ -91,7 +91,7 @@ interface NetworkCfg {
 
 export const NETWORK_CFGS: Record<Network, NetworkCfg> = {
   mainnet: {
-    chainId: 13370, chainIdHex: "0x343A", symbol: "GYDS",
+    chainId: 198282, chainIdHex: "0x3068a", symbol: "GYDS",
     name: "GYDS Network (Mainnet)", label: "mainnet",
     ports: { rpc: 8545, lite: 8555, fullnode: 8565, boostnode: 8575, validator: 8585, genesis: 8590, bootnode: 8595 },
   },

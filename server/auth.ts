@@ -14,6 +14,10 @@ import { sendPasswordResetEmail, sendEmailVerification } from "./email";
 import { sendWhatsAppMessage } from "./whatsapp";
 import { verifyCaptcha, generateChallenge, captchaMode, onFallbackAttempt, fallbackAttemptLog } from "./captcha";
 import { recordAlertSignal, alertConfig, alertLog } from "./captchaAlerts";
+import {
+  getCaptchaSettings, getCaptchaSettingsDefaults, updateCaptchaSettings, resetCaptchaSettings,
+  recordAttackSignal, setManualAttackMode, attackState, isFallbackAllowed,
+} from "./captchaSettings";
 const pgPool = pool;
 
 // ── WhatsApp OTP store (in-memory, short-lived) ───────────────────────────────
@@ -62,6 +66,8 @@ function recordCaptchaMonitorEvent(event: CaptchaMonitorEvent, ip: string, detai
   }
   if (event === 'html_response' || event === 'blocked_login' || event === 'captcha_failed' || event === 'retry') {
     void recordAlertSignal(event, { ip, requestId, challengeId, ...(details ?? {}) });
+    // Feed the attack detector — it can auto-disable the offline fallback.
+    recordAttackSignal();
   }
   return requestId;
 }
@@ -175,7 +181,7 @@ export async function setupAuth(app: Express): Promise<void> {
       return res.json({ mode: 'hcaptcha' });
     }
     const { challengeId, question } = generateChallenge();
-    res.json({ mode: 'math', challengeId, question });
+    res.json({ mode: 'math', challengeId, question, fallbackAllowed: isFallbackAllowed() });
   });
 
   app.get("/api/auth/captcha/health", (_req, res) => {
@@ -186,8 +192,49 @@ export async function setupAuth(app: Express): Promise<void> {
       mode,
       contentType: 'application/json',
       serverVerification: true,
+      fallbackAllowed: isFallbackAllowed(),
+      attack: attackState(),
       checkedAt: new Date().toISOString(),
     });
+  });
+
+  // ── Runtime security-check settings (admin/founder only) ───────────────────
+  const requireCaptchaAdmin = (req: any, res: any): boolean => {
+    const roles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
+    if (!roles.some((role: string) => role === 'admin' || role === 'founder')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return false;
+    }
+    return true;
+  };
+
+  app.get("/api/auth/captcha/settings", requireAuth, (req: any, res) => {
+    if (!requireCaptchaAdmin(req, res)) return;
+    res.json({
+      settings: getCaptchaSettings(),
+      defaults: getCaptchaSettingsDefaults(),
+      attack: attackState(),
+      fallbackAllowed: isFallbackAllowed(),
+    });
+  });
+
+  app.put("/api/auth/captcha/settings", requireAuth, (req: any, res) => {
+    if (!requireCaptchaAdmin(req, res)) return;
+    const settings = updateCaptchaSettings(req.body ?? {});
+    res.json({ ok: true, settings, attack: attackState(), fallbackAllowed: isFallbackAllowed() });
+  });
+
+  app.post("/api/auth/captcha/settings/reset", requireAuth, (req: any, res) => {
+    if (!requireCaptchaAdmin(req, res)) return;
+    res.json({ ok: true, settings: resetCaptchaSettings(), attack: attackState(), fallbackAllowed: isFallbackAllowed() });
+  });
+
+  // Manual attack-mode override: { minutes: number } (0 clears it)
+  app.post("/api/auth/captcha/attack-mode", requireAuth, (req: any, res) => {
+    if (!requireCaptchaAdmin(req, res)) return;
+    const minutes = Number(req.body?.minutes ?? 0);
+    const state = setManualAttackMode(Number.isFinite(minutes) && minutes > 0 ? minutes * 60_000 : 0);
+    res.json({ ok: true, attack: state, fallbackAllowed: isFallbackAllowed() });
   });
 
   app.post("/api/auth/captcha/events", authLimiter, (req: any, res) => {
@@ -212,6 +259,9 @@ export async function setupAuth(app: Express): Promise<void> {
       status: failures > 0 ? 'degraded' : 'healthy',
       alerts: { config: alertConfig(), recent: alertLog.slice(0, 20) },
       fallbackAttempts: fallbackAttemptLog.slice(0, 50),
+      fallbackAllowed: isFallbackAllowed(),
+      attack: attackState(),
+      settings: getCaptchaSettings(),
       drilldown: requestId ? captchaMonitor.recent.find(e => e.requestId === requestId) ?? null : undefined,
       ...captchaMonitor,
     });

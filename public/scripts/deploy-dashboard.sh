@@ -325,7 +325,7 @@ id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" 
   echo "#   GYDS_CONF=\"\${GYDS_CONF:-/var/www/gydschain/gyds-config.env}\""
   echo "#   [[ -f \"\$GYDS_CONF\" ]] && source \"\$GYDS_CONF\""
   echo ""
-  echo "GYDS_CHAIN_ID=13370"
+  echo "GYDS_CHAIN_ID=198282"
   echo "DOMAIN=${DOMAIN}"
   echo "FQDN=${FQDN}"
   [[ -n "$ADMIN_WALLET"         ]] && echo "GYDS_ADMIN_WALLET=${ADMIN_WALLET}"
@@ -562,7 +562,7 @@ server {
     location = /health {
         access_log off;
         add_header Content-Type "application/json";
-        return 200 '{"status":"ok","service":"gyds-dashboard","chain":13370}';
+        return 200 '{"status":"ok","service":"gyds-dashboard","chain":198282}';
     }
 
     location ~ /\. { deny all; }

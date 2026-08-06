@@ -1,7 +1,7 @@
 # ChainCore — Developer TODO
 
 > Last updated: 2026-07-26  
-> Stack: Vite+React+TS frontend · Express+Drizzle backend · PostgreSQL · Chain ID 13370 · Domain: app.netlifegy.com
+> Stack: Vite+React+TS frontend · Express+Drizzle backend · PostgreSQL · Chain ID 198282 · Domain: app.netlifegy.com
 
 ---
 
@@ -59,7 +59,7 @@
 - [x] PremineManager "Download from DB" button
 - [x] Geth-based node setup scripts (`public/docker/`, `public/scripts/`)
 - [x] `GET /scripts/:scriptName` — serves bash scripts as `text/plain`
-- [x] Chain IDs: mainnet=13370, testnet=13371, devnet=13372
+- [x] Chain IDs: mainnet=198282, testnet=13371, devnet=13372
 
 ### Mining
 - [x] Mining pool backend (`server/miningPool.ts`) with sessions, jobs, share submission
@@ -71,7 +71,7 @@
 
 ### Test Node Manager
 - [x] 7 node types per network: rpc, lite, fullnode, boostnode, validator, genesis, bootnode
-- [x] 3 networks: mainnet (13370), testnet (13371), devnet (13372)
+- [x] 3 networks: mainnet (198282), testnet (13371), devnet (13372)
 - [x] Start / Stop / Auto-boot toggle per node
 - [x] Per-node live logs panel (2s polling)
 - [x] Global node log file viewer with search + filter presets
@@ -112,13 +112,13 @@
 - [ ] **Real SMTP email verification** — token is currently `console.log`'d in dev. Wire up Nodemailer or Resend API (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` env vars). Placeholder function in `server/auth.ts`.
 - [ ] **Production Geth node** — genesis.json is correct; deploy a real Geth binary on a VPS, run `geth init genesis.json`, and peer the test nodes to the live network.
 - [ ] **WireGuard VPN provisioning** — `POST /api/wireguard/provision` generates keys in-process but doesn't configure a real `wg` interface. Needs `wg-quick` integration or Netbird/Tailscale API.
-- [ ] **Validator registration on-chain** — current validator dashboard is mock data. Deploy a Solidity `ValidatorRegistry` contract on chain 13370 and wire `validator_register` RPC method.
+- [ ] **Validator registration on-chain** — current validator dashboard is mock data. Deploy a Solidity `ValidatorRegistry` contract on chain 198282 and wire `validator_register` RPC method.
 - [ ] **Block explorer real data** — Explorer reads from `network_snapshots` seeded by a cron (`server/chainSync.ts`). Ensure `rpc.netlifegy.com` is live so the cron populates real data.
 
 ### Medium Priority
 
 - [ ] **Cross-chain bridge backend** — 25 networks in `CrossChainBridge.tsx` with trust-based non-EVM flow. Need `POST /api/bridge/initiate` to create a bridge request and emit a webhook to the relayer service.
-- [ ] **DeFi swap real liquidity** — Swap tab calls a mock AMM. Wire to a deployed UniswapV2-style AMM contract on chain 13370, or integrate a DEX aggregator API.
+- [ ] **DeFi swap real liquidity** — Swap tab calls a mock AMM. Wire to a deployed UniswapV2-style AMM contract on chain 198282, or integrate a DEX aggregator API.
 - [ ] **NFT minting** — NFT page has UI but no `POST /api/nft/mint`. Deploy an ERC-721 contract and wire `ethers.js` from the server signer.
 - [ ] **Governance proposals on-chain** — Deploy a `GovernorBravo`-style contract; wire `POST /api/governance/propose` and `POST /api/governance/vote`.
 - [ ] **RWA (Real-World Assets)** — UI-only. Define tokenization flow; deploy ERC-1400 or ERC-3525 contract.
@@ -151,7 +151,7 @@
 | Backend | Express.js + Passport.js | Port 5001, sessions in PostgreSQL via `connect-pg-simple` |
 | DB | PostgreSQL (Replit managed) | Drizzle ORM, see "DB schema push" below |
 | Auth | Passport local + Web3 sig | Roles: `user`, `admin`, `founder` |
-| Chain | Geth-compatible EVM | Chain ID 13370, genesis built from DB |
+| Chain | Geth-compatible EVM | Chain ID 198282, genesis built from DB |
 | Styling | Tailwind CSS + shadcn/ui | GlassCard, Badge, Button, Switch, Tabs, etc. |
 | State | TanStack Query + AuthContext | Supabase shim routes all calls to Express API |
 
@@ -205,3 +205,13 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 - [x] **Login "Invalid username or password" on server** — Seed had premature `return` skipping account creation. Fixed: seed now always upserts founder + admin accounts on startup.
 - [x] **Database connection drops** — pg pool had zero config. Fixed: keepAlive, idleTimeout, connectionTimeout, min:2 warm connections, pool error handler.
 - [x] **Coin logos not showing in Swap / Wallet** — No fallback to static files. Fixed: `/gyds-coin.jpg`, `/gyd-coin.png`, `/gusd-coin.png` used as fallback.
+
+---
+
+## ✅ 2026-08-06 — Security-check controls & chain-ID migration
+
+- [x] **Admin UI for security-check tuning** — `src/components/admin/CaptchaSecuritySettings.tsx` (Admin → Health) edits rolling-window thresholds, alert cooldowns, offline-fallback replay expiry (default 2 min) and replay-memory multiplier live, with no redeploy.
+- [x] **Runtime settings store** — `server/captchaSettings.ts` seeds from env, persists to `.gyds-captcha-settings.json`, clamps every value, and is read live by `server/captcha.ts` + `server/captchaAlerts.ts`.
+- [x] **Endpoints** — `GET/PUT /api/auth/captcha/settings`, `POST /api/auth/captcha/settings/reset`, `POST /api/auth/captcha/attack-mode` (admin/founder only).
+- [x] **Server-side feature flag for attack conditions** — failure signals feed an attack detector; when the threshold trips (or an admin forces it), the offline fallback is disabled server-side (`isFallbackAllowed()`), while server-side verification keeps working whenever the API is reachable. `CaptchaWidget` honours the flag via `fallbackAllowed` on `/api/auth/captcha` (cached for offline cases) and shows a lockdown message instead of issuing a local challenge.
+- [x] **Chain ID migration 13370 → 198282** (hex `0x343A` → `0x3068a`) across 131 files: Go node configs/genesis, Solidity + Hardhat, docker/portainer stacks, install scripts, edge functions, server RPC config, frontend network config and docs.

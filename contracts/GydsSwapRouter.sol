@@ -5,7 +5,7 @@ import "./GydsSwapLibrary.sol";
 import "./GydsSwapPair.sol";
 
 /// @title GydsSwapRouter
-/// @notice User-facing router for GydsSwap DEX on GydsChain (Chain ID 13370).
+/// @notice User-facing router for GydsSwap DEX on GydsChain (Chain ID 198282).
 ///         Handles: addLiquidity, removeLiquidity, and all swap variants.
 ///
 /// Slippage protection:  every function accepts minimum amounts / deadline.

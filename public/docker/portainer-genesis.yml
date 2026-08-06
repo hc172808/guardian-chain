@@ -1,7 +1,7 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  GYDSchain GENESIS NODE — Portainer Stack                                    ║
 # ║  Repo: https://github.com/hc172808/fullnode.git                              ║
-# ║  Chain ID: 13370 | FOUNDER ONLY — bootstraps the network from genesis block  ║
+# ║  Chain ID: 198282 | FOUNDER ONLY — bootstraps the network from genesis block  ║
 # ║                                                                               ║
 # ║  ⚠️  RUN ONCE — Only deploy this when launching the network for the first time ║
 # ║  ⚠️  Keep the genesis key (founder.key) in COLD STORAGE after network launch  ║
@@ -32,7 +32,7 @@ version: "3.8"
 # GITHUB_TOKEN             GitHub PAT for private repo   default: (empty)
 # WG_CONF_PATH             WireGuard config on host       default: /etc/gydschain/wg-genesis.conf
 # GENESIS_KEY_PATH         Host dir for founder key      default: /etc/gydschain/genesis
-# GYDS_CHAIN_ID            Chain ID                      default: 13370
+# GYDS_CHAIN_ID            Chain ID                      default: 198282
 # GYDS_BLOCK_TIME          Block time seconds            default: 120
 # GYDS_INITIAL_SUPPLY      Initial GYDS supply           default: 1000000000
 # GYDS_TREASURY_ADDRESS    Treasury wallet address       default: (required)
@@ -83,7 +83,7 @@ services:
     environment:
       NODE_REPO:                 "${NODE_REPO:-https://github.com/hc172808/fullnode.git}"
       GITHUB_TOKEN:              "${GITHUB_TOKEN:-}"
-      GYDS_CHAIN_ID:             "${GYDS_CHAIN_ID:-13370}"
+      GYDS_CHAIN_ID:             "${GYDS_CHAIN_ID:-198282}"
       GYDS_BLOCK_TIME:           "${GYDS_BLOCK_TIME:-120}"
       GYDS_INITIAL_SUPPLY:       "${GYDS_INITIAL_SUPPLY:-1000000000}"
       GYDS_TREASURY_ADDRESS:     "${GYDS_TREASURY_ADDRESS:-}"

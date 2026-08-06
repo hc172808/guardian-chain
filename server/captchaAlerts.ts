@@ -16,9 +16,12 @@
 
 export type AlertKind = 'html_response' | 'retry' | 'blocked_login' | 'captcha_failed' | 'fallback_activated';
 
-const WINDOW_MS = Number(process.env.CAPTCHA_ALERT_WINDOW_MS ?? 5 * 60_000);
-const THRESHOLD = Number(process.env.CAPTCHA_ALERT_THRESHOLD ?? 5);
-const COOLDOWN_MS = Number(process.env.CAPTCHA_ALERT_COOLDOWN_MS ?? 15 * 60_000);
+import { getCaptchaSettings, attackState, isFallbackAllowed } from './captchaSettings';
+
+// Thresholds/windows/cooldowns are runtime-configurable from the admin UI.
+const WINDOW_MS = () => getCaptchaSettings().alertWindowMs;
+const THRESHOLD = () => getCaptchaSettings().alertThreshold;
+const COOLDOWN_MS = () => getCaptchaSettings().alertCooldownMs;
 
 const hits = new Map<AlertKind, number[]>();
 const lastAlertAt = new Map<AlertKind, number>();
@@ -38,9 +41,11 @@ export function alertConfig() {
   return {
     slackConfigured: !!slackWebhook(),
     emailRecipients: alertEmails().length,
-    threshold: THRESHOLD,
-    windowMs: WINDOW_MS,
-    cooldownMs: COOLDOWN_MS,
+    threshold: THRESHOLD(),
+    windowMs: WINDOW_MS(),
+    cooldownMs: COOLDOWN_MS(),
+    fallbackAllowed: isFallbackAllowed(),
+    attack: attackState(),
   };
 }
 
@@ -89,18 +94,18 @@ export async function recordAlertSignal(
   context: Record<string, unknown> = {},
 ): Promise<void> {
   const now = Date.now();
-  const recent = (hits.get(kind) ?? []).filter(t => now - t < WINDOW_MS);
+  const recent = (hits.get(kind) ?? []).filter(t => now - t < WINDOW_MS());
   recent.push(now);
   hits.set(kind, recent);
 
-  if (recent.length < THRESHOLD) return;
+  if (recent.length < THRESHOLD()) return;
   const last = lastAlertAt.get(kind) ?? 0;
-  if (now - last < COOLDOWN_MS) return;
+  if (now - last < COOLDOWN_MS()) return;
   lastAlertAt.set(kind, now);
 
   const message =
     `🚨 GYDS security-check alert: ${recent.length} "${kind}" events in the last ` +
-    `${Math.round(WINDOW_MS / 60_000)} min.\n` +
+    `${Math.round(WINDOW_MS() / 60_000)} min.\n` +
     `Context: ${JSON.stringify(context)}\n` +
     `Check Admin → Health → Captcha Monitoring for request-ID drill-down.`;
 

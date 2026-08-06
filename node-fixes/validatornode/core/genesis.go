@@ -2,7 +2,7 @@ package core
 
 // GydsGenesis is the shared genesis configuration for the GYDS Chain.
 var GydsGenesis = &GenesisConfig{
-	ChainID:     13370,
+	ChainID:     198282,
 	NetworkName: "GYDS Chain",
 	Timestamp:   1700000000,
 	GasLimit:    30_000_000,

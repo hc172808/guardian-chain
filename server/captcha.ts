@@ -17,6 +17,7 @@
  */
 
 import crypto from 'crypto';
+import { getCaptchaSettings, isFallbackAllowed } from './captchaSettings';
 
 // ── In-memory challenge store (Mode B) ─────────────────────────────────────────
 interface Challenge {
@@ -26,14 +27,17 @@ interface Challenge {
 
 const challengeStore = new Map<string, Challenge>();
 const usedFallbackChallenges = new Map<string, number>();
-// Tightened replay window: offline-fallback challenges are only valid for
-// 2 minutes (was 10) and every attempt is logged by challenge ID below.
-const FALLBACK_TTL_MS = Number(process.env.CAPTCHA_FALLBACK_TTL_MS ?? 2 * 60_000);
+// Replay window (default 2 minutes) and retention are configurable at runtime
+// from Admin → Health → Security-check settings — no redeploy required.
+const fallbackTtlMs = () => getCaptchaSettings().fallbackTtlMs;
 // Retain used IDs longer than the TTL so a replay is still recognised as a
 // replay (rather than silently expiring out of the set).
-const FALLBACK_REPLAY_RETENTION_MS = FALLBACK_TTL_MS * 5;
+const fallbackRetentionMs = () => {
+  const s = getCaptchaSettings();
+  return s.fallbackTtlMs * s.fallbackReplayRetentionMultiplier;
+};
 
-type FallbackAttempt = { challengeId: string; at: string; outcome: 'accepted' | 'replayed' | 'expired' | 'invalid' };
+type FallbackAttempt = { challengeId: string; at: string; outcome: 'accepted' | 'replayed' | 'expired' | 'invalid' | 'disabled' };
 export const fallbackAttemptLog: FallbackAttempt[] = [];
 let fallbackAttemptSink: ((attempt: FallbackAttempt) => void) | null = null;
 
@@ -62,12 +66,17 @@ function deriveFallbackOperands(nonce: string): [number, number] {
 }
 
 function verifyFallbackChallenge(challengeId: string, answer: string | number): boolean {
+  if (!isFallbackAllowed()) {
+    // Attack conditions (or an admin switch) disabled the offline fallback.
+    logFallbackAttempt(challengeId, 'disabled');
+    return false;
+  }
   const match = /^fallback:v1:(\d{13}):([a-f0-9]{32})$/.exec(challengeId);
   if (!match) { logFallbackAttempt(challengeId, 'invalid'); return false; }
   const issuedAt = Number(match[1]);
   const nonce = match[2];
   const now = Date.now();
-  if (!Number.isFinite(issuedAt) || issuedAt > now + 30_000 || now - issuedAt > FALLBACK_TTL_MS) {
+  if (!Number.isFinite(issuedAt) || issuedAt > now + 30_000 || now - issuedAt > fallbackTtlMs()) {
     logFallbackAttempt(challengeId, 'expired');
     return false;
   }
@@ -75,7 +84,7 @@ function verifyFallbackChallenge(challengeId: string, answer: string | number): 
   const [a, b] = deriveFallbackOperands(nonce);
   const submitted = Number.parseInt(String(answer).trim(), 10);
   if (!Number.isFinite(submitted) || submitted !== a + b) { logFallbackAttempt(challengeId, 'invalid'); return false; }
-  usedFallbackChallenges.set(challengeId, now + FALLBACK_REPLAY_RETENTION_MS);
+  usedFallbackChallenges.set(challengeId, now + fallbackRetentionMs());
   logFallbackAttempt(challengeId, 'accepted');
   return true;
 }

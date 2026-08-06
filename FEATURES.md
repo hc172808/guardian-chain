@@ -183,7 +183,7 @@ src/
 │
 ├── config/
 │   ├── bridgeChains.ts             # EXTERNAL_CHAINS array (25 networks) + GYDS_CHAIN
-│   └── network.ts                  # RPC endpoints, chain ID 13370, tokenomics
+│   └── network.ts                  # RPC endpoints, chain ID 198282, tokenomics
 │
 └── integrations/supabase/
     ├── client.ts                   # Supabase shim — routes all calls to Express /api/*
@@ -565,7 +565,7 @@ Schema defined in `shared/schema.ts`. Drizzle returns camelCase in JS/TS.
 
 ### `src/config/network.ts`
 ```typescript
-CHAIN_ID = 13370
+CHAIN_ID = 198282
 RPC_ENDPOINTS = ['https://rpc.netlifegy.com', 'wss://ws.netlifegy.com']
 BLOCK_TIME = 120 // seconds
 GYDS_TOTAL_SUPPLY = 1_000_000_000

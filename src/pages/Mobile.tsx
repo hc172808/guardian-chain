@@ -179,7 +179,7 @@ const ReceiveModal = ({ address, onClose }: { address: string; onClose: () => vo
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="text-base font-bold">Receive GYDS</h3>
-            <p className="text-[11px] text-muted-foreground">GYDSchain · Chain ID 13370</p>
+            <p className="text-[11px] text-muted-foreground">GYDSchain · Chain ID 198282</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-muted/60 transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
@@ -576,7 +576,7 @@ const ExplorerTab = () => {
   ];
 
   const chainInfo = [
-    { label: 'Chain ID',     value: '13370' },
+    { label: 'Chain ID',     value: '198282' },
     { label: 'Block Time',   value: netStats?.avgBlockTime ? `${netStats.avgBlockTime}s` : '5s' },
     { label: 'Finality',     value: '99.99%' },
     { label: 'Consensus',    value: 'PoS' },
@@ -929,7 +929,7 @@ const WalletTab = () => {
             </div>
             <div>
               <p className="text-xs font-semibold">My Wallet</p>
-              <p className="text-[10px] text-muted-foreground">GYDSchain Network · ID 13370</p>
+              <p className="text-[10px] text-muted-foreground">GYDSchain Network · ID 198282</p>
             </div>
           </div>
           <span className="text-[10px] font-medium px-2 py-1 rounded-full bg-green-400/10 text-green-400 border border-green-400/20">
@@ -1455,7 +1455,7 @@ const MobilePage = () => {
           <div>
             <span className="font-bold text-base leading-none">{titles[tab]}</span>
             {tab === 'home' && (
-              <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Chain ID: 13370</p>
+              <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Chain ID: 198282</p>
             )}
           </div>
         </div>

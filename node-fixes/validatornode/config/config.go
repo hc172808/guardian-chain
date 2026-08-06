@@ -40,7 +40,7 @@ type Config struct {
 
 func DefaultConfig() *Config {
 	return &Config{
-		ChainID:         13370,
+		ChainID:         198282,
 		NetworkName:     "GYDS Chain",
 		NodeMode:        "validator",
 		P2PPort:         30302,

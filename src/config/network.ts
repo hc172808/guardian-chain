@@ -75,8 +75,8 @@ export type NetworkKind = 'mainnet' | 'testnet' | 'devnet';
 
 // Mainnet
 export const NETWORK_CONFIG = {
-  chainId: 13370,
-  chainIdHex: '0x343A',
+  chainId: 198282,
+  chainIdHex: '0x3068a',
   chainName: 'GYDS Network',
   nativeCurrency: {
     name: TOKENOMICS.name,

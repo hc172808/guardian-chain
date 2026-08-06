@@ -144,7 +144,7 @@ export function handleMiningRpc(method: string, params: any): {
           difficulty: currentJob!.difficulty,
           target: currentJob!.target,
           fee: POOL_FEE,
-          chainId: 13370,
+          chainId: 198282,
           network: 'GYDS Mainnet',
         },
       };
@@ -236,7 +236,7 @@ export function handleMiningRpc(method: string, params: any): {
       return {
         result: {
           name: POOL_NAME,
-          chainId: 13370,
+          chainId: 198282,
           network: 'GYDS Mainnet',
           fee: POOL_FEE,
           minPayout: 0.01,

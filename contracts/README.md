@@ -1,6 +1,6 @@
 # GydsSwap Smart Contracts
 
-Uniswap V2 style AMM for **GydsChain** (Chain ID 13370).
+Uniswap V2 style AMM for **GydsChain** (Chain ID 198282).
 
 ## Contracts
 

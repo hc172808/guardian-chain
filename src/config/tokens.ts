@@ -84,7 +84,7 @@ export type TokenConfig = NativeCoinConfig;
 
 // Chain configuration - using netlifegy.com endpoints
 export const CHAIN_CONFIG: ChainConfig = {
-  chainId: 13370,
+  chainId: 198282,
   chainName: 'GYDSchain Mainnet',
   gasCoin: GYDS_COIN,
   stableCoin: GYD_COIN,

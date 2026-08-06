@@ -1,7 +1,7 @@
 {
   "name": "gydsswap-contracts",
   "version": "1.0.0",
-  "description": "GydsSwap AMM smart contracts for GYDSchain (Chain ID 13370)",
+  "description": "GydsSwap AMM smart contracts for GYDSchain (Chain ID 198282)",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",

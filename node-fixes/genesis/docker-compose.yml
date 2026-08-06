@@ -14,7 +14,7 @@ services:
     volumes:
       - genesis-data:/var/lib/gyds-genesis
     environment:
-      - GYDS_CHAIN_ID=13370
+      - GYDS_CHAIN_ID=198282
       - GYDS_NODE_MODE=genesis
       - GYDS_RPC_PORT=8544
       - GYDS_RPC_HOST=0.0.0.0

@@ -39,6 +39,16 @@ interface Props {
 // ── Config ────────────────────────────────────────────────────────────────────
 const HCAPTCHA_SITE_KEY = (import.meta as any).env?.VITE_HCAPTCHA_SITE_KEY ?? '';
 
+// Last-known server decision on whether the offline fallback may be used.
+// Cached so it still applies when the API itself becomes unreachable.
+const FALLBACK_FLAG_KEY = 'gyds:captcha-fallback-allowed';
+function fallbackAllowed(): boolean {
+  try { return sessionStorage.getItem(FALLBACK_FLAG_KEY) !== 'false'; } catch { return true; }
+}
+function setFallbackAllowed(allowed: boolean) {
+  try { sessionStorage.setItem(FALLBACK_FLAG_KEY, allowed ? 'true' : 'false'); } catch {}
+}
+
 // ── hCaptcha widget (CDN-based, no npm package needed) ────────────────────────
 const HCaptchaWidget = ({
   siteKey,
@@ -211,6 +221,17 @@ const MathChallengeWidget = ({
   useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
   const useLocalChallenge = useCallback(() => {
+    // Server-side feature flag: while the backend reports attack conditions
+    // (or an admin turned the fallback off), never issue a local challenge.
+    if (!fallbackAllowed()) {
+      setOffline(false);
+      setChallengeId('');
+      setQuestion('');
+      localAnswerRef.current = null;
+      setError('Security check is temporarily locked down. Please retry in a moment.');
+      void reportCaptchaEvent('blocked_login', { reason: 'fallback_disabled' });
+      return;
+    }
     const c = createFallbackChallenge();
     localAnswerRef.current = c.answer;
     setChallengeId(c.challengeId);
@@ -245,6 +266,7 @@ const MathChallengeWidget = ({
         return;
       }
       const data = await res.json();
+      setFallbackAllowed(data.fallbackAllowed !== false);
       localAnswerRef.current = null;
       if (attempt > 0) void reportCaptchaEvent('recovered', { attempts: attempt + 1 });
       setOffline(false);

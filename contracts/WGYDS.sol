@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 /// @title WGYDS — Wrapped GYDS
-/// @notice ERC-20 wrapper for the native GYDS coin on GydsChain (Chain ID 13370).
+/// @notice ERC-20 wrapper for the native GYDS coin on GydsChain (Chain ID 198282).
 ///         1 WGYDS = 1 GYDS (1:1, no fee).
 ///         Required by GydsSwapRouter to handle native-coin swap pairs.
 contract WGYDS {

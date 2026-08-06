@@ -138,7 +138,7 @@ Use this as a checklist: ✅ = done, ⏳ = in progress, ❌ = not yet started.
   full state storage.
 - Flags: `--datadir`, `--p2pport` (default 30303), `--maxpeers` (default 100),
   `--node-key`, `--bootstrap` (comma-separated peer list), `--chain-id`
-  (default 13370).
+  (default 198282).
 - Starts only the `network.P2PNetwork` and answers `MsgPeerDiscovery`
   requests.
 - Graceful shutdown on SIGINT/SIGTERM.

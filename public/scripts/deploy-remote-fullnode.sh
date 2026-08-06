@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GydsChain Remote Full Node Deployment v2.0
 # Deploy full nodes to remote Ubuntu servers
-# Domain: netlifegy.com | Chain ID: 13370 | FOUNDER ONLY
+# Domain: netlifegy.com | Chain ID: 198282 | FOUNDER ONLY
 set -e
 
 # Colors
@@ -50,7 +50,7 @@ echo -e "  Node Type:  $NODE_TYPE"
 echo -e "  RPC Port:   $RPC_PORT"
 echo -e "  P2P Port:   $P2P_PORT"
 echo -e "  Storage:    ${STORAGE_SIZE}GB"
-echo -e "  Chain ID:   13370"
+echo -e "  Chain ID:   198282"
 echo ""
 
 read -p "Deploy to this server? (y/n) " -n 1 -r
@@ -93,7 +93,7 @@ echo -e "  Server:       $REMOTE_HOST"
 echo -e "  Node Type:    $NODE_TYPE"
 echo -e "  RPC Endpoint: http://$REMOTE_HOST:$RPC_PORT"
 echo -e "  P2P Port:     $P2P_PORT"
-echo -e "  Chain ID:     13370"
+echo -e "  Chain ID:     198282"
 echo ""
 echo -e "${CYAN}Service Endpoints:${NC}"
 echo -e "  rpc.netlifegy.com          - Main RPC"

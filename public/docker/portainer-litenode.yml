@@ -1,7 +1,7 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  GYDSchain LITE NODE — Portainer Stack                                       ║
 # ║  Repo: https://github.com/hc172808/fullnode.git                              ║
-# ║  Chain ID: 13370 | Lightweight — syncs headers only, low disk usage          ║
+# ║  Chain ID: 198282 | Lightweight — syncs headers only, low disk usage          ║
 # ║                                                                               ║
 # ║  SETUP:                                                                       ║
 # ║    1. wg genkey | tee /etc/gydschain/ln-privkey                              ║
@@ -31,7 +31,7 @@ version: "3.8"
 # WG_CONF_PATH      WireGuard config on host       default: /etc/gydschain/wg-litenode.conf
 # GYDS_RPC_URL      Primary RPC endpoint          default: https://rpc.netlifegy.com
 # GYDS_WS_URL       WebSocket endpoint            default: wss://ws.netlifegy.com
-# GYDS_CHAIN_ID     Chain ID                      default: 13370
+# GYDS_CHAIN_ID     Chain ID                      default: 198282
 # GYDS_STORAGE_GB   Cache storage GB              default: 10
 # GYDS_API_PORT     Local API port                default: 3030
 # GYDS_MINING       Enable mining (true/false)    default: false
@@ -74,7 +74,7 @@ services:
       GITHUB_TOKEN:       "${GITHUB_TOKEN:-}"
       GYDS_RPC_URL:       "${GYDS_RPC_URL:-https://rpc.netlifegy.com}"
       GYDS_WS_URL:        "${GYDS_WS_URL:-wss://ws.netlifegy.com}"
-      GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-13370}"
+      GYDS_CHAIN_ID:      "${GYDS_CHAIN_ID:-198282}"
       GYDS_STORAGE_GB:    "${GYDS_STORAGE_GB:-10}"
       GYDS_API_PORT:      "${GYDS_API_PORT:-3030}"
       GYDS_MINING:        "${GYDS_MINING:-false}"

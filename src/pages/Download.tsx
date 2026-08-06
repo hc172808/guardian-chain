@@ -119,7 +119,7 @@ const DownloadPage = () => {
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[
             { label: 'Block Time', value: '120s' },
-            { label: 'Chain ID', value: '13370' },
+            { label: 'Chain ID', value: '198282' },
             { label: 'Consensus', value: 'PoS' },
             { label: 'Node Binary', value: 'gyds-fullnode' },
             { label: 'Node Mode', value: 'GYDS_NODE_MODE' },
@@ -321,7 +321,7 @@ const DownloadPage = () => {
                   </div>
                   <Badge variant="outline" className="ml-auto border-purple-400 text-purple-400">Founder</Badge>
                 </div>
-                <CommandBlock command={`curl -sSL https://netlifegy.com/install-fullnode.sh | GENESIS=true CHAIN_ID=13370 sudo bash`} label="Genesis Command" onCopy={copyToClipboard} />
+                <CommandBlock command={`curl -sSL https://netlifegy.com/install-fullnode.sh | GENESIS=true CHAIN_ID=198282 sudo bash`} label="Genesis Command" onCopy={copyToClipboard} />
                 <p className="text-xs text-muted-foreground mt-3">Requirements: 8 GB RAM, 200 GB SSD, static IP, static domain</p>
               </GlassCard>
             )}
@@ -549,7 +549,7 @@ const DownloadPage = () => {
                   { cmd: 'gydsctl tx send --from <a> --to <b> --amount 100 --coin GYD', desc: 'Send tokens' },
                   { cmd: 'gydsctl stake delegate --validator <addr> --amount 1000', desc: 'Delegate stake' },
                   { cmd: 'gydsctl stake rewards --address <addr>', desc: 'View rewards' },
-                  { cmd: 'gydsd init --chain-id 13370', desc: 'Initialize node' },
+                  { cmd: 'gydsd init --chain-id 198282', desc: 'Initialize node' },
                   { cmd: 'gydsd start --rpc --ws --validator', desc: 'Start validator node' },
                   { cmd: 'gydsd status', desc: 'Node status' },
                 ].map((item, i) => (

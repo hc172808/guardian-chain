@@ -1,6 +1,6 @@
 -- GydsChain Indexer Database Schema v2.0
 -- PostgreSQL database mirroring blockchain state for explorer and API
--- Domain: netlifegy.com | Chain ID: 13370
+-- Domain: netlifegy.com | Chain ID: 198282
 
 -- ═══════════════════════════════════════
 -- CORE TABLES

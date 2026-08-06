@@ -3,7 +3,7 @@
 #  GYDSchain Boost Node Installer
 #  Repo:     https://github.com/hc172808/boostnode.git
 #  A high-performance relay/boost node for GYDSchain.
-#  Target OS: Ubuntu 20.04/22.04/24.04 | Debian 11/12  |  Chain ID 13370
+#  Target OS: Ubuntu 20.04/22.04/24.04 | Debian 11/12  |  Chain ID 198282
 #  Run:  sudo bash install-boostnode.sh
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -22,7 +22,7 @@ GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
 GO_VERSION="${GO_VERSION:-1.21.13}"
 
-CHAIN_ID="${GYDS_CHAIN_ID:-13370}"
+CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 RPC_PORT="${GYDS_RPC_PORT:-8547}"
 P2P_PORT="${GYDS_P2P_PORT:-30304}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"

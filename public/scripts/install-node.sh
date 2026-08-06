@@ -3,7 +3,7 @@
 #  GYDSchain Universal Node Installer
 #  Usage:  sudo bash install-node.sh [validator|fullnode|rpc|litenode|bootnode]
 #  Builds REAL binaries from public/blockchain-go/ source.
-#  Chain ID: 13370  |  Domain: netlifegy.com
+#  Chain ID: 198282  |  Domain: netlifegy.com
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -19,7 +19,7 @@ LOG_DIR="/var/log/gydschain"
 SERVICE_NAME="gydschain-${NODE_TYPE}"
 GO_VERSION="${GO_VERSION:-1.22.5}"
 
-CHAIN_ID="${CHAIN_ID:-13370}"
+CHAIN_ID="${CHAIN_ID:-198282}"
 BLOCK_TIME="${BLOCK_TIME:-120}"
 P2P_PORT="${P2P_PORT:-30303}"
 RPC_PORT="${RPC_PORT:-8546}"

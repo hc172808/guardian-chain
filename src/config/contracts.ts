@@ -1,9 +1,9 @@
 // GYDSchain Contract Addresses
 // Fill in after deployment with Hardhat/Truffle. All addresses are placeholders
-// for the GydsSwap ecosystem (Uniswap V2 style AMM) on Chain ID 13370.
+// for the GydsSwap ecosystem (Uniswap V2 style AMM) on Chain ID 198282.
 
 export const CONTRACT_ADDRESSES = {
-  // Mainnet (Chain ID 13370)
+  // Mainnet (Chain ID 198282)
   mainnet: {
     // GydsSwap core contracts
     WGYDS:      '0x0000000000000000000000000000000000000000', // Wrapped GYDS (native coin wrapper)

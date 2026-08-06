@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     const result = {
       status: overallHealthy ? "healthy" : "degraded",
       timestamp: new Date().toISOString(),
-      chain_id: 13370,
+      chain_id: 198282,
       components: {
         database: dbCheck,
         rpc: rpcChecks,

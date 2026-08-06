@@ -160,7 +160,7 @@ export function NodeInstaller() {
       lines.push(`# Option A (from this dashboard):`);
       lines.push(`curl -fsSL ${scriptBaseUrl}${INSTALL_SCRIPTS[n.id]} | \\`);
       if (n.id === 'genesis') {
-        lines.push(`  CHAIN_ID=13370 STORAGE_SIZE=500 \\`);
+        lines.push(`  CHAIN_ID=198282 STORAGE_SIZE=500 \\`);
         if (genesisBootstrap) lines.push(`  BOOTSTRAP_PEERS="${genesisBootstrap}" \\`);
       } else {
         lines.push(`  BLOCK_TIME=${blockTime} ENABLE_MINING=${enableMining} \\`);
@@ -189,7 +189,7 @@ export function NodeInstaller() {
         `# ── ${n.label}`,
         `git clone ${n.repo} gyds-${n.id} && cd gyds-${n.id}`,
         `docker build -t gyds-${n.id}:latest . \\`,
-        `  --build-arg CHAIN_ID=13370 \\`,
+        `  --build-arg CHAIN_ID=198282 \\`,
         `  --build-arg ENABLE_MINING=${enableMining}`,
         `docker run -d --name gyds-${n.id} \\`,
         `  --cap-add NET_ADMIN \\`,
@@ -373,7 +373,7 @@ PersistentKeepalive = 25`;
             <AlertTriangle className="h-5 w-5 text-yellow-400 shrink-0 mt-0.5" />
             <div className="text-sm text-yellow-300 space-y-1">
               <p className="font-semibold">Genesis node — run this ONCE on your primary server.</p>
-              <p className="text-xs text-yellow-400/80">It creates block 0 of the GYDSchain (Chain ID 13370). All other nodes must connect to the genesis node's enode address as their bootstrap peer.</p>
+              <p className="text-xs text-yellow-400/80">It creates block 0 of the GYDSchain (Chain ID 198282). All other nodes must connect to the genesis node's enode address as their bootstrap peer.</p>
               <p className="text-xs text-yellow-400/80">After the genesis node starts, get its enode with: <code className="bg-black/30 px-1 rounded">curl http://localhost:8544 -d '&#123;"method":"net_enode","id":1&#125;'</code></p>
             </div>
           </div>

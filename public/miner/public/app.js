@@ -76,7 +76,7 @@ async function refresh() {
     document.getElementById('appMain').style.display   = 'block';
 
     // Network label in header
-    document.getElementById('networkLabel').textContent = 'GYDS Mainnet · Chain 13370';
+    document.getElementById('networkLabel').textContent = 'GYDS Mainnet · Chain 198282';
     document.getElementById('hostLabel').textContent    =
       `${data.config.workerName} · ${data.system.hostname} · ${data.system.cpus} cores`;
 

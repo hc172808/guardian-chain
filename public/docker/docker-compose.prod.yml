@@ -24,7 +24,7 @@ services:
       P2P_PORT: "${GYDS_P2P_PORT:-30303}"
       MAX_PEERS: "${GYDS_MAX_PEERS:-100}"
       STORAGE_GB: "${GYDS_STORAGE_SIZE_GB:-50}"
-      CHAIN_ID: "${GYDS_CHAIN_ID:-13370}"
+      CHAIN_ID: "${GYDS_CHAIN_ID:-198282}"
       LOG_LEVEL: "${GYDS_LOG_LEVEL:-info}"
     volumes:
       - validator-data:/var/lib/gydschain
@@ -68,7 +68,7 @@ services:
       P2P_PORT: "30304"
       MAX_PEERS: "50"
       STORAGE_GB: "${GYDS_STORAGE_SIZE_GB:-50}"
-      CHAIN_ID: "${GYDS_CHAIN_ID:-13370}"
+      CHAIN_ID: "${GYDS_CHAIN_ID:-198282}"
       LOG_LEVEL: "${GYDS_LOG_LEVEL:-info}"
     volumes:
       - fullnode-data:/var/lib/gydschain
@@ -109,7 +109,7 @@ services:
       RPC_PORT: "8549"
       P2P_PORT: "30305"
       MAX_PEERS: "100"
-      CHAIN_ID: "${GYDS_CHAIN_ID:-13370}"
+      CHAIN_ID: "${GYDS_CHAIN_ID:-198282}"
       LOG_LEVEL: info
     volumes:
       - rpc1-data:/var/lib/gydschain
@@ -144,7 +144,7 @@ services:
       RPC_PORT: "8550"
       P2P_PORT: "30306"
       MAX_PEERS: "100"
-      CHAIN_ID: "${GYDS_CHAIN_ID:-13370}"
+      CHAIN_ID: "${GYDS_CHAIN_ID:-198282}"
       LOG_LEVEL: info
     volumes:
       - rpc2-data:/var/lib/gydschain

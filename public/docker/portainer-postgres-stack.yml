@@ -57,7 +57,7 @@ services:
       PORT: 3030
       DATABASE_URL: postgresql://${POSTGRES_USER:-gyds}:${POSTGRES_PASSWORD:-change-me-postgres-password}@db:5432/${POSTGRES_DB:-gydschain}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-random-64-char-string}
-      GYDS_CHAIN_ID: ${GYDS_CHAIN_ID:-13370}
+      GYDS_CHAIN_ID: ${GYDS_CHAIN_ID:-198282}
       GYDS_FOUNDER_WALLET: ${GYDS_FOUNDER_WALLET:-0x0000000000000000000000000000000000000001}
       GYDS_ADMIN_WALLET: ${GYDS_ADMIN_WALLET:-}
       GYDS_API_KEY: ${GYDS_API_KEY:-}
@@ -94,7 +94,7 @@ services:
     environment:
       NODE_ENV: production
       API_URL: http://api:3030
-      GYDS_CHAIN_ID: ${GYDS_CHAIN_ID:-13370}
+      GYDS_CHAIN_ID: ${GYDS_CHAIN_ID:-198282}
       GYDS_RPC_ENDPOINT: ${GYDS_RPC_ENDPOINT:-https://rpc.netlifegy.com}
     ports:
       - "${EXPLORER_PORT:-3000}:3000"

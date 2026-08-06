@@ -15,7 +15,7 @@
 #    ENABLE_MINING=false          disable mining on this node
 #    NODE_TYPE=fullnode            default; also: litenode, rpc, validator
 #    REPO_URL=https://...          override the guardian-chain source repo
-#    CHAIN_ID=13370                mainnet; testnet=13371  devnet=13372
+#    CHAIN_ID=198282                mainnet; testnet=13371  devnet=13372
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -31,7 +31,7 @@ NODE_TYPE="${NODE_TYPE:-fullnode}"
 RPC_PORT="${RPC_PORT:-8546}"
 WS_PORT="${WS_PORT:-8547}"
 P2P_PORT="${P2P_PORT:-30303}"
-CHAIN_ID="${CHAIN_ID:-13370}"
+CHAIN_ID="${CHAIN_ID:-198282}"
 BLOCK_TIME="${BLOCK_TIME:-120}"
 ENABLE_MINING="${ENABLE_MINING:-true}"
 
