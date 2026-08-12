@@ -10,6 +10,8 @@
     "build": "vite build",
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
     "build:dev": "vite build --mode development",
+    "diagnose:infra": "bash scripts/diagnose-infrastructure.sh",
+    "check:peering": "bash scripts/diagnose-infrastructure.sh",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",

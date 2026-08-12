@@ -33,6 +33,17 @@ Set automatically by Replit:
 - **Build:** `npm run build`
 - **DB Schema:** `npm run db:push` (apply schema changes)
 
+## Infrastructure diagnostics
+- **Dashboard/API + database + RPC + peers:** `bash scripts/diagnose-infrastructure.sh`
+- **Check a specific peer:** `bash scripts/diagnose-infrastructure.sh --peer HOST:PORT`
+- **Open a node's P2P port:** `sudo bash scripts/configure-gyds-firewall.sh --p2p-port PORT`
+
+The diagnostic is read-only and reports when the security challenge endpoint is
+returning HTML, an HTTP error, or valid JSON. It also runs repeated PostgreSQL
+probes to distinguish a database disconnect from a frontend routing problem.
+The firewall helper only opens the explicitly supplied TCP/UDP P2P port; it
+never opens RPC ports automatically.
+
 ## Default Accounts
 Created automatically on first boot (override with env vars `FOUNDER_PASSWORD` / `ADMIN_PASSWORD`):
 
