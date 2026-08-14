@@ -1,0 +1,1898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GYDS Chain — Wallet</title>
+  <script src="/ethers-5.7.2.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    :root {
+      --bg:      #0b0f1a;
+      --card:    #111827;
+      --border:  #1e2d40;
+      --accent:  #10b981;
+      --accent2: #3b82f6;
+      --warn:    #f59e0b;
+      --danger:  #ef4444;
+      --text:    #e2e8f0;
+      --muted:   #64748b;
+      --mono:    'JetBrains Mono','Fira Code','Courier New',monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; min-height: 100vh; }
+
+    /* ── Header ── */
+    .header {
+      background: var(--card); border-bottom: 1px solid var(--border);
+      padding: 14px 24px; display: flex; align-items: center;
+      justify-content: space-between; position: sticky; top: 0; z-index: 100;
+    }
+    .logo-row { display: flex; align-items: center; gap: 12px; }
+    .logo { width: 34px; height: 34px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; color: #fff; }
+    .brand { font-size: 17px; font-weight: 700; }
+    .brand span { color: var(--accent); }
+    .node-badge { font-size: 11px; background: rgba(59,130,246,.15); color: var(--accent2); border: 1px solid rgba(59,130,246,.3); border-radius: 20px; padding: 3px 10px; font-weight: 600; }
+    .net-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+    .dot.off { background: var(--danger); animation: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── Layout ── */
+    .wrap { max-width: 760px; margin: 0 auto; padding: 28px 16px; }
+
+    /* ── Wallet card ── */
+    .wallet-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; margin-bottom: 20px; }
+
+    /* ── Entry screen ── */
+    .entry { padding: 36px; text-align: center; }
+    .entry h2 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+    .entry p { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+    .entry-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+    /* ── Buttons ── */
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 22px; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all .2s; text-decoration: none; }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), #059669); color: #fff; }
+    .btn-primary:hover { opacity: .88; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn-outline:hover { border-color: var(--accent2); color: var(--accent2); }
+    .btn-danger { background: transparent; color: var(--danger); border: 1px solid rgba(239,68,68,.35); }
+    .btn-danger:hover { background: rgba(239,68,68,.08); }
+    .btn-sm { padding: 7px 14px; font-size: 12px; }
+    .btn-full { width: 100%; justify-content: center; }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); }
+    .tab { padding: 14px 20px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; background: none; border-top: none; border-left: none; border-right: none; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Tab content ── */
+    .tab-body { padding: 24px; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ── Wallet info bar ── */
+    .wallet-info { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: rgba(16,185,129,.06); border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 10px; }
+    .addr-block { display: flex; align-items: center; gap: 10px; }
+    .addr-label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+    .addr-text { font-family: var(--mono); font-size: 13px; color: var(--text); }
+    .balance-block { text-align: right; }
+    .balance-val { font-size: 22px; font-weight: 800; color: var(--accent); }
+    .balance-sub { font-size: 11px; color: var(--muted); }
+
+    /* ── Form ── */
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .field input, .field textarea, .field select {
+      width: 100%; background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 14px;
+      font-family: inherit; transition: border-color .2s; outline: none;
+    }
+    .field input:focus, .field textarea:focus { border-color: var(--accent); }
+    .field textarea { font-family: var(--mono); font-size: 12px; resize: vertical; min-height: 80px; }
+    .field-row { display: flex; gap: 10px; }
+    .field-row .field { flex: 1; margin-bottom: 0; }
+    .input-wrap { position: relative; }
+    .input-wrap input { padding-right: 44px; }
+    .eye-btn { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--muted); font-size: 16px; padding: 0; }
+    .eye-btn:hover { color: var(--text); }
+
+    /* ── Seed phrase grid ── */
+    .seed-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0; }
+    @media(max-width:480px){ .seed-grid { grid-template-columns: repeat(2, 1fr); } }
+    .seed-word { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-family: var(--mono); font-size: 12px; display: flex; gap: 8px; align-items: center; }
+    .seed-num { color: var(--muted); min-width: 22px; font-size: 11px; }
+    .seed-val { color: var(--text); font-weight: 600; }
+
+    /* ── Alerts ── */
+    .alert { border-radius: 8px; padding: 12px 14px; font-size: 13px; margin-bottom: 14px; line-height: 1.5; }
+    .alert-warn { background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.3); color: var(--warn); }
+    .alert-success { background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.3); color: var(--accent); }
+    .alert-danger { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.3); color: var(--danger); }
+    .alert-info { background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.3); color: var(--accent2); }
+
+    /* ── Divider ── */
+    .divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin: 18px 0; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    /* ── QR ── */
+    .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 16px 0; }
+    #qrCanvas canvas, #qrCanvas img { border-radius: 10px; display: block; }
+    #qrCanvas { border-radius: 10px; line-height: 0; }
+
+    /* ── Wallet connect grid ── */
+    .wallet-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    @media(max-width: 520px) { .wallet-grid { grid-template-columns: repeat(2, 1fr); } }
+    .wallet-pill { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 13px; font-weight: 600; color: var(--text); cursor: pointer; transition: all .2s; text-align: center; display: flex; align-items: center; justify-content: center; gap: 6px; }
+    .wallet-pill:hover { border-color: var(--accent2); color: var(--accent2); background: rgba(59,130,246,.06); }
+    .wallet-pill:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Network config table ── */
+    .net-config-grid { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .net-config-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .net-config-row:last-child { border-bottom: none; }
+    .net-config-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; min-width: 130px; flex-shrink: 0; }
+    .net-config-val { font-size: 13px; color: var(--text); flex: 1; word-break: break-all; }
+    .net-config-val.mono { font-family: var(--mono); font-size: 12px; }
+
+    /* ── Pane section title ── */
+    .pane-section-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+
+    /* ── TX table ── */
+    .tx-list { display: flex; flex-direction: column; gap: 10px; }
+    .tx-item { background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; }
+    .tx-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+    .tx-icon.out { background: rgba(239,68,68,.12); }
+    .tx-icon.in  { background: rgba(16,185,129,.12); }
+    .tx-details { flex: 1; min-width: 0; }
+    .tx-hash { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tx-addr { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tx-amount { text-align: right; flex-shrink: 0; }
+    .tx-val { font-size: 14px; font-weight: 700; }
+    .tx-val.out { color: var(--danger); }
+    .tx-val.in  { color: var(--accent); }
+    .tx-status { font-size: 11px; color: var(--muted); }
+
+    /* ── Copy button ── */
+    .copy-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 14px; padding: 3px 6px; border-radius: 4px; transition: color .2s; }
+    .copy-btn:hover { color: var(--accent); }
+
+    /* ── Spinner ── */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ── */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 18px; font-size: 13px; color: var(--accent); box-shadow: 0 8px 32px rgba(0,0,0,.4); opacity: 0; transform: translateY(10px); transition: all .3s; z-index: 9999; pointer-events: none; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ── Stats strip ── */
+    .stats-strip { background: rgba(16,185,129,.035); border-bottom: 1px solid var(--border); padding: 10px 24px; display: flex; align-items: stretch; overflow-x: auto; scrollbar-width: none; }
+    .stats-strip::-webkit-scrollbar { display: none; }
+    .stat-item { display: flex; flex-direction: column; align-items: center; padding: 0 22px; border-right: 1px solid var(--border); white-space: nowrap; min-width: 80px; }
+    .stat-item:first-child { padding-left: 0; }
+    .stat-item:last-child { border-right: none; }
+    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; margin-bottom: 4px; }
+    .stat-val { font-size: 15px; font-weight: 800; font-family: var(--mono); color: var(--text); }
+    .stat-val.accent  { color: var(--accent); }
+    .stat-val.accent2 { color: var(--accent2); }
+    .stat-val.warn    { color: var(--warn); }
+    .stat-val.danger  { color: var(--danger); }
+    @keyframes flash-block { 0%,100%{opacity:1} 30%{opacity:.2;color:var(--accent)} }
+    .stat-val.flash { animation: flash-block .55s ease; }
+
+    /* ── Latest blocks panel ── */
+    .blocks-panel { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; margin-bottom: 20px; }
+    .blocks-panel-hdr { padding: 13px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .blocks-panel-title { font-size: 14px; font-weight: 700; }
+    .live-badge { font-size: 10px; background: rgba(16,185,129,.13); color: var(--accent); border: 1px solid rgba(16,185,129,.28); border-radius: 20px; padding: 2px 10px; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+    .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.5s infinite; }
+    .block-row { display: grid; grid-template-columns: 70px 1fr 52px 58px; align-items: center; gap: 10px; padding: 11px 20px; border-bottom: 1px solid rgba(255,255,255,.04); transition: background .15s; }
+    .block-row:last-child { border-bottom: none; }
+    .block-row:hover { background: rgba(255,255,255,.025); }
+    .block-num  { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent2); }
+    .block-hash { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .block-txs  { font-size: 12px; font-weight: 600; color: var(--text); text-align: right; }
+    .block-age  { font-size: 11px; color: var(--muted); text-align: right; }
+    @keyframes slide-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+    .block-row.new-block { animation: slide-in .35s ease; }
+    .blocks-col-hdr { display: grid; grid-template-columns: 70px 1fr 52px 58px; gap: 10px; padding: 7px 20px; }
+    .blocks-col-hdr span { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+    .blocks-col-hdr span:nth-child(3), .blocks-col-hdr span:nth-child(4) { text-align: right; }
+
+    /* ── Misc ── */
+    .text-muted { color: var(--muted); font-size: 13px; }
+    .text-center { text-align: center; }
+    .mt-4 { margin-top: 16px; }
+    .flex-between { display: flex; align-items: center; justify-content: space-between; }
+    .gap-2 { gap: 8px; }
+    .hidden { display: none !important; }
+
+    /* ── Lock overlay ── */
+    #lockOverlay {
+      position: fixed; inset: 0; background: var(--bg);
+      z-index: 20000; display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .lock-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 20px;
+      padding: 40px 36px; width: 100%; max-width: 400px; text-align: center;
+      box-shadow: 0 24px 80px rgba(0,0,0,.6);
+    }
+    .lock-icon { font-size: 44px; margin-bottom: 16px; line-height: 1; }
+    .lock-card h2 { font-size: 20px; font-weight: 800; margin-bottom: 8px; }
+    .lock-card p { color: var(--muted); font-size: 13px; margin-bottom: 24px; line-height: 1.6; }
+    .lock-card .field { text-align: left; margin-bottom: 14px; }
+    .lock-timeout-bar {
+      height: 3px; background: var(--border); border-radius: 3px;
+      margin-top: 20px; overflow: hidden;
+    }
+    .lock-timeout-fill {
+      height: 100%; background: var(--accent); border-radius: 3px;
+      transition: width 1s linear;
+    }
+    .lock-timeout-label { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    #lockAttemptMsg { font-size: 12px; color: var(--danger); margin-top: 8px; min-height: 18px; }
+
+    /* ── Add-to-wallet card on entry screen ── */
+    .add-wallet-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 20px 24px; margin-bottom: 20px;
+    }
+    .add-wallet-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .add-wallet-card p { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+    .add-wallet-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* ── Coin Story Hero ── */
+    .coin-story-hero {
+      background: linear-gradient(160deg, #0b1525 0%, #0d1f35 50%, #0b1a10 100%);
+      border: 1px solid var(--border); border-radius: 20px;
+      padding: 36px 28px; margin-bottom: 24px;
+      overflow: hidden; position: relative;
+    }
+    .coin-story-hero::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 10% 20%, rgba(16,185,129,.06) 0%, transparent 60%),
+                  radial-gradient(ellipse at 90% 80%, rgba(245,158,11,.06) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .coin-story-coins {
+      display: flex; justify-content: center; gap: 24px; margin-bottom: 28px;
+    }
+    .coin-story-coin {
+      position: relative; flex: 0 0 auto;
+    }
+    .coin-story-coin img {
+      width: 130px; height: 130px; border-radius: 50%;
+      object-fit: cover;
+      box-shadow: 0 0 40px rgba(245,158,11,.35), 0 8px 32px rgba(0,0,0,.6);
+      border: 3px solid rgba(245,158,11,.3);
+      transition: transform .3s ease, box-shadow .3s ease;
+    }
+    .coin-story-coin img:hover {
+      transform: scale(1.07) rotate(-2deg);
+      box-shadow: 0 0 60px rgba(245,158,11,.5), 0 12px 40px rgba(0,0,0,.7);
+    }
+    .coin-story-tag {
+      position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+      font-size: 11px; font-weight: 800; letter-spacing: .08em;
+      padding: 3px 12px; border-radius: 20px;
+      white-space: nowrap;
+    }
+    .gyds-tag { background: linear-gradient(90deg,#d97706,#f59e0b); color: #0b0f1a; }
+    .gyd-tag  { background: linear-gradient(90deg,#10b981,#34d399); color: #0b0f1a; }
+
+    .coin-story-title {
+      font-size: 22px; font-weight: 900; text-align: center;
+      background: linear-gradient(135deg, #f59e0b 20%, #10b981 80%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; margin-bottom: 6px; line-height: 1.25;
+    }
+    .coin-story-sub {
+      text-align: center; font-size: 13px; color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .coin-story-cards {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 22px;
+    }
+    @media(max-width: 600px) { .coin-story-cards { grid-template-columns: 1fr; } }
+
+    .coin-card {
+      border-radius: 14px; padding: 18px; border: 1px solid transparent;
+      font-size: 13px; line-height: 1.6;
+    }
+    .gyds-card {
+      background: rgba(245,158,11,.07);
+      border-color: rgba(245,158,11,.2);
+    }
+    .gyd-card {
+      background: rgba(16,185,129,.07);
+      border-color: rgba(16,185,129,.2);
+    }
+    .coin-card-header {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+    }
+    .coin-symbol {
+      font-size: 18px; font-weight: 900; letter-spacing: .04em;
+    }
+    .gyds-card .coin-symbol { color: #f59e0b; }
+    .gyd-card  .coin-symbol { color: #10b981; }
+    .coin-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em;
+      color: var(--muted);
+    }
+    .coin-card p { color: #94a3b8; margin-bottom: 10px; }
+    .coin-card p strong { color: var(--text); }
+    .coin-uses {
+      list-style: none; padding: 0; margin: 0;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .coin-uses li { font-size: 12px; color: #94a3b8; }
+
+    .coin-story-stats {
+      display: flex; justify-content: center; gap: 0; margin-bottom: 20px;
+      border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+      background: rgba(255,255,255,.02);
+    }
+    .cs-stat {
+      flex: 1; padding: 14px 8px; text-align: center;
+      border-right: 1px solid var(--border);
+    }
+    .cs-stat:last-child { border-right: none; }
+    .cs-val { display: block; font-size: 18px; font-weight: 800; color: var(--accent); }
+    .cs-lbl { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-top: 2px; }
+
+    .coin-story-footer {
+      text-align: center; font-size: 12px; color: var(--muted);
+      line-height: 1.6; padding-top: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Dashboard PIN Lock Overlay ─────────────────────────────────────────── -->
+<div id="lockOverlay">
+
+  <!-- Enter PIN (locked) -->
+  <div id="lockEnterPin" class="lock-card hidden">
+    <div class="lock-icon">🔐</div>
+    <h2>Dashboard Locked</h2>
+    <p>Enter your PIN to view keys and wallet details.</p>
+    <div class="field">
+      <input type="password" id="enterPin" placeholder="Enter PIN" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')doUnlock()" style="text-align:center;font-size:18px;letter-spacing:.15em" />
+    </div>
+    <div id="lockAttemptMsg"></div>
+    <button class="btn btn-primary btn-full" style="margin-top:12px" onclick="doUnlock()">Unlock →</button>
+    <div class="lock-timeout-bar" id="lockBar" style="display:none">
+      <div class="lock-timeout-fill" id="lockBarFill" style="width:100%"></div>
+    </div>
+    <div class="lock-timeout-label" id="lockTimerLabel"></div>
+    <button class="btn btn-outline btn-sm" style="margin-top:18px;font-size:11px;opacity:.6"
+            onclick="confirmClearPin()">Forgot PIN? Reset (clears saved wallet)</button>
+  </div>
+
+</div>
+
+<!-- Header -->
+<header class="header">
+  <div class="logo-row">
+    <div class="logo">GY</div>
+    <span class="brand">GYDS <span>Chain</span></span>
+    <span class="node-badge" id="nodeLabel">Full Node</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:20px">
+    <nav style="display:flex;gap:16px;align-items:center">
+      <a id="setupNavLink" href="/setup" style="font-size:12px;color:var(--muted);text-decoration:none" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">⚙ Setup</a>
+        <a href="/admin/login" style="font-size:12px;color:var(--muted);text-decoration:none" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">🔐 Admin</a>
+      <a href="/guides" style="font-size:12px;color:var(--muted);text-decoration:none" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">📖 Guides</a>
+    </nav>
+    <div class="net-status">
+      <div class="dot" id="netDot"></div>
+      <span id="netHeight">Block #—</span>
+    </div>
+  </div>
+</header>
+
+<!-- Live Node Stats Strip -->
+<div class="stats-strip">
+  <div class="stat-item">
+    <div class="stat-label">Status</div>
+    <div class="stat-val accent" id="sStatus">● —</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-label">Block Height</div>
+    <div class="stat-val accent" id="sHeight">—</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-label">Next Block</div>
+    <div class="stat-val accent2" id="sCountdown">—</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-label">Block Time</div>
+    <div class="stat-val" id="sBlockTime">—</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-label">Chain ID</div>
+    <div class="stat-val" id="sChainId">—</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-label">Total TXs</div>
+    <div class="stat-val" id="sTotalTxs">—</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-label">Network</div>
+    <div class="stat-val" id="sNetwork">—</div>
+  </div>
+  <div class="stat-item" id="nodeIdStatItem" style="display:none" title="This node's P2P identity — share with peers who want to whitelist you">
+    <div class="stat-label">Node ID <span style="font-size:9px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#f87171;border-radius:8px;padding:1px 5px;font-weight:700;vertical-align:middle">AUTH</span></div>
+    <div class="stat-val" style="font-family:var(--mono);font-size:11px;cursor:pointer" id="sNodeId" onclick="copyNodeId()" title="Click to copy full Node ID">—</div>
+  </div>
+</div>
+
+<main class="wrap">
+
+  <!-- ── Entry Screen (no wallet loaded) ── -->
+  <div id="entryScreen">
+
+    <!-- ── Coin Story Hero ── -->
+    <div class="coin-story-hero">
+      <div class="coin-story-coins">
+        <div class="coin-story-coin">
+          <img src="/gyds-coin.jpg" alt="GYDS — The Native Coin of Guyana" />
+          <div class="coin-story-tag gyds-tag">GYDS</div>
+        </div>
+        <div class="coin-story-coin">
+          <img src="/gyd-coin.png" alt="GYD — The Native Stablecoin" />
+          <div class="coin-story-tag gyd-tag">GYD</div>
+        </div>
+      </div>
+
+      <div class="coin-story-text">
+        <h1 class="coin-story-title">Guyana's Digital Financial Revolution</h1>
+        <p class="coin-story-sub">Two coins. One mission. A sovereign financial future for every Guyanese.</p>
+
+        <div class="coin-story-cards">
+          <div class="coin-card gyds-card">
+            <div class="coin-card-header">
+              <span class="coin-symbol">GYDS</span>
+              <span class="coin-label">Native Utility Coin</span>
+            </div>
+            <p>Born from Guyana's golden promise, <strong>GYDS</strong> is the heartbeat of the GYDS Chain — the fuel that powers every transaction, rewards every validator, and secures the network through Proof-of-Stake consensus.</p>
+            <p>Named for the <em>Guyana Dollar</em> reimagined for the blockchain era, GYDS carries the spirit of a nation rich in natural resources and ambition. Its circuit-board design symbolises Guyana stepping boldly into the digital age — where the rainforest meets the blockchain.</p>
+            <ul class="coin-uses">
+              <li>⛏ Validator staking &amp; block rewards</li>
+              <li>⛽ Gas fees for on-chain transactions</li>
+              <li>🗳 Governance voting rights</li>
+              <li>🌐 Cross-chain bridge collateral</li>
+            </ul>
+          </div>
+
+          <div class="coin-card gyd-card">
+            <div class="coin-card-header">
+              <span class="coin-symbol">GYD</span>
+              <span class="coin-label">Native Stablecoin</span>
+            </div>
+            <p><strong>GYD</strong> is Guyana's answer to financial stability on-chain — a stablecoin pegged 1:1 to the Guyana Dollar (GYD), giving everyday citizens a safe, borderless way to hold value without the volatility of typical crypto assets.</p>
+            <p>Where GYDS moves markets, GYD anchors commerce. Merchants, remittance senders, and savers across the Caribbean can transact in a familiar unit of account, backed by the transparency of the GYDS blockchain and auditable reserves.</p>
+            <ul class="coin-uses">
+              <li>💸 Everyday payments &amp; commerce</li>
+              <li>📤 Low-cost remittances across borders</li>
+              <li>🏦 Savings without price volatility</li>
+              <li>🔄 DeFi liquidity &amp; lending pools</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="coin-story-stats">
+          <div class="cs-stat"><span class="cs-val">198282</span><span class="cs-lbl">Chain ID</span></div>
+          <div class="cs-stat"><span class="cs-val">120s</span><span class="cs-lbl">Block Time</span></div>
+          <div class="cs-stat"><span class="cs-val">PoS</span><span class="cs-lbl">Consensus</span></div>
+          <div class="cs-stat"><span class="cs-val">EVM</span><span class="cs-lbl">Compatible</span></div>
+        </div>
+
+        <p class="coin-story-footer">
+          🇬🇾 Built in Guyana, for Guyana — and the world.
+          The GYDS Chain is fully open, permissionless, and community-governed.
+        </p>
+      </div>
+    </div>
+
+    <!-- One-click Add GYDS Chain to External Wallet -->
+    <div class="add-wallet-card">
+      <h3>🔗 Add GYDS Chain to Your Wallet</h3>
+      <p>One click adds GYDS Chain (ID 198282) to MetaMask, Trust Wallet, or any EVM-compatible browser wallet.</p>
+      <div id="entryConnectAlert" style="display:none;margin-bottom:10px"></div>
+      <div class="add-wallet-row">
+        <button class="wallet-pill" onclick="quickAddChain('MetaMask', this)">🦊 MetaMask</button>
+        <button class="wallet-pill" onclick="quickAddChain('Trust Wallet', this)">🛡 Trust Wallet</button>
+        <button class="wallet-pill" onclick="quickAddChain('Phantom', this)">👻 Phantom</button>
+        <button class="wallet-pill" onclick="quickAddChain('Coinbase Wallet', this)">🔵 Coinbase</button>
+        <button class="wallet-pill" onclick="quickAddChain('Brave Wallet', this)">🦁 Brave</button>
+        <button class="wallet-pill" onclick="quickAddChain('your wallet', this)">⬡ Other EVM</button>
+      </div>
+    </div>
+
+    <!-- Latest Blocks Live Feed -->
+    <div class="blocks-panel">
+      <div class="blocks-panel-hdr">
+        <span class="blocks-panel-title">⛓ Latest Blocks</span>
+        <span class="live-badge"><span class="live-dot"></span> LIVE</span>
+      </div>
+      <div class="blocks-col-hdr">
+        <span>Block</span><span>Hash</span><span>TXs</span><span>Age</span>
+      </div>
+      <div id="blocksFeed">
+        <div class="text-center text-muted" style="padding:22px;font-size:13px">Connecting to node…</div>
+      </div>
+    </div>
+
+    <div class="wallet-card">
+      <div class="entry">
+        <h2>GYDS Chain Wallet</h2>
+        <p>Create a new wallet or import an existing one to send and receive GYDS.</p>
+        <div class="entry-btns">
+          <button class="btn btn-primary" onclick="showCreate()">✦ Create New Wallet</button>
+          <button class="btn btn-outline" onclick="showImport()">⬆ Import Wallet</button>
+          <button class="btn btn-outline" onclick="showImportNodes()" style="border-color:var(--accent2);color:var(--accent2)">⬡ Import Nodes Config</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create Wallet Panel -->
+    <div id="createPanel" class="wallet-card hidden">
+      <div class="tabs">
+        <button class="tab active" onclick="switchCreateTab('newKey',this)">New Key</button>
+        <button class="tab" onclick="switchCreateTab('newMnemonic',this)">12-Word Phrase</button>
+      </div>
+      <div class="tab-body">
+
+        <!-- New private key -->
+        <div id="newKey" class="tab-pane active">
+          <div class="alert alert-warn">⚠️ Copy your private key and store it somewhere safe — it cannot be recovered if lost.</div>
+          <div class="field">
+            <label>Generated Private Key</label>
+            <div class="input-wrap">
+              <input type="password" id="newKeyVal" readonly />
+              <button class="eye-btn" onclick="toggleVis('newKeyVal',this)">👁</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Wallet Address</label>
+            <input type="text" id="newKeyAddr" readonly />
+          </div>
+          <div class="field-row mt-4">
+            <button class="btn btn-outline" onclick="generateKey()">🔄 Generate New</button>
+            <button class="btn btn-primary" id="useKeyBtn" onclick="loadFromKey()" disabled>Use This Wallet →</button>
+          </div>
+        </div>
+
+        <!-- New mnemonic -->
+        <div id="newMnemonic" class="tab-pane">
+          <div class="alert alert-warn">⚠️ Write down your 12-word recovery phrase and keep it private. Anyone with these words can access your funds.</div>
+          <div class="seed-grid" id="seedGrid"></div>
+          <div class="field-row mt-4">
+            <button class="btn btn-outline" onclick="generateMnemonic()">🔄 Generate New</button>
+            <button class="btn btn-primary" id="useMnemonicBtn" onclick="loadFromMnemonic()" disabled>Use This Wallet →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Nodes Config Panel -->
+    <div id="importNodesPanel" class="wallet-card hidden">
+      <div class="tab-body">
+        <div style="padding:4px 0 16px">
+          <div style="font-size:16px;font-weight:700;margin-bottom:6px">Import Nodes Config</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Paste the content of your <code style="background:rgba(255,255,255,.07);padding:1px 5px;border-radius:4px">gyds-nodes.json</code> file to connect this node to peers.</div>
+          <div class="field">
+            <label>gyds-nodes.json content</label>
+            <textarea id="nodesConfigInput" rows="7" placeholder='{"version":"1.1","nodes":[{"type":"full","name":"Node 1","address":"1.2.3.4:30303"}]}' style="font-family:var(--mono);font-size:12px;resize:vertical"></textarea>
+          </div>
+          <div id="nodesImportAlert"></div>
+          <div id="nodesImportResults" style="display:none;margin-top:12px"></div>
+          <div style="display:flex;gap:10px;margin-top:16px">
+            <button class="btn btn-outline" onclick="hideImportNodes()">Cancel</button>
+            <button class="btn btn-primary" id="nodesImportBtn" onclick="doImportNodes()">⬡ Import &amp; Connect</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Wallet Panel -->
+    <div id="importPanel" class="wallet-card hidden">
+      <div class="tabs">
+        <button class="tab active" onclick="switchImportTab('byKey',this)">Private Key</button>
+        <button class="tab" onclick="switchImportTab('byMnemonic',this)">12/24-Word Phrase</button>
+      </div>
+      <div class="tab-body">
+
+        <!-- By private key -->
+        <div id="byKey" class="tab-pane active">
+          <div class="field">
+            <label>Private Key (hex, 64 chars)</label>
+            <div class="input-wrap">
+              <input type="password" id="importKey" placeholder="0x or without prefix…" autocomplete="off" />
+              <button class="eye-btn" onclick="toggleVis('importKey',this)">👁</button>
+            </div>
+          </div>
+          <div id="importKeyErr" class="alert alert-danger hidden"></div>
+          <button class="btn btn-primary btn-full mt-4" onclick="importByKey()">Import Wallet →</button>
+        </div>
+
+        <!-- By mnemonic -->
+        <div id="byMnemonic" class="tab-pane">
+          <div class="field">
+            <label>Recovery Phrase (12 or 24 words, space-separated)</label>
+            <textarea id="importMnemonic" placeholder="word1 word2 word3 …" autocomplete="off"></textarea>
+          </div>
+          <div id="importMnemonicErr" class="alert alert-danger hidden"></div>
+          <button class="btn btn-primary btn-full mt-4" onclick="importByMnemonic()">Import Wallet →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Wallet Screen (wallet loaded) ── -->
+  <div id="walletScreen" class="hidden">
+
+    <!-- Balance bar -->
+    <div class="wallet-card">
+      <div class="wallet-info">
+        <div class="addr-block">
+          <div>
+            <div class="addr-label">Wallet Address</div>
+            <div class="addr-text" id="walletAddr">—</div>
+          </div>
+          <button class="copy-btn" onclick="copyAddr()" title="Copy address">⧉</button>
+        </div>
+        <div class="balance-block">
+          <div class="balance-val"><span id="walletBalance">—</span> GYDS</div>
+          <div style="font-size:13px;font-weight:600;color:#a78bfa;margin-top:2px">
+            <span id="gydBalance">—</span> GYD <span style="font-size:10px;background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.3);border-radius:10px;padding:1px 7px;font-weight:700;vertical-align:middle">STABLE</span>
+          </div>
+          <div class="balance-sub" id="balanceSub">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs" style="overflow-x:auto;scrollbar-width:none">
+        <button class="tab active" data-tab="send"    onclick="switchTab('send',this)">Send</button>
+        <button class="tab"         data-tab="receive" onclick="switchTab('receive',this)">Receive</button>
+        <button class="tab"         data-tab="history" onclick="switchTab('history',this)">History</button>
+        <button class="tab"         data-tab="connect" onclick="switchTab('connect',this)">🔗 Connect</button>
+        <button class="tab"         data-tab="keys"    onclick="switchTab('keys',this)">Keys</button>
+        <button class="tab"         data-tab="search"  onclick="switchTab('search',this)">🔍 Search</button>
+      </div>
+
+      <div class="tab-body">
+
+        <!-- ── SEND ── -->
+        <div id="pane-send" class="tab-pane active">
+          <div id="sendAlert"></div>
+          <div class="field">
+            <label>Recipient Address</label>
+            <input type="text" id="sendTo" placeholder="0x…" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label>Amount (GYDS)</label>
+            <input type="number" id="sendAmount" placeholder="0.0" min="0" step="any" />
+          </div>
+          <div class="alert alert-info" style="margin-bottom:14px">
+            Gas fee: 21,000 × 1 Gwei = 0.000021 GYDS
+          </div>
+          <button class="btn btn-primary btn-full" id="sendBtn" onclick="sendTx()">
+            Send GYDS
+          </button>
+        </div>
+
+        <!-- ── RECEIVE ── -->
+        <div id="pane-receive" class="tab-pane">
+          <div class="qr-wrap">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Receive GYDS</div>
+            <!-- White frame keeps QR scannable regardless of dark theme -->
+            <div style="background:#fff;border-radius:14px;padding:14px;line-height:0;box-shadow:0 4px 28px rgba(0,0,0,.45)">
+              <div id="qrCanvas"></div>
+            </div>
+            <div style="text-align:center;max-width:300px">
+              <div style="font-family:var(--mono);font-size:11px;color:var(--muted);word-break:break-all;margin-bottom:10px;line-height:1.5" id="receiveAddr">—</div>
+              <button class="btn btn-outline btn-sm" onclick="copyAddr()">⧉ Copy Address</button>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:var(--accent);display:flex;align-items:center;gap:6px">
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block"></span>
+              GYDS Chain · ID 198282
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CONNECT ── -->
+        <div id="pane-connect" class="tab-pane">
+
+          <div id="connectAlert" style="display:none;margin-bottom:14px"></div>
+
+          <!-- Add network one-click -->
+          <div style="margin-bottom:20px">
+            <div class="pane-section-title">Add GYDS Chain to Your Wallet</div>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:14px">One click adds GYDS Chain (ID 198282) to any EVM-compatible browser wallet.</p>
+            <div class="wallet-grid">
+              <button class="wallet-pill" id="addChainBtn_MetaMask"      data-label="🦊 MetaMask"       onclick="addChainToWallet('MetaMask',this)">🦊 MetaMask</button>
+              <button class="wallet-pill" id="addChainBtn_TrustWallet"   data-label="🛡 Trust Wallet"   onclick="addChainToWallet('Trust Wallet',this)">🛡 Trust Wallet</button>
+              <button class="wallet-pill" id="addChainBtn_Phantom"       data-label="👻 Phantom"         onclick="addChainToWallet('Phantom',this)">👻 Phantom</button>
+              <button class="wallet-pill" id="addChainBtn_Coinbase"      data-label="🔵 Coinbase Wallet" onclick="addChainToWallet('Coinbase Wallet',this)">🔵 Coinbase Wallet</button>
+              <button class="wallet-pill" id="addChainBtn_Brave"         data-label="🦁 Brave Wallet"    onclick="addChainToWallet('Brave Wallet',this)">🦁 Brave Wallet</button>
+              <button class="wallet-pill" id="addChainBtn_Other"         data-label="⬡ Other EVM"        onclick="addChainToWallet('your wallet',this)">⬡ Other EVM</button>
+            </div>
+          </div>
+
+          <div class="divider">or add manually</div>
+
+          <!-- Manual network config -->
+          <div style="margin-bottom:20px">
+            <div class="pane-section-title">Manual Network Configuration</div>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Copy these values into your wallet's "Add Network" screen.</p>
+            <div class="net-config-grid">
+              <div class="net-config-row">
+                <span class="net-config-label">Network Name</span>
+                <span class="net-config-val">GYDS Chain</span>
+                <button class="copy-btn" onclick="copyText('GYDS Chain')" title="Copy">⧉</button>
+              </div>
+              <div class="net-config-row">
+                <span class="net-config-label">RPC URL</span>
+                <span class="net-config-val mono" id="netConfigRpc">—</span>
+                <button class="copy-btn" onclick="copyText(document.getElementById('netConfigRpc').textContent)" title="Copy">⧉</button>
+              </div>
+              <div class="net-config-row">
+                <span class="net-config-label">Chain ID</span>
+                <span class="net-config-val mono">198282</span>
+                <button class="copy-btn" onclick="copyText('198282')" title="Copy">⧉</button>
+              </div>
+              <div class="net-config-row">
+                <span class="net-config-label">Currency Symbol</span>
+                <span class="net-config-val">GYDS</span>
+                <button class="copy-btn" onclick="copyText('GYDS')" title="Copy">⧉</button>
+              </div>
+              <div class="net-config-row">
+                <span class="net-config-label">Decimals</span>
+                <span class="net-config-val mono">18</span>
+                <button class="copy-btn" onclick="copyText('18')" title="Copy">⧉</button>
+              </div>
+              <div class="net-config-row">
+                <span class="net-config-label">Block Explorer</span>
+                <span class="net-config-val mono" id="netConfigExplorer">—</span>
+                <button class="copy-btn" onclick="copyText(document.getElementById('netConfigExplorer').textContent)" title="Copy">⧉</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="divider">sync with browser wallet</div>
+
+          <!-- Sync browser wallet -->
+          <div>
+            <div class="pane-section-title">Use Browser Wallet to Sign Transactions</div>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Connect MetaMask, Phantom, Trust, or any injected EVM wallet. Your private key stays in the browser extension — not in this app.</p>
+            <div id="syncAlert" style="display:none;margin-bottom:12px"></div>
+            <button class="btn btn-primary btn-full" id="syncWalletBtn" onclick="syncBrowserWallet()">🔗 Connect Browser Wallet</button>
+          </div>
+
+        </div>
+
+        <!-- ── HISTORY ── -->
+        <div id="pane-history" class="tab-pane">
+          <div id="historyList" class="tx-list">
+            <div class="text-center text-muted" style="padding:32px">Loading transactions…</div>
+          </div>
+          <button class="btn btn-outline btn-sm mt-4" onclick="loadHistory()" style="margin-top:12px">⟳ Refresh</button>
+        </div>
+
+        <!-- ── KEYS ── -->
+        <div id="pane-keys" class="tab-pane">
+          <div class="alert alert-warn">⚠️ Never share your private key or seed phrase. Anyone with these can take your funds.</div>
+          <div class="field mt-4">
+            <div class="flex-between gap-2" style="margin-bottom:6px">
+              <label style="margin:0">Private Key</label>
+              <button class="copy-btn" onclick="copyPrivKey()" title="Copy">⧉</button>
+            </div>
+            <div class="input-wrap">
+              <input type="password" id="showPrivKey" readonly />
+              <button class="eye-btn" onclick="toggleVis('showPrivKey',this)">👁</button>
+            </div>
+          </div>
+          <div class="field" id="mnemonicBlock">
+            <div class="flex-between gap-2" style="margin-bottom:6px">
+              <label style="margin:0">Recovery Phrase</label>
+              <button class="copy-btn" onclick="copyMnemonic()" title="Copy">⧉</button>
+            </div>
+            <div class="input-wrap">
+              <textarea id="showMnemonic" readonly style="height:70px"></textarea>
+            </div>
+          </div>
+          <div class="divider">danger zone</div>
+          <button class="btn btn-danger btn-full" onclick="disconnectWallet()">✕ Disconnect Wallet</button>
+          <p class="text-muted" style="font-size:11px;margin-top:8px;text-align:center">This only removes the wallet from memory. Your funds remain on-chain.</p>
+        </div>
+
+        <!-- ── SEARCH ── -->
+        <div id="pane-search" class="tab-pane">
+          <div class="field">
+            <label>Transaction Hash or Wallet Address</label>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="walletSearchInput"
+                placeholder="0x… hash (66 chars) or address (42 chars)"
+                style="font-family:var(--mono);font-size:12px"
+                onkeydown="if(event.key==='Enter')doWalletSearch()" />
+              <button class="btn btn-primary btn-sm" onclick="doWalletSearch()">Search</button>
+            </div>
+          </div>
+          <div id="walletSearchResult"></div>
+        </div>
+
+      </div><!-- /tab-body -->
+    </div><!-- /wallet-card -->
+  </div><!-- /walletScreen -->
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const CHAIN_ID   = 198282;
+const SYMBOL     = 'GYDS';
+const GAS_LIMIT  = 21000;
+const GAS_PRICE  = ethers.utils.parseUnits('1', 'gwei');
+const RPC_URL    = window.location.origin + '/rpc';
+const PUBLIC_BASE_URL = window.location.origin;
+
+// ── State ───────────────────────────────────────────────────────────────────
+let provider = null;
+let wallet   = null;
+let mnemonic = null;
+
+// ── Node stats state ─────────────────────────────────────────────────────────
+let nodeBlockTimeSecs = 120;
+let lastBlockTs       = 0;
+let lastKnownHeight   = -1;
+
+// ── Init ────────────────────────────────────────────────────────────────────
+// Stats panel fires on DOMContentLoaded — independent of ethers.js
+document.addEventListener('DOMContentLoaded', () => {
+  pollNode();
+  pollBlocks();
+  fetchNodeIdentity();
+  setInterval(pollNode,      5000);
+  setInterval(pollBlocks,   10000);
+  setInterval(tickCountdown, 1000);
+  connectWS();
+});
+
+// Fetch this node's P2P identity and show it in the stats strip when present.
+async function fetchNodeIdentity() {
+  try {
+    const res = await fetch('/api/node-id');
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.nodeId && d.nodeId.length >= 8) {
+      const short = d.nodeId.slice(0, 12) + '…';
+      document.getElementById('sNodeId').textContent = short;
+      document.getElementById('sNodeId').dataset.full = d.nodeId;
+      document.getElementById('nodeIdStatItem').style.display = '';
+    }
+  } catch { /* non-fatal */ }
+}
+
+function copyNodeId() {
+  const el = document.getElementById('sNodeId');
+  const full = el.dataset.full || el.textContent;
+  navigator.clipboard.writeText(full).then(() => {
+    showToast('Node ID copied!');
+  }).catch(() => {
+    prompt('Your Node ID (copy manually):', full);
+  });
+}
+
+function showToast(msg) {
+  let t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1e293b;color:#e2e8f0;padding:10px 18px;border-radius:10px;font-size:13px;z-index:9999;pointer-events:none;transition:opacity .3s';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2400);
+}
+
+window.addEventListener('load', () => {
+  if (typeof ethers === 'undefined') return;
+
+  provider = new ethers.providers.JsonRpcProvider(RPC_URL, {
+    chainId: CHAIN_ID,
+    name: 'GYDS Chain'
+  });
+
+  // Populate manual network config fields in the Connect pane.
+  const rpcUrl = window.location.origin + '/rpc';
+  const explorerUrl = window.location.origin;
+  const rpcEl = document.getElementById('netConfigRpc');
+  const expEl = document.getElementById('netConfigExplorer');
+  if (rpcEl) rpcEl.textContent = rpcUrl;
+  if (expEl) expEl.textContent = explorerUrl;
+
+  // ── Hide Setup link once node is configured ──────────────────────────────
+  // After the setup wizard has been completed (.env exists on the server),
+  // the Setup link is no longer needed and is removed from the header nav.
+  fetch('/api/setup/status').then(r => r.json()).then(d => {
+    if (d.configured) {
+      const link = document.getElementById('setupNavLink');
+      if (link) link.style.display = 'none';
+    }
+  }).catch(() => {});
+
+  // ── Auto-restore saved wallet ────────────────────────────────────────────
+  // If the user previously activated a wallet, re-load it silently so the
+  // send/receive screen appears immediately without Create/Import buttons.
+  const savedKey = localStorage.getItem('gyds_wallet_pk');
+  if (savedKey) {
+    try {
+      const w = new ethers.Wallet(savedKey);
+      activateWallet(w, localStorage.getItem('gyds_wallet_mn') || null);
+      return; // skip generateKey / generateMnemonic — entry screen is hidden
+    } catch {
+      localStorage.removeItem('gyds_wallet_pk');
+      localStorage.removeItem('gyds_wallet_mn');
+    }
+  }
+
+  generateKey();
+  generateMnemonic();
+
+  // Auto-refresh balance every 30 s when a wallet is active
+  setInterval(() => { if (wallet) refreshBalance(); }, 30000);
+});
+
+// ── Live node polling ─────────────────────────────────────────────────────────
+async function pollNode() {
+  try {
+    const res  = await fetch('/api/status');
+    if (!res.ok) throw new Error('not ok');
+    const data = await res.json();
+    const h    = Number(data.blockHeight ?? data.height ?? 0);
+    const isNew = h > lastKnownHeight && lastKnownHeight >= 0;
+    if (isNew) {
+      flashEl('sHeight');
+      pollBlocks();
+      if (wallet) refreshBalance();
+    }
+    lastKnownHeight   = h;
+    lastBlockTs       = Number(data.lastBlockTimestamp ?? 0);
+    nodeBlockTimeSecs = Number(data.blockTimeSecs ?? nodeBlockTimeSecs);
+
+    document.getElementById('netHeight').textContent = 'Block #' + h.toLocaleString();
+    document.getElementById('netDot').className = 'dot';
+
+    setText('sStatus',    '● Online');
+    setClass('sStatus',   'stat-val accent');
+    setText('sHeight',    h.toLocaleString());
+    setText('sBlockTime', nodeBlockTimeSecs + 's');
+    setText('sChainId',   String(data.chainId ?? CHAIN_ID));
+    setText('sTotalTxs',  Number(data.totalTxs ?? 0).toLocaleString());
+    setText('sNetwork',   String(data.networkName ?? 'GYDS Chain'));
+    setNodeLabel(data.nodeMode);
+  } catch {
+    document.getElementById('netDot').className = 'dot off';
+    setText('sStatus', '● Offline');
+    setClass('sStatus', 'stat-val warn');
+    setText('sCountdown', '—');
+  }
+}
+
+function setNodeLabel(mode) {
+  const labels = {
+    full: 'Full Node',
+    lite: 'Lite Node',
+    rpc: 'RPC Node',
+    boost: 'Boost Node',
+    genesis: 'Genesis Node',
+    sync: 'Sync Node',
+    validator: 'Validator Node',
+    testnode: 'Test Node'
+  };
+  const label = document.getElementById('nodeLabel');
+  if (label && labels[mode]) label.textContent = labels[mode];
+}
+
+async function pollBlocks() {
+  try {
+    const res  = await fetch('/api/blocks?limit=8');
+    if (!res.ok) return;
+    const data = await res.json();
+    renderBlocksFeed((data.blocks || []).slice().reverse());
+  } catch { /**/ }
+}
+
+function renderBlocksFeed(blocks) {
+  const el = document.getElementById('blocksFeed');
+  if (!el) return;
+  if (!blocks.length) {
+    el.innerHTML = '<div class="text-center text-muted" style="padding:22px;font-size:13px">No blocks yet.</div>';
+    return;
+  }
+  el.innerHTML = blocks.map((b, i) => {
+    const hash = (b.hash || '').slice(0,14) + '…' + (b.hash || '').slice(-6);
+    const txs  = b.transactions ?? 0;
+    const age  = timeAgo(Number(b.timestamp));
+    return `<div class="block-row${i===0?' new-block':''}">
+      <span class="block-num">#${Number(b.number).toLocaleString()}</span>
+      <span class="block-hash">${hash}</span>
+      <span class="block-txs">${txs} txs</span>
+      <span class="block-age">${age}</span>
+    </div>`;
+  }).join('');
+}
+
+function tickCountdown() {
+  if (!lastBlockTs || !nodeBlockTimeSecs) return;
+  const now    = Math.floor(Date.now() / 1000);
+  const remain = nodeBlockTimeSecs - ((now - lastBlockTs) % nodeBlockTimeSecs);
+  const m = Math.floor(remain / 60);
+  const s = remain % 60;
+  setText('sCountdown', m > 0 ? `${m}m ${String(s).padStart(2,'0')}s` : `${s}s`);
+  const ratio = remain / nodeBlockTimeSecs;
+  setClass('sCountdown',
+    ratio < 0.08 ? 'stat-val danger' :
+    ratio < 0.22 ? 'stat-val warn'   : 'stat-val accent2');
+}
+
+// ── WebSocket live block stream ───────────────────────────────────────────────
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  let ws;
+  try { ws = new WebSocket(`${proto}://${location.host}/api/ws`); }
+  catch { setTimeout(connectWS, 6000); return; }
+  ws.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'newBlock') {
+        const b = msg.data;
+        lastBlockTs     = Number(b.timestamp ?? Math.floor(Date.now()/1000));
+        lastKnownHeight = Number(b.number    ?? lastKnownHeight);
+        document.getElementById('netHeight').textContent = 'Block #' + lastKnownHeight.toLocaleString();
+        setText('sHeight', lastKnownHeight.toLocaleString());
+        flashEl('sHeight');
+        pollNode();
+        pollBlocks();
+        if (wallet) refreshBalance();
+      }
+    } catch { /**/ }
+  };
+  ws.onclose = () => setTimeout(connectWS, 5000);
+  ws.onerror = () => { try { ws.close(); } catch { /**/ } };
+}
+
+// ── DOM helpers ───────────────────────────────────────────────────────────────
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+function setClass(id, cls) {
+  const el = document.getElementById(id);
+  if (el) el.className = cls;
+}
+function flashEl(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
+}
+function timeAgo(ts) {
+  if (!ts) return '—';
+  const d = Math.floor(Date.now()/1000) - ts;
+  if (d < 5)    return 'just now';
+  if (d < 60)   return d + 's ago';
+  if (d < 3600) return Math.floor(d/60) + 'm ago';
+  return Math.floor(d/3600) + 'h ago';
+}
+
+// ── Entry screen actions ─────────────────────────────────────────────────────
+function showCreate() {
+  document.getElementById('createPanel').classList.remove('hidden');
+  document.getElementById('importPanel').classList.add('hidden');
+  document.getElementById('importNodesPanel').classList.add('hidden');
+}
+function showImport() {
+  document.getElementById('importPanel').classList.remove('hidden');
+  document.getElementById('createPanel').classList.add('hidden');
+  document.getElementById('importNodesPanel').classList.add('hidden');
+}
+function showImportNodes() {
+  document.getElementById('importNodesPanel').classList.remove('hidden');
+  document.getElementById('importPanel').classList.add('hidden');
+  document.getElementById('createPanel').classList.add('hidden');
+  document.getElementById('nodesImportAlert').innerHTML = '';
+  document.getElementById('nodesImportResults').style.display = 'none';
+  document.getElementById('nodesConfigInput').value = '';
+}
+function hideImportNodes() {
+  document.getElementById('importNodesPanel').classList.add('hidden');
+}
+
+async function doImportNodes() {
+  const raw = document.getElementById('nodesConfigInput').value.trim();
+  const alertEl = document.getElementById('nodesImportAlert');
+  const resultsEl = document.getElementById('nodesImportResults');
+  const btn = document.getElementById('nodesImportBtn');
+  alertEl.innerHTML = '';
+  resultsEl.style.display = 'none';
+
+  if (!raw) {
+    alertEl.innerHTML = '<div class="alert alert-danger">Please paste your gyds-nodes.json content first.</div>';
+    return;
+  }
+
+  let cfg;
+  try {
+    cfg = JSON.parse(raw);
+  } catch(e) {
+    alertEl.innerHTML = '<div class="alert alert-danger">❌ Invalid JSON — ' + e.message + '</div>';
+    return;
+  }
+
+  if (!cfg.nodes || !Array.isArray(cfg.nodes)) {
+    alertEl.innerHTML = '<div class="alert alert-danger">❌ Missing "nodes" array in config.</div>';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+
+  try {
+    const res = await fetch('/api/nodes/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: raw,
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      alertEl.innerHTML = '<div class="alert alert-danger">❌ ' + (data.error || 'Import failed') + '</div>';
+      return;
+    }
+
+    const statusColor = { connected: 'var(--accent)', queued: 'var(--accent2)', failed: 'var(--danger)', skipped: 'var(--muted)' };
+    const statusIcon  = { connected: '✓', queued: '⏳', failed: '✗', skipped: '—' };
+
+    const rows = (data.results || []).map(r => {
+      const col = statusColor[r.status] || 'var(--muted)';
+      const ico = statusIcon[r.status] || '?';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+        <span style="font-size:14px;color:${col};min-width:18px;text-align:center">${ico}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;color:var(--text)">${r.name||'node'}</div>
+          <div style="font-size:11px;color:var(--muted);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.address||'no address'}</div>
+          ${r.error ? `<div style="font-size:11px;color:var(--danger)">${r.error}</div>` : ''}
+        </div>
+        <span style="font-size:11px;font-weight:700;color:${col};text-transform:uppercase;letter-spacing:.04em">${r.status}</span>
+      </div>`;
+    }).join('');
+
+    const summary = data.connected > 0
+      ? `<div class="alert" style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);color:var(--accent);border-radius:8px;padding:10px 14px;margin-bottom:12px">✅ Connected to ${data.connected} of ${data.total} node(s)</div>`
+      : `<div class="alert alert-warn" style="margin-bottom:12px">⚠️ No nodes connected — check addresses and that peers are reachable.</div>`;
+
+    resultsEl.innerHTML = summary + `<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Results (${data.total} nodes, config v${data.version||'?'})</div><div style="max-height:220px;overflow-y:auto">${rows}</div>`;
+    resultsEl.style.display = 'block';
+  } catch(e) {
+    alertEl.innerHTML = '<div class="alert alert-danger">❌ Request failed: ' + e.message + '</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⬡ Import & Connect';
+  }
+}
+
+// ── Create — new private key ─────────────────────────────────────────────────
+function generateKey() {
+  const w = ethers.Wallet.createRandom();
+  document.getElementById('newKeyVal').value  = w.privateKey;
+  document.getElementById('newKeyAddr').value = w.address;
+  document.getElementById('useKeyBtn').disabled = false;
+  document.getElementById('useKeyBtn')._wallet = w;
+}
+function loadFromKey() {
+  const btn = document.getElementById('useKeyBtn');
+  activateWallet(btn._wallet, null);
+}
+
+// ── Create — mnemonic ────────────────────────────────────────────────────────
+function generateMnemonic() {
+  const w = ethers.Wallet.createRandom();
+  const phrase = w.mnemonic.phrase;
+  const words  = phrase.split(' ');
+  const grid   = document.getElementById('seedGrid');
+  grid.innerHTML = words.map((w,i) =>
+    `<div class="seed-word"><span class="seed-num">${i+1}.</span><span class="seed-val">${w}</span></div>`
+  ).join('');
+  document.getElementById('useMnemonicBtn').disabled = false;
+  document.getElementById('useMnemonicBtn')._wallet  = w;
+  document.getElementById('useMnemonicBtn')._phrase  = phrase;
+}
+function loadFromMnemonic() {
+  const btn = document.getElementById('useMnemonicBtn');
+  activateWallet(btn._wallet, btn._phrase);
+}
+
+// ── Import ───────────────────────────────────────────────────────────────────
+function importByKey() {
+  const raw = document.getElementById('importKey').value.trim();
+  const errEl = document.getElementById('importKeyErr');
+  errEl.classList.add('hidden');
+  try {
+    const w = new ethers.Wallet(raw);
+    activateWallet(w, null);
+  } catch(e) {
+    errEl.textContent = 'Invalid private key. Must be 64 hex characters (with or without 0x prefix).';
+    errEl.classList.remove('hidden');
+  }
+}
+function importByMnemonic() {
+  const phrase = document.getElementById('importMnemonic').value.trim();
+  const errEl  = document.getElementById('importMnemonicErr');
+  errEl.classList.add('hidden');
+  try {
+    const w = ethers.Wallet.fromMnemonic(phrase);
+    activateWallet(w, phrase);
+  } catch(e) {
+    errEl.textContent = 'Invalid recovery phrase. Check spelling and word count (12 or 24 words).';
+    errEl.classList.remove('hidden');
+  }
+}
+
+// ── Activate wallet ──────────────────────────────────────────────────────────
+let _balRefreshTimer = null;
+
+function activateWallet(w, phrase) {
+  wallet   = w.connect(provider);
+  mnemonic = phrase;
+
+  // Persist so the wallet survives page refresh.
+  try {
+    localStorage.setItem('gyds_wallet_pk', w.privateKey);
+    if (phrase) localStorage.setItem('gyds_wallet_mn', phrase);
+    else        localStorage.removeItem('gyds_wallet_mn');
+  } catch { /* private mode or storage full — silently ignore */ }
+
+  document.getElementById('walletAddr').textContent  = w.address;
+  document.getElementById('receiveAddr').textContent = w.address;
+  document.getElementById('showPrivKey').value = w.privateKey;
+  document.getElementById('showMnemonic').value = phrase || '(wallet created from private key — no phrase)';
+  if (!phrase) document.getElementById('mnemonicBlock').style.opacity = '.5';
+
+  drawQR(w.address);
+  document.getElementById('entryScreen').classList.add('hidden');
+  document.getElementById('walletScreen').classList.remove('hidden');
+  refreshBalance();
+  refreshTokenBalances(w.address);
+  loadHistory();
+
+  // Keep balance live every 30 s (cleared on disconnect).
+  clearInterval(_balRefreshTimer);
+  _balRefreshTimer = setInterval(() => { refreshBalance(); }, 30000);
+}
+
+function disconnectWallet() {
+  if (!confirm('Disconnect this wallet from the interface?')) return;
+  wallet = null; mnemonic = null;
+
+  // Remove persisted key so the entry screen reappears on next load.
+  try {
+    localStorage.removeItem('gyds_wallet_pk');
+    localStorage.removeItem('gyds_wallet_mn');
+  } catch { /**/ }
+
+  clearInterval(_balRefreshTimer);
+
+  document.getElementById('walletScreen').classList.add('hidden');
+  document.getElementById('entryScreen').classList.remove('hidden');
+  document.getElementById('importKey').value = '';
+  document.getElementById('importMnemonic').value = '';
+  generateKey();
+  generateMnemonic();
+}
+
+// ── Balance ──────────────────────────────────────────────────────────────────
+async function refreshBalance() {
+  if (!wallet) return;
+  try {
+    const addr = wallet.address || (await wallet.getAddress());
+    const bal = await provider.getBalance(addr);
+    const fmt = parseFloat(ethers.utils.formatEther(bal));
+    document.getElementById('walletBalance').textContent = fmt.toLocaleString(undefined, {maximumFractionDigits: 6});
+    document.getElementById('balanceSub').textContent = 'Chain ID ' + CHAIN_ID + ' · GYDS Chain';
+    refreshTokenBalances(addr);
+  } catch {
+    document.getElementById('balanceSub').textContent = 'Could not load balance';
+  }
+}
+
+// Fetch GYD (and any future genesis tokens) from the node API.
+async function refreshTokenBalances(addr) {
+  try {
+    const res = await fetch('/api/tokens/' + addr);
+    if (!res.ok) return;
+    const data = await res.json();
+    const balances = data.balances || {};
+
+    // GYD stablecoin
+    const gydWei = BigInt(balances['GYD'] || '0');
+    const gydFmt = parseFloat((Number(gydWei) / 1e18).toFixed(2));
+    document.getElementById('gydBalance').textContent =
+      gydFmt.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  } catch { /* non-fatal */ }
+}
+
+// ── Send ─────────────────────────────────────────────────────────────────────
+async function sendTx() {
+  const to     = document.getElementById('sendTo').value.trim();
+  const amount = document.getElementById('sendAmount').value.trim();
+  const alertEl = document.getElementById('sendAlert');
+  alertEl.innerHTML = '';
+
+  if (!ethers.utils.isAddress(to)) {
+    return setAlert(alertEl, 'danger', 'Invalid recipient address.');
+  }
+  if (!amount || parseFloat(amount) <= 0) {
+    return setAlert(alertEl, 'danger', 'Enter an amount greater than 0.');
+  }
+
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Signing & Sending…';
+
+  try {
+    const value = ethers.utils.parseEther(amount);
+    const nonce = await provider.getTransactionCount(wallet.address, 'latest');
+    const tx = await wallet.sendTransaction({
+      to, value, nonce,
+      gasLimit: GAS_LIMIT,
+      gasPrice: GAS_PRICE,
+      chainId:  CHAIN_ID,
+    });
+    setAlert(alertEl, 'success',
+      `✅ Transaction sent!<br>Hash: <span style="font-family:var(--mono);font-size:11px;word-break:break-all">${tx.hash}</span>`
+    );
+    document.getElementById('sendTo').value     = '';
+    document.getElementById('sendAmount').value = '';
+    setTimeout(refreshBalance, 3000);
+    loadHistory();
+  } catch(e) {
+    setAlert(alertEl, 'danger', '❌ ' + (e.reason || e.message || 'Transaction failed'));
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Send GYDS';
+  }
+}
+
+// ── History ──────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  if (!wallet) return;
+  const el = document.getElementById('historyList');
+  el.innerHTML = '<div class="text-center text-muted" style="padding:24px">Loading…</div>';
+  try {
+    const res = await fetch('/api/transactions?limit=50');
+    const { transactions } = await res.json();
+    const addr = wallet.address.toLowerCase();
+    const mine = (transactions || []).filter(tx =>
+      (tx.from||'').toLowerCase() === addr || (tx.to||'').toLowerCase() === addr
+    );
+    if (!mine.length) {
+      el.innerHTML = '<div class="text-center text-muted" style="padding:32px">No transactions yet for this address.</div>';
+      return;
+    }
+    el.innerHTML = mine.map(tx => {
+      const isOut = (tx.from||'').toLowerCase() === addr;
+      const other = isOut ? tx.to : tx.from;
+      const valWei = BigInt(tx.value || '0x0');
+      const valEth = ethers.utils.formatEther(valWei.toString());
+      const shortH = tx.hash ? tx.hash.slice(0,12)+'…'+tx.hash.slice(-6) : '—';
+      const shortA = other ? other.slice(0,10)+'…'+other.slice(-6) : '—';
+      return `<div class="tx-item">
+        <div class="tx-icon ${isOut?'out':'in'}">${isOut?'↑':'↓'}</div>
+        <div class="tx-details">
+          <div class="tx-hash">${shortH}</div>
+          <div class="tx-addr">${isOut?'To: ':'From: '}${shortA}</div>
+        </div>
+        <div class="tx-amount">
+          <div class="tx-val ${isOut?'out':'in'}">${isOut?'-':'+'}${parseFloat(valEth).toFixed(4)} GYDS</div>
+          <div class="tx-status">${tx.status||'confirmed'}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch {
+    el.innerHTML = '<div class="text-center text-muted" style="padding:24px">Could not load transaction history.</div>';
+  }
+}
+
+// ── QR Code ───────────────────────────────────────────────────────────────────
+function drawQR(address) {
+  const el = document.getElementById('qrCanvas');
+  el.innerHTML = ''; // clear previous
+  if (typeof QRCode === 'undefined') return;
+  // Dark-on-white for maximum scanner compatibility across all phone cameras.
+  new QRCode(el, {
+    text:         address,
+    width:        240,
+    height:       240,
+    colorDark:    '#0f172a',
+    colorLight:   '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M,
+  });
+}
+
+// ── Add GYDS Chain to external wallet (EIP-3085) ──────────────────────────────
+const GYDS_CHAIN_PARAMS = {
+  chainId:           '0x3068a', // 198282
+  chainName:         'GYDS Chain',
+  nativeCurrency:    { name: 'GYDS', symbol: 'GYDS', decimals: 18 },
+  rpcUrls:           [PUBLIC_BASE_URL + '/rpc'],
+  blockExplorerUrls: [window.location.origin],
+  iconUrls:          [PUBLIC_BASE_URL + '/logo.png'],
+};
+
+async function addChainToWallet(label, btn) {
+  const alertEl = document.getElementById('connectAlert');
+  if (!window.ethereum) {
+    alertEl.className = 'alert alert-warn';
+    alertEl.innerHTML = `⚠️ No browser wallet detected. Open this page inside ${label} (mobile) or install the ${label} browser extension first.`;
+    alertEl.style.display = 'block';
+    return;
+  }
+  const origLabel = btn.dataset.label || btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    await window.ethereum.request({ method: 'wallet_addEthereumChain', params: [GYDS_CHAIN_PARAMS] });
+    alertEl.className = 'alert alert-success';
+    alertEl.innerHTML = `✅ GYDS Chain added to ${label} successfully!`;
+    alertEl.style.display = 'block';
+  } catch(e) {
+    if (e.code === 4001) {
+      alertEl.className = 'alert alert-warn';
+      alertEl.innerHTML = '⚠️ Request cancelled by user.';
+    } else {
+      alertEl.className = 'alert alert-danger';
+      alertEl.innerHTML = '❌ ' + (e.message || 'Could not add network.');
+    }
+    alertEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origLabel;
+  }
+}
+
+// ── Sync: connect browser wallet as signer ────────────────────────────────────
+async function syncBrowserWallet() {
+  const alertEl = document.getElementById('syncAlert');
+  const btn     = document.getElementById('syncWalletBtn');
+  alertEl.style.display = 'none';
+
+  if (!window.ethereum) {
+    alertEl.className = 'alert alert-warn';
+    alertEl.innerHTML = '⚠️ No browser wallet detected. Install MetaMask, Phantom, or another EVM browser wallet, then reload this page.';
+    alertEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Connecting…';
+
+  try {
+    await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+    // Switch / add the GYDS network in the browser wallet too
+    try {
+      await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x3068a' }] });
+    } catch(switchErr) {
+      if (switchErr.code === 4902) {
+        await window.ethereum.request({ method: 'wallet_addEthereumChain', params: [GYDS_CHAIN_PARAMS] });
+      }
+    }
+
+    const web3Provider = new ethers.providers.Web3Provider(window.ethereum, {
+      chainId: CHAIN_ID, name: 'GYDS Chain'
+    });
+    const signer  = web3Provider.getSigner();
+    const address = await signer.getAddress();
+
+    // Use the browser wallet signer — private key never leaves the extension.
+    wallet   = signer;
+    mnemonic = null;
+
+    // Don't persist to localStorage — the browser wallet manages the key.
+    document.getElementById('walletAddr').textContent  = address;
+    document.getElementById('receiveAddr').textContent = address;
+    document.getElementById('showPrivKey').value       = '(managed by browser wallet)';
+    document.getElementById('showMnemonic').value      = '(managed by browser wallet)';
+    document.getElementById('mnemonicBlock').style.opacity = '.5';
+
+    drawQR(address);
+    document.getElementById('entryScreen').classList.add('hidden');
+    document.getElementById('walletScreen').classList.remove('hidden');
+    refreshBalance();
+    loadHistory();
+
+    clearInterval(_balRefreshTimer);
+    _balRefreshTimer = setInterval(refreshBalance, 30000);
+
+    // Update alert inside the connect pane (user may not see it if they just
+    // switched to walletScreen, so also show a toast).
+    alertEl.className = 'alert alert-success';
+    alertEl.innerHTML = `✅ Connected: <span style="font-family:var(--mono);font-size:11px;word-break:break-all">${address}</span>`;
+    alertEl.style.display = 'block';
+    toast('Browser wallet connected!');
+  } catch(e) {
+    if (e.code === 4001) {
+      alertEl.className = 'alert alert-warn';
+      alertEl.innerHTML = '⚠️ Connection cancelled by user.';
+    } else {
+      alertEl.className = 'alert alert-danger';
+      alertEl.innerHTML = '❌ ' + (e.message || 'Could not connect browser wallet.');
+    }
+    alertEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔗 Connect Browser Wallet';
+  }
+}
+
+// ── Generic text copy helper ──────────────────────────────────────────────────
+function copyText(text) {
+  if (!text || text === '—') return;
+  navigator.clipboard.writeText(text).then(() => toast('Copied!')).catch(() => {
+    // Fallback for older browsers
+    const el = document.createElement('textarea');
+    el.value = text;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    toast('Copied!');
+  });
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function setAlert(el, type, html) {
+  el.className = `alert alert-${type}`;
+  el.innerHTML = html;
+}
+
+function toggleVis(id, btn) {
+  const el = document.getElementById(id);
+  const isHidden = el.type === 'password';
+  el.type = isHidden ? 'text' : 'password';
+  btn.textContent = isHidden ? '🙈' : '👁';
+}
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab[data-tab]').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('[id^="pane-"]').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('pane-' + name).classList.add('active');
+  if (name === 'history') loadHistory();
+  if (name === 'receive') refreshBalance();
+}
+
+function switchCreateTab(name, btn) {
+  btn.closest('.wallet-card').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.closest('.wallet-card').querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(name).classList.add('active');
+}
+function switchImportTab(name, btn) { switchCreateTab(name, btn); }
+
+function copyAddr() {
+  const addr = wallet ? wallet.address : '';
+  navigator.clipboard.writeText(addr).then(() => toast('Address copied!'));
+}
+function copyPrivKey() {
+  if (!wallet) return;
+  navigator.clipboard.writeText(wallet.privateKey).then(() => toast('Private key copied — keep it safe!'));
+}
+function copyMnemonic() {
+  if (!mnemonic) { toast('No mnemonic (key-only wallet)'); return; }
+  navigator.clipboard.writeText(mnemonic).then(() => toast('Recovery phrase copied — store it safely!'));
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Search (wallet tab) ───────────────────────────────────────────────────────
+async function doWalletSearch() {
+  const raw = document.getElementById('walletSearchInput').value.trim();
+  const out = document.getElementById('walletSearchResult');
+  if (!raw) return;
+  out.innerHTML = `<div class="text-muted" style="padding:10px 0"><span class="spinner"></span> Searching…</div>`;
+  const clean = raw.startsWith('0x') ? raw : '0x' + raw;
+  if (clean.length === 66)      await searchTxResult(clean, out);
+  else if (clean.length === 42) await searchAcctResult(clean, out);
+  else out.innerHTML = srchErr('Enter a 66-char transaction hash or 42-char wallet address.');
+}
+
+async function searchTxResult(hash, out) {
+  try {
+    const res  = await fetch('/api/transactions/' + hash);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const tx   = data.transaction || data;
+    if (!tx?.hash) throw new Error();
+    out.innerHTML = srchTxCard(tx);
+  } catch {
+    try {
+      const r = await provider.getTransaction(hash);
+      if (r) out.innerHTML = srchTxCard({ hash: r.hash, from: r.from, to: r.to, value: '0x'+r.value.toString(16), gas: r.gasLimit?.toNumber(), gasPrice: r.gasPrice?.toNumber(), nonce: r.nonce, blockNumber: r.blockNumber, status: 'confirmed' });
+      else out.innerHTML = srchErr('Transaction not found.');
+    } catch { out.innerHTML = srchErr('Transaction not found.'); }
+  }
+}
+
+async function searchAcctResult(address, out) {
+  try {
+    const [acctRes, txRes, bal] = await Promise.all([
+      fetch('/api/accounts/' + address).then(r=>r.json()).catch(()=>({})),
+      fetch('/api/transactions?limit=100').then(r=>r.json()).catch(()=>({transactions:[]})),
+      provider.getBalance(address)
+    ]);
+    const balFmt = parseFloat(ethers.utils.formatEther(bal)).toLocaleString(undefined,{maximumFractionDigits:6});
+    const nonce  = acctRes?.nonce ?? acctRes?.tx_count ?? 0;
+    const addr   = address.toLowerCase();
+    const mine   = (txRes.transactions||[]).filter(tx=>(tx.from||'').toLowerCase()===addr||(tx.to||'').toLowerCase()===addr);
+    out.innerHTML = srchAcctCard(address, balFmt, nonce, mine);
+  } catch(e) { out.innerHTML = srchErr('Could not load account: ' + e.message); }
+}
+
+function srchTxCard(tx) {
+  const wei  = BigInt(tx.value||'0x0');
+  const eth  = (Number(wei)/1e18).toFixed(6);
+  const blk  = tx.blockNumber||tx.block_num||'—';
+  const st   = tx.status||'confirmed';
+  const sc   = st==='pending'?'var(--warn)':'var(--accent)';
+  return `<div class="card" style="margin-top:12px;padding:16px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+      <span style="font-size:12px;font-weight:700;color:var(--accent2)">Transaction</span>
+      <span style="font-size:11px;font-weight:600;color:${sc};border:1px solid ${sc};border-radius:20px;padding:2px 10px">${st}</span>
+    </div>
+    ${sr('Hash',  `<span style="font-family:var(--mono);font-size:11px;word-break:break-all">${tx.hash}</span>`)}
+    ${sr('From',  `<span style="font-family:var(--mono);font-size:11px">${tx.from||'—'}</span>`)}
+    ${sr('To',    `<span style="font-family:var(--mono);font-size:11px">${tx.to||'—'}</span>`)}
+    ${sr('Value', `<strong style="color:var(--accent)">${eth} GYDS</strong>`)}
+    ${sr('Gas',   String((tx.gas||tx.gasLimit||21000).toLocaleString()) + ' units')}
+    ${sr('Block', blk !== '—' ? '#'+blk : '—')}
+  </div>`;
+}
+
+function srchAcctCard(address, balFmt, nonce, txs) {
+  const addr = address.toLowerCase();
+  const rows = txs.length ? txs.map(tx=>{
+    const isOut=(tx.from||'').toLowerCase()===addr;
+    const other=(isOut?tx.to:tx.from)||'—';
+    const shortO=other.length>14?other.slice(0,8)+'…'+other.slice(-5):other;
+    const eth=(Number(BigInt(tx.value||'0x0'))/1e18).toFixed(4);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+      <span style="font-size:16px">${isOut?'↑':'↓'}</span>
+      <div style="flex:1;min-width:0;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${isOut?'To ':'From '}${shortO}</div>
+      <span style="font-size:12px;font-weight:700;color:${isOut?'var(--danger)':'var(--accent)'}">${isOut?'-':'+'}${eth} GYDS</span>
+    </div>`;
+  }).join('') : `<div class="text-center text-muted" style="padding:16px;font-size:12px">No transactions found</div>`;
+  return `<div class="card" style="margin-top:12px;padding:16px">
+    <div style="margin-bottom:12px"><span style="font-size:12px;font-weight:700;color:var(--accent2)">Account</span></div>
+    ${sr('Address', `<span style="font-family:var(--mono);font-size:11px;word-break:break-all">${address}</span>`)}
+    ${sr('Balance', `<strong style="color:var(--accent);font-size:16px">${balFmt} GYDS</strong>`)}
+    ${sr('Tx Sent', String(nonce))}
+    <div style="margin-top:12px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Transactions (${txs.length})</div>
+    <div style="max-height:240px;overflow-y:auto">${rows}</div>
+  </div>`;
+}
+
+function sr(label, html) {
+  return `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+    <span style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--muted);min-width:70px">${label}</span>
+    <span style="font-size:12px;color:var(--text);flex:1;display:flex;align-items:center;gap:4px;flex-wrap:wrap">${html}</span>
+  </div>`;
+}
+
+function srchErr(msg) {
+  return `<div class="alert alert-danger" style="margin-top:10px">❌ ${msg}</div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── PIN Lock System (server-side verification — HTTP and HTTPS compatible) ────
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// PIN is verified by the node at /api/lock/verify (no client-side crypto needed).
+// Unlock state lives in sessionStorage so it resets when the tab closes.
+
+const LOCK_TIMEOUT = 300;             // seconds of inactivity → auto-lock
+const LOCK_TS_KEY  = 'gyds_lock_ts'; // sessionStorage key
+
+let lockTimer    = null;
+let lockBarTimer = null;
+
+// ── Server helpers ─────────────────────────────────────────────────────────
+async function lockPost(path, body) {
+  try {
+    const r = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { ok: r.ok, data: await r.json() };
+  } catch(e) {
+    return { ok: false, data: { error: 'Network error: ' + e.message } };
+  }
+}
+
+// ── Unlock-state helpers ───────────────────────────────────────────────────
+function markUnlocked() { sessionStorage.setItem(LOCK_TS_KEY, String(Date.now())); }
+function clearUnlocked() {
+  sessionStorage.removeItem(LOCK_TS_KEY);
+  localStorage.removeItem('gyds_wallet_pk');
+  localStorage.removeItem('gyds_wallet_mn');
+}
+function isUnlocked() {
+  const ts = parseInt(sessionStorage.getItem(LOCK_TS_KEY) || '0', 10);
+  return ts > 0 && (Date.now() - ts) < LOCK_TIMEOUT * 1000;
+}
+
+// ── Show lock overlay ──────────────────────────────────────────────────────
+async function showLockOverlay() {
+  stopLockTimer();
+  const overlay    = document.getElementById('lockOverlay');
+  const enterPanel = document.getElementById('lockEnterPin');
+  overlay.style.display = 'flex';
+
+  try {
+    const r      = await fetch('/api/lock/status');
+    const status = await r.json();
+    if (status.pinSet) {
+      enterPanel.classList.remove('hidden');
+      document.getElementById('enterPin').value = '';
+      document.getElementById('lockAttemptMsg').textContent = '';
+      startLockBar();
+      setTimeout(() => document.getElementById('enterPin').focus(), 80);
+    } else {
+      // PINs are created only in the setup wizard. If setup skipped the PIN,
+      // leave the dashboard open rather than prompting on the dashboard.
+      hideLockOverlay();
+    }
+  } catch {
+    // Node not reachable — hide overlay so the page remains usable
+    overlay.style.display = 'none';
+  }
+}
+
+function hideLockOverlay() {
+  document.getElementById('lockOverlay').style.display = 'none';
+  markUnlocked();
+  resetInactivityTimer();
+}
+
+// ── Unlock ─────────────────────────────────────────────────────────────────
+async function doUnlock() {
+  const pin   = document.getElementById('enterPin').value;
+  const msgEl = document.getElementById('lockAttemptMsg');
+  if (!pin) { msgEl.textContent = 'Enter your PIN.'; return; }
+  const { ok, data } = await lockPost('/api/lock/verify', { pin });
+  if (ok) {
+    hideLockOverlay();
+  } else {
+    msgEl.textContent = (data && data.error) || 'Incorrect PIN.';
+    document.getElementById('enterPin').value = '';
+    document.getElementById('enterPin').focus();
+  }
+}
+
+// ── Forgot PIN ─────────────────────────────────────────────────────────────
+function confirmClearPin() {
+  if (!confirm('Reset?\n\nThis clears your saved wallet from this browser (funds are safe on-chain). To create the node PIN, use the Dashboard PIN step in /setup.')) return;
+  clearUnlocked();
+  window.location.reload();
+}
+
+// ── Inactivity auto-lock ───────────────────────────────────────────────────
+function resetInactivityTimer() {
+  clearTimeout(lockTimer);
+  lockTimer = setTimeout(() => {
+    clearUnlocked();
+    showLockOverlay();
+  }, LOCK_TIMEOUT * 1000);
+}
+
+function stopLockTimer() {
+  clearTimeout(lockTimer);
+  lockTimer = null;
+}
+
+// Reset on any real user activity
+['mousemove','keydown','mousedown','touchstart','scroll','click'].forEach(ev => {
+  document.addEventListener(ev, () => { if (!isLocked()) resetInactivityTimer(); }, { passive: true });
+});
+
+function isLocked() {
+  return document.getElementById('lockOverlay').style.display !== 'none';
+}
+
+// ── Countdown bar inside the lock screen ───────────────────────────────────
+function startLockBar() {
+  clearInterval(lockBarTimer);
+  const bar   = document.getElementById('lockBar');
+  const fill  = document.getElementById('lockBarFill');
+  const label = document.getElementById('lockTimerLabel');
+  if (!bar) return;
+  bar.style.display = 'block';
+  let t = 30; // show a 30-second "last chance" bar for UX — doesn't affect actual lock
+  fill.style.width = '100%';
+  label.textContent = '';
+  lockBarTimer = setInterval(() => {
+    t = Math.max(0, t - 1);
+    fill.style.width = (t / 30 * 100) + '%';
+    if (t <= 10) {
+      fill.style.background = 'var(--danger)';
+      label.textContent = 'Auto-locked due to inactivity.';
+    }
+    if (t === 0) clearInterval(lockBarTimer);
+  }, 1000);
+}
+
+// ── Initialise lock on page load ───────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  showLockOverlay();     // show enter-pin only when setup created a PIN
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── One-click Add GYDS Chain (entry screen helper) ───────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function quickAddChain(label, btn) {
+  const alertEl = document.getElementById('entryConnectAlert');
+  if (!window.ethereum) {
+    alertEl.className = 'alert alert-warn';
+    alertEl.innerHTML = `⚠️ No browser wallet detected. Open this page inside ${label} (mobile) or install the browser extension first, then reload.`;
+    alertEl.style.display = 'block';
+    return;
+  }
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  const params = {
+    chainId:           '0x3068a',
+    chainName:         'GYDS Chain',
+    nativeCurrency:    { name: 'GYDS', symbol: 'GYDS', decimals: 18 },
+    rpcUrls:           [PUBLIC_BASE_URL + '/rpc'],
+    blockExplorerUrls: [window.location.origin],
+    iconUrls:          [PUBLIC_BASE_URL + '/logo.png'],
+  };
+  try {
+    await window.ethereum.request({ method: 'wallet_addEthereumChain', params: [params] });
+    alertEl.className = 'alert alert-success';
+    alertEl.innerHTML = `✅ GYDS Chain added to ${label}!`;
+    alertEl.style.display = 'block';
+  } catch(e) {
+    alertEl.className = e.code === 4001 ? 'alert alert-warn' : 'alert alert-danger';
+    alertEl.innerHTML = e.code === 4001 ? '⚠️ Cancelled by user.' : '❌ ' + (e.message || 'Could not add network.');
+    alertEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+</script>
+</body>
+</html>
