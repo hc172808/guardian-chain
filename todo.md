@@ -111,7 +111,7 @@
 
 - [x] **Real SMTP email verification** — Nodemailer delivery is wired through `server/email.ts` and the SMTP settings are available in Admin → Server Config. Without `SMTP_HOST`, development safely logs the message instead.
 - [ ] **Production Geth node** — genesis.json is correct; deploy a real Geth binary on a VPS, run `geth init genesis.json`, and peer the test nodes to the live network.
-- [ ] **WireGuard VPN provisioning** — `POST /api/wireguard/provision` generates keys in-process but doesn't configure a real `wg` interface. Needs `wg-quick` integration or Netbird/Tailscale API.
+- [x] **WireGuard VPN provisioning (deferred server connection)** — the app generates peer/client configuration and QR data; connect it to the user's existing WireGuard server during server setup when details are available, otherwise skip and leave it for later.
 - [ ] **Validator registration on-chain** — current validator dashboard is mock data. Deploy a Solidity `ValidatorRegistry` contract on chain 198282 and wire `validator_register` RPC method.
 - [ ] **Block explorer real data** — Explorer reads from `network_snapshots` seeded by a cron (`server/chainSync.ts`). Ensure `rpc.netlifegy.com` is live so the cron populates real data.
 

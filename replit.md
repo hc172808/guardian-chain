@@ -60,6 +60,7 @@ Three roles in `user_roles` table: `user`, `admin`, `founder`
 - Use Drizzle ORM for all database operations
 - Keep the Supabase shim in place (routes to Express API, no real Supabase needed)
 - IP blocking/banning is disabled by default (see "Security / IP handling" below) — do not silently re-enable it.
+- The user has an existing WireGuard server. When setting up a server that needs VPN access, ask for the WireGuard client/server details; if they are not available, skip VPN configuration so the user can add it later.
 
 ## Security / IP handling
 - IP-block **enforcement** is OFF by default (`server/security.ts` `ipBlockEnabled = false`, persisted in `admin_config.ip_block_enforcement`). Detection/logging (firewall stats, honeypot/UA/payload flags, login-failure counters) still runs for monitoring, but no request is ever rejected with a 403/429 IP ban while this is off.
