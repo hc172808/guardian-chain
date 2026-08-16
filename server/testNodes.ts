@@ -278,16 +278,26 @@ export async function seedBalanceTrie(): Promise<void> {
       address: string;
       token_symbol: string;
       net_wei: string;
+      network: string;
     }>(`
-      SELECT addr                        AS address,
-             LOWER(token_symbol)         AS token_symbol,
+      SELECT addr                         AS address,
+             LOWER(token_symbol)          AS token_symbol,
+             COALESCE(network, 'testnet') AS network,
              SUM(direction * amount)::text AS net_wei
       FROM (
-        SELECT LOWER(to_address)   AS addr,  token_symbol,  amount,  1 AS direction FROM transactions WHERE status IN ('confirmed','completed','success')
+        SELECT LOWER(to_address)   AS addr, token_symbol, amount, 1 AS direction,
+               network
+        FROM transactions
+        WHERE status IN ('confirmed','completed','success')
+          AND LOWER(from_address) <> '0x000000000000000000000000000000000000fac3'
         UNION ALL
-        SELECT LOWER(from_address) AS addr,  token_symbol,  amount, -1 AS direction FROM transactions WHERE status IN ('confirmed','completed','success')
+        SELECT LOWER(from_address) AS addr, token_symbol, amount, -1 AS direction,
+               network
+        FROM transactions
+        WHERE status IN ('confirmed','completed','success')
+          AND LOWER(from_address) <> '0x000000000000000000000000000000000000fac3'
       ) t
-      GROUP BY addr, LOWER(token_symbol)
+      GROUP BY addr, LOWER(token_symbol), COALESCE(network, 'testnet')
     `);
 
     for (const row of txs) {
@@ -297,7 +307,10 @@ export async function seedBalanceTrie(): Promise<void> {
       const isNeg  = row.net_wei.startsWith("-");
       const absWei = decimalToWei(row.net_wei.replace("-", ""));
       if (absWei === 0n) continue;
-      for (const net of ALL_NETWORKS) {
+      const net = ALL_NETWORKS.includes(row.network as Network)
+        ? row.network as Network
+        : "testnet";
+      if (net) {
         if (!isNeg) creditAddress(net, row.address, token, absWei);
         else        debitAddress(net, row.address, token, absWei);
       }

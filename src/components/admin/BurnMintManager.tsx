@@ -19,6 +19,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { useNetwork, NetworkKind } from '@/contexts/NetworkContext';
 
 interface TokenOperation {
   id: string;
@@ -42,6 +43,8 @@ interface TokenPrice {
 export const BurnMintManager = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { selectedNetwork } = useNetwork();
+  const network: NetworkKind = selectedNetwork === 'all' ? 'mainnet' : selectedNetwork;
   const [operations, setOperations] = useState<TokenOperation[]>([]);
   const [tokenPrice, setTokenPrice] = useState<TokenPrice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,6 +101,7 @@ export const BurnMintManager = () => {
         wallet_address: RESERVED_WALLETS.burn.address,
         tx_hash: txHash,
         status: 'confirmed',
+          network,
       });
       await api.post('/api/token-operations', {
         operation_type: 'mint',
@@ -106,6 +110,7 @@ export const BurnMintManager = () => {
         wallet_address: RESERVED_WALLETS.miningPool.address,
         tx_hash: txHash + '-mint',
         status: 'confirmed',
+          network,
       });
       if (tokenPrice) {
         await api.patch('/api/token-price', {
@@ -145,6 +150,7 @@ export const BurnMintManager = () => {
         wallet_address: mintAddress,
         tx_hash: txHash,
         status: 'confirmed',
+        network,
       });
       toast({ title: 'Mint successful!', description: `Minted ${amountNum.toLocaleString()} GYDS` });
       setMintAmount('');
@@ -176,6 +182,7 @@ export const BurnMintManager = () => {
         wallet_address: gusdMintAddress,
         tx_hash: txHash,
         status: 'confirmed',
+        network,
       });
       toast({ title: 'Mint successful!', description: `Minted ${amountNum.toLocaleString()} GUSD` });
       setGusdMintAmount('');

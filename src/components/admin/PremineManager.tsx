@@ -12,6 +12,7 @@ import {
   Copy, Download, AlertTriangle, Info, Smartphone, CheckCircle,
 } from 'lucide-react';
 import { RESERVED_WALLETS } from '@/config/wallets';
+import { useNetwork, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
 
 const CHAIN_ID = 198282;
 const RPC_URLS = {
@@ -34,6 +35,9 @@ const downloadFile = (content: string, filename: string) => {
 export const PremineManager = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { selectedNetwork } = useNetwork();
+  const network: NetworkKind = selectedNetwork === 'all' ? 'mainnet' : selectedNetwork;
+  const networkBadge = NETWORK_BADGE[network];
   const [gydsAmount, setGydsAmount] = useState('1000000');
   const [gydAmount, setGydAmount] = useState('10000');
   const [targetAddress, setTargetAddress] = useState(RESERVED_WALLETS.founder.address);
@@ -58,10 +62,10 @@ export const PremineManager = () => {
     const txHash = () => '0x' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '').slice(0, 32);
     const operations = [];
     if (gyds > 0) {
-      operations.push({ operation_type: 'mint', amount: gyds, wallet_address: targetAddress.toLowerCase(), tx_hash: txHash(), status: 'confirmed', created_by: user.id, usdt_amount: 0 });
+      operations.push({ operation_type: 'mint', amount: gyds, wallet_address: targetAddress.toLowerCase(), tx_hash: txHash(), status: 'confirmed', created_by: user.id, usdt_amount: 0, network });
     }
     if (gyd > 0) {
-      operations.push({ operation_type: 'mint', amount: gyd, wallet_address: `gyd:${targetAddress.toLowerCase()}`, tx_hash: txHash(), status: 'confirmed', created_by: user.id, usdt_amount: 0 });
+      operations.push({ operation_type: 'mint_gyd', amount: gyd, wallet_address: targetAddress.toLowerCase(), tx_hash: txHash(), status: 'confirmed', created_by: user.id, usdt_amount: 0, network });
     }
     try {
       for (const op of operations) await api.post('/api/token-operations', op);
@@ -175,7 +179,7 @@ export const PremineManager = () => {
       </GlassCard>
 
       {/* Genesis block config */}
-      <GlassCard className="p-4">
+       <GlassCard className="p-4">
         <button className="w-full flex items-center justify-between text-sm font-medium" onClick={() => setShowGenesis(v => !v)}>
           <span className="flex items-center gap-2"><Download className="h-4 w-4 text-primary" /> Genesis Block Config (genesis.json)</span>
           {showGenesis ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}

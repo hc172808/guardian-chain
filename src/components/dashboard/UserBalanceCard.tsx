@@ -59,20 +59,17 @@ export const UserBalanceCard = () => {
         : null;
       const onChain = chainUrl ? await api.get(chainUrl).catch(() => null) : null;
 
-      if (onChain?.ok && onChain.source === 'onchain' &&
-          (onChain.gyds > 0 || onChain.gyd > 0 || onChain.gusd > 0)) {
+      if (onChain?.ok && onChain.source === 'onchain-rpc') {
         setGydsBalance(Number(onChain.gyds));
         setGydBalance(Number(onChain.gyd));
         setGusdBalance(Number(onChain.gusd));
       } else {
-        // ── 2. Fall back to DB balance (scoped to network if selected, else all) ──
-        const balUrl = network ? `/api/user/balance?network=${network}` : '/api/user/balance';
-        const serverBalance = await api.get(balUrl).catch(() => null);
-        if (serverBalance && serverBalance.gyds !== undefined) {
-          setGydsBalance(Number(serverBalance.gyds ?? 0));
-          setGydBalance(Number(serverBalance.gyd  ?? 0));
-          setGusdBalance(Number(serverBalance.gusd ?? 0));
-        }
+        // Never substitute the global database ledger for a network balance.
+        // If the selected node is offline, show zero rather than another
+        // network's value.
+        setGydsBalance(0);
+        setGydBalance(0);
+        setGusdBalance(0);
       }
     } catch {}
     setLoading(false);

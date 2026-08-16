@@ -265,10 +265,12 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at   TIMESTAMPTZ DEFAULT NOW(),
       confirmed_at TIMESTAMPTZ,
-      token_symbol TEXT NOT NULL DEFAULT 'GYD'
+      token_symbol TEXT NOT NULL DEFAULT 'GYD',
+      network      TEXT NOT NULL DEFAULT 'testnet'
     )
   `);
   await run("transactions-token-symbol-col", `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS token_symbol TEXT NOT NULL DEFAULT 'GYD'`);
+  await run("transactions-network-col", `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'testnet'`);
 
   // ── 5. Node tables ───────────────────────────────────────────────────────────
   await run("node_installations", `

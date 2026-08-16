@@ -693,6 +693,7 @@ export function registerRoutes(app: Express) {
     created_by: r.createdBy ?? r.created_by,
     created_at: r.createdAt ?? r.created_at,
     status: r.status,
+    network: r.network,
   });
 
   app.get("/api/token-operations", async (_req, res) => {
@@ -1745,6 +1746,7 @@ export function registerRoutes(app: Express) {
     let onchainBlockHeight: number | null = null;
     let onchainPeerCount:   number | null = null;
     let onchainTps:         number | null = null;
+    let usedRpcEndpoint: string | null = null;
 
     try {
       const h = getChainBlockHeight(netParam);
@@ -1770,7 +1772,13 @@ export function registerRoutes(app: Express) {
           signal: AbortSignal.timeout(3000),
         }).then(r => r.json()).catch(() => null),
       ]);
-      if (blockRes?.result) { const h = parseInt(blockRes.result, 16); if (h > 0) onchainBlockHeight = h; }
+      if (blockRes?.result) {
+        const h = parseInt(blockRes.result, 16);
+        if (h > 0) {
+          onchainBlockHeight = h;
+          usedRpcEndpoint = rpcUrl;
+        }
+      }
       if (peerRes?.result)  { onchainPeerCount = parseInt(peerRes.result, 16); }
       if (onchainBlockHeight && onchainBlockHeight > 5) {
         const counts = await Promise.all(
@@ -1794,8 +1802,9 @@ export function registerRoutes(app: Express) {
       try { await probeRpc(`http://localhost:${rpcNode.port}`); } catch {}
     }
 
-    // 3b. If still no block data, try GYDS_RPC_URL (localhost:8545 by default)
-    if (!onchainBlockHeight) {
+    // 3b. Only mainnet may use the configured public/mainnet fallback.
+    // Never let a mainnet RPC answer a testnet/devnet request.
+    if (!onchainBlockHeight && netParam === "mainnet") {
       const primaryRpc = process.env.GYDS_RPC_URL || "http://localhost:8545";
       // Only try if it differs from the test-node URL we already tried
       const alreadyTried = rpcNode ? `http://localhost:${rpcNode.port}` : null;
@@ -1830,7 +1839,7 @@ export function registerRoutes(app: Express) {
       network:  netParam,
       chainId,
       rpcAvailable: onchainBlockHeight !== null,
-      rpcEndpoint: process.env.GYDS_RPC_URL || "http://localhost:8545",
+      rpcEndpoint: usedRpcEndpoint,
       stats: {
         ...dbStats,
         network:       netParam,
@@ -2544,16 +2553,53 @@ export function registerRoutes(app: Express) {
     const network = (["mainnet", "testnet", "devnet"].includes(req.query.network as string)
       ? req.query.network : "mainnet") as "mainnet" | "testnet" | "devnet";
     if (!address) return res.status(400).json({ ok: false, error: "address required" });
-    const toEth = (wei: bigint) => Number(wei) / 1e18;
-    res.json({
-      ok: true,
-      address,
-      network,
-      gyds: toEth(getNetworkBalance(network, address, "GYDS")),
-      gyd:  toEth(getNetworkBalance(network, address, "GYD")),
-      gusd: toEth(getNetworkBalance(network, address, "GUSD")),
-      source: "onchain",
-    });
+    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      return res.status(400).json({ ok: false, error: "invalid address" });
+    }
+
+    // Read from the selected network's managed RPC node. Do not substitute
+    // database balances when a node is unavailable.
+    const rpcPort = NETWORK_CFGS[network].ports.rpc;
+    const rpcUrl = `http://localhost:${rpcPort}`;
+    const rpcCall = async (method: string, params: unknown[]) => {
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        signal: AbortSignal.timeout(3000),
+      });
+      const json = await response.json() as any;
+      if (json?.error) throw new Error(json.error.message ?? "RPC error");
+      return json?.result;
+    };
+
+    try {
+      const [gydsWei, gydWei, gusdWei] = await Promise.all([
+        rpcCall("eth_getBalance", [address, "latest"]),
+        rpcCall("gyds_getTokenBalance", [address, "GYD"]),
+        rpcCall("gyds_getTokenBalance", [address, "GUSD"]),
+      ]);
+      const toAmount = (hex: string | null | undefined) => Number(BigInt(hex ?? "0x0")) / 1e18;
+      return res.json({
+        ok: true,
+        address,
+        network,
+        gyds: toAmount(gydsWei),
+        gyd:  toAmount(gydWei),
+        gusd: toAmount(gusdWei),
+        source: "onchain-rpc",
+        rpcEndpoint: rpcUrl,
+      });
+    } catch (err: any) {
+      return res.status(503).json({
+        ok: false,
+        address,
+        network,
+        source: "onchain-rpc",
+        rpcEndpoint: rpcUrl,
+        error: `Selected ${network} node is unavailable: ${err.message}`,
+      });
+    }
   });
 
   // POST sequential node wizard — starts genesis→bootnode→rpc→fullnode→validator→lite→boostnode one at a time
