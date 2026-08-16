@@ -9,8 +9,8 @@ import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { useToast } from '@/hooks/use-toast';
 import { useCoinGeckoPrices } from '@/hooks/useCoinGeckoPrices';
 import { useNetworkDetection } from '@/hooks/useNetworkDetection';
-import { supabase } from '@/integrations/supabase/client';
 import { useBridgeNetworks } from '@/hooks/useBridgeNetworks';
+import { api } from '@/lib/api';
 import { BridgeHistory } from './BridgeHistory';
 import { PriceSparkline } from './PriceSparkline';
 import { BridgeFeeComparison } from './BridgeFeeComparison';
@@ -64,7 +64,7 @@ export const CrossChainBridge = () => {
   const verifySourceWallet = async (
     chain: typeof EXTERNAL_CHAINS[number],
     requiredAmount: number
-  ): Promise<{ ok: boolean; balance: number; error?: string }> => {
+  ): Promise<{ ok: boolean; balance: number; sourceAddress?: string; error?: string }> => {
     try {
       if (chain.id === 'solana') {
         const sol = (window as any).solana;
@@ -88,7 +88,7 @@ export const CrossChainBridge = () => {
         if (sourceBalance < requiredAmount) {
           return { ok: false, balance: sourceBalance, error: `You only have ${sourceBalance.toFixed(6)} SOL in this Phantom wallet. Need ${requiredAmount}.` };
         }
-        return { ok: true, balance: sourceBalance };
+        return { ok: true, balance: sourceBalance, sourceAddress: pub };
       }
 
       // Non-EVM chains (NEAR, Cosmos, Cardano, Polkadot, Tron, TON, XRP, Stellar, Algorand, Hedera, Aptos, Sui, ICP)
@@ -124,7 +124,7 @@ export const CrossChainBridge = () => {
       if (sourceBalance < requiredAmount) {
         return { ok: false, balance: sourceBalance, error: `You only have ${sourceBalance.toFixed(6)} ${chain.symbol} in this wallet on ${chain.name}. Need ${requiredAmount}.` };
       }
-      return { ok: true, balance: sourceBalance };
+      return { ok: true, balance: sourceBalance, sourceAddress: accounts[0] };
     } catch (e: any) {
       return { ok: false, balance: 0, error: e?.message || 'Wallet verification failed.' };
     }
@@ -157,32 +157,28 @@ export const CrossChainBridge = () => {
     }
 
     try {
-      setBridgeStatus({ stage: 'confirming', message: `Confirm ${amountNum} ${sourceChain.symbol} transfer in your wallet...` });
-      await new Promise(r => setTimeout(r, 2000));
-
-      setBridgeStatus({ stage: 'bridging', message: `Bridging from ${sourceChain.name} to GYDS Network...` });
-      await new Promise(r => setTimeout(r, 3000));
-
-      setBridgeStatus({ stage: 'minting', message: `Submitting ${receivedGyds.toLocaleString()} GYDS bridge tx to mempool...` });
-
-      const { submitTransaction } = await import('@/lib/mempool');
-      const result = await submitTransaction({
-        userId: user.id,
-        fromAddress: 'bridge',
-        toAddress: address,
-        amount: receivedGyds,
-        fee: 0,
-        symbol: 'GYDS',
+      setBridgeStatus({ stage: 'bridging', message: `Submitting bridge request to the GYDS relayer...` });
+      const transfer = await api.post('/api/bridge/transfer', {
+        fromChain: sourceChain.id,
+        toChain: GYDS_CHAIN.id,
+        fromToken: sourceChain.symbol,
+        toToken: GYDS_CHAIN.symbol,
+        amount: amountNum,
+        fee: amountNum * sourceChain.bridgeFee,
+        sourceAddress: verify.sourceAddress,
+        destinationAddress: address,
       });
-      const txHash = result.txHash;
+      const requestId = String(transfer?.id ?? '');
 
-      await new Promise(r => setTimeout(r, 1500));
-
-      setBridgeStatus({ stage: 'complete', message: `Successfully received ${receivedGyds.toLocaleString()} GYDS!`, txHash });
+      setBridgeStatus({
+        stage: 'complete',
+        message: `Bridge request submitted. GYDS will be credited after the relayer confirms your ${sourceChain.symbol} deposit.`,
+        txHash: requestId,
+      });
 
       toast({
-        title: '🎉 Bridge Complete!',
-        description: `Converted ${amountNum} ${sourceChain.symbol} to ${receivedGyds.toLocaleString()} GYDS`,
+        title: 'Bridge Request Submitted',
+        description: `${receivedGyds.toLocaleString()} GYDS is pending relayer confirmation.`,
       });
 
       setAmount('');

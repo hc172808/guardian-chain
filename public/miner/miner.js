@@ -36,7 +36,7 @@ function loadConfig() {
   }
   const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   return {
-    rpcEndpoint: raw.rpcEndpoint || 'https://netlifegy.com/api/mining/rpc',
+    rpcEndpoint: raw.rpcEndpoint || 'https://app.netlifegy.com/api/mining/rpc',
     minerAddress: raw.minerAddress || '',
     workerName: raw.workerName || os.hostname(),
     threads: Number.isFinite(raw.threads) && raw.threads > 0 ? raw.threads : os.cpus().length,

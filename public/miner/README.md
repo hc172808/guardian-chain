@@ -36,7 +36,7 @@ The installer will:
 
 Open the dashboard at `http://<server-ip>:4500` and fill in:
 - **RPC Endpoint** — your GYDS node's mining RPC URL (defaults to
-  `https://netlifegy.com/api/mining/rpc`).
+  `https://app.netlifegy.com/api/mining/rpc`).
 - **Miner Wallet Address** — the GYDS wallet address that should receive
   mining rewards.
 - **Worker Name** — a label for this rig (shown in pool stats).
@@ -48,7 +48,7 @@ service:
 
 ```json
 {
-  "rpcEndpoint": "https://netlifegy.com/api/mining/rpc",
+  "rpcEndpoint": "https://app.netlifegy.com/api/mining/rpc",
   "minerAddress": "0xYourWalletAddressHere",
   "workerName": "ubuntu-rig-1",
   "threads": 0,

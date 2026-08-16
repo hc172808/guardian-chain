@@ -1345,10 +1345,11 @@ export const storage = {
     return res.rows;
   },
 
-  async updateBridgeTransferStatus(transferId: string, status: string, destTxHash?: string) {
+  async updateBridgeTransferStatus(transferId: string, userId: string | number, status: string, destTxHash?: string) {
     const res = await pgPool.query(
-      `UPDATE bridge_transfers SET status=$1, dest_tx_hash=$2, updated_at=NOW() WHERE id=$3 RETURNING *`,
-      [status, destTxHash ?? null, transferId]
+      `UPDATE bridge_transfers SET status=$1, dest_tx_hash=$2, updated_at=NOW()
+       WHERE id=$3 AND user_id=$4 RETURNING *`,
+      [status, destTxHash ?? null, transferId, String(userId)]
     );
     return res.rows[0];
   },

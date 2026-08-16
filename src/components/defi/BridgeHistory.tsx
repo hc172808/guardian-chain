@@ -1,24 +1,27 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowRight, CheckCircle2, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface BridgeTransaction {
   id: string;
-  amount: number;
-  usdt_amount: number | null;
-  wallet_address: string;
+  from_chain: string;
+  to_chain: string;
+  from_token: string;
+  to_token: string;
+  amount: number | string;
+  received: number | string | null;
+  fee: number | string;
   tx_hash: string | null;
+  dest_tx_hash: string | null;
   status: string;
   created_at: string;
 }
 
 export const BridgeHistory = () => {
   const { user } = useAuth();
-  const { address } = useWalletConnect();
   const [transactions, setTransactions] = useState<BridgeTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -27,37 +30,19 @@ export const BridgeHistory = () => {
 
     const loadHistory = async () => {
       setIsLoading(true);
-      const { data, error } = await supabase
-        .from('token_operations')
-        .select('*')
-        .eq('operation_type', 'mint')
-        .eq('created_by', user.id)
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      if (!error && data) {
-        const bridgeOnly = (data as BridgeTransaction[]).filter((op) =>
-          op.wallet_address.startsWith('bridge:'),
-        );
-        setTransactions(bridgeOnly);
+      try {
+        const data = await api.get('/api/bridge/history');
+        setTransactions(Array.isArray(data) ? data as BridgeTransaction[] : []);
+      } catch {
+        setTransactions([]);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
     loadHistory();
-
-    const channel = supabase
-      .channel('bridge-history')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'token_operations' },
-        () => loadHistory(),
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const interval = window.setInterval(loadHistory, 15_000);
+    return () => window.clearInterval(interval);
   }, [user]);
 
   if (!user) {
@@ -100,26 +85,24 @@ export const BridgeHistory = () => {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium">
-                  Bridge → GYDS
+                  {tx.from_chain} → {tx.to_chain}
                 </span>
-                {tx.status === 'confirmed' ? (
+                {['confirmed', 'completed'].includes(tx.status) ? (
                   <CheckCircle2 className="h-3 w-3 text-emerald-500" />
                 ) : (
                   <Clock className="h-3 w-3 text-amber-500" />
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {formatDistanceToNow(new Date(tx.created_at), { addSuffix: true })}
-              </p>
+              <p className="text-xs text-muted-foreground">{tx.status} · {formatDistanceToNow(new Date(tx.created_at), { addSuffix: true })}</p>
             </div>
           </div>
           <div className="text-right">
             <p className="text-sm font-mono font-semibold text-primary">
-              +{tx.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {Number(tx.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} {tx.from_token}
             </p>
-            {tx.usdt_amount && (
+            {tx.received !== null && (
               <p className="text-xs text-muted-foreground font-mono">
-                ${tx.usdt_amount.toFixed(2)}
+                {Number(tx.received).toLocaleString(undefined, { maximumFractionDigits: 6 })} {tx.to_token}
               </p>
             )}
           </div>

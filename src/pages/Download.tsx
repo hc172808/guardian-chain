@@ -627,7 +627,7 @@ const DownloadPage = () => {
               </div>
 
               <CommandBlock
-                command={`wget https://netlifegy.com/miner-download/gyds-miner.tar.gz\ntar xzf gyds-miner.tar.gz\ncd miner\nsudo bash install.sh`}
+                 command={`wget https://app.netlifegy.com/miner-download/gyds-miner.tar.gz\ntar xzf gyds-miner.tar.gz\ncd miner\nsudo bash install.sh`}
                 label="Miner Install Command"
                 onCopy={copyToClipboard}
               />

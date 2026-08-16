@@ -11,6 +11,7 @@ import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallSt
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { discordNodeDown, discordLargeBridgeTransfer, discordNewGovernanceProposal } from "./discord";
 import { sendBuyRequestStatusEmail, sendCashoutStatusEmail, sendGovernanceNotificationEmail, sendBridgeCompletionEmail } from "./email";
+import { isBridgeRelayerConfigured, notifyBridgeRelayer } from "./bridgeRelayer";
 import { sendWhatsAppAlert, sendWhatsAppMessage, testWhatsAppConnection, getWhatsAppConfig, saveWhatsAppConfig } from "./whatsapp";
 import multer from "multer";
 import path from "path";
@@ -3615,16 +3616,57 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/bridge/transfer", requireAuth, async (req, res) => {
     try {
-      const { fromChain, toChain, fromToken, toToken, amount, fee, txHash } = req.body;
+      const {
+        fromChain, toChain, fromToken, toToken, amount, fee, txHash,
+        sourceAddress, destinationAddress,
+      } = req.body;
       if (!fromChain || !toChain || !amount) return res.status(400).json({ error: "fromChain, toChain, amount required" });
+      const amountNumber = Number(amount);
+      const feeNumber = Number(fee) || 0;
+      if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+        return res.status(400).json({ error: "amount must be a positive number" });
+      }
+      if (!Number.isFinite(feeNumber) || feeNumber < 0 || feeNumber >= amountNumber) {
+        return res.status(400).json({ error: "fee must be non-negative and less than amount" });
+      }
+      if (String(toChain).toLowerCase() !== "gyds") {
+        return res.status(400).json({ error: "Only transfers into the GYDS network are supported" });
+      }
+      const destination = String(destinationAddress ?? "").trim();
+      if (!destination || destination.length > 255) {
+        return res.status(400).json({ error: "destinationAddress is required" });
+      }
       const transfer = await storage.createBridgeTransfer((req.user as any).id, {
-        fromChain, toChain, fromToken: fromToken ?? 'GYDS', toToken: toToken ?? 'GYDS',
-        amount: Number(amount), fee: Number(fee) || 0, txHash
+        fromChain: String(fromChain).trim().slice(0, 80),
+        toChain: String(toChain).trim().slice(0, 80),
+        fromToken: String(fromToken ?? 'GYDS').trim().slice(0, 24),
+        toToken: String(toToken ?? 'GYDS').trim().slice(0, 24),
+        amount: amountNumber,
+        fee: feeNumber,
+        txHash: typeof txHash === "string" ? txHash.trim().slice(0, 255) : undefined,
       });
-      res.json(transfer);
+      res.status(202).json({ ...transfer, relayerConfigured: isBridgeRelayerConfigured() });
+
+      // The transfer remains pending until the relayer proves the source-chain
+      // deposit. Delivery is intentionally fire-and-forget after the response.
+      notifyBridgeRelayer({
+        event: "bridge.initiated",
+        transferId: String(transfer.id),
+        userId: String((req.user as any).id),
+        fromChain: String(fromChain),
+        toChain: String(toChain),
+        fromToken: String(fromToken ?? "GYDS"),
+        toToken: String(toToken ?? "GYDS"),
+        amount: String(amountNumber),
+        fee: String(feeNumber),
+        sourceAddress: typeof sourceAddress === "string" ? sourceAddress.trim().slice(0, 255) : undefined,
+        destinationAddress: destination,
+        createdAt: new Date().toISOString(),
+      }).catch(() => {});
+
       // Alert admins on large bridge transfers (>= 10,000 tokens)
       const LARGE_THRESHOLD = 10_000;
-      if (Number(amount) >= LARGE_THRESHOLD) {
+      if (amountNumber >= LARGE_THRESHOLD) {
         discordLargeBridgeTransfer(String(amount), fromChain, toChain, fromToken ?? 'GYDS').catch(() => {});
         pgPool.query(`SELECT telegram_chat_id FROM users WHERE (roles @> '{admin}' OR roles @> '{founder}') AND telegram_chat_id IS NOT NULL`)
           .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'system', {
@@ -3639,7 +3681,17 @@ export function registerRoutes(app: Express) {
   app.patch("/api/bridge/transfer/:id", requireAuth, async (req, res) => {
     try {
       const { status, destTxHash } = req.body;
-      const result = await storage.updateBridgeTransferStatus(req.params.id, status, destTxHash);
+      const allowedStatuses = new Set(["pending", "processing", "confirmed", "completed", "failed"]);
+      if (!allowedStatuses.has(String(status))) {
+        return res.status(400).json({ error: "Invalid bridge transfer status" });
+      }
+      const result = await storage.updateBridgeTransferStatus(
+        req.params.id,
+        (req.user as any).id,
+        String(status),
+        typeof destTxHash === "string" ? destTxHash.trim().slice(0, 255) : undefined,
+      );
+      if (!result) return res.status(404).json({ error: "Bridge transfer not found" });
       res.json(result);
       // Send email on bridge completion
       if (status === 'completed' || status === 'confirmed') {
@@ -5812,6 +5864,7 @@ export function registerRoutes(app: Express) {
     'GYDS_BOOTSTRAP_NODES',
     'GYDS_RPC_URL', 'GYDS_RPC_BACKUP_URLS', 'GYDS_LOCAL_RPC_URL',
     'DISCORD_WEBHOOK_URL',
+    'BRIDGE_RELAYER_WEBHOOK_URL',
   ];
   const SERVER_CONFIG_SECRET: string[] = [
     'GITHUB_TOKEN', 'HCAPTCHA_SECRET_KEY',
@@ -5819,6 +5872,7 @@ export function registerRoutes(app: Express) {
     'SMTP_PASS',
     'WHATSAPP_TOKEN',
     'TREASURY_PRIVATE_KEY',
+    'BRIDGE_RELAYER_WEBHOOK_SECRET',
   ];
   const SERVER_CONFIG_ALL = [...SERVER_CONFIG_READABLE, ...SERVER_CONFIG_SECRET];
 
@@ -5888,6 +5942,8 @@ export function registerRoutes(app: Express) {
       if (toSave['GYDS_RPC_BACKUP_URLS']) gydsConf['GYDS_RPC_BACKUP_URLS'] = toSave['GYDS_RPC_BACKUP_URLS'];
       if (toSave['GYDS_LOCAL_RPC_URL'])   gydsConf['GYDS_LOCAL_RPC_URL'] = toSave['GYDS_LOCAL_RPC_URL'];
       if (toSave['DISCORD_WEBHOOK_URL'])  gydsConf['DISCORD_WEBHOOK_URL'] = toSave['DISCORD_WEBHOOK_URL'];
+      if (toSave['BRIDGE_RELAYER_WEBHOOK_URL']) gydsConf['BRIDGE_RELAYER_WEBHOOK_URL'] = toSave['BRIDGE_RELAYER_WEBHOOK_URL'];
+      if (toSave['BRIDGE_RELAYER_WEBHOOK_SECRET']) gydsConf['BRIDGE_RELAYER_WEBHOOK_SECRET'] = toSave['BRIDGE_RELAYER_WEBHOOK_SECRET'];
       const gydsLines = [
         '# GYDSchain shared config — managed via Admin → Server Config',
         ...Object.entries(gydsConf).map(([k, v]) => `${k}=${v}`),

@@ -1,5 +1,5 @@
 {
-  "rpcEndpoint": "https://netlifegy.com/api/mining/rpc",
+  "rpcEndpoint": "https://app.netlifegy.com/api/mining/rpc",
   "minerAddress": "0xYourGYDSWalletAddress",
   "workerName": "ubuntu-rig-1",
   "threads": 0,

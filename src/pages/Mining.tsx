@@ -263,8 +263,8 @@ function PoolStatsTab() {
         </p>
         <div className="bg-black/40 rounded-lg p-3 font-mono text-xs text-green-400 space-y-1">
           <div># Download &amp; install</div>
-          <div>wget https://app.netlifegy.com/miner/miner.tar.gz</div>
-          <div>tar xzf miner.tar.gz &amp;&amp; cd miner</div>
+          <div>wget https://app.netlifegy.com/miner-download/gyds-miner.tar.gz</div>
+          <div>tar xzf gyds-miner.tar.gz &amp;&amp; cd miner</div>
           <div>npm install</div>
           <div className="mt-2"># Edit config.json — set minerAddress to your GYDS wallet</div>
           <div>node miner.js</div>

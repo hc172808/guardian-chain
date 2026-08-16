@@ -1,6 +1,6 @@
 # ChainCore — Developer TODO
 
-> Last updated: 2026-07-26  
+> Last updated: 2026-08-15  
 > Stack: Vite+React+TS frontend · Express+Drizzle backend · PostgreSQL · Chain ID 198282 · Domain: app.netlifegy.com
 
 ---
@@ -109,7 +109,7 @@
 
 ### High Priority
 
-- [ ] **Real SMTP email verification** — token is currently `console.log`'d in dev. Wire up Nodemailer or Resend API (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` env vars). Placeholder function in `server/auth.ts`.
+- [x] **Real SMTP email verification** — Nodemailer delivery is wired through `server/email.ts` and the SMTP settings are available in Admin → Server Config. Without `SMTP_HOST`, development safely logs the message instead.
 - [ ] **Production Geth node** — genesis.json is correct; deploy a real Geth binary on a VPS, run `geth init genesis.json`, and peer the test nodes to the live network.
 - [ ] **WireGuard VPN provisioning** — `POST /api/wireguard/provision` generates keys in-process but doesn't configure a real `wg` interface. Needs `wg-quick` integration or Netbird/Tailscale API.
 - [ ] **Validator registration on-chain** — current validator dashboard is mock data. Deploy a Solidity `ValidatorRegistry` contract on chain 198282 and wire `validator_register` RPC method.
@@ -117,7 +117,7 @@
 
 ### Medium Priority
 
-- [ ] **Cross-chain bridge backend** — 25 networks in `CrossChainBridge.tsx` with trust-based non-EVM flow. Need `POST /api/bridge/initiate` to create a bridge request and emit a webhook to the relayer service.
+- [x] **Cross-chain bridge backend** — `POST /api/bridge/transfer` now creates a pending request, validates destination/amount/fee, and emits a signed `bridge.initiated` webhook when `BRIDGE_RELAYER_WEBHOOK_URL` is configured. The UI and history consume the real pending-transfer API without minting before relayer confirmation.
 - [ ] **DeFi swap real liquidity** — Swap tab calls a mock AMM. Wire to a deployed UniswapV2-style AMM contract on chain 198282, or integrate a DEX aggregator API.
 - [ ] **NFT minting** — NFT page has UI but no `POST /api/nft/mint`. Deploy an ERC-721 contract and wire `ethers.js` from the server signer.
 - [ ] **Governance proposals on-chain** — Deploy a `GovernorBravo`-style contract; wire `POST /api/governance/propose` and `POST /api/governance/vote`.
@@ -133,7 +133,7 @@
 - [x] **Leaderboard persistence** — `mining_payouts` table created at runtime in GET /api/mining/leaderboard; leaderboard merges token_operations + mining_payouts; POST /api/admin/mining/payout added.
 - [x] **Node console history in localStorage** — `NodeConsole` in TestNodeManager.tsx initializes `cmdHistory` from `localStorage` (key `gyds_console_hist_${network}_${type}`) and persists it via `useEffect` on every change. Up to 50 commands retained.
 - [x] **Mobile WireGuard config QR** — `GET /api/wireguard/config.qr` generates WireGuard peer config from user's latest approved node and returns a QR PNG via the `qrcode` package.
-- [ ] **Miner binary distribution** — `app.netlifegy.com/miner/miner.tar.gz` is referenced in Pool Stats setup guide but the file doesn't exist yet. Build and publish the Node.js miner tarball.
+- [x] **Miner binary distribution** — `public/miner-download/gyds-miner.tar.gz` contains the standalone Node.js miner, installer, worker, dashboard, config example, and setup guide. Download links use the canonical app domain.
 - [x] **Admin monitoring alerts** — `GET /api/admin/monitoring` now fires Discord webhook + bell notifications to admin/founder users when: all validators inactive, all RPC down, or DB unavailable. Returns `alerts[]` array in response.
 - [ ] **CSP nonce / strict-dynamic** — Current CSP uses `unsafe-inline` (needed by Vite HMR). For production, generate per-request nonces and remove `unsafe-inline`.
 - [ ] **i18n / localization** — UI is English-only. `react-i18next` scaffolding would allow community translations.
