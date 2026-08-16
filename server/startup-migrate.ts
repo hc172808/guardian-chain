@@ -386,6 +386,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
     CREATE TABLE IF NOT EXISTS orders (
       id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      pair       TEXT NOT NULL DEFAULT 'GYDS/USDT',
       side       TEXT NOT NULL,
       order_type TEXT NOT NULL,
       price      NUMERIC,
@@ -1174,6 +1175,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // ── tokens — add token_standard column for GRC-20 / GRC-721 / GRC-1155 ────
   await run("tokens-token_standard", `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS token_standard TEXT DEFAULT 'GRC-20' NOT NULL`);
+  await run("orders-pair", `ALTER TABLE orders ADD COLUMN IF NOT EXISTS pair TEXT NOT NULL DEFAULT 'GYDS/USDT'`);
 
   const elapsed = Date.now() - start;
   if (errors.length > 0) {

@@ -1550,9 +1550,20 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/orders", requireAuth, async (req, res) => {
     const user = req.user as any;
-    const { side, orderType, price, stopPrice, amount } = req.body;
+    const { pair = "GYDS/USDT", side, orderType, price, stopPrice, amount } = req.body;
     if (!side || !orderType || !amount) return res.status(400).json({ error: "side, orderType and amount required" });
-    const row = await storage.insertOrder({ userId: user.id, side, orderType, price: price ?? null, stopPrice: stopPrice ?? null, amount: String(amount) });
+    if (!/^[A-Z0-9]+\/[A-Z0-9]+$/.test(String(pair))) {
+      return res.status(400).json({ error: "pair must use SYMBOL/SYMBOL format" });
+    }
+    const row = await storage.insertOrder({
+      userId: user.id,
+      pair: String(pair).toUpperCase(),
+      side,
+      orderType,
+      price: price ?? null,
+      stopPrice: stopPrice ?? null,
+      amount: String(amount),
+    });
     res.json(row);
   });
 
@@ -1564,25 +1575,32 @@ export function registerRoutes(app: Express) {
   });
 
   // GET /api/orderbook/depth — real bid/ask price-level aggregation from orders table
-  app.get("/api/orderbook/depth", async (_req, res) => {
+  app.get("/api/orderbook/depth", async (req, res) => {
     try {
+      const pair = String(req.query.pair ?? "GYDS/USDT").trim().toUpperCase();
+      if (!/^[A-Z0-9]+\/[A-Z0-9]+$/.test(pair)) {
+        return res.status(400).json({ error: "pair must use SYMBOL/SYMBOL format" });
+      }
       const [bidsRes, asksRes, recentTrades] = await Promise.all([
         pgPool.query(
           `SELECT ROUND(price::numeric, 6) AS price, SUM(amount::numeric) AS volume, COUNT(*) AS count
-           FROM orders WHERE side='buy' AND status='open' AND price IS NOT NULL
+           FROM orders WHERE pair=$1 AND side='buy' AND status='open' AND price IS NOT NULL
            GROUP BY ROUND(price::numeric, 6)
-           ORDER BY price DESC LIMIT 20`
+           ORDER BY price DESC LIMIT 20`,
+          [pair]
         ).catch(() => ({ rows: [] as any[] })),
         pgPool.query(
           `SELECT ROUND(price::numeric, 6) AS price, SUM(amount::numeric) AS volume, COUNT(*) AS count
-           FROM orders WHERE side='sell' AND status='open' AND price IS NOT NULL
+           FROM orders WHERE pair=$1 AND side='sell' AND status='open' AND price IS NOT NULL
            GROUP BY ROUND(price::numeric, 6)
-           ORDER BY price ASC LIMIT 20`
+           ORDER BY price ASC LIMIT 20`,
+          [pair]
         ).catch(() => ({ rows: [] as any[] })),
         pgPool.query(
           `SELECT price, amount, side, created_at AS executed_at
-           FROM orders WHERE status IN ('filled','cancelled') AND price IS NOT NULL
-           ORDER BY updated_at DESC LIMIT 30`
+           FROM orders WHERE pair=$1 AND status IN ('filled','cancelled') AND price IS NOT NULL
+           ORDER BY updated_at DESC LIMIT 30`,
+          [pair]
         ).catch(() => ({ rows: [] as any[] })),
       ]);
       // Cumulative totals for depth chart
@@ -1597,7 +1615,7 @@ export function registerRoutes(app: Express) {
         return { price: Number(r.price), volume: Number(r.volume), cumulative: cumAsk, count: Number(r.count) };
       });
       const spread = asks[0] && bids[0] ? Number(asks[0].price) - Number(bids[0].price) : null;
-      res.json({ bids, asks, spread, trades: recentTrades.rows, timestamp: new Date().toISOString() });
+      res.json({ pair, bids, asks, spread, trades: recentTrades.rows, timestamp: new Date().toISOString() });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

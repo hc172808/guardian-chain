@@ -357,6 +357,7 @@ export const faucetClaims = pgTable("faucet_claims", {
 export const orders = pgTable("orders", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  pair: text("pair").notNull().default("GYDS/USDT"),
   side: text("side").notNull(),
   orderType: text("order_type").notNull(),
   price: numeric("price"),

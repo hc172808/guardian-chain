@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { ArrowDown, ArrowUp, RefreshCw, TrendingUp, X, ChevronDown, Activity, BarChart3 } from 'lucide-react';
+import { ArrowDown, ArrowUp, RefreshCw, ChevronDown, Activity, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -36,21 +34,21 @@ interface MyOrder {
   createdAt: string;
 }
 
-const genBook = (mid: number, side: 'buy' | 'sell', levels = 10): BookLevel[] => {
-  const out: BookLevel[] = [];
-  let cum = 0;
-  for (let i = 0; i < levels; i++) {
-    const offset = (i + 1) * (mid * 0.0001 + Math.random() * mid * 0.0002);
-    const price = side === 'buy' ? mid - offset : mid + offset;
-    const size = Math.random() * 5000 + 500;
-    cum += size;
-    out.push({ price, size, total: cum, depth: 0 });
-  }
-  const max = out[out.length - 1].total;
-  return out.map(o => ({ ...o, depth: o.total / max }));
-};
-
 const PAIRS = ['GYDS/USDT', 'GYDS/ETH', 'GYD/USDT'];
+
+const mapBookLevels = (levels: any[] | undefined): BookLevel[] => {
+  if (!Array.isArray(levels)) return [];
+  const max = levels.reduce((highest, level) => Math.max(highest, Number(level.cumulative) || 0), 0);
+  return levels.map(level => {
+    const total = Number(level.cumulative) || 0;
+    return {
+      price: Number(level.price) || 0,
+      size: Number(level.volume) || 0,
+      total,
+      depth: max > 0 ? total / max : 0,
+    };
+  });
+};
 
 export const OrderBook = () => {
   const { user } = useAuth();
@@ -101,24 +99,36 @@ export const OrderBook = () => {
     return () => clearInterval(t);
   }, [fetchPrice, fetchStats]);
 
-  useEffect(() => {
-    const refresh = () => {
-      setAsks(genBook(midPrice, 'sell'));
-      setBids(genBook(midPrice, 'buy'));
-    };
-    refresh();
-    const t = setInterval(refresh, 3000);
-    return () => clearInterval(t);
-  }, [midPrice]);
-
-  const fetchTrades = useCallback(async () => {
+  const fetchDepth = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await fetch(`/api/trades?pair=${pair}&limit=20`);
-      if (res.ok) setTrades(await res.json());
-    } catch {}
+      const res = await fetch(`/api/orderbook/depth?pair=${encodeURIComponent(pair)}`);
+      if (!res.ok) throw new Error(`Orderbook request failed (${res.status})`);
+      const data = await res.json();
+      const nextAsks = mapBookLevels(data.asks);
+      const nextBids = mapBookLevels(data.bids);
+      setAsks(nextAsks);
+      setBids(nextBids);
+      setTrades(Array.isArray(data.trades) ? data.trades : []);
+
+      if (nextAsks[0] && nextBids[0]) {
+        setMidPrice((nextAsks[0].price + nextBids[0].price) / 2);
+      }
+    } catch (error) {
+      console.error('Orderbook fetch failed:', error);
+      setAsks([]);
+      setBids([]);
+      setTrades([]);
+    } finally {
+      setLoading(false);
+    }
   }, [pair]);
 
-  useEffect(() => { fetchTrades(); }, [fetchTrades]);
+  useEffect(() => {
+    fetchDepth();
+    const refresh = setInterval(fetchDepth, 3000);
+    return () => clearInterval(refresh);
+  }, [fetchDepth]);
 
   const placeOrder = async () => {
     if (!user) { toast({ title: 'Sign in to trade', variant: 'destructive' }); return; }
@@ -127,11 +137,20 @@ export const OrderBook = () => {
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ side, orderType: type, amount, price, pair }),
+        credentials: 'include',
+        body: JSON.stringify({
+          side,
+          orderType: type,
+          pair,
+          amount,
+          price: type === 'market' ? null : price,
+          stopPrice: type === 'stop-limit' ? stopPrice : null,
+        }),
       });
       if (res.ok) {
         toast({ title: "Order placed" });
         setAmount('');
+        await fetchDepth();
       } else throw new Error();
     } catch (err) { toast({ title: "Order failed", variant: "destructive" }); }
     finally { setPlacing(false); }
@@ -225,11 +244,17 @@ export const OrderBook = () => {
                 <label className="text-xs text-muted-foreground">Price (USDT)</label>
                 <Input value={price} onChange={e => setPrice(e.target.value)} disabled={type === 'market'} className="font-mono" />
               </div>
+              {type === 'stop-limit' && (
+                <div>
+                  <label className="text-xs text-muted-foreground">Stop price (USDT)</label>
+                  <Input value={stopPrice} onChange={e => setStopPrice(e.target.value)} className="font-mono" />
+                </div>
+              )}
               <div>
                 <label className="text-xs text-muted-foreground">Amount ({pair.split('/')[0]})</label>
                 <Input value={amount} onChange={e => setAmount(e.target.value)} type="number" placeholder="0.00" className="font-mono" />
               </div>
-              <Button className={cn("w-full h-12 font-bold", side === 'buy' ? "bg-emerald-600" : "bg-red-600")} onClick={placeOrder} disabled={placing}>
+              <Button className={cn("w-full h-12 font-bold", side === 'buy' ? "bg-emerald-600" : "bg-red-600")} onClick={placeOrder} disabled={placing || !amount || (type === 'stop-limit' && !stopPrice)}>
                 {placing ? <RefreshCw className="animate-spin mr-2 h-4 w-4" /> : `${side.toUpperCase()} ${pair.split('/')[0]}`}
               </Button>
             </div>
@@ -238,7 +263,9 @@ export const OrderBook = () => {
           <GlassCard className="p-4">
             <h3 className="text-sm font-bold mb-3">Recent Trades</h3>
             <div className="space-y-1">
-              {trades.map((t, i) => (
+              {trades.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No completed trades yet.</p>
+              ) : trades.map((t, i) => (
                 <div key={i} className="flex justify-between text-[10px] font-mono">
                   <span className={t.side === 'buy' ? 'text-emerald-400' : 'text-red-400'}>{parseFloat(t.price).toFixed(8)}</span>
                   <span className="text-muted-foreground">{parseFloat(t.amount).toFixed(2)}</span>
