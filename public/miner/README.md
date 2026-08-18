@@ -49,14 +49,17 @@ service:
 ```json
 {
   "rpcEndpoint": "https://app.netlifegy.com/api/mining/rpc",
-  "minerAddress": "0xYourWalletAddressHere",
+   "minerAddress": "0xYourWalletAddressHere",
   "workerName": "ubuntu-rig-1",
   "threads": 0,
   "webPort": 4500,
-  "webPassword": ""
+   "webPassword": ""
 }
 ```
 
+Replace `0xYourWalletAddressHere` with the wallet address you created or
+imported on the GYDS Wallet page before starting the miner. The installer
+also prompts for this address and refuses to start without a valid wallet.
 `threads: 0` means "use all CPU cores". Set `webPassword` to require a
 password before the dashboard/API can be used.
 

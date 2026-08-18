@@ -1,4 +1,5 @@
 - [UI improvements July 2026](ui-improvements-2026-07.md) — DeFi nav collapsed to 8 primary + 4 advanced; Leaderboard→Referrals redirect; light theme toggle; API key routes; Discord webhook alerts.
+- [Mining wallet binding](mining-wallet-binding.md) — Browser/manual/standalone mining must use a valid Wallet-page address, never a user ID placeholder.
 - [Bridge networks](bridge-networks.md) — EXTERNAL_CHAINS in CrossChainBridge.tsx now has 25 networks; non-EVM chains skip wallet verification and use a trust-based flow.
 - [New pages wired](new-pages.md) — 9 new pages added (governance, nft, analytics, community, developer, leaderboard, multisig, identity, rwa); Sidebar has collapsible Core/Ecosystem/Resources sections.
 - [DeFi tabs](defi-tabs.md) — DeFi page has 13 tabs: swap, pools, stake, farm, orderbook, vaults, bridge, stablecoin, perps, predict, launchpad, portfolio, ilcalc. DeFiBottomNav updated to match.

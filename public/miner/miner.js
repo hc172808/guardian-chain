@@ -21,6 +21,10 @@ const { Worker } = require('worker_threads');
 const express = require('express');
 
 // ── Config ───────────────────────────────────────────────────────────────────
+function isValidWalletAddress(value) {
+  return /^0x[0-9a-fA-F]{40}$/.test(String(value || '').trim());
+}
+
 const args = process.argv.slice(2);
 const configFlagIdx = args.indexOf('--config');
 const configPath = configFlagIdx !== -1 && args[configFlagIdx + 1]
@@ -37,7 +41,8 @@ function loadConfig() {
   const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   return {
     rpcEndpoint: raw.rpcEndpoint || 'https://app.netlifegy.com/api/mining/rpc',
-    minerAddress: raw.minerAddress || '',
+    // Never auto-start with the example placeholder or an arbitrary user ID.
+    minerAddress: isValidWalletAddress(raw.minerAddress) ? raw.minerAddress.trim() : '',
     workerName: raw.workerName || os.hostname(),
     threads: Number.isFinite(raw.threads) && raw.threads > 0 ? raw.threads : os.cpus().length,
     webPort: Number.isFinite(raw.webPort) ? raw.webPort : 4500,
@@ -164,8 +169,8 @@ let hashRateInterval = null;
 
 async function startMining() {
   if (state.running) return { ok: true, message: 'Already running' };
-  if (!config.minerAddress) {
-    return { ok: false, message: 'Set a miner wallet address first (via config.json or the dashboard).' };
+  if (!isValidWalletAddress(config.minerAddress)) {
+    return { ok: false, message: 'Enter a valid GYDS wallet address (0x + 40 hex characters) before starting.' };
   }
 
   try {
@@ -276,7 +281,12 @@ app.post('/api/config', requireAuth, async (req, res) => {
 
   const { rpcEndpoint, minerAddress, workerName, threads, webPassword } = req.body || {};
   if (rpcEndpoint) config.rpcEndpoint = String(rpcEndpoint).trim();
-  if (minerAddress) config.minerAddress = String(minerAddress).trim();
+  if (minerAddress !== undefined) {
+    if (!isValidWalletAddress(minerAddress)) {
+      return res.status(400).json({ ok: false, message: 'Miner wallet address must be 0x followed by 40 hexadecimal characters.' });
+    }
+    config.minerAddress = String(minerAddress).trim();
+  }
   if (workerName) config.workerName = String(workerName).trim();
   if (Number.isFinite(threads) && threads > 0) config.threads = Math.min(threads, os.cpus().length * 2);
   if (typeof webPassword === 'string') config.webPassword = webPassword;

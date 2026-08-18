@@ -24,6 +24,8 @@ export const MiningPoolsList = () => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [mining, setMining] = useState(false);
   const [liveNodes, setLiveNodes] = useState(0);
+  const [walletAddresses, setWalletAddresses] = useState<string[]>([]);
+  const [miningAddress, setMiningAddress] = useState('');
 
   const load = async () => {
     const all = await listPools();
@@ -35,6 +37,17 @@ export const MiningPoolsList = () => {
       const m = await getMembership(user.id);
       setMembership(m?.pool_id ?? null);
       setPayout(await getUserPayout(user.id));
+      const walletResponse = await fetch('/api/wallets', { credentials: 'include' }).catch(() => null);
+      const walletRows = walletResponse?.ok ? await walletResponse.json().catch(() => []) : [];
+      const addresses = (Array.isArray(walletRows) ? walletRows : [])
+        .map((wallet: any) => String(wallet.address ?? '').trim())
+        .filter((address: string) => /^0x[0-9a-fA-F]{40}$/.test(address));
+      if (/^0x[0-9a-fA-F]{40}$/.test(user.walletAddress ?? '')) {
+        addresses.push(user.walletAddress as string);
+      }
+      const unique = [...new Set(addresses)];
+      setWalletAddresses(unique);
+      setMiningAddress(current => unique.includes(current) ? current : (unique[0] ?? ''));
     }
     const net = await getNetworkStatus();
     setLiveNodes(net.liveNodes.length);
@@ -73,9 +86,13 @@ export const MiningPoolsList = () => {
 
   const handleMine = async () => {
     if (!user) return;
+    if (!miningAddress) {
+      toast({ title: 'Mining wallet required', description: 'Create or import a wallet on the Wallet page first.', variant: 'destructive' });
+      return;
+    }
     setMining(true);
     try {
-      const block = await mineBlock(user.id);
+      const block = await mineBlock(user.id, miningAddress);
       toast({
         title: `Block #${block.height} mined`,
         description: `Confirmed ${block.tx_count} tx, reward ${block.reward.toFixed(2)} GYDS${block.rejected.length ? `, ${block.rejected.length} rejected` : ''}.`,
@@ -105,6 +122,25 @@ export const MiningPoolsList = () => {
               </span>
             )}
           </div>
+          {walletAddresses.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mt-3 text-xs">
+              <Wallet className="h-3 w-3 text-primary" />
+              <span className="text-muted-foreground">Reward wallet:</span>
+              <select
+                value={miningAddress}
+                onChange={e => setMiningAddress(e.target.value)}
+                disabled={mining}
+                className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 font-mono"
+                aria-label="Manual mining reward wallet"
+              >
+                {walletAddresses.map(address => (
+                  <option key={address} value={address}>
+                    {address.slice(0, 10)}…{address.slice(-8)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <Button
             onClick={handleMine}
             disabled={mining || liveNodes === 0 || !membership}

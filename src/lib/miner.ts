@@ -66,7 +66,19 @@ export const mineBlock = async (minerUserId?: string, minerAddress?: string): Pr
     ? { user_id: minerUserId, address: minerAddress ?? `user:${minerUserId}` }
     : { user_id: net.liveNodes[0]?.user_id ?? null, address: `node:${net.liveNodes[0]?.id ?? 'unknown'}` };
 
-  const allTxs = await api.get('/api/transactions');
+  const transactionResponse = await api.get('/api/transactions');
+  // The API returns a paginated object and camelCase aliases, while the
+  // mining validator works with the legacy snake_case transaction shape.
+  const allTxs = (Array.isArray(transactionResponse)
+    ? transactionResponse
+    : transactionResponse?.transactions ?? []
+  ).map((tx: any) => ({
+    ...tx,
+    from_address: tx.from_address ?? tx.fromAddress ?? '',
+    to_address: tx.to_address ?? tx.toAddress ?? '',
+    tx_hash: tx.tx_hash ?? tx.txHash ?? '',
+    created_at: tx.created_at ?? tx.createdAt ?? new Date(0).toISOString(),
+  }));
   const pending = (allTxs ?? [])
     .filter((t: any) => t.status === 'pending')
     .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())

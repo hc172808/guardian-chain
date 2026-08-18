@@ -45,8 +45,32 @@ cd "$INSTALL_DIR"
 
 if [ ! -f config.json ]; then
   cp config.example.json config.json
-  echo "-- Created config.json from example. Edit your wallet address before mining! --"
+  echo "-- Created config.json from example. --"
 fi
+
+# Require the wallet that will receive mining rewards during installation.
+# It must be a real GYDS/EVM address, not the example placeholder or a user ID.
+CURRENT_ADDRESS="$(node -e "try{const c=require('./config.json'); console.log(c.minerAddress||'')}catch(e){console.log('')}" 2>/dev/null || true)"
+MINER_ADDRESS="${GYDS_MINER_ADDRESS:-$CURRENT_ADDRESS}"
+while [[ ! "$MINER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ ]]; do
+  if [ ! -t 0 ]; then
+    echo "A valid wallet is required. Re-run interactively or set GYDS_MINER_ADDRESS."
+    exit 1
+  fi
+  read -r -p "Enter the GYDS wallet address for mining rewards (0x + 40 hex characters): " MINER_ADDRESS
+  if [[ ! "$MINER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+    echo "Invalid wallet address. Please enter the address created/imported in the GYDS Wallet page."
+  fi
+done
+
+GYDS_MINER_ADDRESS="$MINER_ADDRESS" node <<'NODE'
+const fs = require('fs');
+const file = 'config.json';
+const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+config.minerAddress = process.env.GYDS_MINER_ADDRESS;
+fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+NODE
+echo "-- Mining rewards will be sent to ${MINER_ADDRESS} --"
 
 # ── 3. Install dependencies ──────────────────────────────────────────────────
 echo "-- Installing npm dependencies --"

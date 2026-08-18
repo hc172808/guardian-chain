@@ -9,9 +9,11 @@ import { TOKENOMICS } from '@/config/wallets';
 import { MiningAlgorithm } from '@/lib/blockchain';
 import { motion } from 'framer-motion';
 import { Pickaxe, Play, Pause, Lock, Cpu, MonitorPlay, Users, Calculator, BookOpen,
-         BarChart3, Activity, Server, Zap, Clock, Hash, Trophy, Medal } from 'lucide-react';
+         BarChart3, Activity, Server, Zap, Clock, Hash, Trophy, Medal, Wallet, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { useNavigate } from 'react-router-dom';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 import { WireGuardStatus } from '@/components/wireguard/WireGuardStatus';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -271,7 +273,7 @@ function PoolStatsTab() {
           <div className="mt-2"># Dashboard at http://YOUR-SERVER-IP:4500</div>
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          RPC endpoint: <code className="text-primary">https://app.netlifegy.com/api/mining/rpc</code> · Chain ID 198282
+               RPC endpoint: <code className="text-primary">https://app.netlifegy.com/api/mining/rpc</code> · Chain ID 198282
         </p>
       </GlassCard>
 
@@ -345,12 +347,46 @@ function PoolStatsTab() {
 
 const MiningContent = () => {
   const { user } = useAuth();
+  const { toast } = useToast();
+  const navigate = useNavigate();
   const [isVpnConnected, setIsVpnConnected] = useState(false);
   const [hasApprovedNode, setHasApprovedNode] = useState(false);
   const [selectedAlgorithm, setSelectedAlgorithm] = useState<MiningAlgorithm>('randomx');
   const [isMining, setIsMining] = useState(false);
   const [miningClient, setMiningClient] = useState<MiningEngine | null>(null);
   const [activeTab, setActiveTab] = useState('pools');
+  const [walletAddresses, setWalletAddresses] = useState<string[]>([]);
+  const [walletAddress, setWalletAddress] = useState('');
+
+  // Mining rewards must go to a wallet created/imported on the Wallet page.
+  useEffect(() => {
+    let cancelled = false;
+    const loadMiningWallets = async () => {
+      if (!user) return;
+      try {
+        const response = await fetch('/api/wallets', { credentials: 'include' });
+        const wallets = response.ok ? await response.json() : [];
+        const addresses = (Array.isArray(wallets) ? wallets : [])
+          .map((wallet: any) => String(wallet.address ?? '').trim())
+          .filter((address: string) => /^0x[0-9a-fA-F]{40}$/.test(address));
+        const fallback = /^0x[0-9a-fA-F]{40}$/.test(user.walletAddress ?? '')
+          ? [user.walletAddress as string]
+          : [];
+        const unique = [...new Set([...addresses, ...fallback])];
+        if (!cancelled) {
+          setWalletAddresses(unique);
+          setWalletAddress(current => unique.includes(current) ? current : (unique[0] ?? ''));
+        }
+      } catch {
+        if (!cancelled) {
+          setWalletAddresses([]);
+          setWalletAddress('');
+        }
+      }
+    };
+    loadMiningWallets();
+    return () => { cancelled = true; };
+  }, [user]);
 
   // Auto-detect approved nodes or running test nodes — allow mining without real WireGuard
   useEffect(() => {
@@ -386,13 +422,27 @@ const MiningContent = () => {
 
   const startMining = async () => {
     if (!isVpnConnected || !user) return;
+    if (!walletAddress) {
+      toast({
+        title: 'Mining wallet required',
+        description: 'Create or import a wallet on the Wallet page before starting the miner.',
+        variant: 'destructive',
+      });
+      return;
+    }
     
-    const client = createMiningClient(user.id, selectedAlgorithm);
+    const client = createMiningClient(walletAddress, selectedAlgorithm);
     const started = await client.start();
     
     if (started) {
       setMiningClient(client);
       setIsMining(true);
+    } else {
+      toast({
+        title: 'Could not start mining',
+        description: 'The mining pool rejected the wallet or is unavailable.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -439,7 +489,7 @@ const MiningContent = () => {
               onClick={toggleMining}
               variant={isMining ? "destructive" : "default"}
               size="lg"
-              disabled={!isVpnConnected}
+               disabled={!isVpnConnected || !walletAddress}
               className={cn(isMining && 'animate-pulse')}
             >
               {!isVpnConnected ? (
@@ -447,6 +497,11 @@ const MiningContent = () => {
                   <Lock className="w-4 h-4 mr-2" />
                   VPN Required
                 </>
+               ) : !walletAddress ? (
+                 <>
+                   <Wallet className="w-4 h-4 mr-2" />
+                   Create Wallet First
+                 </>
               ) : isMining ? (
                 <>
                   <Pause className="w-4 h-4 mr-2" />
@@ -477,6 +532,50 @@ const MiningContent = () => {
               </TabsTrigger>
             </TabsList>
           </Tabs>
+        </GlassCard>
+
+        {/* Reward wallet */}
+        <GlassCard className="border-primary/20">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <Wallet className="w-4 h-4 text-primary shrink-0" />
+              <div>
+                <h3 className="font-semibold text-sm">Mining reward wallet</h3>
+                <p className="text-xs text-muted-foreground">
+                  Rewards are credited to a wallet created or imported on the Wallet page.
+                </p>
+              </div>
+            </div>
+            {walletAddresses.length > 0 ? (
+              <select
+                value={walletAddress}
+                onChange={e => setWalletAddress(e.target.value)}
+                disabled={isMining}
+                className="sm:ml-auto w-full sm:w-80 rounded-md border border-border bg-background px-3 py-2 text-xs font-mono"
+                aria-label="Mining reward wallet"
+              >
+                {walletAddresses.map(address => (
+                  <option key={address} value={address}>
+                    {address.slice(0, 10)}…{address.slice(-8)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="sm:ml-auto gap-2"
+                onClick={() => navigate('/wallet')}
+              >
+                Create wallet <ExternalLink className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
+          {walletAddress && (
+            <p className="mt-2 text-[11px] text-muted-foreground font-mono break-all">
+              Rewards → {walletAddress}
+            </p>
+          )}
         </GlassCard>
 
         {/* WireGuard VPN Status */}
