@@ -4,9 +4,7 @@
  * Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY env vars to use fixed keys.
  */
 import webpush from 'web-push';
-import { Pool } from 'pg';
-
-const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+import { pool as pgPool } from './db';
 
 let initialized = false;
 

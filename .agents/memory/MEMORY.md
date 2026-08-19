@@ -18,6 +18,7 @@
 - [CSP + security headers](csp-headers.md) — Security headers in server/index.ts; now includes HSTS, Server:GYDS, removes X-Powered-By; full CSP, X-Frame-Options, etc.
 - [Email verification](email-verify.md) — email_verification_tokens table created at runtime (CREATE IF NOT EXISTS in auth.ts register); POST /api/auth/verify-email + /api/auth/resend-verification; token logged to console in dev (no SMTP).
 - [DB pruner cron](db-pruner.md) — runDbPruner() in server/index.ts prunes network_snapshots, api_usage_logs, webhook_deliveries, xp_events, expired email tokens; runs on startup + every 24h.
+- [Database keep-alive](db-keepalive.md) — use the shared pool for all database modules and keep the one-minute SELECT 1 cron enabled to surface connection failures.
 - [Admin monitoring tab](admin-monitoring.md) — GET /api/admin/monitoring (requireAdmin) returns validators, nodes, RPC health, DB status, uptime, memory. ValidatorExplorerMonitor component in Admin.tsx.
 - [Cron job system](cron-jobs.md) — In-memory cron registry in routes.ts (7 jobs); GET/PATCH/POST /api/admin/cron-jobs/:id/run; CronJobManager.tsx in Admin "Cron Jobs" tab; no external cron package.
 - [Build scripts](build-scripts.md) — build script is vite-only; tsc server check is npm run typecheck:server (separate); server type errors are pre-existing Express 5 issues, don't block deployment.

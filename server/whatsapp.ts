@@ -15,11 +15,9 @@
  *   sendWhatsAppAlert(to, "faucet", { amount: 100, token: "GYD" })
  */
 
-import { Pool } from "pg";
+import { pool as pgPool } from "./db";
 
 const GRAPH_API = "https://graph.facebook.com/v20.0";
-const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
-
 // ── Config helpers ───────────────────────────────────────────────────────────
 
 export interface WhatsAppConfig {

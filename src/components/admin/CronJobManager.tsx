@@ -44,6 +44,7 @@ const PRESETS = [
 
 const JOB_ICONS: Record<string, any> = {
   'db-pruner': Database,
+  'db-keepalive': Database,
   'git-pull': GitBranch,
   'price-feed': Activity,
   'health-check': Shield,

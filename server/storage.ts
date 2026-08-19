@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db, pool as pgPool } from "./db";
 import { users, userRoles, profiles, wallets, nodeInstallations, transactions,
   documentation, adminConfig, tokenOperations, tokenPrice, tokens, tokenLaunches,
   liquidityPools, tokenWatchlist, tokenPriceAlerts, networkValidators,
@@ -8,10 +8,6 @@ import { users, userRoles, profiles, wallets, nodeInstallations, transactions,
   governanceProposals, governanceVotes,
   communityPosts, communityComments, communityVotes } from "../shared/schema";
 import { eq, and, gte, desc, sql, count, inArray } from "drizzle-orm";
-import { Pool } from "pg";
-
-const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
-
 // ── In-memory nonce store ─────────────────────────────────────────────────────
 // Nonces are short-lived (used within one login/reset cycle). Using an in-memory
 // Map avoids Drizzle SELECT * failures when the deployed DB has schema drift.

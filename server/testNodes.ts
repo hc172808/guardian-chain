@@ -15,9 +15,9 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse, Server } from "http";
-import { Pool } from "pg";
 import * as fs from "fs";
 import * as path from "path";
+import { pool as pgPool } from "./db";
 
 // ── File logger setup ─────────────────────────────────────────────────────────
 const LOG_DIR  = path.resolve(process.cwd(), "logs");
@@ -42,8 +42,6 @@ export function getNodeLogFilePath() { return LOG_FILE; }
 export function clearNodeLogFile() {
   try { fs.writeFileSync(LOG_FILE, ""); } catch {}
 }
-
-const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── Persist desired state to DB ──────────────────────────────────────────────
 export async function saveTestNodeState(network: string, type: string, shouldRun: boolean) {

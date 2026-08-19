@@ -1,6 +1,4 @@
-import { Pool } from "pg";
-
-const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+import { pool as pgPool } from "./db";
 
 export type CurrencyCode = "USD" | "EUR" | "GBP" | "CAD" | "AUD" | "GYD" | "JMD";
 

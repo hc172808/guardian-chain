@@ -6,7 +6,7 @@ import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, load
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
-import { Pool } from "pg";
+import { pool as pgPool } from "./db";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { discordNodeDown, discordLargeBridgeTransfer, discordNewGovernanceProposal } from "./discord";
@@ -20,8 +20,6 @@ import os from "os";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
 import { broadcastTransfer, pollForConfirmation, checkRpcHealth, testEndpoints } from "./chainRpc";
 import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasuryBalance, sendTreasuryTransfer } from "./treasury";
-const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
-
 // ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
 interface GithubWebhookEvent {
   id: string;
@@ -4619,6 +4617,17 @@ export function registerRoutes(app: Express) {
       await prune('xp_events', `DELETE FROM xp_events WHERE created_at < NOW() - INTERVAL '90 days'`);
       await prune('email_tokens', `DELETE FROM email_verification_tokens WHERE expires_at < NOW()`);
       return results.join('\n');
+    }
+  });
+
+  defineJob({ id: 'db-keepalive', name: 'Database Keep-Alive', description: 'Runs a lightweight PostgreSQL health query every minute and reports connection failures', schedule: '* * * * *', intervalMs: 60_000, enabled: true,
+    fn: async () => {
+      const started = Date.now();
+      const result = await pgPool.query<{ connected: number }>('SELECT 1 AS connected');
+      if (Number(result.rows[0]?.connected) !== 1) {
+        throw new Error('Database health query returned an unexpected result');
+      }
+      return `Database connection healthy (${Date.now() - started}ms)`;
     }
   });
 

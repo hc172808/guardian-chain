@@ -9,8 +9,12 @@ const pool = new Pool({
   max: 10,
   min: 2,
 
-  // How long a client can sit idle before being closed and removed from pool
-  idleTimeoutMillis: 30_000,
+  // Keep an idle client available between keep-alive checks. The value remains
+  // configurable for hosted PostgreSQL providers with shorter idle limits.
+  idleTimeoutMillis: Math.max(
+    30_000,
+    Number(process.env.DB_IDLE_TIMEOUT_MS) || 5 * 60_000,
+  ),
 
   // How long to wait for a connection before throwing (10 s)
   connectionTimeoutMillis: 10_000,
