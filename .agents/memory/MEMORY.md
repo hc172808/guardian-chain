@@ -21,6 +21,7 @@
 - [Admin monitoring tab](admin-monitoring.md) — GET /api/admin/monitoring (requireAdmin) returns validators, nodes, RPC health, DB status, uptime, memory. ValidatorExplorerMonitor component in Admin.tsx.
 - [Cron job system](cron-jobs.md) — In-memory cron registry in routes.ts (7 jobs); GET/PATCH/POST /api/admin/cron-jobs/:id/run; CronJobManager.tsx in Admin "Cron Jobs" tab; no external cron package.
 - [Build scripts](build-scripts.md) — build script is vite-only; tsc server check is npm run typecheck:server (separate); server type errors are pre-existing Express 5 issues, don't block deployment.
+- [Deployment runtime](deployment-runtime.md) — production must run the Express server through npm start after the Vite build; do not point publishing at an assumed dist server bundle.
 - [Deploy scripts](deploy-scripts.md) — setup-server.sh (fresh Ubuntu, Cloudflare+subdomain), redeploy.sh (safe git pull+build+PM2 reload), deploy-dashboard.sh (updated, supports SUBDOMAIN env var); gyds-redeploy installed to /usr/local/bin.
 - [PWA + Web Push](pwa-webpush.md) — public/manifest.json (PWA shortcuts), public/sw.js (SW + push handler), VAPID auto-generated in server/webpush.ts; routes: /api/push/vapid-key, /api/push/subscribe (POST/DELETE), /api/push/test; push_subscriptions table created at runtime.
 - [Biometric unlock](biometric-unlock.md) — src/lib/biometric.ts uses WebAuthn (navigator.credentials); isBiometricAvailable, registerBiometric, authenticateBiometric, disableBiometric, isBiometricEnabled; toggle in Profile security tab + Mobile MoreTab.

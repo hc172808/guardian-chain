@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server/index.ts & sleep 3 && vite",
     "server": "tsx server/index.ts",
+    "start": "NODE_ENV=production tsx server/index.ts",
     "client": "vite",
     "build": "vite build",
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
