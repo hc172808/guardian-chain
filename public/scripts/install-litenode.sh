@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Lite Node Installer — PUBLIC ACCESS
-#  Repo:     https://github.com/hc172808/litenode.git
+#  Repo:     https://github.com/hc172808/fullnode.git
 #  OS:       Ubuntu/Debian/CentOS/RHEL/macOS
 #  Chain ID: 198282  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      bash install-litenode.sh   (no sudo required for user-mode)
@@ -30,7 +30,7 @@ P2P_PORT="${GYDS_P2P_PORT:-30303}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
 
-REPO_URL="https://github.com/hc172808/litenode.git"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 REPO_DIR="${REPO_DIR:-$HOME/gyds-litenode-src}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain LITE NODE Installer v${GYDS_VERSION}                   ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/litenode                        ║"
+echo "║   Repo: github.com/hc172808/fullnode                       ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 

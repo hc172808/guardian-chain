@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Genesis Node Installer — FOUNDER ONLY
-#  Repo:     https://github.com/hc172808/genesis.git
+#  Repo:     https://github.com/hc172808/fullnode.git
 #  Sets up the genesis/bootstrap node that starts the GYDSchain network.
 #  Target OS: Ubuntu 20.04/22.04/24.04 | Debian 11/12  |  Chain ID 198282
 #  Run:  sudo bash install-genesis.sh
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
+
+# ── Load shared config (written by deploy-dashboard.sh) ───────────────────────
+GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
+[[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
 
 GYDS_VERSION="1.0.0"
 BINARY="gyds-genesis"
@@ -22,7 +26,7 @@ RPC_PORT="${GYDS_RPC_PORT:-8544}"
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 STORAGE_SIZE="${STORAGE_SIZE:-500}"
 
-REPO_URL="https://github.com/hc172808/genesis.git"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 REPO_DIR="$APP_DIR"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -34,7 +38,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain GENESIS NODE Installer v${GYDS_VERSION} — FOUNDER       ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/genesis                         ║"
+echo "║   Repo: github.com/hc172808/fullnode                       ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -147,7 +151,7 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${DATA_DIR}
 Environment=GYDS_CHAIN_ID=${CHAIN_ID}
-Environment=GYDS_NODE_MODE=full
+Environment=GYDS_NODE_MODE=genesis
 Environment=GYDS_RPC_PORT=${RPC_PORT}
 Environment=GYDS_RPC_HOST=0.0.0.0
 Environment=GYDS_P2P_PORT=${GENESIS_PORT}

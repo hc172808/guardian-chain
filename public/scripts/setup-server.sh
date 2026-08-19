@@ -22,7 +22,7 @@
 #   DOMAIN        — base domain, e.g. "netlifegy.com"
 #
 # Optional env vars:
-#   REPO_URL          — git repo URL (default: https://github.com/hc172808/guardian-chain.git)
+#   REPO_URL          — git repo URL (default: https://github.com/hc172808/fullnode.git)
 #   GITHUB_TOKEN      — PAT for private repos and auto-pull
 #   APP_DIR           — install path (default: /var/www/gydschain)
 #   PORT_API          — Express API port (default: 5001)
@@ -60,7 +60,7 @@ SUBDOMAIN="${SUBDOMAIN:-app}"
 DOMAIN="${DOMAIN:-netlifegy.com}"
 FQDN="${SUBDOMAIN}.${DOMAIN}"
 APP_DIR="${APP_DIR:-/var/www/gydschain}"
-REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 BRANCH="${BRANCH:-main}"
 PORT_API="${PORT_API:-5001}"
 NODE_USER="${SUDO_USER:-ubuntu}"

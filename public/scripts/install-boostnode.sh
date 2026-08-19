@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Boost Node Installer
-#  Repo:     https://github.com/hc172808/boostnode.git
+#  Repo:     https://github.com/hc172808/fullnode.git
 #  A high-performance relay/boost node for GYDSchain.
 #  Target OS: Ubuntu 20.04/22.04/24.04 | Debian 11/12  |  Chain ID 198282
 #  Run:  sudo bash install-boostnode.sh
@@ -28,7 +28,7 @@ P2P_PORT="${GYDS_P2P_PORT:-30304}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
 
-REPO_URL="https://github.com/hc172808/boostnode.git"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 REPO_DIR="$APP_DIR"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -40,7 +40,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain BOOST NODE Installer v${GYDS_VERSION}                   ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/boostnode                        ║"
+echo "║   Repo: github.com/hc172808/fullnode                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 

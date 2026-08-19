@@ -31,7 +31,7 @@ USE_CERTBOT="${USE_CERTBOT:-0}"                     # set to 1 for direct SSL (n
 SSL_EMAIL="${GYDS_SSL_EMAIL:-${EMAIL:-}}"
 CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-}"
 APP_DIR="${APP_DIR:-/var/www/gydschain}"
-REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 BRANCH="${BRANCH:-main}"
 NODE_USER="${SUDO_USER:-ubuntu}"
 [[ "$NODE_USER" == "root" ]] && NODE_USER="ubuntu"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Validator Node Installer
-#  Repo:     https://github.com/hc172808/validatornode.git
+#  Repo:     https://github.com/hc172808/fullnode.git
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
 #  Chain ID: 198282  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      sudo bash install-validatornode.sh [--domain validator.netlifegy.com]
@@ -39,7 +39,7 @@ STAKE_AMOUNT="${GYDS_STAKE_AMOUNT:-10000}"
 UPSTREAM_RPC="${GYDS_UPSTREAM_RPC:-https://rpc.netlifegy.com}"
 DOMAIN="${DOMAIN:-}"
 
-REPO_URL="https://github.com/hc172808/validatornode.git"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 BRANCH="main"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  GYDSchain VALIDATOR NODE Installer v${GYDS_VERSION}               ║"
 echo "║  Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║  Repo: github.com/hc172808/validatornode                         ║"
+echo "║  Repo: github.com/hc172808/fullnode                            ║"
 echo "║  Stake required: ${STAKE_AMOUNT} GYDS                              ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -149,12 +149,6 @@ fi
 # ── Build binary ──────────────────────────────────────────────────────────────
 log "[4/8] Building $BINARY..."
 ( cd "$APP_DIR" && go mod download && \
-  go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" \
-    -o "/tmp/${BINARY}" \
-    ./cmd/validatornode 2>/dev/null || \
-  go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" \
-    -o "/tmp/${BINARY}" \
-    ./cmd/validator 2>/dev/null || \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" \
     -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
