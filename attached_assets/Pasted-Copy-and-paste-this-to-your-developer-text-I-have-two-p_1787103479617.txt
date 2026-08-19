@@ -1,0 +1,237 @@
+Copy and paste this to your developer:
+
+```text
+I have two parts of the GYDS Chain system:
+
+1. Blockchain fullnode project:
+   - Go-based GYDS Chain fullnode
+   - Chain ID: 198282
+   - Existing node roles: full, lite, rpc, boost, genesis, sync, validator, testnode
+   - Existing Admin Node Control dashboard
+   - Existing P2P peer authorization and synchronization
+   - Existing native GYDS currency
+   - Existing node-managed GYD token, but it is NOT yet a real ERC-20 token
+
+2. Control-plane website:
+   - https://app.netlifegy.com
+   - This website will manage users, tokens, authorities, treasury requests, nodes, metadata, logos, and network administration.
+
+Build the system with this architecture:
+
+CONTROL PLANE — app.netlifegy.com
+- Manage users and roles.
+- Create token definitions.
+- Manage token name, symbol, decimals, logo, metadata, and token status.
+- Create and manage token authorities.
+- Register and monitor genesis, full, lite, RPC, validator, sync, and boost nodes.
+- Create mint and burn requests.
+- Maintain a complete audit log.
+- Manage treasury approvals.
+- Display node health, block height, peer count, chain ID, and synchronization status.
+- Never expose private keys in the browser or normal database records.
+- Use environment secrets, a protected signer, offline signer, HSM, or multisignature approval for treasury keys.
+
+GENESIS NODE AUTHORITY
+Only the genesis authority may authorize token creation, minting, burning, and supply changes.
+
+Important security rules:
+- Do not authorize based only on IP address, hostname, HTTP origin, or node mode.
+- Every sensitive request must be cryptographically signed.
+- Bind signatures to the chain ID, token ID, operation type, destination address, amount, nonce, expiration, and network.
+- Prevent replay attacks.
+- Validate the authority signature on the genesis node.
+- Reject mint/burn/token-creation requests received by non-genesis nodes.
+- The genesis node must reject forged requests even if they claim to come from app.netlifegy.com.
+- Other nodes must not have mint/burn controls.
+- Other nodes must only verify and replicate confirmed chain operations.
+
+NODE BEHAVIOR
+- Genesis node:
+  - Accepts valid signed token and treasury operations.
+  - Adds valid operations to the chain.
+  - Broadcasts confirmed operations to peers.
+- Full node:
+  - Verifies all operations and stores complete state.
+- Validator node:
+  - Verifies and participates in valid block processing.
+- Lite node:
+  - Verifies the data required for its mode and follows the canonical chain.
+- RPC node:
+  - Serves wallet and application requests but cannot issue tokens.
+- Sync node:
+  - Synchronizes state from peers but cannot issue tokens.
+- Boost node:
+  - Helps distribute network data but cannot issue tokens.
+
+TREASURY DESIGN
+Use a dedicated treasury address separate from:
+- The node operator wallet
+- Validator reward wallets
+- Admin login wallet
+- User wallets
+
+The treasury must have:
+- A documented authority address
+- Nonce/replay protection
+- Mint and burn limits
+- Optional daily or epoch limits
+- Audit history
+- Key rotation support
+- A migration path to multisignature or threshold approval
+
+Do not store the treasury private key in:
+- Browser localStorage
+- Frontend JavaScript
+- Public API responses
+- Every node’s .env file
+- Ordinary application database columns
+
+TRANSACTION AND CONSENSUS REQUIREMENTS
+The current fullnode has simplified transaction handling. Before claiming ERC-20 compatibility:
+- Implement real signed transaction decoding.
+- Validate signatures.
+- Validate chain ID.
+- Validate nonce and replay protection.
+- Validate balances and gas.
+- Include confirmed transactions in blocks.
+- Replicate state changes across all nodes.
+- Return real transaction receipts.
+- Return real logs and event data.
+- Ensure every node reaches the same state after synchronization.
+- Do not use a local JSON file or local in-memory mutation as a replacement for consensus state.
+
+GYD TOKEN REQUIREMENTS
+GYD must eventually become a real standard ERC-20 token:
+- Permanent contract address
+- name()
+- symbol()
+- decimals()
+- totalSupply()
+- balanceOf()
+- transfer()
+- approve()
+- allowance()
+- transferFrom()
+- mint()
+- burn()
+- Standard ABI encoding
+- Standard event logs:
+  - Transfer
+  - Approval
+- Wallet-compatible eth_call support
+- Wallet-compatible transaction support
+- Verified metadata and logo
+- Migration plan for existing node-managed GYD balances
+
+Do not publish a fake contract address.
+Until a real contract is deployed and tested:
+- /gyd-token.json must omit contractAddress
+- walletImportable must remain false
+- Clearly identify GYD as not yet ERC-20 compatible
+
+NATIVE GYDS
+Keep native GYDS separate from GYD:
+- Native GYDS does not need a contract address.
+- Native GYDS uses the chain’s native currency configuration.
+- Do not confuse native GYDS with the GYD ERC-20 token.
+- Keep separate balances, supply accounting, metadata, and wallet display logic.
+
+API REQUIREMENTS BETWEEN app.netlifegy.com AND GENESIS NODE
+Create a secure API using:
+- HTTPS only
+- Strong service authentication
+- Request signing
+- Nonce and timestamp validation
+- Request expiration
+- Idempotency keys
+- Rate limits
+- Audit logging
+- Clear operation status:
+  - requested
+  - approved
+  - signed
+  - submitted
+  - confirmed
+  - rejected
+  - failed
+
+Required operations:
+- Register node
+- Check node health
+- Read chain status
+- Read peer status
+- Create token request
+- Create mint request
+- Create burn request
+- Approve request
+- Submit signed request to genesis node
+- Query transaction status
+- Query token metadata
+- Query total supply
+- Query balances
+- Query audit history
+
+ADMIN DASHBOARD REQUIREMENTS
+Only authenticated authorized administrators may access control functions.
+
+Genesis-only dashboard controls:
+- Create token
+- Approve token authority
+- Mint
+- Burn
+- Set limits
+- Rotate authority
+- Review audit history
+- Submit signed operation
+
+Other node dashboards:
+- Read-only token and supply information
+- No mint button
+- No burn button
+- No token-creation button
+- Show current genesis authority address
+- Show latest confirmed operation
+- Show synchronization status
+
+TEST REQUIREMENTS
+Add tests proving:
+- Non-genesis nodes cannot mint.
+- Non-genesis nodes cannot burn.
+- Forged signatures fail.
+- Replayed requests fail.
+- Wrong chain ID fails.
+- Wrong nonce fails.
+- Expired requests fail.
+- Excessive mint amounts fail.
+- Invalid destination addresses fail.
+- Every node reaches the same supply and balances.
+- Restarting a node preserves authority nonce and operation history.
+- A new node can synchronize historical mint/burn operations without receiving private keys.
+- ERC-20 wallet calls return standard ABI-compatible results.
+- ERC-20 transfer and approval events are emitted correctly.
+- Metadata does not expose private keys or sensitive configuration.
+
+DELIVERY RULES
+- Inspect the existing code and todo.md before editing.
+- Preserve the existing Go architecture where possible.
+- Do not create fake ERC-20 compatibility.
+- Do not expose secrets.
+- Do not make local-only state changes that are not replicated.
+- Update todo.md as each item is completed.
+- Run go test ./...
+- Run go vet ./...
+- Run formatting and static checks.
+- Verify the workflow starts cleanly.
+- Document all new environment variables.
+- Provide a migration and rollback plan before changing live token behavior.
+- Implement in phases and clearly identify what is production-ready versus still experimental.
+
+Recommended implementation phases:
+1. Secure app-to-genesis authentication and signed requests.
+2. Consensus-safe authority and nonce model.
+3. Genesis-only token operations.
+4. Real signed transaction execution.
+5. ERC-20 contract execution and ABI support.
+6. Wallet metadata and contract verification.
+7. Multi-node synchronization and production testing.
+```
