@@ -37,11 +37,10 @@ MAX_PEERS="${MAX_PEERS:-100}"
 PUBLIC_ADDR="${PUBLIC_ADDR:-}"           # e.g. bootnode1.netlifegy.com:30303
 BOOTSTRAP_PEERS="${BOOTSTRAP_PEERS:-}"   # comma-separated host:port list
 
-# Source location: where the Go source lives. Defaults to the repo path you
-# cloned this script from. Override with SRC_DIR=/path/to/blockchain-go
-REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
-REPO_DIR="${REPO_DIR:-/opt/guardian-chain}"
-SRC_DIR="${SRC_DIR:-$(cd "$(dirname "$0")/../blockchain-go" 2>/dev/null && pwd || echo "")}"
+# Source location: all supported node modes are built from the canonical repo.
+REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
+REPO_DIR="${REPO_DIR:-/opt/gyds-fullnode}"
+SRC_DIR="${SRC_DIR:-}"
 
 GO_VERSION="${GO_VERSION:-1.22.0}"
 
@@ -98,12 +97,18 @@ if [[ -z "${SRC_DIR}" || ! -d "${SRC_DIR}" ]]; then
   else
     git clone --depth=1 "${REPO_URL}" "${REPO_DIR}"
   fi
-  SRC_DIR="${REPO_DIR}/public/blockchain-go"
+  SRC_DIR="${REPO_DIR}"
 fi
 
 if [[ ! -d "${SRC_DIR}" ]]; then
   err "Source not found at ${SRC_DIR}"
-  err "Example: SRC_DIR=/opt/guardian-chain/public/blockchain-go sudo -E bash $0"
+  err "Example: SRC_DIR=/opt/gyds-fullnode sudo -E bash $0"
+  exit 1
+fi
+
+if [[ ! -d "${SRC_DIR}/cmd/bootnode" ]]; then
+  err "bootnode mode is not implemented in fullnode.git yet."
+  err "This installer intentionally stops rather than using a different node repository."
   exit 1
 fi
 

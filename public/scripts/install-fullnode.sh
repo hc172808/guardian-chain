@@ -31,7 +31,7 @@ LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
 DOMAIN="${DOMAIN:-}"
 
-REPO_URL="https://github.com/hc172808/fullnode.git"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 BRANCH="main"
 
 # ── Colors ────────────────────────────────────────────────────────────────────

@@ -43,32 +43,32 @@ fi
 
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
 
-# Default repo — individual scripts use their own repos; this is a fallback
-REPO_URL="${REPO_URL:-https://github.com/hc172808/validatornode.git}"
-REPO_DIR="${REPO_DIR:-/opt/guardian-chain}"
+# Canonical source repo shared by every supported node installer
+REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
+REPO_DIR="${REPO_DIR:-/opt/gyds-fullnode}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-export SRC_DIR="${SRC_DIR:-$(cd "$SCRIPT_DIR/../blockchain-go" 2>/dev/null && pwd || echo "")}"
+export REPO_URL REPO_DIR
 
-# Auto-clone from guardian-chain if SRC_DIR not set
-if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR" ]]; then
-  echo "⚙  SRC_DIR not set — cloning from ${REPO_URL}..."
+# Clone the canonical source once so the selected installers share the same revision
+if [[ -z "${SRC_DIR:-}" || ! -d "${SRC_DIR:-}" ]]; then
+  echo "⚙  Fullnode source not set — cloning from ${REPO_URL}..."
   if [[ -d "${REPO_DIR}/.git" ]]; then
     echo "   Repo exists at ${REPO_DIR} — pulling latest..."
     git -C "${REPO_DIR}" pull --ff-only
   else
     git clone --depth=1 "${REPO_URL}" "${REPO_DIR}"
   fi
-  export SRC_DIR="${REPO_DIR}/public/blockchain-go"
+  export SRC_DIR="${REPO_DIR}"
 fi
 
-[[ -d "$SRC_DIR" ]] || { echo "❌ Source not found at ${SRC_DIR}. Set REPO_URL= or SRC_DIR="; exit 1; }
+[[ -d "${SRC_DIR:-}" ]] || { echo "❌ Source not found at ${REPO_DIR}"; exit 1; }
 
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain Multi-Node Installer                                     ║"
 echo "║   bootnode=${INSTALL_BOOTNODE}  fullnode=${INSTALL_FULLNODE}  litenode=${INSTALL_LITENODE}  rpc=${INSTALL_RPC}            ║"
-echo "║   Source: ${SRC_DIR}"
+echo "║   Source: ${REPO_URL}"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
