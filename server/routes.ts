@@ -6543,6 +6543,79 @@ export function registerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Admin: read the live WireGuard server peer list ────────────────────────
+  // Keep this server-side so the private key and other interface settings never
+  // leave the host. This intentionally parses only [Peer] fields.
+  app.get("/api/admin/wireguard/peers", requireAdmin, async (_req, res) => {
+    const configPath = "/etc/wireguard/wg0.conf";
+    try {
+      const config = await fs.promises.readFile(configPath, "utf8");
+      const peers: Array<{
+        id: string;
+        publicKey: string;
+        allowedIPs: string | null;
+        endpoint: string | null;
+        name: string | null;
+        source: "file";
+      }> = [];
+      let current: typeof peers[number] | null = null;
+      let pendingComment: string | null = null;
+
+      const finishPeer = () => {
+        if (current?.publicKey) peers.push(current);
+        current = null;
+      };
+
+      for (const rawLine of config.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        if (line.startsWith("#")) {
+          const comment = line.slice(1).trim();
+          if (comment) pendingComment = comment;
+          continue;
+        }
+        if (/^\[Interface\]$/i.test(line)) {
+          finishPeer();
+          pendingComment = null;
+          continue;
+        }
+        if (/^\[Peer\]$/i.test(line)) {
+          finishPeer();
+          current = {
+            id: "",
+            publicKey: "",
+            allowedIPs: null,
+            endpoint: null,
+            name: pendingComment,
+            source: "file",
+          };
+          pendingComment = null;
+          continue;
+        }
+        if (!current) continue;
+        const match = line.match(/^([^=]+?)\s*=\s*(.*)$/);
+        if (!match) continue;
+        const key = match[1].trim().toLowerCase();
+        const value = match[2].trim();
+        if (key === "publickey") current.publicKey = value;
+        else if (key === "allowedips") current.allowedIPs = value;
+        else if (key === "endpoint") current.endpoint = value;
+      }
+      finishPeer();
+
+      peers.forEach((peer, index) => {
+        peer.id = `wg-file-${index}-${peer.publicKey.slice(0, 12)}`;
+      });
+      res.json({ path: configPath, count: peers.length, peers });
+    } catch (error: any) {
+      const code = error?.code === "ENOENT" ? 404 : 500;
+      const reason = error?.code === "ENOENT"
+        ? "WireGuard config file was not found"
+        : "WireGuard config file could not be read";
+      res.status(code).json({ error: reason, path: configPath, detail: error?.message });
+    }
+  });
+
   // ── Network Snapshots history (for charts) ─────────────────────────────────
   app.get('/api/network-snapshots', async (req, res) => {
     try {

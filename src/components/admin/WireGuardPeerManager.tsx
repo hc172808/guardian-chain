@@ -11,13 +11,17 @@ import {
 
 interface WgPeer {
   id: string;
-  hostname: string;
-  ip_address: string;
+  hostname: string | null;
+  ip_address: string | null;
   wireguard_public_key: string | null;
   node_type: string;
   is_approved: boolean;
   is_synced: boolean;
   created_at: string;
+  source?: 'database' | 'file';
+  allowedIPs?: string | null;
+  endpoint?: string | null;
+  name?: string | null;
   // assigned WireGuard tunnel IP
   wgIp?: string;
 }
@@ -103,17 +107,69 @@ export const WireGuardPeerManager = () => {
   const [serverEndpoint, setServerEndpoint] = useState('');
   const [serverPort, setServerPort] = useState(51820);
   const [expandedPeer, setExpandedPeer] = useState<string | null>(null);
+  const [filePeerCount, setFilePeerCount] = useState(0);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   useEffect(() => { loadPeers(); loadServerConfig(); }, []);
 
   const loadPeers = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/nodes?approved=true', { credentials: 'include' });
-      if (res.ok) {
-        const data: WgPeer[] = await res.json();
-        setPeers(data.filter(n => n.is_approved));
+      const [nodesRes, fileRes] = await Promise.all([
+        fetch('/api/nodes?approved=true', { credentials: 'include' }),
+        fetch('/api/admin/wireguard/peers', { credentials: 'include' }),
+      ]);
+      const databaseNodes = nodesRes.ok ? await nodesRes.json() : [];
+      const dbPeers: WgPeer[] = (Array.isArray(databaseNodes) ? databaseNodes : [])
+        .map((node: any) => ({
+          ...node,
+          hostname: node.hostname ?? null,
+          ip_address: node.ip_address ?? node.ipAddress ?? null,
+          wireguard_public_key: node.wireguard_public_key ?? node.wireguardPublicKey ?? null,
+          node_type: node.node_type ?? node.nodeType ?? 'node',
+          is_approved: node.is_approved ?? node.isApproved ?? false,
+          is_synced: node.is_synced ?? node.isSynced ?? false,
+          created_at: node.created_at ?? node.createdAt ?? '',
+          source: 'database' as const,
+        }))
+        .filter((node: WgPeer) => node.is_approved);
+
+      let filePeers: WgPeer[] = [];
+      if (fileRes.ok) {
+        const fileData = await fileRes.json();
+        setFilePeerCount(Number(fileData.count) || 0);
+        setFileError(null);
+        filePeers = (Array.isArray(fileData.peers) ? fileData.peers : []).map((peer: any) => ({
+          id: peer.id,
+          hostname: peer.name || `WireGuard peer ${peer.publicKey.slice(0, 8)}`,
+          ip_address: peer.allowedIPs || null,
+          wireguard_public_key: peer.publicKey,
+          node_type: 'wireguard',
+          is_approved: true,
+          is_synced: true,
+          created_at: '',
+          source: 'file' as const,
+          allowedIPs: peer.allowedIPs,
+          endpoint: peer.endpoint,
+        }));
+      } else {
+        const error = await fileRes.json().catch(() => ({}));
+        setFilePeerCount(0);
+        setFileError(error.error || `Unable to read ${error.path || '/etc/wireguard/wg0.conf'}`);
       }
+
+      const merged = new Map<string, WgPeer>();
+      dbPeers.forEach(peer => {
+        if (peer.wireguard_public_key) merged.set(peer.wireguard_public_key, peer);
+      });
+      filePeers.forEach(filePeer => {
+        const key = filePeer.wireguard_public_key!;
+        const existing = merged.get(key);
+        merged.set(key, existing ? { ...existing, allowedIPs: filePeer.allowedIPs, endpoint: filePeer.endpoint } : filePeer);
+      });
+      setPeers(Array.from(merged.values()));
+    } catch (error: any) {
+      setFileError(error.message || 'Unable to load WireGuard peers');
     } finally {
       setLoading(false);
     }
@@ -169,7 +225,9 @@ export const WireGuardPeerManager = () => {
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             {approvedPeers.length} approved nodes · {peersWithKey.length} with WireGuard keys
+           {filePeerCount > 0 && ` · ${filePeerCount} loaded from wg0.conf`}
           </p>
+         {fileError && <p className="text-xs text-yellow-400 mt-1">{fileError}</p>}
         </div>
         <Button variant="outline" size="sm" onClick={loadPeers} className="gap-1.5">
           <RefreshCw className="h-3.5 w-3.5" /> Refresh
@@ -252,6 +310,9 @@ export const WireGuardPeerManager = () => {
                     <div>
                       <p className="text-sm font-medium">{peer.hostname || peer.ip_address}</p>
                       <p className="text-xs text-muted-foreground font-mono">{peer.ip_address} → tunnel {tunnelIp}</p>
+                       {peer.source === 'file' && (
+                         <p className="text-[10px] text-blue-400">Live wg0.conf peer{peer.endpoint ? ` · ${peer.endpoint}` : ''}</p>
+                       )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
