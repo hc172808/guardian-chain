@@ -4,10 +4,10 @@
 #
 # Usage:
 #   On the first (bootstrap) node:
-#     bash setup-wireguard-mesh.sh --init --peers "10.8.0.2:node1-pubkey,10.8.0.3:node2-pubkey"
+#     bash setup-wireguard-mesh.sh --init --peers "10.0.0.2:node1-pubkey,10.0.0.3:node2-pubkey"
 #
 #   On each peer node:
-#     bash setup-wireguard-mesh.sh --join --server 10.8.0.1 --server-pubkey <KEY> --ip 10.8.0.2
+#     bash setup-wireguard-mesh.sh --join --server 10.0.0.1 --server-pubkey <KEY> --ip 10.0.0.2
 #
 # After running, wg0 interface is up. Check: wg show
 
@@ -15,7 +15,7 @@ set -e
 
 WG_IF="wg0"
 WG_PORT="51820"
-SUBNET="10.8.0.0/24"
+SUBNET="10.0.0.0/24"
 DNS="1.1.1.1"
 CONFIG_DIR="/etc/wireguard"
 STATE_DIR="/var/lib/gyds/wireguard"
@@ -69,7 +69,7 @@ generate_keypair() {
 
 # ── INIT MODE (bootstrap / server node) ──────────────────────────────────────
 if [ "$MODE" = "init" ]; then
-    MY_IP="${MY_IP:-10.8.0.1}"
+    MY_IP="${MY_IP:-10.0.0.1}"
     log "Initialising WireGuard mesh as bootstrap node ($MY_IP)"
 
     generate_keypair "server"
@@ -90,7 +90,7 @@ DNS = ${DNS}
 
 EOF
 
-    # Add peers from CSV: "10.8.0.2:pubkey1,10.8.0.3:pubkey2"
+    # Add peers from CSV: "10.0.0.2:pubkey1,10.0.0.3:pubkey2"
     if [ -n "$PEERS_CSV" ]; then
         IFS=',' read -ra PEER_LIST <<< "$PEERS_CSV"
         for PEER in "${PEER_LIST[@]}"; do
@@ -133,7 +133,7 @@ EOF
 
 # ── JOIN MODE (peer node) ─────────────────────────────────────────────────────
 elif [ "$MODE" = "join" ]; then
-    [ -z "$MY_IP" ]         && err "--ip is required (e.g. 10.8.0.2)"
+    [ -z "$MY_IP" ]         && err "--ip is required (e.g. 10.0.0.2)"
     [ -z "$SERVER_IP" ]     && err "--server is required (bootstrap public IP)"
     [ -z "$SERVER_PUBKEY" ] && err "--server-pubkey is required"
 

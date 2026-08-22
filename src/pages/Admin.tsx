@@ -809,6 +809,7 @@ const AdminContent = () => {
   const [showAddNodeForm, setShowAddNodeForm] = useState(false);
   const [addNodeUrl, setAddNodeUrl] = useState('');
   const [addNodeType, setAddNodeType] = useState('rpcnode');
+  const [addNodeWireguardKey, setAddNodeWireguardKey] = useState('');
   const [addingNode, setAddingNode] = useState(false);
   const [serverIp, setServerIp] = useState<string | null>(null);
 
@@ -903,12 +904,17 @@ const AdminContent = () => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: addNodeUrl.trim(), nodeType: addNodeType }),
+        body: JSON.stringify({
+          url: addNodeUrl.trim(),
+          nodeType: addNodeType,
+          wireguardPublicKey: addNodeWireguardKey.trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error ?? 'Failed to add node');
       toast({ title: '✅ Node added', description: `${addNodeType} → ${addNodeUrl.trim()}` });
       setAddNodeUrl('');
+      setAddNodeWireguardKey('');
       setShowAddNodeForm(false);
       fetchData();
     } catch (e: any) {
@@ -1237,6 +1243,18 @@ const AdminContent = () => {
                       </Select>
                     </div>
                   </div>
+                  <div>
+                    <Label className="text-xs mb-1 block">Node WireGuard public key</Label>
+                    <Input
+                      value={addNodeWireguardKey}
+                      onChange={e => setAddNodeWireguardKey(e.target.value)}
+                      placeholder="The node's key — not the server key"
+                      className="font-mono text-sm h-9"
+                    />
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Your server key belongs in WireGuard Server Configuration. Each node needs its own public key.
+                    </p>
+                  </div>
 
                   {/* Preview of resolved URL */}
                   {addNodeUrl && (
@@ -1297,11 +1315,11 @@ const AdminContent = () => {
               const localRpcUrl = localPort ? `http://${window.location.hostname}:${localPort}` : null;
               const isMain = node.id === mainNodeId;
               const isPinging = pingingNodes.has(node.id);
-              // VPN tunnel IP assigned in order (matches WireGuardPeerManager: 10.8.0.2, .3, …)
+              // VPN tunnel IP assigned in order (matches WireGuardPeerManager: 10.0.0.2, .3, …)
               const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
               const vpnIndex = approvedNonLocal.findIndex(n => n.id === node.id);
               const vpnTunnelIp = !isLocalNode && node.isApproved && vpnIndex >= 0
-                ? `10.8.0.${vpnIndex + 2}`
+                ? `10.0.0.${vpnIndex + 2}`
                 : null;
               const displayHost = node.ipAddress || node.hostname;
               const rpcPort = node.rpcPort || 8545;
@@ -1527,7 +1545,7 @@ const AdminContent = () => {
             vpnTunnelIp={(() => {
               const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
               const idx = approvedNonLocal.findIndex(n => n.id === selectedNodeId);
-              return idx >= 0 ? `10.8.0.${idx + 2}` : null;
+              return idx >= 0 ? `10.0.0.${idx + 2}` : null;
             })()}
             isMain={selectedNodeId === mainNodeId}
             onClose={() => setSelectedNodeId(null)}

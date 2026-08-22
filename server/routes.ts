@@ -465,7 +465,7 @@ export function registerRoutes(app: Express) {
   // ── Add node by URL (admin/founder — auto-resolves localhost) ──────────────
   app.post("/api/admin/nodes/add-url", requireAdmin, async (req, res) => {
     const user = req.user as any;
-    const { url, nodeType = 'rpcnode' } = req.body ?? {};
+    const { url, nodeType = 'rpcnode', wireguardPublicKey: submittedWireguardKey } = req.body ?? {};
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ ok: false, error: 'url is required' });
     }
@@ -484,15 +484,20 @@ export function registerRoutes(app: Express) {
 
     const isLoopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
 
-    // For loopback nodes use the LOCAL: sentinel so the UI shows them as local
-    const wireguardPublicKey = isLoopback ? `LOCAL:${port}` : null;
+    // For loopback nodes use the LOCAL: sentinel so the UI shows them as local.
+    // Remote nodes keep the node operator's own public key.
+    const registeredWireguardKey = isLoopback
+      ? `LOCAL:${port}`
+      : (typeof submittedWireguardKey === 'string' && submittedWireguardKey.trim()
+        ? submittedWireguardKey.trim()
+        : null);
 
     const row = await storage.insertNode({
       nodeType,
       hostname: host,
       ipAddress: host,
       rpcPort: port,
-      wireguardPublicKey,
+      wireguardPublicKey: registeredWireguardKey,
       userId: user.id,
       isApproved: true,
       approvedBy: user.id,
@@ -6514,17 +6519,17 @@ export function registerRoutes(app: Express) {
         [String(user.id)]
       ).catch(() => ({ rows: [] as any[] }));
       const node = nodeRes.rows[0];
-      const serverPubKey = process.env.WG_SERVER_PUBLIC_KEY ?? '<SERVER_PUBLIC_KEY>';
+      const serverPubKey = process.env.WG_SERVER_PUBLIC_KEY ?? 'e9egJMy5zffDCgl3xcLa54Dy9Ib0K1UKzTc794K4Ago=';
       const serverEndpoint = process.env.WG_SERVER_ENDPOINT ?? 'vpn.netlifegy.com:51820';
-      const allowedIPs = '10.8.0.0/24';
-      const dns = '10.8.0.1';
+      const allowedIPs = '10.0.0.0/24';
+      const dns = '10.0.0.1';
       // Generate a placeholder private key hint if no real key is stored
       const clientPrivKey = '<paste-your-client-private-key>';
       const peerPubKey = node?.wireguard_public_key ?? '<your-node-public-key>';
       const config = [
         '[Interface]',
         `PrivateKey = ${clientPrivKey}`,
-        `Address = 10.8.0.100/24`,
+        `Address = 10.0.0.100/24`,
         `DNS = ${dns}`,
         '',
         '[Peer]',

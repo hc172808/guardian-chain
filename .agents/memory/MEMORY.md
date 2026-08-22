@@ -64,3 +64,4 @@
 - [Network snapshots API](network-snapshots-api.md) — GET /api/network-snapshots?hours=N added; used by Validators.tsx real chart and Analytics.tsx; data written by DB pruner cron hourly from RPC stats.
 - [todo progress Aug 2026](todo-progress.md) — 95 items done, 14 remaining; all remaining require live blockchain infra (contracts, VPS, RPC) or are production-only (CSP nonce) or i18n.
 - [Live RPC wiring](live-rpc-wiring.md) — GYDS_RPC_URL=http://localhost:8545 in .env + gyds-config.env; chainRpc.ts falls back through all mainnet local ports (8545,8565,8555,8575,8585); mainnet test nodes enabled in test_node_state DB table; mock TPS/price fallbacks removed.
+- [WireGuard registration](wireguard-registration.md) — Server public key config and node peer registration are separate; every node needs its own public key before approval.
