@@ -29,6 +29,7 @@ interface WgPeer {
 // GYDS WireGuard tunnel subnet. The server is 10.0.0.1 and peers get .2, .3, …
 const WG_SUBNET = '10.0.0.0/24';
 const WG_SERVER_IP = '10.0.0.1';
+const WG_ALLOWED_IP_OPTIONS = ['10.0.0.0/24', '10.0.0.0/32'] as const;
 const assignWgIp = (index: number) => `10.0.0.${index + 2}`;
 
 // Generate peer config block
@@ -65,7 +66,7 @@ const generateServerConfig = (peers: WgPeer[], serverPrivKey: string, serverPort
 };
 
 // Generate per-peer client config
-const generatePeerConfig = (peer: WgPeer, index: number, serverPubKey: string, serverEndpoint: string, serverPort: number): string => {
+const generatePeerConfig = (peer: WgPeer, index: number, serverPubKey: string, serverEndpoint: string, serverPort: number, allowedIPs: string): string => {
   const endpoint = serverEndpoint.includes(':') && !serverEndpoint.includes(']') ? serverEndpoint : `${serverEndpoint}:${serverPort}`;
   return [
     `# WireGuard Client Config — ${peer.hostname}`,
@@ -81,7 +82,7 @@ const generatePeerConfig = (peer: WgPeer, index: number, serverPubKey: string, s
     `# GYDS Network Server`,
     `PublicKey = ${serverPubKey}`,
     `Endpoint = ${endpoint}`,
-    `AllowedIPs = ${WG_SUBNET}`,
+    `AllowedIPs = ${allowedIPs}`,
     `PersistentKeepalive = 25`,
     '',
   ].join('\n');
@@ -108,6 +109,7 @@ export const WireGuardPeerManager = () => {
   const [serverPubKey, setServerPubKey] = useState('e9egJMy5zffDCgl3xcLa54Dy9Ib0K1UKzTc794K4Ago=');
   const [serverEndpoint, setServerEndpoint] = useState('');
   const [serverPort, setServerPort] = useState(51820);
+  const [allowedIPs, setAllowedIPs] = useState<string>(WG_SUBNET);
   const [expandedPeer, setExpandedPeer] = useState<string | null>(null);
   const [filePeerCount, setFilePeerCount] = useState(0);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -189,6 +191,7 @@ export const WireGuardPeerManager = () => {
         setServerPubKey(data.public_key ?? 'e9egJMy5zffDCgl3xcLa54Dy9Ib0K1UKzTc794K4Ago=');
         setServerEndpoint(data.endpoint ?? window.location.hostname);
         setServerPort(Number(data.port) || 51820);
+        setAllowedIPs(WG_ALLOWED_IP_OPTIONS.includes(data.allowed_ips) ? data.allowed_ips : WG_SUBNET);
       }
     } catch { /* not critical */ }
   };
@@ -200,7 +203,7 @@ export const WireGuardPeerManager = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key: 'wireguard_server',
-          value: { private_key: serverPrivKey, public_key: serverPubKey, endpoint: serverEndpoint.trim(), port: serverPort, subnet: WG_SUBNET },
+          value: { private_key: serverPrivKey, public_key: serverPubKey, endpoint: serverEndpoint.trim(), port: serverPort, subnet: WG_SUBNET, allowed_ips: allowedIPs },
         }),
       });
       if (!res.ok) {
@@ -272,6 +275,14 @@ export const WireGuardPeerManager = () => {
               className="w-full h-8 px-2 rounded bg-background border border-border text-xs font-mono text-muted-foreground" />
           </div>
           <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Allowed IPs</label>
+            <select value={allowedIPs} onChange={e => setAllowedIPs(e.target.value)}
+              className="w-full h-8 px-2 rounded bg-background border border-border text-xs font-mono focus:outline-none focus:border-primary">
+              {WG_ALLOWED_IP_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+            <p className="text-[11px] text-muted-foreground">Accepts either the full VPN range or the `/32` network route.</p>
+          </div>
+          <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Listen Port</label>
             <input type="number" value={serverPort} onChange={e => setServerPort(Number(e.target.value))}
               className="w-full h-8 px-2 rounded bg-background border border-border text-xs font-mono focus:outline-none focus:border-primary" />
@@ -304,7 +315,7 @@ export const WireGuardPeerManager = () => {
             const tunnelIp = assignWgIp(index);
             const hasKey = !!peer.wireguard_public_key;
             const isExpanded = expandedPeer === peer.id;
-            const peerCfg = generatePeerConfig(peer, index, serverPubKey, serverEndpoint, serverPort);
+            const peerCfg = generatePeerConfig(peer, index, serverPubKey, serverEndpoint, serverPort, allowedIPs);
 
             return (
               <GlassCard key={peer.id} className="p-0 overflow-hidden">
