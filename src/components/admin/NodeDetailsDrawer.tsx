@@ -62,6 +62,8 @@ export function NodeDetailsDrawer({ nodeId, vpnTunnelIp, isMain, onClose }: Prop
   const [loading, setLoading] = useState(true);
   const [editingStorage, setEditingStorage] = useState(false);
   const [storageGbDraft, setStorageGbDraft] = useState('');
+  const [editingWireguardKey, setEditingWireguardKey] = useState(false);
+  const [wireguardKeyDraft, setWireguardKeyDraft] = useState('');
 
   const load = useCallback(async () => {
     if (!nodeId) return;
@@ -94,6 +96,24 @@ export function NodeDetailsDrawer({ nodeId, vpnTunnelIp, isMain, onClose }: Prop
       await load();
     } catch (e: any) {
       toast({ title: 'Failed', description: e.message, variant: 'destructive' });
+    }
+  };
+
+  const handleSetWireguardKey = async () => {
+    if (!nodeId || !wireguardKeyDraft.trim()) return;
+    try {
+      const res = await fetch(`/api/nodes/${nodeId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wireguardPublicKey: wireguardKeyDraft.trim() }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast({ title: 'WireGuard key saved', description: 'Refresh the WireGuard Peer Manager to generate the peer block.' });
+      setEditingWireguardKey(false);
+      await load();
+    } catch (e: any) {
+      toast({ title: 'Failed to save WireGuard key', description: e.message, variant: 'destructive' });
     }
   };
 
@@ -357,6 +377,37 @@ export function NodeDetailsDrawer({ nodeId, vpnTunnelIp, isMain, onClose }: Prop
             </GlassCard>
 
             {/* WireGuard Peer Config */}
+            {!isLocalNode && !node.wireguardPublicKey && (
+              <GlassCard className="p-4 mb-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1">
+                  <Key className="h-3.5 w-3.5" /> Register WireGuard Peer
+                </p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Paste this node's public key. Do not use the VPN server public key.
+                </p>
+                {editingWireguardKey ? (
+                  <div className="space-y-2">
+                    <Input
+                      value={wireguardKeyDraft}
+                      onChange={e => setWireguardKeyDraft(e.target.value)}
+                      placeholder="Node WireGuard public key"
+                      className="font-mono text-xs"
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={handleSetWireguardKey} disabled={!wireguardKeyDraft.trim()}>Save Key</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingWireguardKey(false)}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline" className="gap-1.5"
+                    onClick={() => { setWireguardKeyDraft(''); setEditingWireguardKey(true); }}>
+                    <Key className="h-3.5 w-3.5" /> Add Node Public Key
+                  </Button>
+                )}
+              </GlassCard>
+            )}
+
             {wgPeerConfig && (
               <GlassCard className="p-4 mb-4">
                 <div className="flex items-center justify-between mb-2">
