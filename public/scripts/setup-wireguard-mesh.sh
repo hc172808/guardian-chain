@@ -84,8 +84,9 @@ if [ "$MODE" = "init" ]; then
 Address = ${MY_IP}/24
 ListenPort = ${WG_PORT}
 PrivateKey = ${SERVER_PRIVATE}
-PostUp   = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+# Permit VPN peers to reach one another and the host's local services.
+PostUp   = iptables -A FORWARD -i %i -o %i -j ACCEPT; iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -o %i -j ACCEPT; iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 DNS = ${DNS}
 
 EOF
@@ -109,6 +110,12 @@ EOF
     # Enable IP forwarding
     echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-gyds-wireguard.conf
     sysctl -p /etc/sysctl.d/99-gyds-wireguard.conf >/dev/null
+
+    # Allow traffic between VPN peers (wg0 → wg0), including the dashboard
+    # host when it is also connected to this WireGuard server.
+    if command -v ufw >/dev/null 2>&1; then
+        ufw route allow in on ${WG_IF} out on ${WG_IF} comment "GYDS WireGuard peer-to-peer" 2>/dev/null || true
+    fi
 
     # Open firewall
     if command -v ufw >/dev/null 2>&1; then
