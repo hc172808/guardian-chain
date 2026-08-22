@@ -846,17 +846,29 @@ const AdminContent = () => {
 
   const handleApproveNode = async (nodeId: string, approve: boolean) => {
     try {
-      const res = await fetch(`/api/nodes/${nodeId}`, {
-        method: 'PATCH',
+      const res = await fetch(`/api/nodes/${nodeId}/approval`, {
+        method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isApproved: approve, approvedBy: user?.id, approvedAt: approve ? new Date().toISOString() : null }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ approved: approve }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      const contentType = res.headers.get('content-type') ?? '';
+      const body = contentType.includes('application/json') ? await res.json() : null;
+      if (!res.ok) {
+        throw new Error(body?.error || `Approval request failed (${res.status})`);
+      }
       toast({ title: approve ? 'Node approved!' : 'Node rejected' });
       fetchData();
     } catch (e: any) {
-      toast({ title: 'Failed to update node', description: e.message, variant: 'destructive' });
+      toast({
+        title: 'Failed to update node',
+        description: e.message?.includes('<!DOCTYPE') ? 'The API request was intercepted before reaching the server. Please refresh and try again.' : e.message,
+        variant: 'destructive',
+      });
     }
   };
 

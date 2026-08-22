@@ -637,6 +637,33 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // Dedicated approval action. Keeping this separate from the general node
+  // update avoids proxy/client handling differences for the admin action and
+  // ensures errors are always returned as JSON.
+  app.post("/api/nodes/:id/approval", requireAdmin, async (req, res) => {
+    try {
+      const approved = req.body?.approved === true;
+      const row = await storage.updateNode(req.params.id, {
+        isApproved: approved,
+        approvedBy: approved ? (req.user as any)?.id : null,
+        approvedAt: approved ? new Date() : null,
+      });
+      if (!row) return res.status(404).json({ error: "Node not found" });
+      if (approved) {
+        broadcastActivity({
+          type: 'node_approved',
+          title: 'Node Approved',
+          detail: `Node ${req.params.id.slice(0, 8)}… approved`,
+          user: (req.user as any)?.username,
+        });
+      }
+      return res.json({ ok: true, node: row });
+    } catch (e: any) {
+      console.error("[nodes] approval update failed:", e);
+      return res.status(500).json({ error: e?.message || "Failed to update node approval" });
+    }
+  });
+
   app.delete("/api/nodes/:id", requireAuth, async (req, res) => {
     await storage.deleteNode(req.params.id);
     res.json({ ok: true });
