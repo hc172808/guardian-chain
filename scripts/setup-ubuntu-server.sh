@@ -11,6 +11,8 @@
 #    --skip-nginx           Skip nginx install/config
 #    --skip-ssl             Skip Let's Encrypt SSL
 #    --skip-wireguard       Skip WireGuard VPN install
+#    --with-postgres        Also install & configure PostgreSQL 16 (local DB)
+#    --with-pgadmin         Also install pgAdmin 4 web UI (implies --with-postgres)
 #    --non-interactive      Use defaults, no prompts
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
