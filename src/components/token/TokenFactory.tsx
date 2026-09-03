@@ -288,6 +288,7 @@ export const TokenFactory = () => {
   const resetForm = () => {
     setParams({
       name: '', symbol: '', decimals: 18, initialSupply: '1000000',
+      tokenStandard: 'GRC-20',
       gydsLiquidity: '1000',
       authorities: {},
       transferFeeBps: '0',
