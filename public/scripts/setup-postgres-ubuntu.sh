@@ -14,8 +14,19 @@
 #   DB_PASSWORD — set a password   (default: auto-generated)
 #   DOMAIN      — your domain      (default: netlifegy.com)
 #   SUBDOMAIN   — API subdomain    (default: api)
+#   INSTALL_PGADMIN — "true" to also install the pgAdmin 4 web UI
+#
+# Flags:
+#   --pgadmin   Also install pgAdmin 4 web UI (same as INSTALL_PGADMIN=true)
 # ============================================================
 set -euo pipefail
+
+INSTALL_PGADMIN="${INSTALL_PGADMIN:-false}"
+for arg in "$@"; do
+  case "$arg" in
+    --pgadmin) INSTALL_PGADMIN=true ;;
+  esac
+done
 
 # ─── Colors ────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -222,4 +233,16 @@ echo -e "  1. Review ${CYAN}${OUTPUT_ENV}${NC} — set GYDS_FOUNDER_WALLET and o
 echo -e "  2. Deploy the app:  ${CYAN}bash deploy-dashboard.sh${NC}"
 echo -e "  3. Issue SSL cert:  ${CYAN}certbot --nginx -d ${FQDN}${NC}"
 echo ""
+# ─── Optional: pgAdmin 4 web UI ───────────────────────────
+if [[ "$INSTALL_PGADMIN" == "true" ]]; then
+  step "Optional — pgAdmin 4 web UI"
+  if [ -f "${SCRIPT_DIR}/install-pgadmin.sh" ]; then
+    DOMAIN="$DOMAIN" bash "${SCRIPT_DIR}/install-pgadmin.sh" || warn "pgAdmin install reported errors"
+  else
+    warn "install-pgadmin.sh not found next to this script — skipping"
+  fi
+else
+  info "pgAdmin not installed. Add it anytime:  sudo bash ${SCRIPT_DIR}/install-pgadmin.sh"
+fi
+
 log "GYDSchain PostgreSQL setup complete! 🚀"

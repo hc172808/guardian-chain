@@ -11,6 +11,8 @@
 #    --skip-nginx           Skip nginx install/config
 #    --skip-ssl             Skip Let's Encrypt SSL
 #    --skip-wireguard       Skip WireGuard VPN install
+#    --with-postgres        Also install & configure PostgreSQL 16 (local DB)
+#    --with-pgadmin         Also install pgAdmin 4 web UI (implies --with-postgres)
 #    --non-interactive      Use defaults, no prompts
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -31,6 +33,8 @@ SSL_EMAIL="${SSL_EMAIL:-admin@netlifegy.com}"
 SKIP_NGINX=false
 SKIP_SSL=false
 SKIP_WIREGUARD=false
+WITH_POSTGRES="${WITH_POSTGRES:-false}"
+WITH_PGADMIN="${WITH_PGADMIN:-false}"
 NON_INTERACTIVE=false
 CLOUDFLARE_TUNNEL=false
 
@@ -54,6 +58,8 @@ while [[ $# -gt 0 ]]; do
     --skip-nginx)         SKIP_NGINX=true;       shift ;;
     --skip-ssl)           SKIP_SSL=true;         shift ;;
     --skip-wireguard)     SKIP_WIREGUARD=true;   shift ;;
+    --with-postgres)      WITH_POSTGRES=true;    shift ;;
+    --with-pgadmin)       WITH_PGADMIN=true; WITH_POSTGRES=true; shift ;;
     --non-interactive)    NON_INTERACTIVE=true;  shift ;;
     --help|-h)
       grep '^#  ' "$0" | sed 's/^#  //'
@@ -489,6 +495,37 @@ EOF
   fi
 else
   warn "WireGuard skipped (--skip-wireguard)"
+fi
+
+# ─── Optional: PostgreSQL + pgAdmin ──────────────────────────────────────────
+if [[ "$NON_INTERACTIVE" == "false" && "$WITH_POSTGRES" == "false" ]]; then
+  read -rp "$(echo -e "${CYAN}[?]${NC} Install PostgreSQL 16 locally on this server? [y/N] ")" _ans
+  [[ "${_ans,,}" == "y" ]] && WITH_POSTGRES=true
+fi
+if [[ "$NON_INTERACTIVE" == "false" && "$WITH_POSTGRES" == "true" && "$WITH_PGADMIN" == "false" ]]; then
+  read -rp "$(echo -e "${CYAN}[?]${NC} Install pgAdmin 4 web UI as well? [y/N] ")" _ans
+  [[ "${_ans,,}" == "y" ]] && WITH_PGADMIN=true
+fi
+
+PG_SETUP="${REPO_ROOT}/public/scripts/setup-postgres-ubuntu.sh"
+PGADMIN_SETUP="${REPO_ROOT}/public/scripts/install-pgadmin.sh"
+
+if [[ "$WITH_POSTGRES" == "true" ]]; then
+  header "Optional — PostgreSQL 16"
+  if [[ -f "$PG_SETUP" ]]; then
+    DOMAIN="$DOMAIN" bash "$PG_SETUP" || warn "PostgreSQL setup reported errors"
+  else
+    warn "Not found: $PG_SETUP — skipping PostgreSQL install"
+  fi
+fi
+
+if [[ "$WITH_PGADMIN" == "true" ]]; then
+  header "Optional — pgAdmin 4"
+  if [[ -f "$PGADMIN_SETUP" ]]; then
+    DOMAIN="$DOMAIN" SKIP_NGINX="$SKIP_NGINX" bash "$PGADMIN_SETUP" || warn "pgAdmin setup reported errors"
+  else
+    warn "Not found: $PGADMIN_SETUP — skipping pgAdmin install"
+  fi
 fi
 
 # ─── Log rotation ────────────────────────────────────────────────────────────
