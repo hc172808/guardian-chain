@@ -58,6 +58,8 @@ while [[ $# -gt 0 ]]; do
     --skip-nginx)         SKIP_NGINX=true;       shift ;;
     --skip-ssl)           SKIP_SSL=true;         shift ;;
     --skip-wireguard)     SKIP_WIREGUARD=true;   shift ;;
+    --with-postgres)      WITH_POSTGRES=true;    shift ;;
+    --with-pgadmin)       WITH_PGADMIN=true; WITH_POSTGRES=true; shift ;;
     --non-interactive)    NON_INTERACTIVE=true;  shift ;;
     --help|-h)
       grep '^#  ' "$0" | sed 's/^#  //'
