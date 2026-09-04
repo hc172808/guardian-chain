@@ -25,6 +25,7 @@ export default defineConfig({
   },
   plugins: [react()],
   resolve: {
+    dedupe: ["react", "react-dom", "@tanstack/react-query"],
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
