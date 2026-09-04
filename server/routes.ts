@@ -1954,6 +1954,94 @@ export function registerRoutes(app: Express) {
     res.json(row);
   });
 
+  // ── Admin: Operations overview (logins, IP bans, balances, pending transfers)
+  // Read-only aggregation used by the admin Operations dashboard. Every section
+  // is independently guarded so one missing table never blanks the whole page.
+  app.get("/api/admin/overview", requireAdmin, async (req, res) => {
+    const days = Math.min(Math.max(parseInt(String(req.query.days ?? "30"), 10) || 30, 1), 180);
+    const safe = async <T>(fn: () => Promise<T>, fallback: T): Promise<T> => {
+      try { return await fn(); } catch { return fallback; }
+    };
+
+    const [loginSeries, recentLogins, pendingTransfers, topBalances, bans, totals] = await Promise.all([
+      // Daily login / failed-login counts
+      safe(async () => {
+        const { rows } = await pgPool.query(
+          `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+                  count(*) FILTER (WHERE action IN ('login','login_success','wallet_login'))::int AS logins,
+                  count(*) FILTER (WHERE action IN ('login_failed','login_failure'))::int AS failed,
+                  count(*) FILTER (WHERE action IN ('ban_ip','auto_ban_ip'))::int AS bans
+             FROM audit_logs
+            WHERE created_at > now() - ($1 || ' days')::interval
+            GROUP BY 1 ORDER BY 1`,
+          [days],
+        );
+        return rows;
+      }, [] as any[]),
+      // Most recent login events with the IP they came from
+      safe(async () => {
+        const { rows } = await pgPool.query(
+          `SELECT id, user_id, user_email, action, ip_address, created_at
+             FROM audit_logs
+            WHERE action IN ('login','login_success','wallet_login','login_failed','login_failure')
+            ORDER BY created_at DESC LIMIT 100`,
+        );
+        return rows;
+      }, [] as any[]),
+      // Transfers awaiting on-chain confirmation
+      safe(async () => {
+        const { rows } = await pgPool.query(
+          `SELECT id, from_address, to_address, amount, fee, token_symbol, status,
+                  tx_hash, network, created_at
+             FROM transactions
+            WHERE status = 'pending'
+            ORDER BY created_at DESC LIMIT 200`,
+        );
+        return rows;
+      }, [] as any[]),
+      // Net balance per address derived from confirmed transfers
+      safe(async () => {
+        const { rows } = await pgPool.query(
+          `WITH flows AS (
+              SELECT lower(to_address)  AS address, token_symbol,  amount::numeric        AS delta
+                FROM transactions WHERE status = 'confirmed'
+              UNION ALL
+              SELECT lower(from_address) AS address, token_symbol, -(amount::numeric + COALESCE(fee,'0')::numeric)
+                FROM transactions WHERE status = 'confirmed'
+           )
+           SELECT address, upper(token_symbol) AS token, sum(delta)::float8 AS balance
+             FROM flows WHERE address <> '' GROUP BY 1,2
+            ORDER BY balance DESC LIMIT 100`,
+        );
+        return rows;
+      }, [] as any[]),
+      safe(() => listIpBans(), [] as any[]),
+      safe(async () => {
+        const { rows } = await pgPool.query(
+          `SELECT (SELECT count(*) FROM users)::int                              AS users,
+                  (SELECT count(*) FROM users WHERE is_banned)::int              AS banned_users,
+                  (SELECT count(*) FROM wallets)::int                            AS wallets,
+                  (SELECT count(*) FROM transactions WHERE status='pending')::int  AS pending_tx,
+                  (SELECT count(*) FROM transactions WHERE status='confirmed')::int AS confirmed_tx`,
+        );
+        return rows[0] ?? {};
+      }, {} as any),
+    ]);
+
+    res.json({
+      ok: true,
+      days,
+      generatedAt: new Date().toISOString(),
+      totals: { ...totals, ip_bans: Array.isArray(bans) ? bans.length : 0 },
+      loginSeries,
+      recentLogins,
+      pendingTransfers,
+      topBalances,
+      ipBans: bans,
+    });
+  });
+
+
   // ── Admin: All Users ───────────────────────────────────────────────────────
   app.get("/api/admin/users", requireAdmin, async (_req, res) => {
     const users = await storage.getAllUsersWithRoles();
