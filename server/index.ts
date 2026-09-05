@@ -26,7 +26,7 @@ import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
 import { setupAuth } from "./auth";
 import { registerRoutes } from "./routes";
-import { seedFounder, seedFirewallDefaults } from "./seed";
+import { seedFounder, seedFirewallDefaults, seedGenesisAllocations } from "./seed";
 import { storage } from "./storage";
 import { initVapid, ensurePushSubscriptionsTable } from "./webpush";
 import { Pool } from "pg";
@@ -263,6 +263,7 @@ app.use((req: any, res: any, next: any) => {
 registerRoutes(app);
 await bootstrapDatabase(dbPool).catch(e => console.warn("[bootstrap] error:", e.message));
 await seedFounder();
+await seedGenesisAllocations().catch(e => console.warn("seedGenesisAllocations:", e.message));
 
 // Purge any bans that were mistakenly placed on a Cloudflare edge IP itself
 // (see security.ts for why this happens) — safe to run on every boot.
