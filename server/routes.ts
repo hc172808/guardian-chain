@@ -2,11 +2,12 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
+import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { pool as pgPool } from "./db";
+import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY, isReservedAddress, FOUNDER_WALLET_ADDRESS } from "./reservedWallets";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { discordNodeDown, discordLargeBridgeTransfer, discordNewGovernanceProposal } from "./discord";
@@ -2819,8 +2820,8 @@ export function registerRoutes(app: Express) {
       try {
         const wei = BigInt(Math.round(amount * 1e18));
         for (const net of ["mainnet", "testnet", "devnet"] as const) {
+          debitAddress(net, from, "GYDS", wei);
           creditAddress(net, to, "GYDS", wei);
-          creditAddress(net, from, "GYDS", -wei as unknown as bigint);
         }
       } catch { /* trie mirroring is best-effort */ }
 
