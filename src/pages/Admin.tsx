@@ -49,6 +49,7 @@ import { FirewallManager } from '@/components/admin/FirewallManager';
 import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { CaptchaMonitorDashboard } from '@/components/admin/CaptchaMonitorDashboard';
+import { OperationsOverview } from '@/components/admin/OperationsOverview';
 import { CaptchaSecuritySettings } from '@/components/admin/CaptchaSecuritySettings';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 import { TokenManager } from '@/components/admin/TokenManager';
