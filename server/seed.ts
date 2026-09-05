@@ -120,3 +120,52 @@ export async function seedFirewallDefaults() {
     console.warn("[seed] Firewall defaults error:", err.message);
   }
 }
+
+// ─── seedGenesisAllocations ──────────────────────────────────────────────────
+// Writes the 1,000,000,000 GYDS genesis distribution into PostgreSQL as
+// confirmed `premine_gyds` token_operations rows — one per reserved wallet.
+//
+// Idempotent: each row carries a deterministic tx_hash (`genesis:<key>`), and
+// the insert is skipped when that hash already exists. Safe on every boot.
+export async function seedGenesisAllocations() {
+  try {
+    let inserted = 0;
+    for (const w of RESERVED_WALLETS) {
+      const txHash = `genesis:${w.key}`;
+      const { rows } = await pool.query(
+        `SELECT 1 FROM token_operations WHERE tx_hash = $1 LIMIT 1`,
+        [txHash]
+      );
+      if (rows.length > 0) continue;
+
+      await pool.query(
+        `INSERT INTO token_operations
+           (id, operation_type, amount, usdt_amount, wallet_address, tx_hash, status, network, created_at)
+         VALUES (gen_random_uuid(), 'premine_gyds', $1, 0, $2, $3, 'confirmed', 'mainnet', NOW())`,
+        [String(w.allocation), w.address.toLowerCase(), txHash]
+      );
+      inserted++;
+    }
+
+    // Keep the published supply figures in step with the genesis distribution.
+    const priceRow = await pool.query(`SELECT id FROM token_price LIMIT 1`);
+    if (priceRow.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO token_price (id, price, total_supply, circulating_supply, burned_total, updated_at)
+         VALUES (gen_random_uuid(), 0.0000001, $1, $1, 0, NOW())`,
+        [String(TOTAL_GENESIS_SUPPLY)]
+      );
+    } else {
+      await pool.query(
+        `UPDATE token_price SET total_supply = $1, updated_at = NOW() WHERE id = $2`,
+        [String(TOTAL_GENESIS_SUPPLY), priceRow.rows[0].id]
+      );
+    }
+
+    if (inserted > 0) {
+      console.log(`[seed] Genesis allocations written for ${inserted} reserved wallet(s) — ${TOTAL_GENESIS_SUPPLY.toLocaleString()} GYDS total`);
+    }
+  } catch (err: any) {
+    console.warn("[seed] Genesis allocation seed error:", err.message);
+  }
+}
