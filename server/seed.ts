@@ -1,5 +1,7 @@
 import { pool } from "./db";
 import bcrypt from "bcryptjs";
+import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY } from "./reservedWallets";
+
 
 // ─── Founder wallet ────────────────────────────────────────────────────────────
 // This address is granted admin + founder roles on every startup.
