@@ -2,11 +2,12 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
+import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { pool as pgPool } from "./db";
+import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY, isReservedAddress, FOUNDER_WALLET_ADDRESS } from "./reservedWallets";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { discordNodeDown, discordLargeBridgeTransfer, discordNewGovernanceProposal } from "./discord";
@@ -2701,6 +2702,136 @@ export function registerRoutes(app: Express) {
       res.status(500).json({ ok: false, error: e.message });
     }
   });
+
+  // ── Treasury wallets (founder + reserved) ──────────────────────────────────
+  // Balances are derived from PostgreSQL: confirmed token_operations (genesis
+  // premine, mints, burns) plus confirmed GYDS transactions in/out.
+  async function reservedWalletBalances() {
+    const addresses = RESERVED_WALLETS.map((w) => w.address.toLowerCase());
+
+    const ops = await pgPool.query(
+      `SELECT LOWER(wallet_address) AS addr, operation_type, SUM(amount::numeric) AS total
+         FROM token_operations
+        WHERE status = 'confirmed' AND LOWER(wallet_address) = ANY($1::text[])
+        GROUP BY 1, 2`,
+      [addresses]
+    );
+
+    const txs = await pgPool.query(
+      `SELECT LOWER(from_address) AS from_addr, LOWER(to_address) AS to_addr,
+              amount::numeric AS amount, COALESCE(fee,0)::numeric AS fee
+         FROM transactions
+        WHERE status = 'confirmed'
+          AND UPPER(COALESCE(token_symbol,'GYD')) = 'GYDS'
+          AND (LOWER(from_address) = ANY($1::text[]) OR LOWER(to_address) = ANY($1::text[]))`,
+      [addresses]
+    );
+
+    const balances: Record<string, number> = {};
+    for (const a of addresses) balances[a] = 0;
+
+    for (const row of ops.rows as any[]) {
+      const amt = Number(row.total ?? 0);
+      const t = String(row.operation_type);
+      if (t === "premine_gyds" || t === "mint_gyds" || t === "mint" || t === "bridge_mint_gyds") {
+        balances[row.addr] = (balances[row.addr] ?? 0) + amt;
+      } else if (t === "burn_gyds" || t === "burn" || t === "bridge_burn_gyds") {
+        balances[row.addr] = (balances[row.addr] ?? 0) - amt;
+      }
+    }
+
+    for (const tx of txs.rows as any[]) {
+      const amount = Number(tx.amount ?? 0);
+      const fee = Number(tx.fee ?? 0);
+      if (tx.from_addr in balances) balances[tx.from_addr] -= amount + fee;
+      if (tx.to_addr in balances) balances[tx.to_addr] += amount;
+    }
+
+    return RESERVED_WALLETS.map((w) => ({
+      ...w,
+      address: w.address.toLowerCase(),
+      balance: Math.max(0, balances[w.address.toLowerCase()] ?? 0),
+    }));
+  }
+
+  app.get("/api/admin/treasury/wallets", requireAdmin, async (_req, res) => {
+    try {
+      const wallets = await reservedWalletBalances();
+      res.json({
+        ok: true,
+        totalSupply: TOTAL_GENESIS_SUPPLY,
+        wallets,
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.get("/api/admin/treasury/transfers", requireAdmin, async (_req, res) => {
+    try {
+      const addresses = RESERVED_WALLETS.map((w) => w.address.toLowerCase());
+      const { rows } = await pgPool.query(
+        `SELECT id, from_address AS "fromAddress", to_address AS "toAddress",
+                amount::numeric AS amount, COALESCE(fee,0)::numeric AS fee,
+                tx_hash AS "txHash", status, token_symbol AS "tokenSymbol",
+                created_at AS "createdAt", confirmed_at AS "confirmedAt"
+           FROM transactions
+          WHERE LOWER(from_address) = ANY($1::text[]) OR LOWER(to_address) = ANY($1::text[])
+          ORDER BY created_at DESC
+          LIMIT 100`,
+        [addresses]
+      );
+      res.json({ ok: true, transfers: rows });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // POST admin — move GYDS between the founder and reserved wallets.
+  app.post("/api/admin/treasury/transfer", requireAdmin, async (req, res) => {
+    try {
+      const from = String(req.body?.from ?? "").toLowerCase().trim();
+      const to = String(req.body?.to ?? "").toLowerCase().trim();
+      const amount = Number(req.body?.amount ?? 0);
+
+      if (!isReservedAddress(from)) return res.status(400).json({ ok: false, error: "Sender must be a treasury wallet" });
+      if (!/^0x[a-f0-9]{40}$/.test(to)) return res.status(400).json({ ok: false, error: "Invalid recipient address" });
+      if (from === to) return res.status(400).json({ ok: false, error: "Sender and recipient must differ" });
+      if (!(amount > 0)) return res.status(400).json({ ok: false, error: "Amount must be greater than 0" });
+
+      const wallets = await reservedWalletBalances();
+      const sender = wallets.find((w) => w.address === from)!;
+      if (sender.balance < amount) {
+        return res.status(400).json({ ok: false, error: `Insufficient balance — ${sender.name} holds ${sender.balance} GYDS` });
+      }
+
+      const txHash = "0x" + crypto.randomBytes(32).toString("hex");
+      const userId = (req.user as any)?.id ?? null;
+
+      const { rows } = await pgPool.query(
+        `INSERT INTO transactions
+           (id, from_address, to_address, amount, fee, tx_hash, status, user_id, token_symbol, network, created_at, confirmed_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, 0, $4, 'confirmed', $5, 'GYDS', 'mainnet', NOW(), NOW())
+         RETURNING id, tx_hash AS "txHash"`,
+        [from, to, String(amount), txHash, userId]
+      );
+
+      // Mirror the move into the in-memory balance trie so node RPC reads agree.
+      try {
+        const wei = BigInt(Math.round(amount * 1e18));
+        for (const net of ["mainnet", "testnet", "devnet"] as const) {
+          debitAddress(net, from, "GYDS", wei);
+          creditAddress(net, to, "GYDS", wei);
+        }
+      } catch { /* trie mirroring is best-effort */ }
+
+      res.json({ ok: true, txHash: rows[0].txHash, from, to, amount });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+
 
   // GET on-chain balance for an address from the in-memory balance trie
   app.get("/api/chain/balance/:address", requireAuth, async (req, res) => {
