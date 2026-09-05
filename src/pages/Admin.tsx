@@ -739,6 +739,7 @@ function LeaderboardReset({ toast }: { toast: any }) {
 
 const ADMIN_TABS = [
   { group: 'Overview', tabs: [
+    { value: 'operations', label: 'Operations' },
     { value: 'activity', label: 'Activity Feed' },
     { value: 'monitoring', label: 'Monitoring' },
     { value: 'health', label: 'Health' },
