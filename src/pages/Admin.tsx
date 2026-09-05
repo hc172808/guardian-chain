@@ -1057,7 +1057,12 @@ const AdminContent = () => {
           </Badge>
         </div>
 
+        <TabsContent value="operations">
+          <OperationsOverview />
+        </TabsContent>
+
         <TabsContent value="activity">
+
           <ActivityFeed />
         </TabsContent>
 
