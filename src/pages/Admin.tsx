@@ -49,6 +49,7 @@ import { FirewallManager } from '@/components/admin/FirewallManager';
 import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { CaptchaMonitorDashboard } from '@/components/admin/CaptchaMonitorDashboard';
+import { OperationsOverview } from '@/components/admin/OperationsOverview';
 import { CaptchaSecuritySettings } from '@/components/admin/CaptchaSecuritySettings';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 import { TokenManager } from '@/components/admin/TokenManager';
@@ -739,6 +740,7 @@ function LeaderboardReset({ toast }: { toast: any }) {
 
 const ADMIN_TABS = [
   { group: 'Overview', tabs: [
+    { value: 'operations', label: 'Operations' },
     { value: 'activity', label: 'Activity Feed' },
     { value: 'monitoring', label: 'Monitoring' },
     { value: 'health', label: 'Health' },
@@ -1056,7 +1058,12 @@ const AdminContent = () => {
           </Badge>
         </div>
 
+        <TabsContent value="operations">
+          <OperationsOverview />
+        </TabsContent>
+
         <TabsContent value="activity">
+
           <ActivityFeed />
         </TabsContent>
 
