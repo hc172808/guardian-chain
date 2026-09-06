@@ -215,3 +215,10 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 - [x] **Endpoints** — `GET/PUT /api/auth/captcha/settings`, `POST /api/auth/captcha/settings/reset`, `POST /api/auth/captcha/attack-mode` (admin/founder only).
 - [x] **Server-side feature flag for attack conditions** — failure signals feed an attack detector; when the threshold trips (or an admin forces it), the offline fallback is disabled server-side (`isFallbackAllowed()`), while server-side verification keeps working whenever the API is reachable. `CaptchaWidget` honours the flag via `fallbackAllowed` on `/api/auth/captcha` (cached for offline cases) and shows a lockdown message instead of issuing a local challenge.
 - [x] **Chain ID migration 13370 → 198282** (hex `0x343A` → `0x3068a`) across 131 files: Go node configs/genesis, Solidity + Hardhat, docker/portainer stacks, install scripts, edge functions, server RPC config, frontend network config and docs.
+
+---
+
+## ✅ 2026-09-06 — Admin treasury wallet screen
+
+- [x] **Treasury Wallets tab** — `src/components/admin/TreasuryWallets.tsx`, wired into Admin → Tokens & Finance. Shows the founder + 5 reserved genesis wallets with live GYDS balances vs allocation, a send form (source wallet picker, recipient, amount, quick-fill buttons for other treasury wallets, client + server balance check) and a transaction-history table with CSV export.
+- [x] Backed by existing `GET /api/admin/treasury/wallets`, `GET /api/admin/treasury/transfers`, `POST /api/admin/treasury/transfer` (admin/founder only; mirrors transfers into the balance trie).
