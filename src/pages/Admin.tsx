@@ -50,6 +50,7 @@ import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { CaptchaMonitorDashboard } from '@/components/admin/CaptchaMonitorDashboard';
 import { OperationsOverview } from '@/components/admin/OperationsOverview';
+import { TreasuryWallets } from '@/components/admin/TreasuryWallets';
 import { CaptchaSecuritySettings } from '@/components/admin/CaptchaSecuritySettings';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
 import { TokenManager } from '@/components/admin/TokenManager';
@@ -755,6 +756,7 @@ const ADMIN_TABS = [
     { value: 'github', label: 'GitHub' },
   ]},
   { group: 'Tokens & Finance', tabs: [
+    { value: 'treasury-wallets', label: 'Treasury Wallets' },
     { value: 'tokens', label: 'Burn / Mint' },
     { value: 'stablecoin', label: 'GYD / GYDS' },
     { value: 'token-pricing', label: 'Token Pricing' },
@@ -1060,6 +1062,10 @@ const AdminContent = () => {
 
         <TabsContent value="operations">
           <OperationsOverview />
+        </TabsContent>
+
+        <TabsContent value="treasury-wallets">
+          <TreasuryWallets />
         </TabsContent>
 
         <TabsContent value="activity">
