@@ -222,3 +222,18 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 
 - [x] **Treasury Wallets tab** — `src/components/admin/TreasuryWallets.tsx`, wired into Admin → Tokens & Finance. Shows the founder + 5 reserved genesis wallets with live GYDS balances vs allocation, a send form (source wallet picker, recipient, amount, quick-fill buttons for other treasury wallets, client + server balance check) and a transaction-history table with CSV export.
 - [x] Backed by existing `GET /api/admin/treasury/wallets`, `GET /api/admin/treasury/transfers`, `POST /api/admin/treasury/transfer` (admin/founder only; mirrors transfers into the balance trie).
+
+---
+
+## 🔜 2026-09-06 — Open requests (queued)
+
+- [ ] **Run the genesis seed against the live PostgreSQL database** — must be executed on the user's own server (`seedGenesisAllocations()` runs on boot in `server/seed.ts`). Then verify founder wallet shows real GYDS and can send to a reserved wallet via Admin → Treasury Wallets.
+- [ ] **PostgreSQL connection guide for production settings** — document `DATABASE_URL` wiring in `public/scripts/.env.production.template` + `public/docs/SERVER_INSTALL_REQUIREMENTS.md` so gydschain points at the real PostgreSQL/pgAdmin instance instead of the paused database.
+- [ ] **Wallet page: mint / transfer / burn screens** — consolidate into `src/pages/Wallet.tsx` with live on-chain balance polling and a transaction-history table.
+- [ ] **Admin wallet page** — balances + send form + history as its own admin tab (partially covered by Treasury Wallets; needs per-user wallet view).
+- [ ] **Wire wallet login to a real blockchain node** — signing and balance updates on-chain via `GYDS_RPC_URL`, not database-only. Requires the Go node stack running on the user's server.
+
+### Credentials (default bootstrap accounts, seeded on every startup)
+- Founder — username `founder`, password from `FOUNDER_PASSWORD` env (default `password`)
+- Admin — username `admin`, password from `ADMIN_PASSWORD` env (default `password`)
+- Change these immediately by setting `FOUNDER_PASSWORD` / `ADMIN_PASSWORD` in `.env` and restarting.
