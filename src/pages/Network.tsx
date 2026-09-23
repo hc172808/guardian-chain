@@ -17,11 +17,9 @@ import {
   Info
 } from 'lucide-react';
 import { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
 import {
   NETWORK_CONFIG,
   TESTNET_CONFIG,
-  DEVNET_CONFIG,
   NETWORK_BY_KIND,
   NetworkKind,
   addNetworkToWallet,
@@ -37,8 +35,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const NetworkPage = () => {
   const { toast } = useToast();
-  const { isAdmin, isFounder } = useAuth();
-  const showDevnet = isAdmin || isFounder;
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
 
@@ -101,7 +97,6 @@ const NetworkPage = () => {
   const accent: Record<NetworkKind, { bg: string; fg: string; label: string }> = {
     mainnet: { bg: 'bg-primary/20',     fg: 'text-primary',     label: 'Mainnet' },
     testnet: { bg: 'bg-amber-500/20',   fg: 'text-amber-400',   label: 'Testnet' },
-    devnet:  { bg: 'bg-violet-500/20',  fg: 'text-violet-400',  label: 'Devnet'  },
   };
 
   const NetworkCard = ({
@@ -225,7 +220,7 @@ const NetworkPage = () => {
                 <p className="font-medium text-emerald-300" data-testid="text-wallet-detected">
                   Detected: {detectedWalletName()}
                 </p>
-                <p className="text-xs text-muted-foreground">Use the buttons below to add Mainnet, Testnet, or Devnet to it.</p>
+                <p className="text-xs text-muted-foreground">Use the buttons below to add Mainnet or Testnet to it.</p>
               </div>
             </div>
           </GlassCard>
@@ -327,11 +322,6 @@ const NetworkPage = () => {
             <Button size="sm" variant="outline" onClick={() => handleAddNetwork('testnet')} disabled={isAdding} className="gap-2 h-8" data-testid="button-quick-add-testnet">
               <Wallet className="h-3.5 w-3.5" /> Testnet
             </Button>
-            {showDevnet && (
-              <Button size="sm" variant="outline" onClick={() => handleAddNetwork('devnet')} disabled={isAdding} className="gap-2 h-8 border-violet-500/40 text-violet-300 hover:bg-violet-500/10" data-testid="button-quick-add-devnet">
-                <Wallet className="h-3.5 w-3.5" /> Devnet
-              </Button>
-            )}
           </div>
         </GlassCard>
 
@@ -340,12 +330,10 @@ const NetworkPage = () => {
           <TabsList className="mb-4">
             <TabsTrigger value="mainnet" data-testid="tab-mainnet">Mainnet</TabsTrigger>
             <TabsTrigger value="testnet" data-testid="tab-testnet">Testnet</TabsTrigger>
-            {showDevnet && <TabsTrigger value="devnet" data-testid="tab-devnet">Devnet</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="mainnet"><NetworkCard kind="mainnet" /></TabsContent>
           <TabsContent value="testnet"><NetworkCard kind="testnet" /></TabsContent>
-          {showDevnet && <TabsContent value="devnet"><NetworkCard kind="devnet" /></TabsContent>}
         </Tabs>
 
         {/* Manual Configuration */}

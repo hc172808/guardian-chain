@@ -51,7 +51,7 @@ export const MainnetPromotion = () => {
 
     const states = await readAllTokenNetworkStates();
     const built: TokenRow[] = tokens.map((t: any) => {
-      const state = states.get(t.id) ?? { network_type: 'devnet' as const, mainnet_promoted_at: null, market_cap_usd: 0, extra_authorities: {} };
+      const state = states.get(t.id) ?? { network_type: 'testnet' as const, mainnet_promoted_at: null, market_cap_usd: 0, extra_authorities: {} };
       const mc = computeMarketCapUsd(t, pricing.mainnet_promotion.gyds_price_usd);
       const v = evaluateEligibility(t, state, mc, pricing.mainnet_promotion);
       return {
@@ -100,7 +100,7 @@ export const MainnetPromotion = () => {
     }
   };
 
-  const devnet  = rows.filter((r) => r.state.network_type === 'devnet');
+  const testnet  = rows.filter((r) => r.state.network_type === 'testnet');
   const mainnet = rows.filter((r) => r.state.network_type === 'mainnet');
 
   return (
@@ -112,7 +112,7 @@ export const MainnetPromotion = () => {
             <h3 className="font-semibold text-lg">Mainnet Promotion</h3>
             <p className="text-sm text-muted-foreground">
               {promo?.enabled
-                ? `Auto: ${promo.min_age_days}d on devnet AND ≥ $${promo.min_market_cap_usd.toLocaleString()} market cap.`
+                 ? `Auto: ${promo.min_age_days}d on testnet AND ≥ $${promo.min_market_cap_usd.toLocaleString()} market cap.`
                 : 'Auto-promotion is OFF — manually promote tokens below.'}
             </p>
           </div>
@@ -130,7 +130,7 @@ export const MainnetPromotion = () => {
 
       <div className="grid grid-cols-3 gap-4 mb-6">
         <Stat icon={<Network className="h-4 w-4" />}    label="Total Tokens" value={rows.length} />
-        <Stat icon={<Clock className="h-4 w-4" />}      label="On Devnet"    value={devnet.length} />
+         <Stat icon={<Clock className="h-4 w-4" />}      label="On Testnet"    value={testnet.length} />
         <Stat icon={<CheckCircle2 className="h-4 w-4 text-emerald-400" />} label="On Mainnet" value={mainnet.length} />
       </div>
 
@@ -140,8 +140,8 @@ export const MainnetPromotion = () => {
         <div className="text-center py-12 text-muted-foreground">No tokens have been created yet.</div>
       ) : (
         <div className="space-y-2">
-          <SectionTitle>Devnet ({devnet.length})</SectionTitle>
-          {devnet.map((row) => (
+           <SectionTitle>Testnet ({testnet.length})</SectionTitle>
+           {testnet.map((row) => (
             <TokenRowView
               key={row.id}
               row={row}
@@ -185,7 +185,7 @@ const TokenRowView = ({
         <div className="flex items-center gap-2 flex-wrap">
           <p className="font-medium truncate">{row.name} ({row.symbol})</p>
           <Badge variant={isMainnet ? 'default' : 'outline'} className={isMainnet ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : ''}>
-            {isMainnet ? 'MAINNET' : 'DEVNET'}
+             {isMainnet ? 'MAINNET' : 'TESTNET'}
           </Badge>
           {!isMainnet && row.eligible && <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40">Eligible</Badge>}
         </div>

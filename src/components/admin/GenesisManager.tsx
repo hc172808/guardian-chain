@@ -52,7 +52,7 @@ export function GenesisManager() {
   const [newPeerEnode, setNewPeerEnode] = useState('');
   const [newPeerLabel, setNewPeerLabel] = useState('');
   const [fetchingEnode, setFetchingEnode] = useState(false);
-  const [enodeNetwork, setEnodeNetwork] = useState<'mainnet' | 'testnet' | 'devnet'>('mainnet');
+  const [enodeNetwork, setEnodeNetwork] = useState<'mainnet' | 'testnet'>('mainnet');
 
   useEffect(() => { loadConfig(); }, []);
 
@@ -242,7 +242,6 @@ export function GenesisManager() {
             <SelectContent>
               <SelectItem value="mainnet">Mainnet</SelectItem>
               <SelectItem value="testnet">Testnet</SelectItem>
-              <SelectItem value="devnet">Devnet</SelectItem>
             </SelectContent>
           </Select>
           <Button size="sm" onClick={fetchLocalEnode} disabled={fetchingEnode} className="gap-1.5 shrink-0">

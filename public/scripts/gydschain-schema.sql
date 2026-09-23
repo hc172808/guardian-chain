@@ -1042,7 +1042,7 @@ CREATE TABLE public.tokens (
     mint_locked boolean DEFAULT false NOT NULL,
     address text NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
-    network_type text DEFAULT 'devnet'::text NOT NULL,
+    network_type text DEFAULT 'testnet'::text NOT NULL,
     mainnet_promoted_at timestamp without time zone,
     market_cap_usd numeric DEFAULT '0'::numeric NOT NULL,
     extra_authorities jsonb DEFAULT '{}'::jsonb NOT NULL,

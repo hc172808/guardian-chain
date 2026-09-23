@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GydsChain Developer Tools Deployment v2.0
 # Deploys: Testnet validator, development environment
-# Domain: testnet-rpc.netlifegy.com | Testnet Chain ID: 13371
+# Domain: testnet-rpc.netlifegy.com | Testnet Chain ID: 198281
 set -e
 
 RED='\033[0;31m'
@@ -12,7 +12,7 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════╗"
 echo "║     GydsChain DevTools Deployment v2.0                    ║"
-echo "║     testnet-rpc.netlifegy.com | Chain ID: 13371           ║"
+echo "║     testnet-rpc.netlifegy.com | Chain ID: 198281          ║"
 echo "╚═══════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -37,7 +37,7 @@ echo -e "${GREEN}✅ DevTools deployed!${NC}"
 echo ""
 echo -e "${CYAN}Services:${NC}"
 echo -e "  Testnet RPC:     http://localhost:9546"
-echo -e "  Testnet Chain ID: 13371"
+echo -e "  Testnet Chain ID: 198281"
 echo ""
 echo -e "${CYAN}Public Endpoint:${NC}"
 echo -e "  testnet-rpc.netlifegy.com"
@@ -45,7 +45,7 @@ echo ""
 echo -e "${CYAN}Connect wallet:${NC}"
 echo -e "  Network:   GydsChain Testnet"
 echo -e "  RPC URL:   https://testnet-rpc.netlifegy.com"
-echo -e "  Chain ID:  13371"
+echo -e "  Chain ID:  198281"
 echo -e "  Symbol:    GYDS"
 echo ""
 echo -e "${CYAN}Manage:${NC}"

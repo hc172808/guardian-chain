@@ -214,7 +214,7 @@ export const TokenFactory = () => {
 
       const tokenId = newToken?.id;
 
-      // Persist devnet network state + extended authorities (single source of truth
+      // Persist testnet network state + extended authorities (single source of truth
       // until the network_type / extra_authorities columns are migrated upstream).
       if (tokenId) {
         const extra: Record<string, boolean | number> = {};
@@ -229,7 +229,7 @@ export const TokenFactory = () => {
           pricing.mainnet_promotion.gyds_price_usd,
         );
         await writeTokenNetworkState(tokenId, {
-          network_type: 'devnet',
+          network_type: 'testnet',
           mainnet_promoted_at: null,
           market_cap_usd: initialMc,
           extra_authorities: extra,
@@ -273,8 +273,8 @@ export const TokenFactory = () => {
       setUserGydsBalance(gydsBalance);
 
       toast({
-        title: `Token Created on Devnet!`,
-        description: `${params.name} (${params.symbol}) is live on devnet. It will auto-promote to mainnet after ${pricing.mainnet_promotion.min_age_days} days once it reaches $${pricing.mainnet_promotion.min_market_cap_usd.toLocaleString()} market cap.`,
+        title: `Token Created on Testnet!`,
+        description: `${params.name} (${params.symbol}) is live on testnet. It will auto-promote to mainnet after ${pricing.mainnet_promotion.min_age_days} days once it reaches $${pricing.mainnet_promotion.min_market_cap_usd.toLocaleString()} market cap.`,
       });
       setDialogOpen(false);
       resetForm();
@@ -603,7 +603,7 @@ export const TokenFactory = () => {
             <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
               <Rocket className="h-4 w-4 text-amber-500 shrink-0" />
               <p className="text-xs text-muted-foreground">
-                Your token launches on <span className="font-semibold text-amber-400">DEVNET</span>.
+                Your token launches on <span className="font-semibold text-amber-400">TESTNET</span>.
                 It will auto-promote to <span className="font-semibold">MAINNET</span> after{' '}
                 <span className="font-semibold">{pricing.mainnet_promotion.min_age_days} days</span> once it reaches{' '}
                 <span className="font-semibold">${pricing.mainnet_promotion.min_market_cap_usd.toLocaleString()}</span> market cap.

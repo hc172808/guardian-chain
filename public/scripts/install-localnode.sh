@@ -15,7 +15,7 @@
 #    ENABLE_MINING=false          disable mining on this node
 #    NODE_TYPE=fullnode            default; also: litenode, rpc, validator
 #    REPO_URL=https://...          override the guardian-chain source repo
-#    CHAIN_ID=198282                mainnet; testnet=13371  devnet=13372
+#    CHAIN_ID=198282                mainnet; testnet=198281
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 

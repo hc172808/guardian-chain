@@ -242,13 +242,18 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       address             TEXT NOT NULL,
       token_standard      TEXT DEFAULT 'GRC-20' NOT NULL,
       is_active           BOOLEAN DEFAULT true NOT NULL,
-      network_type        TEXT DEFAULT 'devnet' NOT NULL,
+      network_type        TEXT DEFAULT 'testnet' NOT NULL,
       mainnet_promoted_at TIMESTAMPTZ,
       market_cap_usd      NUMERIC DEFAULT '0' NOT NULL,
       extra_authorities   JSONB DEFAULT '{}' NOT NULL,
       created_at          TIMESTAMPTZ DEFAULT NOW(),
       updated_at          TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+  // Devnet was removed from the supported network set. Existing token rows
+  // are retained on testnet rather than becoming inaccessible.
+  await run("tokens-remove-devnet", `
+    UPDATE tokens SET network_type = 'testnet' WHERE network_type = 'devnet'
   `);
 
   await run("transactions", `

@@ -39,8 +39,8 @@ func DefaultChainConfig() *ChainConfig {
 // TestnetChainConfig returns the GYDS testnet configuration
 func TestnetChainConfig() *ChainConfig {
         return &ChainConfig{
-                ChainID:          13371,
-                NetworkID:        13371,
+                ChainID:          198281,
+                NetworkID:        198281,
                 ProtocolVersion:  1,
                 ChainName:        "GYDS Testnet",
                 Symbol:           "tGYDS",

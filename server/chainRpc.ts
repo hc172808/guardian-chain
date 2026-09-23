@@ -8,7 +8,6 @@ import crypto from "crypto";
 // All local node ports in priority order (rpc → fullnode → lite → boost → validator → genesis → bootnode)
 // mainnet ports: 8545,8565,8555,8575,8585,8590,8595
 // testnet ports: 8600,8602,8601,8603,8604,8605,8606
-// devnet  ports: 8650,8652,8651,8653,8654,8655,8656
 const LOCAL_FALLBACK_PORTS = [8545, 8565, 8555, 8575, 8585, 8590, 8595];
 
 function getRpcEndpoints(): string[] {

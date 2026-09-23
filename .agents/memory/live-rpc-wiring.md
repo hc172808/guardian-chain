@@ -10,7 +10,7 @@ description: How the app connects to localhost blockchain nodes instead of mock 
 
 ## Key facts
 - `server/chainRpc.ts` `getRpcEndpoints()` returns: GYDS_RPC_URL first, then all mainnet local ports (8545, 8565, 8555, 8575, 8585, 8590, 8595) as fallbacks.
-- Managed test nodes: mainnet (8545–8595), testnet (8600–8606), devnet (8650–8656). State persisted in `test_node_state` DB table (`should_run` column). Mainnet nodes were disabled — enabled via: `UPDATE test_node_state SET should_run=true WHERE id LIKE 'mainnet:%'`.
+- Managed test nodes: mainnet (8545–8595) and testnet (8600–8606). State persists in the `test_node_state` DB table (`should_run` column); devnet is retired.
 - `/api/rpc` proxy now tries managed nodes first, then GYDS_RPC_URL, then all local mainnet ports — never returns 503 if any port is up.
 - `/api/rpc/balance` tries managed nodes, then GYDS_RPC_URL, then DB-registered online nodes.
 - `/api/network-stats`: probeRpc() helper queries managed test node → GYDS_RPC_URL → local port scan; removed fake `tps=1250` and `tokenPrice=0.0847` fallbacks; returns `null` for posFinality/avgBlockTime when chain is offline.

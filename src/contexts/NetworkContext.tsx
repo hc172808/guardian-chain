@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
-export type NetworkKind = 'mainnet' | 'testnet' | 'devnet';
-export const ALL_NETWORKS: NetworkKind[] = ['mainnet', 'testnet', 'devnet'];
+export type NetworkKind = 'mainnet' | 'testnet';
+export const ALL_NETWORKS: NetworkKind[] = ['mainnet', 'testnet'];
 
 interface NetworkContextValue {
   activeNetworks: Set<NetworkKind>;     // which networks are "on" (visible)
@@ -97,5 +97,4 @@ export const useNetwork = () => useContext(NetworkContext);
 export const NETWORK_BADGE: Record<NetworkKind, { label: string; dot: string; border: string; bg: string; text: string }> = {
   mainnet: { label: 'Mainnet', dot: 'bg-emerald-400', border: 'border-emerald-400/50', bg: 'bg-emerald-400/10', text: 'text-emerald-300' },
   testnet: { label: 'Testnet', dot: 'bg-yellow-400',  border: 'border-yellow-400/50',  bg: 'bg-yellow-400/10',  text: 'text-yellow-300'  },
-  devnet:  { label: 'Devnet',  dot: 'bg-blue-400',    border: 'border-blue-400/50',    bg: 'bg-blue-400/10',    text: 'text-blue-300'    },
 };

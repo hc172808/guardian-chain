@@ -71,7 +71,7 @@ export const TokenPricingManager = () => {
           <div className="p-2 rounded-lg bg-primary/20"><Coins className="h-5 w-5 text-primary" /></div>
           <div>
             <h3 className="font-semibold text-lg">Token Factory — Base Fees</h3>
-            <p className="text-sm text-muted-foreground">Charged in GYDS for every new token. New tokens always launch on devnet.</p>
+             <p className="text-sm text-muted-foreground">Charged in GYDS for every new token. New tokens launch on testnet before promotion to mainnet.</p>
           </div>
         </div>
 
@@ -184,9 +184,9 @@ export const TokenPricingManager = () => {
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-primary/20"><Rocket className="h-5 w-5 text-primary" /></div>
           <div>
-            <h3 className="font-semibold text-lg">Devnet → Mainnet Promotion</h3>
+             <h3 className="font-semibold text-lg">Testnet → Mainnet Promotion</h3>
             <p className="text-sm text-muted-foreground">
-              Tokens launch on devnet. They are auto-promoted to mainnet once they meet BOTH the age and market-cap thresholds.
+               Tokens launch on testnet. They are auto-promoted to mainnet once they meet BOTH the age and market-cap thresholds.
             </p>
           </div>
         </div>
@@ -194,7 +194,7 @@ export const TokenPricingManager = () => {
         <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/40 mb-4">
           <div>
             <p className="font-medium">Auto-Promotion</p>
-            <p className="text-xs text-muted-foreground">When off, tokens stay on devnet until you promote them manually.</p>
+             <p className="text-xs text-muted-foreground">When off, tokens stay on testnet until you promote them manually.</p>
           </div>
           <Switch
             data-testid="switch-promotion-enabled"
@@ -205,7 +205,7 @@ export const TokenPricingManager = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label>Minimum Age on Devnet (days)</Label>
+             <Label>Minimum Age on Testnet (days)</Label>
             <Input
               data-testid="input-min-age-days"
               type="number" min={0}

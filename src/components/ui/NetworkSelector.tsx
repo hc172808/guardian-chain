@@ -1,5 +1,4 @@
 import { useNetwork, ALL_NETWORKS, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
-import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { Power, PowerOff, Globe } from 'lucide-react';
 import { Button } from './button';
@@ -11,10 +10,7 @@ interface NetworkSelectorProps {
 
 export const NetworkSelector = ({ showToggles = true, className }: NetworkSelectorProps) => {
   const { selectedNetwork, setSelectedNetwork, activeNetworks, toggleNetwork, enableAll, disableAll } = useNetwork();
-  const { isAdmin, isFounder } = useAuth();
-  const visibleNetworks: NetworkKind[] = (isAdmin || isFounder)
-    ? ALL_NETWORKS
-    : ALL_NETWORKS.filter(n => n !== 'devnet');
+  const visibleNetworks: NetworkKind[] = ALL_NETWORKS;
   const allOn = activeNetworks.size === visibleNetworks.length;
 
   return (

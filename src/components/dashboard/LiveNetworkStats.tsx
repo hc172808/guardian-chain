@@ -16,7 +16,7 @@ import { api } from '@/lib/api';
 import { useNetwork, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
 
 // Chain IDs per network
-const NET_CHAIN: Record<NetworkKind, number> = { mainnet: 198282, testnet: 13371, devnet: 13372 };
+const NET_CHAIN: Record<NetworkKind, number> = { mainnet: 198282, testnet: 198281 };
 
 interface NetworkStatsData {
   blockHeight:      number;
@@ -54,7 +54,7 @@ export const LiveNetworkStats = () => {
 
   const fetchStats = useCallback(async () => {
     try {
-      // All three fetches pass the selected network so the server reads the
+      // Both fetches pass the selected network so the server reads the
       // correct chain state and filters the DB by the right network label.
       const [netStatsData, validatorsData, minersData] = await Promise.all([
         api.get(`/api/network-stats?network=${network}`).catch(() => null),

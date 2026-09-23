@@ -80,7 +80,7 @@ const TokensPage = () => {
 
       // Also hide tokens whose network is currently toggled off
       const filtered = data.filter(t => {
-        const net = (t as any).networkType ?? (t as any).network_type ?? 'devnet';
+        const net = (t as any).networkType ?? (t as any).network_type ?? 'testnet';
         if (!activeNetworks.has(net as any)) return false;
         return t.is_active || (user && t.creator_id === user.id);
       });
@@ -205,11 +205,11 @@ const TokensPage = () => {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="font-semibold">{token.name}</h3>
                                 {(() => {
-                                  const net = networkStates.get(token.id)?.network_type ?? 'devnet';
+                                   const net = networkStates.get(token.id)?.network_type ?? 'testnet';
                                   return net === 'mainnet' ? (
                                     <Badge className="text-xs bg-emerald-500/20 text-emerald-300 border-emerald-500/40" data-testid={`badge-network-${token.id}`}>MAINNET</Badge>
                                   ) : (
-                                    <Badge className="text-xs bg-amber-500/20 text-amber-300 border-amber-500/40" data-testid={`badge-network-${token.id}`}>DEVNET</Badge>
+                                    <Badge className="text-xs bg-amber-500/20 text-amber-300 border-amber-500/40" data-testid={`badge-network-${token.id}`}>TESTNET</Badge>
                                   );
                                 })()}
                                 {!token.is_active && <Badge variant="destructive" className="text-xs">Blocked</Badge>}

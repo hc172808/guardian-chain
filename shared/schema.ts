@@ -165,7 +165,7 @@ export const tokens = pgTable("tokens", {
   address: text("address").notNull(),
   tokenStandard: text("token_standard").notNull().default("GRC-20"),
   isActive: boolean("is_active").notNull().default(true),
-  networkType: text("network_type").notNull().default("devnet"),
+  networkType: text("network_type").notNull().default("testnet"),
   mainnetPromotedAt: timestamp("mainnet_promoted_at"),
   marketCapUsd: numeric("market_cap_usd").notNull().default("0"),
   extraAuthorities: jsonb("extra_authorities").notNull().default(sql`'{}'::jsonb`),

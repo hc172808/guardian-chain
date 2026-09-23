@@ -59,7 +59,7 @@
 - [x] PremineManager "Download from DB" button
 - [x] Geth-based node setup scripts (`public/docker/`, `public/scripts/`)
 - [x] `GET /scripts/:scriptName` — serves bash scripts as `text/plain`
-- [x] Chain IDs: mainnet=198282, testnet=13371, devnet=13372
+- [x] Chain IDs: mainnet=198282, testnet=198281
 
 ### Mining
 - [x] Mining pool backend (`server/miningPool.ts`) with sessions, jobs, share submission
@@ -71,7 +71,7 @@
 
 ### Test Node Manager
 - [x] 7 node types per network: rpc, lite, fullnode, boostnode, validator, genesis, bootnode
-- [x] 3 networks: mainnet (198282), testnet (13371), devnet (13372)
+- [x] 2 networks: mainnet (198282), testnet (198281)
 - [x] Start / Stop / Auto-boot toggle per node
 - [x] Per-node live logs panel (2s polling)
 - [x] Global node log file viewer with search + filter presets
@@ -101,7 +101,7 @@
 - [x] Icon URL: `https://app.netlifegy.com/icon.png`
 - [x] Install script `DASHBOARD_URL` default → `https://app.netlifegy.com`
 - [x] Mining setup guide URLs → `app.netlifegy.com`
-- [x] Subdomains unchanged: rpc., explorer., ws., vpn., testnet-rpc., devnet-rpc.
+- [x] Subdomains unchanged: rpc., explorer., ws., vpn., testnet-rpc.
 
 ---
 

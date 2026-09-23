@@ -30,7 +30,7 @@ interface SyncCheck {
   nodes: SyncResult[];
 }
 
-type Network  = 'mainnet' | 'testnet' | 'devnet';
+type Network  = 'mainnet' | 'testnet';
 type NodeType = 'rpc' | 'lite' | 'fullnode' | 'boostnode' | 'validator' | 'genesis' | 'bootnode';
 
 interface NodeStatus {
@@ -45,15 +45,13 @@ interface NodeStatus {
 type FullStatus = Record<Network, Record<NodeType, NodeStatus>>;
 
 const NODE_TYPES: NodeType[] = ['rpc', 'lite', 'fullnode', 'boostnode', 'validator', 'genesis', 'bootnode'];
-const NETWORKS:  Network[]   = ['mainnet', 'testnet', 'devnet'];
+const NETWORKS:  Network[]   = ['mainnet', 'testnet'];
 
 const NETWORK_CFG = {
   mainnet: { label: 'Mainnet', chainId: 198282, symbol: 'GYDS',  color: 'emerald', icon: '🌐',
     rpcUrl: 'https://rpc.netlifegy.com', explorerUrl: 'https://explorer.netlifegy.com' },
-  testnet: { label: 'Testnet', chainId: 13371, symbol: 'tGYDS', color: 'amber',   icon: '🧪',
+  testnet: { label: 'Testnet', chainId: 198281, symbol: 'tGYDS', color: 'amber',   icon: '🧪',
     rpcUrl: 'https://testnet-rpc.netlifegy.com', explorerUrl: 'https://testnet-explorer.netlifegy.com' },
-  devnet:  { label: 'Devnet',  chainId: 13372, symbol: 'dGYDS', color: 'blue',    icon: '🔧',
-    rpcUrl: 'https://devnet-rpc.netlifegy.com', explorerUrl: 'https://devnet-explorer.netlifegy.com' },
 };
 
 const NODE_META: Record<NodeType, { label: string; description: string; color: string; icon: any; badge?: string }> = {
@@ -567,7 +565,6 @@ const LOG_FILTER_PRESETS = [
   { label: 'Blocks',   value: 'Block #' },
   { label: 'Mainnet',  value: '[mainnet/' },
   { label: 'Testnet',  value: '[testnet/' },
-  { label: 'Devnet',   value: '[devnet/' },
   { label: 'RPC',      value: '/rpc]' },
   { label: 'Validator',value: '/validator]' },
 ];
@@ -822,7 +819,7 @@ function NodeSetupWizard({ onDone }: { onDone: () => void }) {
         </div>
         {/* Network selector */}
         <div className="flex gap-1">
-          {(['mainnet', 'testnet', 'devnet'] as Network[]).map(n => (
+          {(['mainnet', 'testnet'] as Network[]).map(n => (
             <button key={n} onClick={() => { if (!running) { setWizardNet(n); setSteps([]); setDone(false); } }}
               className={cn('px-2.5 py-1 rounded text-xs font-medium border transition-all',
                 wizardNet === n && !running
@@ -899,7 +896,6 @@ const EMPTY_NODE_STATUS: NodeStatus = { running: false, startedAt: null, port: 0
 const EMPTY_STATUS: FullStatus = {
   mainnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8545 }, lite: { ...EMPTY_NODE_STATUS, port: 8555 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8565 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8575 }, validator: { ...EMPTY_NODE_STATUS, port: 8585 }, genesis: { ...EMPTY_NODE_STATUS, port: 8590 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8595 } },
   testnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8600 }, lite: { ...EMPTY_NODE_STATUS, port: 8601 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8602 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8603 }, validator: { ...EMPTY_NODE_STATUS, port: 8604 }, genesis: { ...EMPTY_NODE_STATUS, port: 8605 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8606 } },
-  devnet:  { rpc: { ...EMPTY_NODE_STATUS, port: 8650 }, lite: { ...EMPTY_NODE_STATUS, port: 8651 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8652 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8653 }, validator: { ...EMPTY_NODE_STATUS, port: 8654 }, genesis: { ...EMPTY_NODE_STATUS, port: 8655 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8656 } },
 };
 
 export function TestNodeManager() {

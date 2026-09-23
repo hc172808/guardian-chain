@@ -1,4 +1,4 @@
-// Devnet → Mainnet auto-promotion engine.
+// Testnet → Mainnet auto-promotion engine.
 import { api } from '@/lib/api';
 import {
   AuthorityKey,
@@ -8,14 +8,14 @@ import {
 } from './tokenAuthorities';
 
 export interface TokenNetworkState {
-  network_type: 'devnet' | 'mainnet';
+  network_type: 'testnet' | 'mainnet';
   mainnet_promoted_at?: string | null;
   market_cap_usd: number;
   extra_authorities: Partial<Record<AuthorityKey, boolean | number>>;
 }
 
 const DEFAULT_STATE: TokenNetworkState = {
-  network_type: 'devnet',
+  network_type: 'testnet',
   mainnet_promoted_at: null,
   market_cap_usd: 0,
   extra_authorities: {},
@@ -39,7 +39,7 @@ export const readTokenNetworkState = async (tokenId: string): Promise<TokenNetwo
     if (!data?.config_value) return { ...DEFAULT_STATE };
     const v = data.config_value as any;
     return {
-      network_type: v.network_type === 'mainnet' ? 'mainnet' : 'devnet',
+      network_type: v.network_type === 'mainnet' ? 'mainnet' : 'testnet',
       mainnet_promoted_at: v.mainnet_promoted_at ?? null,
       market_cap_usd: Number(v.market_cap_usd) || 0,
       extra_authorities: v.extra_authorities ?? {},
@@ -56,7 +56,7 @@ export const readAllTokenNetworkStates = async (): Promise<Map<string, TokenNetw
       const id = row.config_key.replace('token_network_', '');
       const v = row.config_value;
       map.set(id, {
-        network_type: v?.network_type === 'mainnet' ? 'mainnet' : 'devnet',
+        network_type: v?.network_type === 'mainnet' ? 'mainnet' : 'testnet',
         mainnet_promoted_at: v?.mainnet_promoted_at ?? null,
         market_cap_usd: Number(v?.market_cap_usd) || 0,
         extra_authorities: v?.extra_authorities ?? {},
@@ -110,9 +110,9 @@ export const evaluateEligibility = (
   else if (!promo.enabled)              reason = 'Auto-promotion disabled by admin';
   else if (ageOk && capOk)             reason = 'Eligible — ready to promote';
   else if (!ageOk && !capOk)           reason = `Needs ${daysUntilEligible.toFixed(1)} more days and $${capUntilEligible.toLocaleString()} more market cap`;
-  else if (!ageOk)                     reason = `Needs ${daysUntilEligible.toFixed(1)} more days on devnet`;
+  else if (!ageOk)                     reason = `Needs ${daysUntilEligible.toFixed(1)} more days on testnet`;
   else                                  reason = `Needs $${capUntilEligible.toLocaleString()} more market cap`;
-  return { eligible: state.network_type === 'devnet' && promo.enabled && ageOk && capOk, reason, ageDays, marketCapUsd, daysUntilEligible, capUntilEligible };
+  return { eligible: state.network_type === 'testnet' && promo.enabled && ageOk && capOk, reason, ageDays, marketCapUsd, daysUntilEligible, capUntilEligible };
 };
 
 export interface SweepResult {

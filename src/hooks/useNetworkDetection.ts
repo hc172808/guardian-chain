@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { NETWORK_CONFIG, TESTNET_CONFIG, DEVNET_CONFIG } from '@/config/network';
+import { NETWORK_CONFIG, TESTNET_CONFIG } from '@/config/network';
 
-export type NetworkKind = 'mainnet' | 'testnet' | 'devnet' | 'external' | 'unknown';
+export type NetworkKind = 'mainnet' | 'testnet' | 'external' | 'unknown';
 
 interface NetworkInfo {
   chainId: number | null;
@@ -15,7 +15,6 @@ interface NetworkInfo {
 const GYDS_NETWORKS: Record<number, { name: string; kind: NetworkKind }> = {
   [NETWORK_CONFIG.chainId]: { name: NETWORK_CONFIG.chainName, kind: 'mainnet' },
   [TESTNET_CONFIG.chainId]: { name: TESTNET_CONFIG.chainName, kind: 'testnet' },
-  [DEVNET_CONFIG.chainId]:  { name: DEVNET_CONFIG.chainName,  kind: 'devnet'  },
 };
 
 const EXTERNAL_NETWORKS: Record<number, string> = {

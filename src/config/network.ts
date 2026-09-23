@@ -71,7 +71,7 @@ export async function applyNetworkOverrides(): Promise<void> {
 }
 
 // ── Network kinds ───────────────────────────────────────────────────────────
-export type NetworkKind = 'mainnet' | 'testnet' | 'devnet';
+export type NetworkKind = 'mainnet' | 'testnet';
 
 // Mainnet
 export const NETWORK_CONFIG = {
@@ -94,8 +94,8 @@ export const NETWORK_CONFIG = {
 
 // Testnet
 export const TESTNET_CONFIG = {
-  chainId: 13371,
-  chainIdHex: '0x343B',
+  chainId: 198281,
+  chainIdHex: '0x30689',
   chainName: 'GYDS Testnet',
   nativeCurrency: { name: 'Test GYDS', symbol: 'tGYDS', decimals: 18 },
   rpcUrls: {
@@ -107,25 +107,9 @@ export const TESTNET_CONFIG = {
   iconUrls: [] as string[],
 };
 
-// Devnet — for token launches before they're promoted to mainnet
-export const DEVNET_CONFIG = {
-  chainId: 13372,
-  chainIdHex: '0x343C',
-  chainName: 'GYDS Devnet',
-  nativeCurrency: { name: 'Dev GYDS', symbol: 'dGYDS', decimals: 18 },
-  rpcUrls: {
-    primary: 'https://devnet-rpc.netlifegy.com',
-    backup: [] as string[],
-    local: ['http://localhost:8548'],
-  },
-  blockExplorerUrls: ['https://devnet-explorer.netlifegy.com'],
-  iconUrls: [] as string[],
-};
-
 export const NETWORK_BY_KIND = {
   mainnet: NETWORK_CONFIG,
   testnet: TESTNET_CONFIG,
-  devnet: DEVNET_CONFIG,
 } as const;
 
 // Service endpoints
@@ -137,7 +121,6 @@ export const SERVICE_ENDPOINTS = {
   explorer: 'https://explorer.netlifegy.com',
   vpn: 'vpn.netlifegy.com',
   testnetRpc: 'https://testnet-rpc.netlifegy.com',
-  devnetRpc: 'https://devnet-rpc.netlifegy.com',
 };
 
 // EIP-3085 params for wallet_addEthereumChain
@@ -265,7 +248,7 @@ export const isOnGYDSNetwork = async (): Promise<boolean> => {
   if (!provider) return false;
   try {
     const chainId = await provider.request({ method: 'eth_chainId' });
-    return [NETWORK_CONFIG.chainIdHex, TESTNET_CONFIG.chainIdHex, DEVNET_CONFIG.chainIdHex].includes(chainId);
+    return [NETWORK_CONFIG.chainIdHex, TESTNET_CONFIG.chainIdHex].includes(chainId);
   } catch {
     return false;
   }

@@ -211,7 +211,7 @@ services:
       DATA_DIR: /var/lib/gydschain-testnet
       RPC_PORT: "9546"
       P2P_PORT: "9545"
-      CHAIN_ID: "13371"
+      CHAIN_ID: "198281"
       LOG_LEVEL: debug
     volumes:
       - testnet-data:/var/lib/gydschain-testnet
