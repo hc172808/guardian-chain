@@ -1783,20 +1783,20 @@ exports.storage = {
             gas_used: txsInBlock * 21000,
             gas_limit: 30000000,
             size_bytes: txsInBlock * 250 + 508,
-            chain_id: 13370,
+            chain_id: 198282,
         };
     },
     async getTxByHash(hash) {
         const res = await pgPool.query(`SELECT * FROM transactions WHERE hash=$1 LIMIT 1`, [hash]).catch(() => ({ rows: [] }));
         if (res.rows[0]) {
-            return { ...res.rows[0], chain_id: 13370, status: 'success' };
+            return { ...res.rows[0], chain_id: 198282, status: 'success' };
         }
         return null;
     },
     async submitTransaction(signedTx) {
         const txHash = '0x' + Array.from({ length: 32 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
         await pgPool.query(`INSERT INTO transactions (hash, type, status, data) VALUES ($1,'transfer','pending',$2) ON CONFLICT DO NOTHING`, [txHash, JSON.stringify({ raw: signedTx })]).catch(() => { });
-        return { tx_hash: txHash, status: 'pending', chain_id: 13370 };
+        return { tx_hash: txHash, status: 'pending', chain_id: 198282 };
     },
     // ── Network Stats ─────────────────────────────────────────────────────────
     async getNetworkStats() {

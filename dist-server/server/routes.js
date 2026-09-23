@@ -517,7 +517,7 @@ function registerRoutes(app) {
     // ── Network Stats ──────────────────────────────────────────────────────────
     app.get("/api/network-stats", async (_req, res) => {
         const stats = await storage_1.storage.getNetworkStats();
-        res.json({ ok: true, timestamp: new Date().toISOString(), chainId: 13370, stats: { ...stats, posFinality: 99.99 } });
+        res.json({ ok: true, timestamp: new Date().toISOString(), chainId: 198282, stats: { ...stats, posFinality: 99.99 } });
     });
     // ── Node Visibility (public GET, admin PUT) ────────────────────────────────
     app.get("/api/node-visibility", async (_req, res) => {
@@ -1292,7 +1292,7 @@ function registerRoutes(app) {
     app.get("/v1/network/stats", async (_req, res) => {
         try {
             const stats = await storage_1.storage.getNetworkStats();
-            res.json({ tps: 1250, chain_id: 13370, ...stats });
+            res.json({ tps: 1250, chain_id: 198282, ...stats });
         }
         catch (e) {
             res.status(500).json({ error: e.message });
@@ -1704,7 +1704,7 @@ function registerRoutes(app) {
         };
         const rpcChecks = await Promise.all(rpcEndpoints.map(checkRpc));
         const allRpcOk = rpcChecks.some((r) => r.reachable);
-        res.json({ status: allRpcOk ? "healthy" : "degraded", timestamp: new Date().toISOString(), chain_id: 13370, components: { rpc: rpcChecks } });
+        res.json({ status: allRpcOk ? "healthy" : "degraded", timestamp: new Date().toISOString(), chain_id: 198282, components: { rpc: rpcChecks } });
     });
     // ── Full infrastructure health check (replaces Supabase Edge Function) ──────
     app.get("/api/health/full", async (_req, res) => {
@@ -1758,7 +1758,7 @@ function registerRoutes(app) {
         res.status(overallHealthy ? 200 : 503).json({
             status: overallHealthy ? "healthy" : "degraded",
             timestamp: new Date().toISOString(),
-            chain_id: 13370,
+            chain_id: 198282,
             components: {
                 database: dbCheck,
                 rpc: rpcChecks,

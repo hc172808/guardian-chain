@@ -55,8 +55,8 @@ function blockObject(s, extraTxCount = 0) {
 function jsonRpcDispatch(rpc, s, nodeLabel, opts = {}) {
     switch (rpc.method) {
         case "eth_blockNumber": return "0x" + s.blockHeight.toString(16);
-        case "net_version": return "13370";
-        case "eth_chainId": return "0x" + (13370).toString(16);
+        case "net_version": return "198282";
+        case "eth_chainId": return "0x" + (198282).toString(16);
         case "eth_gasPrice": return "0x" + (opts.boosted ? 5000000000 : 20000000000).toString(16);
         case "eth_maxPriorityFeePerGas": return "0x" + (opts.boosted ? 2000000000 : 1000000000).toString(16);
         case "net_peerCount": return "0x" + s.peers.toString(16);
@@ -126,7 +126,7 @@ function liteHandler(_req, res) {
     res.writeHead(200, { "Content-Type": "application/json", ...cors() });
     res.end(JSON.stringify({
         node: "GYDSchain/lite-node/v0.2.0",
-        chainId: 13370, syncing: false,
+        chainId: 198282, syncing: false,
         currentBlock: s.blockHeight,
         peers: s.peers, mode: "lite",
         uptime: s.startedAt ? Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000) : 0,
@@ -145,7 +145,7 @@ function fullnodeHandler(req, res) {
         res.writeHead(200, { "Content-Type": "application/json", ...cors() });
         res.end(JSON.stringify({
             node: "GYDSchain/full-node/v0.2.0",
-            chainId: 13370, syncing: false,
+            chainId: 198282, syncing: false,
             currentBlock: s.blockHeight,
             peers: s.peers, txPool: s.txPool,
             mode: "full",
@@ -189,7 +189,7 @@ function boostnodeHandler(req, res) {
         res.writeHead(200, { "Content-Type": "application/json", ...cors() });
         res.end(JSON.stringify({
             node: "GYDSchain/boost-node/v0.2.0",
-            chainId: 13370, syncing: false,
+            chainId: 198282, syncing: false,
             currentBlock: s.blockHeight,
             peers: s.peers, txPool: s.txPool,
             mode: "boost",
@@ -277,7 +277,7 @@ exports.testNodeManager = {
             s.running = true;
             s.startedAt = new Date().toISOString();
             addLog(type, `${NODE_LABELS[type]} started on port ${s.port}`);
-            addLog(type, `Chain ID: 13370 | Mode: ${type}`);
+            addLog(type, `Chain ID: 198282 | Mode: ${type}`);
             addLog(type, `Listening at http://0.0.0.0:${s.port}`);
             if (type === "boostnode")
                 addLog(type, "MEV bundle endpoint: POST /boost/bundle");
