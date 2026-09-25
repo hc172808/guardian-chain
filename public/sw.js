@@ -1,5 +1,5 @@
 // ChainCore Service Worker v2 — offline support + push notifications + background sync
-const CACHE_NAME = 'chaincore-v2';
+const CACHE_NAME = 'chaincore-v3';
 const STATIC_ASSETS = [
   '/',
   '/mobile',

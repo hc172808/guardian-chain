@@ -46,6 +46,7 @@
 - [Query cache repeater](query-cache.md) — server/queryCache.ts: withCache(ttlMs) Express middleware caches GET JSON responses; applied to /api/validators(8s), /api/tokens(20s), /api/pools(12s), /api/network-stats(5s); GET /api/admin/cache-stats + POST /api/admin/cache-clear admin routes.
 - [All node types](all-nodes.md) — testNodes.ts supports 7 node types across mainnet and testnet only; devnet is retired and testnet uses chain ID 198281.
 - [Token creation network](token-creation-network.md) — New tokens must be created on mainnet; legacy testnet tokens may still exist for promotion.
+- [Service worker cache](service-worker-cache.md) — Bump CACHE_NAME when shipping client copy or bundle changes so stale PWA assets are discarded.
 - [Server Config admin tab](server-config-admin.md) — GET/POST /api/admin/server-config; writes to .env (via existing writeEnvFile) + gyds-config.env; applies to process.env immediately; calls pm2 restart gydschain-api --update-env; ServerConfigManager.tsx in Admin "Server Config" tab; secret fields masked with ••••••••.
 - [gyds-config.env shared config](gyds-config-env.md) — written by deploy-dashboard.sh and POST /api/admin/server-config; sourced by all 7 node install scripts (install-validatornode/fullnode/litenode/boostnode/rpcnode/bootnode + setup-server.sh) via GYDS_CONF var before config-defaults block; NONINTERACTIVE=1 skips prompts.
 - [Auth/transaction raw SQL](auth-transaction-raw-sql.md) — nonce, updateUserPassword, insertTransaction all use raw pgPool; Drizzle silently fails on deployed DB schema drift.
