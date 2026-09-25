@@ -146,7 +146,7 @@ exports.tokens = (0, pg_core_1.pgTable)("tokens", {
     mintLocked: (0, pg_core_1.boolean)("mint_locked").notNull().default(false),
     address: (0, pg_core_1.text)("address").notNull(),
     isActive: (0, pg_core_1.boolean)("is_active").notNull().default(true),
-    networkType: (0, pg_core_1.text)("network_type").notNull().default("testnet"),
+    networkType: (0, pg_core_1.text)("network_type").notNull().default("mainnet"),
     mainnetPromotedAt: (0, pg_core_1.timestamp)("mainnet_promoted_at"),
     marketCapUsd: (0, pg_core_1.numeric)("market_cap_usd").notNull().default("0"),
     extraAuthorities: (0, pg_core_1.jsonb)("extra_authorities").notNull().default((0, drizzle_orm_1.sql) `'{}'::jsonb`),

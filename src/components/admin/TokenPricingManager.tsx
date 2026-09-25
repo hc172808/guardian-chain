@@ -71,7 +71,7 @@ export const TokenPricingManager = () => {
           <div className="p-2 rounded-lg bg-primary/20"><Coins className="h-5 w-5 text-primary" /></div>
           <div>
             <h3 className="font-semibold text-lg">Token Factory — Base Fees</h3>
-             <p className="text-sm text-muted-foreground">Charged in GYDS for every new token. New tokens launch on testnet before promotion to mainnet.</p>
+             <p className="text-sm text-muted-foreground">Charged in GYDS for every new token. New tokens launch directly on mainnet.</p>
           </div>
         </div>
 
@@ -186,7 +186,7 @@ export const TokenPricingManager = () => {
           <div>
              <h3 className="font-semibold text-lg">Testnet → Mainnet Promotion</h3>
             <p className="text-sm text-muted-foreground">
-               Tokens launch on testnet. They are auto-promoted to mainnet once they meet BOTH the age and market-cap thresholds.
+               Legacy testnet tokens can still be promoted to mainnet when they meet BOTH the age and market-cap thresholds.
             </p>
           </div>
         </div>
@@ -194,7 +194,7 @@ export const TokenPricingManager = () => {
         <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/40 mb-4">
           <div>
             <p className="font-medium">Auto-Promotion</p>
-             <p className="text-xs text-muted-foreground">When off, tokens stay on testnet until you promote them manually.</p>
+             <p className="text-xs text-muted-foreground">This setting applies only to legacy tokens created before mainnet-only launches.</p>
           </div>
           <Switch
             data-testid="switch-promotion-enabled"

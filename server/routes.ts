@@ -891,7 +891,12 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/tokens", requireAuth, async (req, res) => {
     const user = req.user as any;
-    const row = await storage.insertToken({ ...req.body, creatorId: user.id });
+    // Token creation is mainnet-only. Ignore any client-supplied network value
+    // so callers cannot create tokens on a retired or unsupported network.
+    const tokenData = { ...req.body };
+    delete tokenData.network_type;
+    delete tokenData.networkType;
+    const row = await storage.insertToken({ ...tokenData, creatorId: user.id, networkType: "mainnet" });
     res.json(row);
     storage.awardXpOnce(user.id, 'first_token', 300, 'First token launched on GYDSchain! +300 XP').catch(() => {});
   });

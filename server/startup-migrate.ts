@@ -242,7 +242,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       address             TEXT NOT NULL,
       token_standard      TEXT DEFAULT 'GRC-20' NOT NULL,
       is_active           BOOLEAN DEFAULT true NOT NULL,
-      network_type        TEXT DEFAULT 'testnet' NOT NULL,
+       network_type        TEXT DEFAULT 'mainnet' NOT NULL,
       mainnet_promoted_at TIMESTAMPTZ,
       market_cap_usd      NUMERIC DEFAULT '0' NOT NULL,
       extra_authorities   JSONB DEFAULT '{}' NOT NULL,

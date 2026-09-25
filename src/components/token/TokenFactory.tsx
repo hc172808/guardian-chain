@@ -210,11 +210,12 @@ export const TokenFactory = () => {
         update_enabled: !!params.authorities.update,
         mint_enabled:   !!params.authorities.mint,
         address: tokenAddress,
+        networkType: 'mainnet',
       });
 
       const tokenId = newToken?.id;
 
-      // Persist testnet network state + extended authorities (single source of truth
+      // Persist mainnet network state + extended authorities (single source of truth
       // until the network_type / extra_authorities columns are migrated upstream).
       if (tokenId) {
         const extra: Record<string, boolean | number> = {};
@@ -229,8 +230,8 @@ export const TokenFactory = () => {
           pricing.mainnet_promotion.gyds_price_usd,
         );
         await writeTokenNetworkState(tokenId, {
-          network_type: 'testnet',
-          mainnet_promoted_at: null,
+          network_type: 'mainnet',
+          mainnet_promoted_at: new Date().toISOString(),
           market_cap_usd: initialMc,
           extra_authorities: extra,
         }, user.id);
@@ -274,7 +275,7 @@ export const TokenFactory = () => {
 
       toast({
         title: `Token Created on Testnet!`,
-        description: `${params.name} (${params.symbol}) is live on testnet. It will auto-promote to mainnet after ${pricing.mainnet_promotion.min_age_days} days once it reaches $${pricing.mainnet_promotion.min_market_cap_usd.toLocaleString()} market cap.`,
+        description: `${params.name} (${params.symbol}) is live on mainnet.`,
       });
       setDialogOpen(false);
       resetForm();
@@ -603,10 +604,8 @@ export const TokenFactory = () => {
             <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
               <Rocket className="h-4 w-4 text-amber-500 shrink-0" />
               <p className="text-xs text-muted-foreground">
-                Your token launches on <span className="font-semibold text-amber-400">TESTNET</span>.
-                It will auto-promote to <span className="font-semibold">MAINNET</span> after{' '}
-                <span className="font-semibold">{pricing.mainnet_promotion.min_age_days} days</span> once it reaches{' '}
-                <span className="font-semibold">${pricing.mainnet_promotion.min_market_cap_usd.toLocaleString()}</span> market cap.
+                Your token launches directly on <span className="font-semibold text-emerald-400">MAINNET</span>.
+                It is available on the GYDS mainnet immediately after creation.
               </p>
             </div>
 
