@@ -18,6 +18,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import bcrypt from "bcryptjs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
 import { broadcastTransfer, pollForConfirmation, checkRpcHealth, testEndpoints } from "./chainRpc";
 import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasuryBalance, sendTreasuryTransfer } from "./treasury";
@@ -2076,6 +2077,97 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  app.patch("/api/admin/users/:id", requireAdmin, async (req, res) => {
+    const actor = req.user as any;
+    const { username, email, firstName, lastName } = req.body ?? {};
+    const userId = req.params.id;
+    const normalizedUsername = username == null ? null : String(username).trim().toLowerCase();
+    const normalizedEmail = email == null || String(email).trim() === "" ? null : String(email).trim().toLowerCase();
+
+    if (normalizedUsername !== null && normalizedUsername.length < 3) {
+      return res.status(400).json({ error: "Username must be at least 3 characters" });
+    }
+    try {
+      const result = await pgPool.query(
+        `UPDATE users
+            SET username = COALESCE($1, username),
+                email = $2,
+                first_name = $3,
+                last_name = $4,
+                updated_at = NOW()
+          WHERE id = $5
+      RETURNING id, username, email, first_name, last_name`,
+        [
+          normalizedUsername,
+          normalizedEmail,
+          firstName == null ? null : String(firstName).trim() || null,
+          lastName == null ? null : String(lastName).trim() || null,
+          userId,
+        ],
+      );
+      if (!result.rows.length) return res.status(404).json({ error: "User not found" });
+      await storage.insertAuditLog({
+        userId: actor.id, userEmail: actor.email, action: "edit_user",
+        category: "admin", targetType: "user", targetId: userId,
+        details: { fields: ["username", "email", "firstName", "lastName"] },
+        ipAddress: req.ip ?? null,
+      });
+      return res.json({ ok: true, user: result.rows[0] });
+    } catch (e: any) {
+      if (e?.code === "23505") return res.status(409).json({ error: "Username or email is already in use" });
+      return res.status(500).json({ error: e?.message || "Failed to edit user" });
+    }
+  });
+
+  app.post("/api/admin/users/:id/password", requireAdmin, async (req, res) => {
+    const actor = req.user as any;
+    const targetId = req.params.id;
+    const newPassword = String(req.body?.newPassword ?? "");
+    if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+    try {
+      const targetRoles = await storage.getUserRoles(targetId);
+      const targetIsFounder = targetRoles.some((r: any) => r.role === "founder");
+      if (targetIsFounder && !actor._isFounder) {
+        return res.status(403).json({ error: "Only a founder can change a founder password" });
+      }
+      const target = await storage.getUser(targetId);
+      if (!target) return res.status(404).json({ error: "User not found" });
+      await storage.updateUserPassword(targetId, await bcrypt.hash(newPassword, 12));
+
+      // Force the target to sign in again after an administrator reset.
+      await pgPool.query(
+        `DELETE FROM "session" WHERE sess->'passport'->>'user' = $1`,
+        [targetId],
+      ).catch(() => {});
+      await storage.insertAuditLog({
+        userId: actor.id, userEmail: actor.email, action: "admin_reset_password",
+        category: "admin", targetType: "user", targetId,
+        details: { sessionsRevoked: true }, ipAddress: req.ip ?? null,
+      });
+      return res.json({ ok: true, sessionsRevoked: true });
+    } catch (e: any) {
+      return res.status(500).json({ error: e?.message || "Failed to change password" });
+    }
+  });
+
+  app.post("/api/admin/users/:id/restart-session", requireAdmin, async (req, res) => {
+    const actor = req.user as any;
+    const targetId = req.params.id;
+    const target = await storage.getUser(targetId);
+    if (!target) return res.status(404).json({ error: "User not found" });
+    await pgPool.query(
+      `DELETE FROM "session" WHERE sess->'passport'->>'user' = $1`,
+      [targetId],
+    ).catch(() => {});
+    await storage.insertAuditLog({
+      userId: actor.id, userEmail: actor.email, action: "restart_user_session",
+      category: "admin", targetType: "user", targetId,
+      details: { sessionsRevoked: true }, ipAddress: req.ip ?? null,
+    });
+    res.json({ ok: true, sessionsRevoked: true });
+  });
+
   // ── Git sync (admin — trigger a git pull on the deployed server) ────────────
   app.post("/api/admin/git-pull", requireAdmin, async (req, res) => {
     const user = req.user as any;
@@ -2088,6 +2180,26 @@ export function registerRoutes(app: Express) {
     proc.on("close", async (code: number) => {
       await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "git_pull", category: "admin", targetType: "system", targetId: "dashboard", details: { exit_code: code, stdout: stdout.slice(0, 500), stderr: stderr.slice(0, 500) }, ipAddress: req.ip ?? null });
       res.json({ ok: code === 0, exit_code: code, stdout, stderr });
+    });
+  });
+
+  app.post("/api/admin/restart", requireAdmin, async (req, res) => {
+    const actor = req.user as any;
+    const { exec } = await import("child_process");
+    const command = "pm2 restart gydschain-api --update-env";
+    exec(command, { timeout: 15_000 }, async (error, stdout, stderr) => {
+      const ok = !error;
+      await storage.insertAuditLog({
+        userId: actor.id, userEmail: actor.email, action: "restart_application",
+        category: "admin", targetType: "system", targetId: "dashboard",
+        details: { ok, stderr: String(stderr).slice(0, 500) },
+        ipAddress: req.ip ?? null,
+      }).catch(() => {});
+      if (!ok) return res.status(503).json({
+        error: "Application restart is unavailable in this environment. Use the configured workflow restart.",
+        detail: String(stderr || error?.message || "").slice(0, 300),
+      });
+      res.json({ ok: true, stdout: String(stdout).slice(0, 1000) });
     });
   });
 

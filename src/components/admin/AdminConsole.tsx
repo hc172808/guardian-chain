@@ -34,6 +34,7 @@ const HELP = `Available commands:
 
   announce <text>               Broadcast a banner message to all users
   banner clear                  Remove the announcement banner
+  restart                       Restart the dashboard service
 
 Tip: ↑/↓ for history, Tab to autocomplete (commands).`;
 
@@ -265,6 +266,13 @@ export const AdminConsole = () => {
           break;
         }
 
+        case 'restart': {
+          const result = await api.post('/api/admin/restart', {});
+          sys('restart requested');
+          out(JSON.stringify(result, null, 2));
+          break;
+        }
+
         case 'rpc': {
           if (!args[0]) { err('usage: rpc <method> [params...]'); break; }
           const method = args[0];
@@ -322,7 +330,7 @@ export const AdminConsole = () => {
       else { setHistIdx(next); setInput(history[next]); }
     } else if (e.key === 'Tab') {
       e.preventDefault();
-      const verbs = ['help','clear','version','status','users','nodes','tokens','txs','wallet','tx','bridges','components','visibility','hide','show','announce','banner','rpc','ssh'];
+       const verbs = ['help','clear','version','status','users','nodes','tokens','txs','wallet','tx','bridges','components','visibility','hide','show','announce','banner','restart','rpc','ssh'];
       const m = verbs.filter((v) => v.startsWith(input.trim()));
       if (m.length === 1) setInput(m[0] + ' ');
       else if (m.length > 1) sys(m.join('  '));

@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Users, RefreshCw, Shield, Crown, User,
-  Ban, CheckCircle, Search, ChevronDown, Wallet
+  Ban, CheckCircle, Search, ChevronDown, Wallet, Pencil, KeyRound, RotateCcw, Loader2
 } from 'lucide-react';
 
 interface AdminUser {
@@ -30,6 +31,10 @@ export const UserManager = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+  const [editDraft, setEditDraft] = useState({ username: '', email: '', firstName: '', lastName: '' });
+  const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
+  const [newPassword, setNewPassword] = useState('');
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -79,6 +84,79 @@ export const UserManager = () => {
       fetchUsers();
     } catch (e: any) {
       toast({ title: 'Failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const openEdit = (u: AdminUser) => {
+    setEditingUser(u);
+    setEditDraft({
+      username: u.username ?? '',
+      email: u.email ?? '',
+      firstName: u.firstName ?? '',
+      lastName: u.lastName ?? '',
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editingUser) return;
+    setActionLoading(editingUser.id + ':edit');
+    try {
+      const res = await fetch(`/api/admin/users/${editingUser.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(editDraft),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Edit failed (${res.status})`);
+      toast({ title: 'User updated' });
+      setEditingUser(null);
+      await fetchUsers();
+    } catch (e: any) {
+      toast({ title: 'Failed to edit user', description: e.message, variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const savePassword = async () => {
+    if (!passwordUser || newPassword.length < 6) return;
+    setActionLoading(passwordUser.id + ':password');
+    try {
+      const res = await fetch(`/api/admin/users/${passwordUser.id}/password`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ newPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Password update failed (${res.status})`);
+      toast({ title: 'Password changed', description: 'The user must sign in again.' });
+      setPasswordUser(null);
+      setNewPassword('');
+    } catch (e: any) {
+      toast({ title: 'Failed to change password', description: e.message, variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const restartSession = async (u: AdminUser) => {
+    if (!confirm(`Sign out all active sessions for ${u.username || u.email || 'this user'}?`)) return;
+    setActionLoading(u.id + ':restart');
+    try {
+      const res = await fetch(`/api/admin/users/${u.id}/restart-session`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Accept': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Session restart failed (${res.status})`);
+      toast({ title: 'User sessions restarted', description: 'All active sessions were revoked.' });
+    } catch (e: any) {
+      toast({ title: 'Failed to restart sessions', description: e.message, variant: 'destructive' });
     } finally {
       setActionLoading(null);
     }
@@ -196,9 +274,25 @@ export const UserManager = () => {
                     </div>
                   </div>
 
-                  {/* Actions — not allowed on self */}
-                  {!isSelf && (
-                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                   {/* Account tools are available to admins/founders; role/ban are restricted for self. */}
+                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                     <Button size="sm" variant="outline" className="gap-1 text-xs h-7"
+                       onClick={() => openEdit(u)} disabled={actionLoading === u.id + ':edit'}>
+                       <Pencil className="h-3 w-3" /> Edit
+                     </Button>
+                     <Button size="sm" variant="outline" className="gap-1 text-xs h-7"
+                       onClick={() => { setPasswordUser(u); setNewPassword(''); }}
+                       disabled={actionLoading === u.id + ':password'}>
+                       <KeyRound className="h-3 w-3" /> Password
+                     </Button>
+                     <Button size="sm" variant="outline" className="gap-1 text-xs h-7"
+                       onClick={() => restartSession(u)} disabled={actionLoading === u.id + ':restart'}>
+                       {actionLoading === u.id + ':restart'
+                         ? <Loader2 className="h-3 w-3 animate-spin" />
+                         : <RotateCcw className="h-3 w-3" />}
+                       Restart
+                     </Button>
+                     {!isSelf && <>
                       {/* Role selector */}
                       <div className="relative">
                         <select
@@ -227,14 +321,72 @@ export const UserManager = () => {
                           : <><Ban className="h-3 w-3" />Ban</>
                         }
                       </Button>
-                    </div>
-                  )}
+                     </>}
+                   </div>
                 </div>
               </GlassCard>
             );
           })}
         </div>
       )}
+
+      <Dialog open={!!editingUser} onOpenChange={open => !open && setEditingUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit user</DialogTitle>
+            <DialogDescription>Update the account profile. Role and ban status use the controls on the user card.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            {([
+              ['username', 'Username'],
+              ['email', 'Email'],
+              ['firstName', 'First name'],
+              ['lastName', 'Last name'],
+            ] as const).map(([key, label]) => (
+              <label key={key} className="grid gap-1.5 text-sm">
+                <span className="text-muted-foreground">{label}</span>
+                <input
+                  value={editDraft[key]}
+                  onChange={e => setEditDraft(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="w-full rounded-lg bg-background border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                />
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditingUser(null)}>Cancel</Button>
+            <Button onClick={saveEdit} disabled={actionLoading === editingUser?.id + ':edit'}>Save changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!passwordUser} onOpenChange={open => { if (!open) { setPasswordUser(null); setNewPassword(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change user password</DialogTitle>
+            <DialogDescription>
+              Set a new password for {passwordUser?.username ? `@${passwordUser.username}` : passwordUser?.email || 'this user'}. All active sessions will be revoked.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="grid gap-1.5 text-sm">
+            <span className="text-muted-foreground">New password</span>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="At least 6 characters"
+              autoFocus
+              className="w-full rounded-lg bg-background border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none"
+            />
+          </label>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPasswordUser(null)}>Cancel</Button>
+            <Button onClick={savePassword} disabled={newPassword.length < 6 || actionLoading === passwordUser?.id + ':password'}>
+              Change password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
