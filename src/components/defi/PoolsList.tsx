@@ -256,33 +256,15 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
   const [lockDays, setLockDays] = useState('30');
 
   const submitTx = async (desc: string, amount: number, toAddress: string, closePool = false) => {
-    if (!user || !address) {
-      toast({ title: 'Login Required', description: 'Connect your wallet first.', variant: 'destructive' });
-      return;
-    }
-    setIsProcessing(true);
-    try {
-      const { submitTransaction } = await import('@/lib/mempool');
-      await submitTransaction({
-        userId: user.id,
-        fromAddress: address,
-        toAddress,
-        amount,
-        fee: amount * 0.001,
-      });
-      // If closing pool, deactivate it
-      if (closePool) {
-        const { error: poolError } = await supabase
-          .from('liquidity_pools')
-          .update({ is_active: false })
-          .eq('id', pool.id);
-        if (poolError) throw poolError;
-      }
-      toast({ title: 'Success', description: desc });
-      onBack();
-    } catch (err: any) {
-      toast({ title: 'Failed', description: err.message, variant: 'destructive' });
-    } finally { setIsProcessing(false); }
+    void desc;
+    void amount;
+    void toAddress;
+    void closePool;
+    toast({
+      title: 'Pool operation unavailable',
+      description: 'This pool has no deployed liquidity contract. No funds or pool state were changed.',
+      variant: 'destructive',
+    });
   };
 
   const titles: Record<string, string> = {

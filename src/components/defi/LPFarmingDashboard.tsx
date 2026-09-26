@@ -132,10 +132,7 @@ export const LPFarmingDashboard = () => {
         return;
       }
     }
-    // Simulate staking
-    setFarms(prev => prev.map(f => f.id === farm.id ? { ...f, stakedLP: f.stakedLP + amt } : f));
-    toast({ title: `Staked ${amt} LP`, description: `${farm.pair} — earning ${farm.apr}% APR` });
-    setStakeAmount('');
+    toast({ title: 'Farming unavailable', description: 'This farm has no deployed staking contract. No LP was moved.', variant: 'destructive' });
     setIsLoading(false);
   };
 
@@ -153,8 +150,7 @@ export const LPFarmingDashboard = () => {
         return;
       }
     }
-    setFarms(prev => prev.map(f => f.id === farm.id ? { ...f, stakedLP: Math.max(0, f.stakedLP - amt) } : f));
-    toast({ title: `Unstaked ${amt.toFixed(4)} LP` });
+    toast({ title: 'Unstaking unavailable', description: 'This farm has no deployed staking contract. No LP was moved.', variant: 'destructive' });
     setIsLoading(false);
   };
 
@@ -171,8 +167,7 @@ export const LPFarmingDashboard = () => {
         return;
       }
     }
-    toast({ title: `🌾 Harvested ${farm.earned.toFixed(4)} GYDS` });
-    setFarms(prev => prev.map(f => f.id === farm.id ? { ...f, earned: 0 } : f));
+    toast({ title: 'Harvest unavailable', description: 'This farm has no deployed reward contract. No rewards were moved.', variant: 'destructive' });
     setIsLoading(false);
   };
 

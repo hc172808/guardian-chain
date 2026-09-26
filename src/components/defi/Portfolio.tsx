@@ -184,7 +184,7 @@ export const Portfolio = ({ onViewPosition }: PortfolioProps) => {
           <h1 className="text-2xl font-bold">Portfolio</h1>
           <p className="text-muted-foreground">Manage your DeFi positions and yield.</p>
         </div>
-        <Button variant="outline" className="gap-2 border-primary/50 text-primary" onClick={() => toast({ title: "Harvesting..." })} disabled={stats.totalYield === 0}>
+        <Button variant="outline" className="gap-2 border-primary/50 text-primary" disabled title="Harvesting is unavailable until a reward contract is deployed">
           <Sprout className="h-4 w-4" /> Harvest All (${stats.totalYield.toFixed(2)})
         </Button>
       </div>
@@ -327,7 +327,7 @@ const OverlayPanel = ({ type, position, onBack }: { type: OverlayType, position:
         </GlassCard>
         <div className="flex gap-4">
           <Button className="flex-1 h-12 gap-2" variant="outline"><Info className="h-4 w-4" /> View Analytics</Button>
-          <Button className="flex-1 h-12 gap-2" onClick={() => toast({ title: "Harvesting yield..." })}><Sprout className="h-4 w-4" /> Harvest Rewards</Button>
+          <Button className="flex-1 h-12 gap-2" disabled title="Harvesting is unavailable until a reward contract is deployed"><Sprout className="h-4 w-4" /> Harvest Rewards</Button>
         </div>
       </div>
     );
@@ -351,11 +351,11 @@ const ActionPanel = ({ type, position, onBack }: { type: OverlayType; position: 
     const val = parseFloat(amount);
     if (!val || val <= 0) { toast({ title: 'Enter a valid amount', variant: 'destructive' }); return; }
     if (isWithdraw && val > position.balance) { toast({ title: 'Amount exceeds balance', variant: 'destructive' }); return; }
-    setBusy(true);
-    await new Promise(r => setTimeout(r, 1200));
-    setBusy(false);
-    toast({ title: `${label} submitted`, description: `${val} ${position.tokenA.symbol}/${position.tokenB.symbol} — pending confirmation` });
-    onBack();
+    toast({
+      title: `${label} unavailable`,
+      description: 'This position has no deployed liquidity contract. No funds were moved.',
+      variant: 'destructive',
+    });
   };
 
   return (

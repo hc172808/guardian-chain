@@ -18,9 +18,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/contexts/AuthContext';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 interface PositionDetailsProps {
@@ -43,8 +41,7 @@ export const PositionDetails = ({ position }: PositionDetailsProps) => {
   const [depositAmountB, setDepositAmountB] = useState('');
   const [withdrawPercent, setWithdrawPercent] = useState([50]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const { user } = useAuth();
-  const { address, isConnected } = useWalletConnect();
+  const { isConnected } = useWalletConnect();
   const { toast } = useToast();
 
   // Default empty position when none provided
@@ -267,23 +264,7 @@ export const PositionDetails = ({ position }: PositionDetailsProps) => {
             className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
             disabled={isProcessing || (!depositAmountA && !depositAmountB) || !isConnected}
             onClick={async () => {
-              if (!user || !address) return;
-              setIsProcessing(true);
-              try {
-                const amount = parseFloat(depositAmountA || '0') + parseFloat(depositAmountB || '0');
-                const { submitTransaction } = await import('@/lib/mempool');
-                await submitTransaction({
-                  userId: user.id,
-                  fromAddress: address,
-                  toAddress: 'liquidity-pool',
-                  amount,
-                  fee: amount * 0.001,
-                });
-                toast({ title: 'Deposit Successful', description: `Added liquidity to ${pos.tokenA.symbol}/${pos.tokenB.symbol}` });
-                setDepositAmountA(''); setDepositAmountB('');
-              } catch (err: any) {
-                toast({ title: 'Deposit Failed', description: err.message, variant: 'destructive' });
-              } finally { setIsProcessing(false); }
+              toast({ title: 'Deposit unavailable', description: 'This position has no deployed liquidity contract. No funds were moved.', variant: 'destructive' });
             }}
           >
             {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Depositing...</span>
@@ -332,23 +313,7 @@ export const PositionDetails = ({ position }: PositionDetailsProps) => {
             className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
             disabled={isProcessing || withdrawPercent[0] === 0 || !isConnected}
             onClick={async () => {
-              if (!user || !address) return;
-              setIsProcessing(true);
-              try {
-                const amount = pos.balance * withdrawPercent[0] / 100;
-                const { submitTransaction } = await import('@/lib/mempool');
-                await submitTransaction({
-                  userId: user.id,
-                  fromAddress: 'liquidity-pool',
-                  toAddress: address,
-                  amount,
-                  fee: amount * 0.001,
-                });
-                toast({ title: 'Withdrawal Successful', description: `Removed ${withdrawPercent[0]}% liquidity from ${pos.tokenA.symbol}/${pos.tokenB.symbol}` });
-                setWithdrawPercent([50]);
-              } catch (err: any) {
-                toast({ title: 'Withdrawal Failed', description: err.message, variant: 'destructive' });
-              } finally { setIsProcessing(false); }
+              toast({ title: 'Withdrawal unavailable', description: 'This position has no deployed liquidity contract. No funds were moved.', variant: 'destructive' });
             }}
           >
             {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Withdrawing...</span>

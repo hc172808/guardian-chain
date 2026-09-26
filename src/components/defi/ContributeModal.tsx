@@ -61,37 +61,11 @@ export const ContributeModal = ({ launch, onBack }: ContributeModalProps) => {
     }
     if (gydsAmount <= 0) return;
 
-    setIsSubmitting(true);
-    try {
-      const { submitTransaction } = await import('@/lib/mempool');
-      await submitTransaction({
-        userId: user.id,
-        fromAddress: address,
-        toAddress: `launch:${launch.id}`,
-        amount: gydsAmount,
-        fee: gydsAmount * 0.001,
-      });
-
-      // Update launch raised amount and participants
-      const { error: updateError } = await supabase
-        .from('token_launches')
-        .update({
-          raised_amount: launch.raised_amount + gydsAmount,
-          participants: launch.participants + 1,
-        })
-        .eq('id', launch.id);
-      if (updateError) throw updateError;
-
-      toast({
-        title: 'Contribution Successful!',
-        description: `You contributed ${gydsAmount} GYDS and will receive ~${tokensReceived.toFixed(2)} ${launch.symbol}`,
-      });
-      onBack();
-    } catch (err: any) {
-      toast({ title: 'Contribution Failed', description: err.message, variant: 'destructive' });
-    } finally {
-      setIsSubmitting(false);
-    }
+    toast({
+      title: 'Launch contribution unavailable',
+      description: 'This launch has no deployed contribution contract. No funds were moved.',
+      variant: 'destructive',
+    });
   };
 
   return (

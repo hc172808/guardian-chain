@@ -152,33 +152,7 @@ export const StakeInterface = () => {
         }
       }
 
-      // Fallback: record in DB via API
-      const res = await fetch('/api/transactions', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from_address: type === 'stake' ? effectiveAddress : 'staking-pool',
-          to_address:   type === 'stake' ? 'staking-pool' : effectiveAddress,
-          amount,
-          fee: 0,
-          token_symbol: type === 'stake' ? 'GYD' : 'xGYD',
-          status: 'confirmed',
-          tx_hash: `sim-${type}-${Date.now()}`,
-          network: 'testnet',
-        }),
-      });
-      if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(error ?? 'Failed to record stake transaction');
-      }
-
-      toast({
-        title: type === 'stake' ? '🔒 Staked Successfully' : '🔓 Unstaked Successfully',
-        description: `${amount.toFixed(4)} ${type === 'stake' ? 'GYD → xGYD' : 'xGYD → GYD'}`,
-      });
-      type === 'stake' ? setStakeAmount('') : setUnstakeAmount('');
-      fetchStats();
+      throw new Error('Staking is unavailable because no staking contract is deployed. No funds were moved.');
     } catch (e: any) {
       toast({ title: 'Transaction Failed', description: e.message, variant: 'destructive' });
     } finally {

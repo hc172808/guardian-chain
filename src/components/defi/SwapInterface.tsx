@@ -429,26 +429,7 @@ export const SwapInterface = () => {
         return;
       }
 
-      // Fallback: mempool simulation (until contracts are deployed)
-      // skipBalanceCheck=true because we already validated above via computeUserBalances
-      const { submitTransaction } = await import('@/lib/mempool');
-      const result = await submitTransaction({
-        userId: user.id,
-        fromAddress: effectiveAddress,
-        toAddress: 'swap-pool',
-        amount,
-        fee: amount * 0.003,
-        symbol: payToken.symbol,
-        skipBalanceCheck: true,
-      });
-
-      toast({
-        title: 'Swap submitted to mempool',
-        description: `Tx ${(result.txHash ?? '').slice(0, 10)}... pending. ${result.liveNodes} node(s) will mine it into the next block.`,
-      });
-
-      setPayAmount('');
-      setReceiveAmount('');
+      throw new Error('Swap is unavailable because the swap router is not deployed or the transaction was rejected. No funds were moved.');
     } catch (err: any) {
       toast({
         title: 'Swap Failed',
