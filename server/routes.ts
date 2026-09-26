@@ -979,8 +979,10 @@ export function registerRoutes(app: Express) {
         stabilityFee, mintingFee, burnFee, websiteUrl, twitterUrl,
       } = req.body;
 
-      if (!name || !symbol || !pegType || !collateralType)
+       if (!name || !symbol || !pegType || !collateralType)
         return res.status(400).json({ error: 'Missing required fields' });
+       if (typeof logoUrl !== 'string' || !logoUrl.trim())
+         return res.status(400).json({ error: 'A logo URL is required to create a stablecoin' });
 
       // Reserved symbols
       const RESERVED = ['GYDS','GYD','ETH','BTC','USDC','USDT','DAI','BNB','SOL','MATIC'];

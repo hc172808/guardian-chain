@@ -131,6 +131,7 @@ function validateStep(step: number, p: CreateParams, existingSymbols: string[]):
     if (!p.symbol) errs.push('Symbol is required');
     if (!/^[A-Z0-9]{2,10}$/.test(p.symbol)) errs.push('Symbol must be 2–10 uppercase letters/numbers');
     if (RESERVED_SYMBOLS.includes(p.symbol)) errs.push(`Symbol "${p.symbol}" is reserved`);
+    if (!p.logoUrl.trim()) errs.push('Logo URL is required');
     if (existingSymbols.includes(p.symbol)) errs.push(`Symbol "${p.symbol}" already exists`);
     if (p.description.length > 500) errs.push('Description must be 500 characters or less');
   }
@@ -453,9 +454,10 @@ export const StablecoinFactory = () => {
                 <p className="text-xs text-muted-foreground">{params.description.length}/500</p>
               </div>
               <div className="space-y-1.5">
-                <Label>Logo URL <span className="text-xs text-muted-foreground">(optional)</span></Label>
-                <Input value={params.logoUrl} onChange={e => setParams(p => ({ ...p, logoUrl: e.target.value }))}
-                  placeholder="https://..." />
+                <Label>Logo URL <span className="text-destructive">*</span></Label>
+                <Input type="url" value={params.logoUrl} onChange={e => setParams(p => ({ ...p, logoUrl: e.target.value }))}
+                  placeholder="https://yourdomain.com/logo.png" required />
+                <p className="text-xs text-muted-foreground">Add a public image URL. PNG, JPG, SVG, and WebP are supported.</p>
               </div>
             </div>
           )}
