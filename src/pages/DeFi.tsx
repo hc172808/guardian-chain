@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SwapInterface } from '@/components/defi/SwapInterface';
 import { PoolsList } from '@/components/defi/PoolsList';
@@ -37,6 +37,8 @@ const TAB_MAP: Record<string, { featureKey: string; component: React.ReactNode }
 
 const DeFiPage = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('swap');
   const [selectedPosition, setSelectedPosition] = useState<any>(null);
   const { isHidden, isAdmin } = useComponentVisibility();
@@ -48,14 +50,14 @@ const DeFiPage = () => {
   );
 
   useEffect(() => {
-    const tab = (location.state as any)?.tab;
+    const tab = searchParams.get('tab') || (location.state as any)?.tab;
     if (tab && visibleTabs.includes(tab)) {
       setActiveTab(tab);
     } else if (tab && !visibleTabs.includes(tab)) {
       // requested tab is hidden, fall back to first visible
       setActiveTab(visibleTabs[0] ?? 'swap');
     }
-  }, [location.state, visibleTabs.join(',')]);
+  }, [location.state, searchParams, visibleTabs.join(',')]);
 
   // If current tab became hidden, switch to first visible
   useEffect(() => {
@@ -67,6 +69,13 @@ const DeFiPage = () => {
   const handleViewPosition = (position: any) => {
     setSelectedPosition(position);
     setActiveTab('position');
+  };
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    if (tab !== 'position') {
+      navigate(`/defi?tab=${encodeURIComponent(tab)}`, { replace: true, state: { tab } });
+    }
   };
 
   const renderContent = () => {
@@ -93,7 +102,7 @@ const DeFiPage = () => {
           </motion.div>
         </AnimatePresence>
       </main>
-      <DeFiBottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <DeFiBottomNav activeTab={activeTab} onTabChange={handleTabChange} />
     </div>
   );
 };

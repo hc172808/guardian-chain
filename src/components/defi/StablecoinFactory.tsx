@@ -12,7 +12,7 @@ import { logAuditEvent } from '@/lib/auditLog';
 import {
   DollarSign, Coins, Shield, AlertTriangle, Loader2, CheckCircle,
   Plus, ChevronRight, ChevronLeft, Info, Lock, TrendingUp, Globe,
-  Twitter, ArrowRight, Flame, BarChart3, XCircle, Check
+  Twitter, ArrowRight, Flame, BarChart3, XCircle, Check, Upload, X
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -121,6 +121,14 @@ const DEFAULT_PARAMS: CreateParams = {
   websiteUrl: '', twitterUrl: '',
 };
 
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
 // ─── Validation helper ────────────────────────────────────────────────────────
 
 function validateStep(step: number, p: CreateParams, existingSymbols: string[]): string[] {
@@ -184,6 +192,7 @@ export const StablecoinFactory = () => {
   const [creationFee, setCreationFee] = useState(10000);
   const [maxPerUser, setMaxPerUser] = useState(3);
   const [userGydsBalance, setUserGydsBalance] = useState(0);
+  const [logoReading, setLogoReading] = useState(false);
 
   useEffect(() => { loadData(); }, [user]);
 
@@ -232,6 +241,27 @@ export const StablecoinFactory = () => {
   };
 
   const prevStep = () => { setStepErrors([]); setStep(s => s - 1); };
+
+  const handleLogoFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast({ title: 'Invalid logo file', description: 'Choose a PNG, JPG, SVG, or WebP image.', variant: 'destructive' });
+      return;
+    }
+    // Keep the encoded JSON request below the server's 2 MB body limit.
+    if (file.size > 1024 * 1024) {
+      toast({ title: 'Logo is too large', description: 'Choose an image no larger than 1 MB.', variant: 'destructive' });
+      return;
+    }
+    setLogoReading(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setParams(p => ({ ...p, logoUrl: dataUrl }));
+    } catch {
+      toast({ title: 'Could not read logo', variant: 'destructive' });
+    } finally {
+      setLogoReading(false);
+    }
+  };
 
   const handleSubmit = async () => {
     // Final validation all steps
@@ -455,9 +485,32 @@ export const StablecoinFactory = () => {
               </div>
               <div className="space-y-1.5">
                 <Label>Logo URL <span className="text-destructive">*</span></Label>
-                <Input type="url" value={params.logoUrl} onChange={e => setParams(p => ({ ...p, logoUrl: e.target.value }))}
+                <div className="flex items-center gap-2">
+                  <Input type="url" value={params.logoUrl.startsWith('data:') ? '' : params.logoUrl}
+                    onChange={e => setParams(p => ({ ...p, logoUrl: e.target.value }))}
                   placeholder="https://yourdomain.com/logo.png" required />
+                  {params.logoUrl && (
+                    <button type="button" onClick={() => setParams(p => ({ ...p, logoUrl: '' }))}
+                      className="p-2 rounded-md text-muted-foreground hover:text-destructive" aria-label="Remove logo">
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
                 <p className="text-xs text-muted-foreground">Add a public image URL. PNG, JPG, SVG, and WebP are supported.</p>
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-secondary/30 hover:bg-secondary/60 cursor-pointer text-sm">
+                    {logoReading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {logoReading ? 'Reading…' : 'Upload logo'}
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden"
+                      disabled={logoReading} onChange={e => { const file = e.target.files?.[0]; if (file) void handleLogoFile(file); e.currentTarget.value = ''; }} />
+                  </label>
+                  {params.logoUrl && (
+                    <div className="w-9 h-9 rounded-full overflow-hidden border border-border bg-secondary/30">
+                      <img src={params.logoUrl} alt="Logo preview" className="w-full h-full object-cover"
+                        onError={() => toast({ title: 'Logo preview failed', description: 'Check the image URL.', variant: 'destructive' })} />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

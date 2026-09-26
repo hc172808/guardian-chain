@@ -983,6 +983,17 @@ export function registerRoutes(app: Express) {
         return res.status(400).json({ error: 'Missing required fields' });
        if (typeof logoUrl !== 'string' || !logoUrl.trim())
          return res.status(400).json({ error: 'A logo URL is required to create a stablecoin' });
+       const normalizedLogoUrl = logoUrl.trim();
+       const isDataImage = /^data:image\/(?:png|jpeg|jpg|webp|svg\+xml);base64,[a-z0-9+/=\s]+$/i.test(normalizedLogoUrl);
+       let isPublicImageUrl = false;
+       try {
+         const parsed = new URL(normalizedLogoUrl);
+         isPublicImageUrl = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+       } catch {}
+       if (!isDataImage && !isPublicImageUrl)
+         return res.status(400).json({ error: 'Logo must be a public http(s) image URL or an uploaded image file' });
+       if (normalizedLogoUrl.length > 1_500_000)
+         return res.status(413).json({ error: 'Logo file is too large' });
 
       // Reserved symbols
       const RESERVED = ['GYDS','GYD','ETH','BTC','USDC','USDT','DAI','BNB','SOL','MATIC'];
@@ -1042,7 +1053,7 @@ export function registerRoutes(app: Express) {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
         RETURNING *`,
         [
-          user.id, name.trim(), symbol.toUpperCase(), description || null, logoUrl || null,
+          user.id, name.trim(), symbol.toUpperCase(), description || null, normalizedLogoUrl,
           pegType, String(pegValue || '1.00'), JSON.stringify(basketWeights || []),
           collateralType, String(collateralRatio), String(liquidationThreshold),
           JSON.stringify(Array.isArray(reserveAssets) ? reserveAssets : ['GYD','GYDS']),
