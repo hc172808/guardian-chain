@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
+import { api, extractTransactionRows } from '@/lib/api';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -351,7 +351,7 @@ const WalletContent = () => {
     const isCreator = (createdBy: string | null) => createdBy === user.id;
 
     // Get all confirmed transactions involving user's addresses (sent OR received)
-    const txData = (allTx || []).filter((tx: any) => tx.status === 'confirmed');
+    const txData = extractTransactionRows<any>(allTx).filter((tx: any) => tx.status === 'confirmed');
 
     // Get token operations (pre-mine / mint) for the user
     const opsData = (opsRaw || []).filter((op: any) => op.status === 'confirmed');

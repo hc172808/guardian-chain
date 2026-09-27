@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
+import { api, extractTransactionRows } from '@/lib/api';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { TOKENOMICS } from '@/config/wallets';
@@ -74,7 +74,7 @@ const TransactionsContent = () => {
         api.get('/api/transactions'),
       ]);
       setWallets(walletsData || []);
-      setTransactions((txData || []) as Transaction[]);
+      setTransactions(extractTransactionRows<Transaction>(txData));
     } catch { }
     setLoading(false);
   };

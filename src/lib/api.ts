@@ -58,3 +58,29 @@ export const api = {
   put: (path: string, body: unknown) => apiFetch(path, { method: "PUT", body: JSON.stringify(body) }),
   delete: (path: string) => apiFetch(path, { method: "DELETE" }),
 };
+
+/** Normalize the paginated transaction response while accepting legacy array responses. */
+export function extractTransactionRows<T = any>(response: unknown): T[] {
+  const rows = Array.isArray(response)
+    ? response
+    : response &&
+        typeof response === "object" &&
+        Array.isArray((response as { transactions?: unknown }).transactions)
+      ? (response as { transactions: unknown[] }).transactions
+      : [];
+
+  return rows.map((row) => {
+    if (!row || typeof row !== "object") return row as T;
+    const tx = row as Record<string, unknown>;
+    return {
+      ...tx,
+      from_address: tx.from_address ?? tx.fromAddress,
+      to_address: tx.to_address ?? tx.toAddress,
+      tx_hash: tx.tx_hash ?? tx.txHash,
+      created_at: tx.created_at ?? tx.createdAt,
+      token_symbol: tx.token_symbol ?? tx.tokenSymbol,
+      user_id: tx.user_id ?? tx.userId,
+      wallet_id: tx.wallet_id ?? tx.walletId,
+    } as T;
+  });
+}

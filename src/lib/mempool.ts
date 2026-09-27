@@ -1,5 +1,5 @@
 // Mempool — every send/swap goes through here.
-import { api } from '@/lib/api';
+import { api, extractTransactionRows } from '@/lib/api';
 import { requireActiveNodes } from './networkGuard';
 
 export interface SubmitTxParams {
@@ -23,7 +23,7 @@ export interface SubmitTxResult {
 export const getPendingOutflows = async (fromAddress: string): Promise<number> => {
   try {
     const data = await api.get('/api/transactions');
-    return (data ?? [])
+    return extractTransactionRows<any>(data)
       .filter((t: any) => t.from_address === fromAddress && t.status === 'pending')
       .reduce((s: number, t: any) => s + Number(t.amount || 0) + Number(t.fee || 0), 0);
   } catch { return 0; }
@@ -34,7 +34,7 @@ export const getConfirmedBalance = async (address: string): Promise<number> => {
     const addr = address.toLowerCase();
     const data = await api.get('/api/transactions');
     let bal = 0;
-    for (const t of (data ?? []) as any[]) {
+    for (const t of extractTransactionRows<any>(data)) {
       if (t.status !== 'confirmed') continue;
       const a = Number(t.amount || 0);
       const f = Number(t.fee || 0);
@@ -70,7 +70,7 @@ const computeTxHash = async (from: string, to: string, amount: number, nonce: nu
 const getNextNonce = async (userId: string): Promise<number> => {
   try {
     const data = await api.get('/api/transactions');
-    return (data?.length ?? 0) + 1;
+    return extractTransactionRows<any>(data).length + 1;
   } catch { return 1; }
 };
 
@@ -97,13 +97,13 @@ export const submitTransaction = async (params: SubmitTxParams): Promise<SubmitT
 export const getUserPendingCount = async (userId: string): Promise<number> => {
   try {
     const data = await api.get('/api/transactions');
-    return (data ?? []).filter((t: any) => t.user_id === userId && t.status === 'pending').length;
+    return extractTransactionRows<any>(data).filter((t: any) => t.user_id === userId && t.status === 'pending').length;
   } catch { return 0; }
 };
 
 export const getMempoolCount = async (): Promise<number> => {
   try {
     const data = await api.get('/api/transactions');
-    return (data ?? []).filter((t: any) => t.status === 'pending').length;
+    return extractTransactionRows<any>(data).filter((t: any) => t.status === 'pending').length;
   } catch { return 0; }
 };

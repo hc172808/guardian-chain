@@ -1,4 +1,4 @@
-import { api } from '@/lib/api';
+import { api, extractTransactionRows } from '@/lib/api';
 
 export const getUserAddresses = async (
   userId: string,
@@ -69,7 +69,7 @@ export const computeUserBalances = async (
 
   try {
     const txData = await api.get('/api/transactions');
-    for (const tx of (txData ?? []) as any[]) {
+    for (const tx of extractTransactionRows<any>(txData)) {
       if (tx.status !== 'confirmed') continue;
 
       // Handle both camelCase and snake_case

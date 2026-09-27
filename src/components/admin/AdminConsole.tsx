@@ -3,7 +3,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Terminal, Trash2, Download } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, extractTransactionRows } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useComponentVisibility, KNOWN_COMPONENTS } from '@/hooks/useComponentVisibility';
 
@@ -111,7 +111,7 @@ export const AdminConsole = () => {
             `Users:        ${Array.isArray(users) ? users.length : '?'}\n` +
             `Nodes:        ${Array.isArray(nodes) ? nodes.length : '?'}\n` +
             `Tokens:       ${Array.isArray(tokens) ? tokens.length : '?'}\n` +
-            `Transactions: ${Array.isArray(txs) ? txs.length : '?'}\n` +
+            `Transactions: ${extractTransactionRows(txs).length}\n` +
             `Hidden cmps:  ${hidden.length}`
           );
           break;
@@ -163,7 +163,7 @@ export const AdminConsole = () => {
         case 'txs': {
           const limit = parseInt(args[0] || '20', 10);
           const data = await api.get('/api/transactions');
-          const rows = (Array.isArray(data) ? data : []).slice(0, limit);
+          const rows = extractTransactionRows<any>(data).slice(0, limit);
           out(fmtTable(rows.map((r: any) => ({
             tx: String(r.tx_hash || r.txHash || '').slice(0, 12) + '…',
             from: String(r.from_address || r.fromAddress || '').slice(0, 10) + '…',
@@ -192,7 +192,7 @@ export const AdminConsole = () => {
         case 'tx': {
           if (!args[0]) { err('usage: tx <hash>'); break; }
           const data = await api.get('/api/transactions');
-          const match = (Array.isArray(data) ? data : []).find((t: any) =>
+          const match = extractTransactionRows<any>(data).find((t: any) =>
             String(t.tx_hash || t.txHash || '').toLowerCase().includes(args[0].toLowerCase())
           );
           out(match ? JSON.stringify(match, null, 2) : 'not found');

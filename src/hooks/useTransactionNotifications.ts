@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { api } from '@/lib/api';
+import { api, extractTransactionRows } from '@/lib/api';
 
 export const useTransactionNotifications = () => {
   const { user } = useAuth();
@@ -14,8 +14,9 @@ export const useTransactionNotifications = () => {
     const poll = async () => {
       try {
         const txs = await api.get('/api/transactions');
-        if (!Array.isArray(txs) || txs.length === 0) return;
-        const latest = txs[0];
+        const rows = extractTransactionRows<any>(txs);
+        if (rows.length === 0) return;
+        const latest = rows[0];
         if (!latest) return;
         if (lastSeenRef.current === null) {
           lastSeenRef.current = latest.id;

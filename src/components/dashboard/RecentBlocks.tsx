@@ -4,7 +4,7 @@ import { CheckCircle, Clock, ExternalLink, Loader2, Blocks as BlocksIcon } from 
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { api } from '@/lib/api';
+import { api, extractTransactionRows } from '@/lib/api';
 import { useNetwork, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
 
 interface RecentTx {
@@ -33,7 +33,7 @@ export const RecentBlocks = () => {
       // Fetch user transactions then filter client-side by network
       // (the /api/transactions endpoint returns the user's own txs)
       const data = await api.get('/api/transactions').catch(() => []);
-      const rows: RecentTx[] = Array.isArray(data) ? data : [];
+      const rows = extractTransactionRows<RecentTx>(data);
 
       // Filter by selected network when not 'all'
       const filtered = selectedNetwork === 'all'
