@@ -52,37 +52,41 @@ export async function seedFounder() {
     const founderId   = "founder_bootstrap_001";
     const founderHash = await bcrypt.hash(founderPassword, 12);
 
-    await pool.query(
+    const founderUser = await pool.query(
       `INSERT INTO users (id, email, username, password_hash, first_name, last_name, updated_at)
        VALUES ($1, $2, $3, $4, 'Founder', 'GYDSchain', NOW())
-       ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()`,
+        ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()
+        RETURNING id`,
       [founderId, "founder@gydschain.local", "founder", founderHash]
     );
+    const founderAccountId = founderUser.rows[0]?.id ?? founderId;
     await pool.query(
       `INSERT INTO profiles (id, user_id, email, username, display_name, role)
        VALUES (gen_random_uuid(), $1, $2, $3, 'Founder', 'founder')
        ON CONFLICT (user_id) DO UPDATE SET username=$3, display_name='Founder', role='founder'`,
-      [founderId, "founder@gydschain.local", "founder"]
+      [founderAccountId, "founder@gydschain.local", "founder"]
     );
-    await grantRoles(founderId, ["user", "admin", "founder"]);
+    await grantRoles(founderAccountId, ["user", "admin", "founder"]);
 
     // ── Step 3: Always upsert the admin password account ─────────────────────
     const adminId   = "admin_bootstrap_001";
     const adminHash = await bcrypt.hash(adminPassword, 12);
 
-    await pool.query(
+    const adminUser = await pool.query(
       `INSERT INTO users (id, email, username, password_hash, first_name, last_name, updated_at)
        VALUES ($1, $2, $3, $4, 'Admin', 'User', NOW())
-       ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()`,
+        ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()
+        RETURNING id`,
       [adminId, "admin@gydschain.local", "admin", adminHash]
     );
+    const adminAccountId = adminUser.rows[0]?.id ?? adminId;
     await pool.query(
       `INSERT INTO profiles (id, user_id, email, username, display_name, role)
        VALUES (gen_random_uuid(), $1, $2, $3, 'Admin', 'admin')
        ON CONFLICT (user_id) DO UPDATE SET username=$3, display_name='Admin', role='admin'`,
-      [adminId, "admin@gydschain.local", "admin"]
+      [adminAccountId, "admin@gydschain.local", "admin"]
     );
-    await grantRoles(adminId, ["user", "admin"]);
+    await grantRoles(adminAccountId, ["user", "admin"]);
 
     console.log(`[seed] Accounts ready:`);
     console.log(`  founder / ${founderPassword}`);
