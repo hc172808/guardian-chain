@@ -15,6 +15,7 @@ import { useCurrency } from '@/contexts/CurrencyContext';
 const NET_META: Record<NetworkKind, { chainId: number; symbol: string }> = {
   mainnet: { chainId: 198282, symbol: 'GYDS'  },
   testnet: { chainId: 198281, symbol: 'tGYDS' },
+  devnet:  { chainId: 198283, symbol: 'dGYDS' },
 };
 
 const fmtQty = (n: number) =>

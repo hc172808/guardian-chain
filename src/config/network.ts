@@ -71,7 +71,7 @@ export async function applyNetworkOverrides(): Promise<void> {
 }
 
 // ── Network kinds ───────────────────────────────────────────────────────────
-export type NetworkKind = 'mainnet' | 'testnet';
+export type NetworkKind = 'mainnet' | 'testnet' | 'devnet';
 
 // Mainnet
 export const NETWORK_CONFIG = {
@@ -101,15 +101,31 @@ export const TESTNET_CONFIG = {
   rpcUrls: {
     primary: 'https://testnet-rpc.netlifegy.com',
     backup: [] as string[],
-    local: ['http://localhost:8547'],
+    local: ['http://localhost:8600'],
   },
   blockExplorerUrls: ['https://testnet-explorer.netlifegy.com'],
+  iconUrls: [] as string[],
+};
+
+// Development network
+export const DEVNET_CONFIG = {
+  chainId: 198283,
+  chainIdHex: '0x3068b',
+  chainName: 'GYDS Devnet',
+  nativeCurrency: { name: 'Dev GYDS', symbol: 'dGYDS', decimals: 18 },
+  rpcUrls: {
+    primary: 'https://devnet-rpc.netlifegy.com',
+    backup: [] as string[],
+    local: ['http://localhost:8700'],
+  },
+  blockExplorerUrls: ['https://devnet-explorer.netlifegy.com'],
   iconUrls: [] as string[],
 };
 
 export const NETWORK_BY_KIND = {
   mainnet: NETWORK_CONFIG,
   testnet: TESTNET_CONFIG,
+  devnet: DEVNET_CONFIG,
 } as const;
 
 // Service endpoints
@@ -121,6 +137,7 @@ export const SERVICE_ENDPOINTS = {
   explorer: 'https://explorer.netlifegy.com',
   vpn: 'vpn.netlifegy.com',
   testnetRpc: 'https://testnet-rpc.netlifegy.com',
+  devnetRpc: 'https://devnet-rpc.netlifegy.com',
 };
 
 // EIP-3085 params for wallet_addEthereumChain
@@ -248,7 +265,7 @@ export const isOnGYDSNetwork = async (): Promise<boolean> => {
   if (!provider) return false;
   try {
     const chainId = await provider.request({ method: 'eth_chainId' });
-    return [NETWORK_CONFIG.chainIdHex, TESTNET_CONFIG.chainIdHex].includes(chainId);
+    return [NETWORK_CONFIG.chainIdHex, TESTNET_CONFIG.chainIdHex, DEVNET_CONFIG.chainIdHex].includes(chainId);
   } catch {
     return false;
   }

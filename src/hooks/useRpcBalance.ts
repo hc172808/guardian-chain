@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 export const NET_CHAIN: Record<string, { chainIdHex: string; chainId: number; symbol: string; name: string }> = {
   mainnet: { chainId: 198282, chainIdHex: '0x3068a', symbol: 'GYDS',  name: 'GYDS Mainnet' },
   testnet: { chainId: 198281, chainIdHex: '0x30689', symbol: 'tGYDS', name: 'GYDS Testnet' },
+  devnet:  { chainId: 198283, chainIdHex: '0x3068b', symbol: 'dGYDS', name: 'GYDS Devnet' },
 };
 
 export interface RpcBalanceResult {

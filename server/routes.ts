@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
+import { testNodeManager, getGenesisEnode, NETWORK_CFGS, ALL_NETWORKS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
@@ -536,8 +536,9 @@ export function registerRoutes(app: Express) {
     const externalUrls: Record<string, string> = {
       mainnet: process.env.GYDS_RPC_URL || "http://localhost:8545",
       testnet: process.env.GYDS_TESTNET_RPC_URL || "http://localhost:8600",
+      devnet: process.env.GYDS_DEVNET_RPC_URL || "http://localhost:8700",
     };
-    const NETS   = ["mainnet", "testnet"] as const;
+    const NETS   = ALL_NETWORKS;
     const NTYPES = ["rpc", "lite", "fullnode", "boostnode", "validator", "genesis", "bootnode"] as const;
     const result: any = { externalUrls };
     for (const network of NETS) {
@@ -759,8 +760,8 @@ export function registerRoutes(app: Express) {
       }
     }
 
-    const reqNetwork = (["mainnet","testnet"].includes(req.body.network)
-      ? req.body.network : "mainnet") as "mainnet" | "testnet";
+    const reqNetwork = (["mainnet","testnet","devnet"].includes(req.body.network)
+      ? req.body.network : "mainnet") as "mainnet" | "testnet" | "devnet";
     const targetAddress = (wallet_address ?? rest.walletAddress ?? "").toLowerCase();
 
     const row = await storage.insertTokenOperation({
@@ -782,8 +783,8 @@ export function registerRoutes(app: Express) {
           opType?.includes("gusd") ? "GUSD" : opType?.includes("gyd") && !opType?.includes("gyds") ? "GYD" : "GYDS";
         const amountWei = BigInt(Math.round(amtNum * 1e18));
         // Premines go to all networks (genesis allocation); regular mints only to the requested network
-        const networks: Array<"mainnet" | "testnet"> =
-          opType?.includes("premine") ? ["mainnet", "testnet"] : [reqNetwork];
+        const networks: Array<"mainnet" | "testnet" | "devnet"> =
+          opType?.includes("premine") ? ["mainnet", "testnet", "devnet"] : [reqNetwork];
         for (const net of networks) creditAddress(net, targetAddress, tokenKey, amountWei);
       }
     }
@@ -856,7 +857,7 @@ export function registerRoutes(app: Express) {
   app.get("/api/tokens", withCache(20_000), async (req, res) => {
     const network = req.query.network as string | undefined;
     let data = await storage.getActiveTokens();
-    if (network && ['mainnet', 'testnet'].includes(network)) {
+    if (network && ['mainnet', 'testnet', 'devnet'].includes(network)) {
       data = (data as any[]).filter((t: any) => (t.networkType ?? t.network_type ?? 'testnet') === network);
     }
     res.json(data);
@@ -1740,8 +1741,8 @@ export function registerRoutes(app: Express) {
     const tokenType = String(token_type ?? "").toLowerCase();
     const walletAddress = String(wallet_address ?? "").trim();
     // Default to testnet — faucet is for testing only
-    const network = ["mainnet", "testnet"].includes(String(reqNetwork ?? ""))
-      ? String(reqNetwork) as "mainnet" | "testnet"
+    const network = ["mainnet", "testnet", "devnet"].includes(String(reqNetwork ?? ""))
+      ? String(reqNetwork) as "mainnet" | "testnet" | "devnet"
       : "testnet";
 
     // Verify hCaptcha if secret is configured
@@ -1815,11 +1816,11 @@ export function registerRoutes(app: Express) {
   const _networkStatsCache: Record<string, { ts: number; data: unknown }> = {};
 
   app.get("/api/network-stats", async (req, res) => {
-    // Accept ?network=mainnet|testnet  (default: mainnet)
-    const netParam = (["mainnet","testnet"].includes(req.query.network as string)
-      ? req.query.network : "mainnet") as "mainnet" | "testnet";
+    // Accept ?network=mainnet|testnet|devnet  (default: mainnet)
+    const netParam = (["mainnet","testnet","devnet"].includes(req.query.network as string)
+      ? req.query.network : "mainnet") as "mainnet" | "testnet" | "devnet";
 
-    const NET_CHAIN_IDS: Record<string, number> = { mainnet: 198282, testnet: 198281 };
+    const NET_CHAIN_IDS: Record<string, number> = { mainnet: 198282, testnet: 198281, devnet: 198283 };
     const chainId = NET_CHAIN_IDS[netParam] ?? 198282;
 
     // ── 1. DB-sourced baseline ───────────────────────────────────────────────
@@ -2347,7 +2348,7 @@ export function registerRoutes(app: Express) {
 
   // ── Test Nodes — multi-network (admin/founder only) ────────────────────────
   const VALID_NODE_TYPES  = ["rpc", "lite", "fullnode", "boostnode", "validator", "genesis", "bootnode"] as const;
-  const VALID_NETWORKS    = ["mainnet", "testnet"] as const;
+  const VALID_NETWORKS    = ["mainnet", "testnet", "devnet"] as const;
   type ValidNodeType      = typeof VALID_NODE_TYPES[number];
   type ValidNetwork       = typeof VALID_NETWORKS[number];
 
@@ -2447,9 +2448,9 @@ export function registerRoutes(app: Express) {
 
   // GET genesis enode — /api/admin/genesis-enode/:network
   app.get("/api/admin/genesis-enode/:network", requireAdmin, (req, res) => {
-    const network = req.params.network as "mainnet" | "testnet";
-    if (!["mainnet", "testnet"].includes(network)) {
-      res.status(400).json({ ok: false, error: "Invalid network. Use mainnet or testnet." });
+    const network = req.params.network as "mainnet" | "testnet" | "devnet";
+    if (!["mainnet", "testnet", "devnet"].includes(network)) {
+      res.status(400).json({ ok: false, error: "Invalid network. Use mainnet, testnet, or devnet." });
       return;
     }
     const statuses = testNodeManager.status() as any;
@@ -2714,8 +2715,8 @@ export function registerRoutes(app: Express) {
   // POST start-all — starts all 7 node types for a given network (or both networks)
   app.post("/api/admin/test-nodes/:network/start-all", requireAdmin, async (req, res) => {
     const network = req.params.network as ValidNetwork | "all";
-    const networks: ValidNetwork[] = network === "all" ? ["mainnet", "testnet"] : [network as ValidNetwork];
-    if (!["mainnet", "testnet", "all"].includes(network)) {
+    const networks: ValidNetwork[] = network === "all" ? ["mainnet", "testnet", "devnet"] : [network as ValidNetwork];
+    if (!["mainnet", "testnet", "devnet", "all"].includes(network)) {
       return res.status(400).json({ ok: false, message: "Invalid network" });
     }
     const results: any[] = [];
@@ -2738,8 +2739,8 @@ export function registerRoutes(app: Express) {
   // POST stop-all — stops all 7 node types for a given network (or both networks)
   app.post("/api/admin/test-nodes/:network/stop-all", requireAdmin, async (req, res) => {
     const network = req.params.network as ValidNetwork | "all";
-    const networks: ValidNetwork[] = network === "all" ? ["mainnet", "testnet"] : [network as ValidNetwork];
-    if (!["mainnet", "testnet", "all"].includes(network)) {
+    const networks: ValidNetwork[] = network === "all" ? ["mainnet", "testnet", "devnet"] : [network as ValidNetwork];
+    if (!["mainnet", "testnet", "devnet", "all"].includes(network)) {
       return res.status(400).json({ ok: false, message: "Invalid network" });
     }
     const results: any[] = [];
@@ -2782,7 +2783,7 @@ export function registerRoutes(app: Express) {
 
     const statuses = testNodeManager.status() as any;
     const syncResults: any[] = [];
-    for (const net of ["mainnet", "testnet"] as ValidNetwork[]) {
+    for (const net of ["mainnet", "testnet", "devnet"] as ValidNetwork[]) {
       for (const type of VALID_NODE_TYPES) {
         const s = statuses[net]?.[type];
         if (!s?.running) continue;
@@ -2814,8 +2815,8 @@ export function registerRoutes(app: Express) {
     }
     const amountWei = BigInt(Math.round(Number(amount) * 1e18));
     const nets = network === "all"
-      ? (["mainnet","testnet"] as const)
-      : [network as "mainnet"|"testnet"];
+      ? (["mainnet","testnet","devnet"] as const)
+      : [network as "mainnet"|"testnet"|"devnet"];
     for (const net of nets) creditAddress(net, String(address), tokenKey, amountWei);
     const balances: Record<string, number> = {};
     for (const net of nets) balances[net] = Number(getNetworkBalance(net, String(address), tokenKey)) / 1e18;
@@ -2948,7 +2949,7 @@ export function registerRoutes(app: Express) {
       // Mirror the move into the in-memory balance trie so node RPC reads agree.
       try {
         const wei = BigInt(Math.round(amount * 1e18));
-        for (const net of ["mainnet", "testnet"] as const) {
+        for (const net of ["mainnet", "testnet", "devnet"] as const) {
           debitAddress(net, from, "GYDS", wei);
           creditAddress(net, to, "GYDS", wei);
         }
@@ -2965,8 +2966,8 @@ export function registerRoutes(app: Express) {
   // GET on-chain balance for an address from the in-memory balance trie
   app.get("/api/chain/balance/:address", requireAuth, async (req, res) => {
     const address = String(req.params.address ?? "").trim();
-    const network = (["mainnet", "testnet"].includes(req.query.network as string)
-      ? req.query.network : "mainnet") as "mainnet" | "testnet";
+    const network = (["mainnet", "testnet", "devnet"].includes(req.query.network as string)
+      ? req.query.network : "mainnet") as "mainnet" | "testnet" | "devnet";
     if (!address) return res.status(400).json({ ok: false, error: "address required" });
     if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
       return res.status(400).json({ ok: false, error: "invalid address" });
@@ -3019,8 +3020,8 @@ export function registerRoutes(app: Express) {
 
   // POST sequential node wizard — starts genesis→bootnode→rpc→fullnode→validator→lite→boostnode one at a time
   app.post("/api/admin/test-nodes/:network/start-sequential", requireAdmin, async (req, res) => {
-    const network = req.params.network as "mainnet" | "testnet";
-    if (!["mainnet", "testnet"].includes(network)) {
+    const network = req.params.network as "mainnet" | "testnet" | "devnet";
+    if (!["mainnet", "testnet", "devnet"].includes(network)) {
       return res.status(400).json({ ok: false, error: "Invalid network" });
     }
     const steps: Array<{ step: number; type: string; ok: boolean; message: string }> = [];
@@ -3214,7 +3215,11 @@ export function registerRoutes(app: Express) {
   // Public so the install script can curl it; sensitive fields excluded.
   app.get("/api/chain/genesis.json", async (req, res) => {
     const { pool: pgPool } = await import("./db");
-    const chainId = 198282;
+    const requestedNetwork = String(req.query.network ?? "mainnet");
+    const genesisNetwork = ALL_NETWORKS.includes(requestedNetwork as any)
+      ? requestedNetwork as (typeof ALL_NETWORKS)[number]
+      : "mainnet";
+    const chainId = NETWORK_CFGS[genesisNetwork].chainId;
     const FOUNDER = (process.env.FOUNDER_WALLET ?? '0xd43455e4ef3E472d81aaA848046FF9a55285F5Fc').toLowerCase();
 
     try {
@@ -3310,7 +3315,7 @@ export function registerRoutes(app: Express) {
       const addresses: string[] = [...new Set(rawAddresses.map((a: string) => a.toLowerCase()))].filter(Boolean);
 
       // Allow callers to scope balance to a single network
-      const netFilter = typeof req.query.network === "string" && ["mainnet","testnet"].includes(req.query.network)
+      const netFilter = typeof req.query.network === "string" && ["mainnet","testnet","devnet"].includes(req.query.network)
         ? req.query.network : null;
 
       let gyds = 0, gyd = 0, gusd = 0;
@@ -3376,6 +3381,10 @@ export function registerRoutes(app: Express) {
 
     const body = (req.method === 'GET' ? {} : req.body) ?? {};
     const { method, params = [], id = 1 } = body;
+    const requestedNetwork = String(req.query.network ?? body._network ?? "mainnet");
+    const rpcNetwork = ALL_NETWORKS.includes(requestedNetwork as any)
+      ? requestedNetwork as (typeof ALL_NETWORKS)[number]
+      : "mainnet";
 
     const ok = (result: any) => res.json({ jsonrpc: '2.0', result, id });
     const err = (code: number, msg: string) =>
@@ -3383,11 +3392,11 @@ export function registerRoutes(app: Express) {
 
     // Try to proxy to a running local test node first
     const allNodes = testNodeManager.status() as any;
-    const mainnet = allNodes['mainnet'] ?? {};
+    const selectedNodes = allNodes[rpcNetwork] ?? {};
     const tryTypes = ['rpc', 'fullnode', 'boostnode', 'lite', 'validator'] as const;
     let livePort: number | null = null;
     for (const t of tryTypes) {
-      if (mainnet[t]?.running) { livePort = mainnet[t].port; break; }
+      if (selectedNodes[t]?.running) { livePort = selectedNodes[t].port; break; }
     }
     if (livePort && method) {
       try {
@@ -3402,8 +3411,8 @@ export function registerRoutes(app: Express) {
     }
 
     // Built-in responses — always work, no node needed
-    const CHAIN_ID_HEX = '0x3068a'; // 198282
-    const NETWORK_ID   = '198282';
+    const CHAIN_ID_HEX = NETWORK_CFGS[rpcNetwork].chainIdHex;
+    const NETWORK_ID   = String(NETWORK_CFGS[rpcNetwork].chainId);
 
     // Get latest block height from DB for a realistic eth_blockNumber
     const blkRow = await pgPool.query(
@@ -3461,10 +3470,14 @@ export function registerRoutes(app: Express) {
     let livePort: number | null = null;
     for (const t of tryTypes) { if (netStatus[t]?.running) { livePort = netStatus[t].port; break; } }
 
-    // If no managed test node, try GYDS_RPC_URL (localhost:8545) then registered DB nodes
+    // If no managed test node, try the configured RPC for the selected network
+    // then registered DB nodes. Never use mainnet as a fallback for another network.
     if (!livePort) {
-      // Try primary RPC first
-      const primaryRpc = process.env.GYDS_RPC_URL || "http://localhost:8545";
+      const primaryRpc = network === "testnet"
+        ? (process.env.GYDS_TESTNET_RPC_URL || "http://localhost:8600")
+        : network === "devnet"
+          ? (process.env.GYDS_DEVNET_RPC_URL || "http://localhost:8700")
+          : (process.env.GYDS_RPC_URL || "http://localhost:8545");
       const candidateUrls: string[] = [primaryRpc];
       // Add DB-registered online nodes
       const regNodes = await pgPool.query(
@@ -3571,20 +3584,26 @@ export function registerRoutes(app: Express) {
     const netStatus = all[VALID_NETWORKS.includes(network) ? network : "mainnet"] ?? {};
     const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"] as const;
 
-    // Build ordered list of URLs to try: managed test nodes first, then GYDS_RPC_URL, then local port fallbacks
+    // Build ordered list of URLs to try: managed test nodes first, then the
+    // selected network's configured RPC, then that network's local fallback.
     const urls: string[] = [];
     for (const t of prioritized) {
       if (netStatus[t]?.running) urls.push(`http://localhost:${netStatus[t].port}`);
     }
-    // Always include the configured primary RPC (localhost:8545 by default)
-    const primary = process.env.GYDS_RPC_URL || "http://localhost:8545";
+    const primary = network === "testnet"
+      ? (process.env.GYDS_TESTNET_RPC_URL || "http://localhost:8600")
+      : network === "devnet"
+        ? (process.env.GYDS_DEVNET_RPC_URL || "http://localhost:8700")
+        : (process.env.GYDS_RPC_URL || "http://localhost:8545");
     if (!urls.includes(primary)) urls.push(primary);
-    // Localhost port fallbacks for mainnet
-    if (network === "mainnet") {
-      for (const p of [8545, 8565, 8555, 8575, 8585]) {
-        const u = `http://localhost:${p}`;
-        if (!urls.includes(u)) urls.push(u);
-      }
+    const fallbackPorts = network === "mainnet"
+      ? [8545, 8565, 8555, 8575, 8585]
+      : network === "testnet"
+        ? [8600, 8602, 8601, 8603, 8604]
+        : [8700, 8702, 8701, 8703, 8704];
+    for (const p of fallbackPorts) {
+      const u = `http://localhost:${p}`;
+      if (!urls.includes(u)) urls.push(u);
     }
 
     const body = { ...req.body };
@@ -3616,7 +3635,7 @@ export function registerRoutes(app: Express) {
     const all = testNodeManager.status() as any;
     // Try each network for any running node
     let targetPort: number | null = null;
-    const networksToTry = ["mainnet", "testnet"];
+    const networksToTry = ["mainnet", "testnet", "devnet"];
     const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"] as const;
     outer: for (const net of networksToTry) {
       const netStatus = all[net] ?? {};

@@ -16,7 +16,7 @@ import { api } from '@/lib/api';
 import { useNetwork, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
 
 // Chain IDs per network
-const NET_CHAIN: Record<NetworkKind, number> = { mainnet: 198282, testnet: 198281 };
+const NET_CHAIN: Record<NetworkKind, number> = { mainnet: 198282, testnet: 198281, devnet: 198283 };
 
 interface NetworkStatsData {
   blockHeight:      number;

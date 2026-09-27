@@ -97,6 +97,7 @@ const NetworkPage = () => {
   const accent: Record<NetworkKind, { bg: string; fg: string; label: string }> = {
     mainnet: { bg: 'bg-primary/20',     fg: 'text-primary',     label: 'Mainnet' },
     testnet: { bg: 'bg-amber-500/20',   fg: 'text-amber-400',   label: 'Testnet' },
+    devnet:  { bg: 'bg-sky-500/20',      fg: 'text-sky-400',      label: 'Devnet' },
   };
 
   const NetworkCard = ({
@@ -322,6 +323,9 @@ const NetworkPage = () => {
             <Button size="sm" variant="outline" onClick={() => handleAddNetwork('testnet')} disabled={isAdding} className="gap-2 h-8" data-testid="button-quick-add-testnet">
               <Wallet className="h-3.5 w-3.5" /> Testnet
             </Button>
+            <Button size="sm" variant="outline" onClick={() => handleAddNetwork('devnet')} disabled={isAdding} className="gap-2 h-8" data-testid="button-quick-add-devnet">
+              <Wallet className="h-3.5 w-3.5" /> Devnet
+            </Button>
           </div>
         </GlassCard>
 
@@ -330,10 +334,12 @@ const NetworkPage = () => {
           <TabsList className="mb-4">
             <TabsTrigger value="mainnet" data-testid="tab-mainnet">Mainnet</TabsTrigger>
             <TabsTrigger value="testnet" data-testid="tab-testnet">Testnet</TabsTrigger>
+            <TabsTrigger value="devnet" data-testid="tab-devnet">Devnet</TabsTrigger>
           </TabsList>
 
           <TabsContent value="mainnet"><NetworkCard kind="mainnet" /></TabsContent>
           <TabsContent value="testnet"><NetworkCard kind="testnet" /></TabsContent>
+          <TabsContent value="devnet"><NetworkCard kind="devnet" /></TabsContent>
         </Tabs>
 
         {/* Manual Configuration */}

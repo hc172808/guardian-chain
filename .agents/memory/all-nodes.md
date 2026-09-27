@@ -5,8 +5,8 @@ description: Supported local test-node types and network scope
 
 # All node types
 
-The local test-node manager supports seven node types: rpc, lite, fullnode, boostnode, validator, genesis, and bootnode. It supports mainnet and testnet only; devnet is retired. Mainnet uses chain ID 198282 and testnet uses chain ID 198281.
+The local test-node manager supports seven node types: rpc, lite, fullnode, boostnode, validator, genesis, and bootnode. It supports mainnet (198282), testnet (198281), and devnet (198283), with separate node state and port ranges.
 
-**Why:** The project now operates only mainnet and testnet, and retaining devnet in node state or UI would allow unsupported network requests to return misleading results.
+**Why:** Network configuration now explicitly distinguishes all three requested chain IDs, and devnet needs to remain isolated from mainnet/testnet state.
 
-**How to apply:** Keep network unions, API allowlists, node status shapes, wallet configuration, and admin selectors limited to mainnet/testnet. Reject devnet requests and ignore stale persisted devnet node state.
+**How to apply:** Keep network unions, API allowlists, node status shapes, wallet configuration, and admin selectors aligned across mainnet/testnet/devnet. Never fall back from testnet or devnet RPC requests to mainnet.

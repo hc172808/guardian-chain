@@ -1,11 +1,12 @@
 /**
  * Multi-network test node manager — localhost "real" nodes
- * Supports: mainnet (198282), testnet (198281)
- * 7 node types × 2 networks = 14 total node instances
+ * Supports: mainnet (198282), testnet (198281), devnet (198283)
+ * 7 node types × 3 networks = 21 total node instances
  *
  * Port allocation:
  *   Mainnet: rpc=8545, lite=8555, fullnode=8565, boostnode=8575, validator=8585, genesis=8590, bootnode=8595
  *   Testnet: rpc=8600, lite=8601, fullnode=8602, boostnode=8603, validator=8604, genesis=8605, bootnode=8606
+ *   Devnet:  rpc=8700, lite=8701, fullnode=8702, boostnode=8703, validator=8704, genesis=8705, bootnode=8706
  *
  * Nodes persist across server restarts — desired state is stored in the test_node_state DB table.
  * A node runs UNTIL the admin explicitly clicks Stop. Server restarts auto-resume all running nodes.
@@ -65,7 +66,7 @@ export async function loadPersistedTestNodeState(): Promise<Array<{ network: str
     return rows.map((r: any) => {
       const [network, type] = r.id.split(":");
       return { network, type };
-    }).filter((entry: any) => entry.network === "mainnet" || entry.network === "testnet");
+    }).filter((entry: any) => ALL_NETWORKS.includes(entry.network as Network));
   } catch (e: any) {
     console.warn("[test-node] failed to load persisted state:", e.message);
     return [];
@@ -74,7 +75,7 @@ export async function loadPersistedTestNodeState(): Promise<Array<{ network: str
 
 const MAX_LOGS = 200;
 
-export type Network  = "mainnet" | "testnet";
+export type Network  = "mainnet" | "testnet" | "devnet";
 export type NodeType = "rpc" | "lite" | "fullnode" | "boostnode" | "validator" | "genesis" | "bootnode";
 
 interface NetworkCfg {
@@ -97,9 +98,14 @@ export const NETWORK_CFGS: Record<Network, NetworkCfg> = {
     name: "GYDS Testnet", label: "testnet",
     ports: { rpc: 8600, lite: 8601, fullnode: 8602, boostnode: 8603, validator: 8604, genesis: 8605, bootnode: 8606 },
   },
+  devnet: {
+    chainId: 198283, chainIdHex: "0x3068b", symbol: "dGYDS",
+    name: "GYDS Devnet", label: "devnet",
+    ports: { rpc: 8700, lite: 8701, fullnode: 8702, boostnode: 8703, validator: 8704, genesis: 8705, bootnode: 8706 },
+  },
 };
 
-export const ALL_NETWORKS:  Network[]  = ["mainnet", "testnet"];
+export const ALL_NETWORKS:  Network[]  = ["mainnet", "testnet", "devnet"];
 export const ALL_NODE_TYPES: NodeType[] = ["rpc", "lite", "fullnode", "boostnode", "validator", "genesis", "bootnode"];
 
 interface NodeState {
@@ -131,6 +137,7 @@ const networkChain: Record<Network, {
 }> = {
   mainnet: { blockHeight: 1_000, timer: null, balances: new Map(), txLog: [] },
   testnet: { blockHeight: 1_000, timer: null, balances: new Map(), txLog: [] },
+  devnet: { blockHeight: 1_000, timer: null, balances: new Map(), txLog: [] },
 };
 
 /** Credit tokens to an address on a network (faucet, premine, transfers). */
@@ -338,6 +345,9 @@ const MOCK_VALIDATORS: Record<Network, Array<{ address: string; staked: number; 
     { address: "0x0000000000000000000000000000000000000011", staked: 5000,  commission: 0.05, active: true, blocksProposed: 0 },
     { address: "0x0000000000000000000000000000000000000012", staked: 1000,  commission: 0.10, active: true, blocksProposed: 0 },
   ],
+  devnet: [
+    { address: "0x0000000000000000000000000000000000000021", staked: 1000, commission: 0.05, active: true, blocksProposed: 0 },
+  ],
 };
 
 function addLog(network: Network, type: NodeType, msg: string) {
@@ -357,6 +367,7 @@ function randHex(len: number) {
 const GENESIS_ENODE_KEYS: Record<Network, string> = {
   mainnet: randHex(128),
   testnet: randHex(128),
+  devnet: randHex(128),
 };
 
 export function getGenesisEnode(network: Network): string {

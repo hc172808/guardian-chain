@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Cpu, Globe, ChevronDown, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type Network = 'mainnet' | 'testnet';
+type Network = 'mainnet' | 'testnet' | 'devnet';
 
 interface NodeInfo {
   type: string;
@@ -27,21 +27,24 @@ interface NetStatus {
 interface RpcStatus {
   mainnet: NetStatus;
   testnet: NetStatus;
+  devnet: NetStatus;
   externalUrls: Record<string, string>;
 }
 
-const NET_LABELS: Record<Network, string> = { mainnet: 'Mainnet', testnet: 'Testnet' };
+const NET_LABELS: Record<Network, string> = { mainnet: 'Mainnet', testnet: 'Testnet', devnet: 'Devnet' };
 const NET_COLORS: Record<Network, string> = {
   mainnet: 'text-emerald-400 border-emerald-400/40 bg-emerald-500/10',
   testnet: 'text-amber-400 border-amber-400/40 bg-amber-500/10',
+  devnet: 'text-sky-400 border-sky-400/40 bg-sky-500/10',
 };
 const NET_DOT: Record<Network, string> = {
   mainnet: 'bg-emerald-400',
   testnet: 'bg-amber-400',
+  devnet: 'bg-sky-400',
 };
 
 const SESSION_KEY = 'gyds_rpc_mode';   // 'local' | 'external'
-const NET_KEY     = 'gyds_rpc_net';    // 'mainnet' | 'testnet'
+const NET_KEY     = 'gyds_rpc_net';    // 'mainnet' | 'testnet' | 'devnet'
 
 export function LocalRpcIndicator() {
   const [status, setStatus]     = useState<RpcStatus | null>(null);
@@ -52,7 +55,7 @@ export function LocalRpcIndicator() {
   );
   const [activeNet, setActiveNet] = useState<Network>(() => {
     const saved = sessionStorage.getItem(NET_KEY);
-    return saved === 'testnet' ? 'testnet' : 'mainnet';
+    return saved === 'testnet' || saved === 'devnet' ? saved : 'mainnet';
   });
 
   const load = useCallback(async (quiet = false) => {
@@ -123,7 +126,7 @@ export function LocalRpcIndicator() {
 
             {/* Network selector */}
             <div className="flex gap-1">
-              {(['mainnet', 'testnet'] as Network[]).map(n => {
+              {(['mainnet', 'testnet', 'devnet'] as Network[]).map(n => {
                 const nStatus = status[n];
                 return (
                   <button

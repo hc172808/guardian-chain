@@ -52,7 +52,7 @@ export function GenesisManager() {
   const [newPeerEnode, setNewPeerEnode] = useState('');
   const [newPeerLabel, setNewPeerLabel] = useState('');
   const [fetchingEnode, setFetchingEnode] = useState(false);
-  const [enodeNetwork, setEnodeNetwork] = useState<'mainnet' | 'testnet'>('mainnet');
+  const [enodeNetwork, setEnodeNetwork] = useState<'mainnet' | 'testnet' | 'devnet'>('mainnet');
 
   useEffect(() => { loadConfig(); }, []);
 

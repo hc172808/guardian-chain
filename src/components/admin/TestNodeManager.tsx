@@ -30,7 +30,7 @@ interface SyncCheck {
   nodes: SyncResult[];
 }
 
-type Network  = 'mainnet' | 'testnet';
+type Network  = 'mainnet' | 'testnet' | 'devnet';
 type NodeType = 'rpc' | 'lite' | 'fullnode' | 'boostnode' | 'validator' | 'genesis' | 'bootnode';
 
 interface NodeStatus {
@@ -45,13 +45,15 @@ interface NodeStatus {
 type FullStatus = Record<Network, Record<NodeType, NodeStatus>>;
 
 const NODE_TYPES: NodeType[] = ['rpc', 'lite', 'fullnode', 'boostnode', 'validator', 'genesis', 'bootnode'];
-const NETWORKS:  Network[]   = ['mainnet', 'testnet'];
+const NETWORKS:  Network[]   = ['mainnet', 'testnet', 'devnet'];
 
 const NETWORK_CFG = {
   mainnet: { label: 'Mainnet', chainId: 198282, symbol: 'GYDS',  color: 'emerald', icon: '🌐',
     rpcUrl: 'https://rpc.netlifegy.com', explorerUrl: 'https://explorer.netlifegy.com' },
   testnet: { label: 'Testnet', chainId: 198281, symbol: 'tGYDS', color: 'amber',   icon: '🧪',
     rpcUrl: 'https://testnet-rpc.netlifegy.com', explorerUrl: 'https://testnet-explorer.netlifegy.com' },
+  devnet: { label: 'Devnet', chainId: 198283, symbol: 'dGYDS', color: 'sky', icon: '🛠️',
+    rpcUrl: 'https://devnet-rpc.netlifegy.com', explorerUrl: 'https://devnet-explorer.netlifegy.com' },
 };
 
 const NODE_META: Record<NodeType, { label: string; description: string; color: string; icon: any; badge?: string }> = {
@@ -819,7 +821,7 @@ function NodeSetupWizard({ onDone }: { onDone: () => void }) {
         </div>
         {/* Network selector */}
         <div className="flex gap-1">
-          {(['mainnet', 'testnet'] as Network[]).map(n => (
+          {(['mainnet', 'testnet', 'devnet'] as Network[]).map(n => (
             <button key={n} onClick={() => { if (!running) { setWizardNet(n); setSteps([]); setDone(false); } }}
               className={cn('px-2.5 py-1 rounded text-xs font-medium border transition-all',
                 wizardNet === n && !running
