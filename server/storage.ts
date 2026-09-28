@@ -1524,7 +1524,7 @@ export const storage = {
       CREATE TABLE IF NOT EXISTS insurance_policies (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         pool_id UUID REFERENCES insurance_pools(id) ON DELETE CASCADE,
-        holder_id INTEGER NOT NULL,
+        holder_id TEXT NOT NULL,
         coverage_amount NUMERIC NOT NULL,
         premium_paid NUMERIC NOT NULL,
         starts_at TIMESTAMPTZ DEFAULT NOW(),
@@ -1534,6 +1534,13 @@ export const storage = {
         claim_submitted_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+    `);
+    // Older installations created holder_id as INTEGER before user IDs were
+    // migrated to text identifiers. Keep existing policies and make the
+    // column compatible with every current account ID.
+    await pgPool.query(`
+      ALTER TABLE insurance_policies
+      ALTER COLUMN holder_id TYPE TEXT USING holder_id::text
     `);
     const count = await pgPool.query(`SELECT COUNT(*) FROM insurance_pools`);
     if (parseInt(count.rows[0].count) === 0) {
@@ -1553,7 +1560,7 @@ export const storage = {
     return res.rows;
   },
 
-  async buyInsurancePolicy(userId: number, poolId: string, coverageAmount: number, durationDays: number) {
+  async buyInsurancePolicy(userId: string | number, poolId: string, coverageAmount: number, durationDays: number) {
     const pool = await pgPool.query(`SELECT * FROM insurance_pools WHERE id=$1 AND active=true`, [poolId]);
     if (!pool.rows.length) throw new Error('Pool not found');
     const p = pool.rows[0];

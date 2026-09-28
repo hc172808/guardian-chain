@@ -65,7 +65,7 @@ async function enrichUserWithRoles(req: Request, _res: Response, next: any) {
     const user = req.user as any;
     if (!("_rolesLoaded" in user)) {
       const roles = await storage.getUserRoles(user.id);
-      const roleNames = roles.map((r: any) => r.role);
+      const roleNames = [...new Set(roles.map((r: any) => r.role))];
       user.roles = roleNames;
       user._isFounder = roleNames.includes("founder");
       user._isAdmin = roleNames.includes("admin") || roleNames.includes("founder");
@@ -86,7 +86,7 @@ export function registerRoutes(app: Express) {
     const roleRows = await pgPool.query(
       `SELECT role FROM user_roles WHERE user_id = $1`, [user.id]
     ).catch(() => ({ rows: [] as any[] }));
-    const roles: string[] = roleRows.rows.map((r: any) => r.role);
+    const roles: string[] = [...new Set(roleRows.rows.map((r: any) => r.role))];
     const isAdmin = roles.includes('admin') || roles.includes('founder');
     const isFounder = roles.includes('founder');
     res.json({

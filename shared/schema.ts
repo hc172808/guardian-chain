@@ -603,7 +603,7 @@ export const insurancePools = pgTable("insurance_pools", {
 export const insurancePolicies = pgTable("insurance_policies", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   poolId: uuid("pool_id").references(() => insurancePools.id),
-  holderId: integer("holder_id").notNull(),
+  holderId: text("holder_id").notNull(),
   coverageAmount: numeric("coverage_amount").notNull(),
   premiumPaid: numeric("premium_paid").notNull().default("0"),
   startsAt: timestamp("starts_at"),
