@@ -22,6 +22,14 @@ import bcrypt from "bcryptjs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
 import { broadcastTransfer, pollForConfirmation, checkRpcHealth, testEndpoints } from "./chainRpc";
 import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasuryBalance, sendTreasuryTransfer } from "./treasury";
+import {
+  getWireGuardConfig,
+  getWireGuardPublicConfig,
+  getMissingRemoteSettings,
+  getRemoteWireGuardPeers,
+  syncRemoteWireGuardPeers,
+  testRemoteWireGuard,
+} from "./wireguard";
 // ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
 interface GithubWebhookEvent {
   id: string;
@@ -699,6 +707,16 @@ export function registerRoutes(app: Express) {
   });
 
   app.get("/api/config/:key", async (req, res) => {
+    if (req.params.key === "wireguard_server") {
+      const user = req.user as any;
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+      if (!user?._isAdmin && !user?._isFounder) return res.status(403).json({ error: "Forbidden" });
+      const config = await getWireGuardConfig();
+      return res.json({
+        config: getWireGuardPublicConfig(config),
+        remoteReady: getMissingRemoteSettings(config).length === 0,
+      });
+    }
     const row = await storage.getConfig(req.params.key);
     if (!row) return res.json(null);
     res.json(row);
@@ -6913,8 +6931,11 @@ export function registerRoutes(app: Express) {
         [String(user.id)]
       ).catch(() => ({ rows: [] as any[] }));
       const node = nodeRes.rows[0];
-      const serverPubKey = process.env.WG_SERVER_PUBLIC_KEY ?? 'e9egJMy5zffDCgl3xcLa54Dy9Ib0K1UKzTc794K4Ago=';
-      const serverEndpoint = process.env.WG_SERVER_ENDPOINT ?? 'vpn.netlifegy.com:51820';
+      const wgConfig = await getWireGuardConfig();
+      const serverPubKey = wgConfig.publicKey || 'e9egJMy5zffDCgl3xcLa54Dy9Ib0K1UKzTc794K4Ago=';
+      const serverEndpoint = wgConfig.endpoint.includes(':')
+        ? wgConfig.endpoint
+        : `${wgConfig.endpoint || 'vpn.netlifegy.com'}:${wgConfig.port}`;
       const allowedIPs = '10.0.0.0/24';
       const dns = '10.0.0.1';
       // Generate a placeholder private key hint if no real key is stored
@@ -6942,13 +6963,121 @@ export function registerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Admin: remote WireGuard server configuration and sync ─────────────────
+  // Only non-secret connection metadata is stored in the database. The SSH
+  // private key must be supplied as the WG_SSH_PRIVATE_KEY Replit Secret.
+  app.get("/api/admin/wireguard/config", requireAdmin, async (_req, res) => {
+    try {
+      const config = await getWireGuardConfig();
+      res.json({
+        config: getWireGuardPublicConfig(config),
+        remoteReady: getMissingRemoteSettings(config).length === 0,
+        serverPrivateKeyConfigured: Boolean(
+          process.env.WG_SERVER_PRIVATE_KEY || process.env.GYDS_WG_PRIVATE_KEY,
+        ),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/wireguard/config", requireAdmin, async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const port = Number(body.port);
+      const sshPort = Number(body.sshPort);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        return res.status(400).json({ error: "WireGuard port must be between 1 and 65535." });
+      }
+      if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) {
+        return res.status(400).json({ error: "SSH port must be between 1 and 65535." });
+      }
+      const endpoint = String(body.endpoint ?? "").trim();
+      const publicKey = String(body.publicKey ?? "").trim();
+      const sshHost = String(body.sshHost ?? "").trim();
+      const sshUser = String(body.sshUser ?? "").trim();
+      const sshHostFingerprint = String(body.sshHostFingerprint ?? "").trim();
+      if (!endpoint || !publicKey || !sshHost || !sshUser || !sshHostFingerprint) {
+        return res.status(400).json({
+          error: "Endpoint, server public key, SSH host, SSH user, and SSH host fingerprint are required.",
+        });
+      }
+      const value = {
+        endpoint,
+        public_key: publicKey,
+        port,
+        allowed_ips: String(body.allowedIPs ?? "10.0.0.0/24").trim() || "10.0.0.0/24",
+        subnet: String(body.subnet ?? "10.0.0.0/24").trim() || "10.0.0.0/24",
+        interface_name: String(body.interfaceName ?? "wg0").trim() || "wg0",
+        ssh_host: sshHost,
+        ssh_port: sshPort,
+        ssh_user: sshUser,
+        ssh_host_fingerprint: sshHostFingerprint,
+      };
+      const user = req.user as any;
+      await storage.upsertConfig("wireguard_server", value, user.id);
+      res.json({
+        ok: true,
+        config: getWireGuardPublicConfig(await getWireGuardConfig()),
+        remoteReady: getMissingRemoteSettings(await getWireGuardConfig()).length === 0,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/wireguard/test", requireAdmin, async (_req, res) => {
+    try {
+      const result = await testRemoteWireGuard();
+      res.json({ ok: true, connected: true, output: result.output });
+    } catch (e: any) {
+      res.status(502).json({ ok: false, connected: false, error: e.message });
+    }
+  });
+
+  app.post("/api/admin/wireguard/sync", requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT id, hostname, node_type, wireguard_public_key
+         FROM node_installations
+         WHERE is_approved=true
+           AND wireguard_public_key IS NOT NULL
+           AND wireguard_public_key NOT LIKE 'LOCAL:%'
+         ORDER BY created_at ASC, id ASC`,
+      );
+      const peers = rows.map((row: any, index: number) => ({
+        publicKey: row.wireguard_public_key,
+        tunnelIp: `10.0.0.${index + 2}`,
+        name: row.hostname || row.node_type || String(row.id),
+      }));
+      const result = await syncRemoteWireGuardPeers(peers);
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      res.status(502).json({ ok: false, error: e.message });
+    }
+  });
+
   // ── Admin: read the live WireGuard server peer list ────────────────────────
   // Keep this server-side so the private key and other interface settings never
   // leave the host. This intentionally parses only [Peer] fields.
   app.get("/api/admin/wireguard/peers", requireAdmin, async (_req, res) => {
     const configPath = "/etc/wireguard/wg0.conf";
     try {
-      const config = await fs.promises.readFile(configPath, "utf8");
+      const config = await getWireGuardConfig();
+      const configuredForRemote = Boolean(
+        config.sshUser || process.env.WG_SSH_HOST || process.env.WG_SSH_PRIVATE_KEY,
+      );
+      if (configuredForRemote) {
+        const peers = await getRemoteWireGuardPeers();
+        return res.json({
+          path: `ssh://${config.sshHost}/${config.interfaceName}`,
+          count: peers.length,
+          peers,
+          source: "remote",
+        });
+      }
+
+      const fileConfig = await fs.promises.readFile(configPath, "utf8");
       const peers: Array<{
         id: string;
         publicKey: string;
@@ -6965,7 +7094,7 @@ export function registerRoutes(app: Express) {
         current = null;
       };
 
-      for (const rawLine of config.split(/\r?\n/)) {
+      for (const rawLine of fileConfig.split(/\r?\n/)) {
         const line = rawLine.trim();
         if (!line) continue;
         if (line.startsWith("#")) {
