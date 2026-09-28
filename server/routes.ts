@@ -45,6 +45,128 @@ interface GithubWebhookEvent {
 const githubWebhookEvents: GithubWebhookEvent[] = [];
 const githubPendingRecheck = new Set<string>(); // repos that need a NodeRepoSync recheck
 
+const STAKING_POOL_ADDRESS = "staking-pool";
+const STAKING_YEAR_SECONDS = 365.25 * 24 * 60 * 60;
+
+function parsePositiveAmount(value: unknown): number {
+  const amount = typeof value === "number" ? value : Number(String(value ?? "").trim());
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000_000) return 0;
+  return amount;
+}
+
+function isWalletAddress(value: unknown): value is string {
+  return typeof value === "string" && /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+}
+
+async function getUserWalletAddresses(client: any, userId: string): Promise<string[]> {
+  const { rows } = await client.query(
+    `SELECT LOWER(address) AS address FROM wallets WHERE user_id=$1
+     UNION
+     SELECT LOWER(wallet_address) AS address FROM users
+     WHERE id=$1 AND wallet_address IS NOT NULL AND wallet_address <> ''`,
+    [userId],
+  );
+  return rows
+    .map((row: any) => String(row.address ?? "").toLowerCase())
+    .filter((address: string) => isWalletAddress(address));
+}
+
+async function resolveStakingAddress(client: any, userId: string, requested: unknown): Promise<string> {
+  const addresses = await getUserWalletAddresses(client, userId);
+  if (!addresses.length) throw new Error("A valid wallet address must be linked to your account before staking.");
+  if (requested !== undefined && requested !== null && requested !== "") {
+    if (!isWalletAddress(requested)) throw new Error("A valid wallet address is required.");
+    const normalized = requested.trim().toLowerCase();
+    if (!addresses.includes(normalized)) throw new Error("That wallet is not linked to your account.");
+    return normalized;
+  }
+  return addresses[0];
+}
+
+async function getConfiguredStakingApr(client: any): Promise<number> {
+  const { rows } = await client.query(
+    `SELECT config_value FROM admin_config WHERE config_key='staking_apr' LIMIT 1`,
+  ).catch(() => ({ rows: [] as any[] }));
+  const raw = rows[0]?.config_value;
+  const apr = typeof raw === "object" && raw !== null ? Number(raw.apr) : Number(raw);
+  return Number.isFinite(apr) && apr >= 0 && apr <= 100 ? apr : 12;
+}
+
+function positionRewards(position: any, apr: number, now = Date.now()): number {
+  const principal = Number(position?.principal ?? 0);
+  const storedRewards = Number(position?.accrued_rewards ?? 0);
+  const lastAccrual = new Date(position?.last_accrual_at ?? now).getTime();
+  const elapsedSeconds = Math.max(0, now - lastAccrual) / 1000;
+  return storedRewards + principal * (apr / 100) * (elapsedSeconds / STAKING_YEAR_SECONDS);
+}
+
+async function getStakingStats(client: any) {
+  const apr = await getConfiguredStakingApr(client);
+  const { rows: positions } = await client.query(
+    `SELECT user_id, principal, shares, accrued_rewards, last_accrual_at
+     FROM staking_positions WHERE status='active'`,
+  );
+  const now = Date.now();
+  let totalAssets = 0;
+  let totalShares = 0;
+  for (const position of positions) {
+    totalAssets += Number(position.principal ?? 0) + positionRewards(position, apr, now);
+    totalShares += Number(position.shares ?? 0);
+  }
+  const { rows: priceRows } = await client.query(
+    `SELECT price FROM token_price ORDER BY updated_at DESC NULLS LAST LIMIT 1`,
+  ).catch(() => ({ rows: [] as any[] }));
+  const price = Number(priceRows[0]?.price ?? 0);
+  const { rows: stakes24hRows } = await client.query(
+    `SELECT COUNT(*)::int AS count FROM transactions
+     WHERE status='confirmed' AND LOWER(to_address)=$1
+       AND created_at > NOW() - INTERVAL '24 hours'`,
+    [STAKING_POOL_ADDRESS],
+  );
+  return {
+    totalStaked: Number(totalAssets.toFixed(12)),
+    totalStakedUsd: Number((totalAssets * (Number.isFinite(price) ? price : 0)).toFixed(12)),
+    stakers: new Set(positions.map((position: any) => position.user_id)).size,
+    stakes24h: Number(stakes24hRows[0]?.count ?? 0),
+    apr,
+    exchangeRate: totalShares > 0 ? Number((totalAssets / totalShares).toFixed(12)) : 1,
+    buybacks24h: 0,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function getUserGydBalance(client: any, addresses: string[]): Promise<number> {
+  if (!addresses.length) return 0;
+  const { rows: txRows } = await client.query(
+    `SELECT COALESCE(SUM(
+       CASE
+         WHEN LOWER(to_address)=ANY($1::text[]) THEN amount
+         WHEN LOWER(from_address)=ANY($1::text[]) THEN -(amount + fee)
+         ELSE 0
+       END
+     ), 0) AS balance
+     FROM transactions
+     WHERE status='confirmed'
+       AND UPPER(COALESCE(token_symbol, 'GYD'))='GYD'
+       AND (LOWER(to_address)=ANY($1::text[]) OR LOWER(from_address)=ANY($1::text[]))`,
+    [addresses],
+  );
+  const { rows: operationRows } = await client.query(
+    `SELECT COALESCE(SUM(
+       CASE
+         WHEN operation_type IN ('mint_gyd', 'premine_gyd') THEN amount
+         WHEN operation_type='burn_gyd' THEN -amount
+         ELSE 0
+       END
+     ), 0) AS balance
+     FROM token_operations
+     WHERE status='confirmed'
+       AND LOWER(REPLACE(REPLACE(wallet_address, 'gyd:', ''), 'bridge:', ''))=ANY($1::text[])`,
+    [addresses],
+  );
+  return Math.max(0, Number(txRows[0]?.balance ?? 0) + Number(operationRows[0]?.balance ?? 0));
+}
+
 // 20 req / 15 min — matches auth.ts authLimiter
 const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Too many login attempts. Please wait 15 minutes before trying again." } });
 // 5 req / hr — faucet claim
@@ -6468,34 +6590,221 @@ export function registerRoutes(app: Express) {
   // DeFi Extended Routes
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // ── Native GYD staking ledger ──────────────────────────────────────────────
+  // This is the real app ledger used until a deployed staking contract is
+  // configured. Every mutation is atomic: the confirmed GYD transaction and
+  // the staking position change commit together or neither is committed.
+  app.get('/api/staking/position', requireAuth, async (req, res) => {
+    const client = await pgPool.connect();
+    try {
+      const user = req.user as any;
+      const address = await resolveStakingAddress(client, user.id, req.query.address);
+      const { rows } = await client.query(
+        `SELECT * FROM staking_positions
+         WHERE user_id=$1 AND LOWER(wallet_address)=LOWER($2) AND status='active'
+         LIMIT 1`,
+        [user.id, address],
+      );
+      const position = rows[0] ?? null;
+      const apr = await getConfiguredStakingApr(client);
+      const pendingRewards = position ? positionRewards(position, apr) : 0;
+      const addresses = await getUserWalletAddresses(client, user.id);
+      const stats = await getStakingStats(client);
+      res.json({
+        walletAddress: address,
+        balance: Number((await getUserGydBalance(client, addresses)).toFixed(12)),
+        position: position ? {
+          id: position.id,
+          principal: Number(Number(position.principal).toFixed(12)),
+          shares: Number(Number(position.shares).toFixed(12)),
+          pendingRewards: Number(pendingRewards.toFixed(12)),
+          value: Number((Number(position.principal) + pendingRewards).toFixed(12)),
+          createdAt: position.created_at,
+          updatedAt: position.updated_at,
+        } : null,
+        ...stats,
+      });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message ?? 'Unable to load staking position' });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post('/api/staking/stake', requireAuth, async (req, res) => {
+    const client = await pgPool.connect();
+    try {
+      const user = req.user as any;
+      const amount = parsePositiveAmount(req.body?.amount);
+      if (!amount) return res.status(400).json({ error: 'A positive staking amount is required.' });
+
+      await client.query('BEGIN');
+      // Serialize this user's balance-changing operations so two simultaneous
+      // stake requests cannot spend the same confirmed GYD balance.
+      await client.query(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, [user.id]);
+      const address = await resolveStakingAddress(client, user.id, req.body?.walletAddress);
+      const addresses = await getUserWalletAddresses(client, user.id);
+      const available = await getUserGydBalance(client, addresses);
+      if (amount > available + 1e-12) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Insufficient GYD balance. Available: ${available.toFixed(12)} GYD.` });
+      }
+
+      const stats = await getStakingStats(client);
+      const { rows } = await client.query(
+        `SELECT * FROM staking_positions
+         WHERE user_id=$1 AND LOWER(wallet_address)=LOWER($2) AND status='active'
+         LIMIT 1 FOR UPDATE`,
+        [user.id, address],
+      );
+      const existing = rows[0];
+      const apr = stats.apr;
+      const accrued = existing ? positionRewards(existing, apr) : 0;
+      const exchangeRate = Math.max(stats.exchangeRate, 1e-12);
+      const shares = amount / exchangeRate;
+
+      let positionId: string;
+      if (existing) {
+        positionId = existing.id;
+        await client.query(
+          `UPDATE staking_positions
+           SET principal=principal+$1, shares=shares+$2, accrued_rewards=$3,
+               last_accrual_at=NOW(), updated_at=NOW()
+           WHERE id=$4`,
+          [amount, shares, accrued, existing.id],
+        );
+      } else {
+        const inserted = await client.query(
+          `INSERT INTO staking_positions
+             (user_id, wallet_address, principal, shares, accrued_rewards, last_accrual_at)
+           VALUES ($1,$2,$3,$4,0,NOW()) RETURNING id`,
+          [user.id, address, amount, shares],
+        );
+        positionId = inserted.rows[0].id;
+      }
+
+      const txHash = `staking-${crypto.randomUUID()}`;
+      const tx = await client.query(
+        `INSERT INTO transactions
+           (from_address, to_address, amount, fee, tx_hash, status, user_id,
+            token_symbol, confirmed_at, network)
+         VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYD',NOW(),$6)
+         RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
+        [address, STAKING_POOL_ADDRESS, amount, txHash, user.id, process.env.GYDS_NETWORK ?? 'mainnet'],
+      );
+      await client.query('COMMIT');
+      res.status(201).json({
+        ok: true,
+        action: 'stake',
+        transaction: tx.rows[0],
+        positionId,
+        walletAddress: address,
+        amount: Number(amount.toFixed(12)),
+        shares: Number(shares.toFixed(12)),
+        exchangeRate,
+        apr,
+        balance: Number(Math.max(0, available - amount).toFixed(12)),
+      });
+    } catch (e: any) {
+      await client.query('ROLLBACK').catch(() => {});
+      res.status(400).json({ error: e.message ?? 'Staking failed. No funds were moved.' });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post('/api/staking/unstake', requireAuth, async (req, res) => {
+    const client = await pgPool.connect();
+    try {
+      const user = req.user as any;
+      const sharesToWithdraw = parsePositiveAmount(req.body?.amount);
+      if (!sharesToWithdraw) return res.status(400).json({ error: 'A positive xGYD amount is required.' });
+
+      await client.query('BEGIN');
+      await client.query(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, [user.id]);
+      const address = await resolveStakingAddress(client, user.id, req.body?.walletAddress);
+      const { rows } = await client.query(
+        `SELECT * FROM staking_positions
+         WHERE user_id=$1 AND LOWER(wallet_address)=LOWER($2) AND status='active'
+         LIMIT 1 FOR UPDATE`,
+        [user.id, address],
+      );
+      const position = rows[0];
+      if (!position) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'No active staking position for this wallet.' });
+      }
+
+      const apr = await getConfiguredStakingApr(client);
+      const principal = Number(position.principal);
+      const accrued = positionRewards(position, apr);
+      const shares = Number(position.shares);
+      if (sharesToWithdraw > shares + 1e-12) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Insufficient xGYD balance. Available: ${shares.toFixed(12)} xGYD.` });
+      }
+
+      const ratio = sharesToWithdraw / shares;
+      const amountReturned = (principal + accrued) * ratio;
+      const remainingShares = shares - sharesToWithdraw;
+      const remainingPrincipal = principal * (1 - ratio);
+      const remainingRewards = accrued * (1 - ratio);
+      const txHash = `staking-${crypto.randomUUID()}`;
+
+      if (remainingShares <= 1e-12) {
+        await client.query(
+          `UPDATE staking_positions SET principal=0, shares=0, accrued_rewards=0,
+             status='closed', last_accrual_at=NOW(), updated_at=NOW() WHERE id=$1`,
+          [position.id],
+        );
+      } else {
+        await client.query(
+          `UPDATE staking_positions
+           SET principal=$1, shares=$2, accrued_rewards=$3,
+               last_accrual_at=NOW(), updated_at=NOW()
+           WHERE id=$4`,
+          [remainingPrincipal, remainingShares, remainingRewards, position.id],
+        );
+      }
+
+      const tx = await client.query(
+        `INSERT INTO transactions
+           (from_address, to_address, amount, fee, tx_hash, status, user_id,
+            token_symbol, confirmed_at, network)
+         VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYD',NOW(),$6)
+         RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
+        [STAKING_POOL_ADDRESS, address, amountReturned, txHash, user.id, process.env.GYDS_NETWORK ?? 'mainnet'],
+      );
+      const addresses = await getUserWalletAddresses(client, user.id);
+      const balance = await getUserGydBalance(client, addresses);
+      await client.query('COMMIT');
+      res.status(201).json({
+        ok: true,
+        action: 'unstake',
+        transaction: tx.rows[0],
+        positionId: position.id,
+        walletAddress: address,
+        shares: Number(sharesToWithdraw.toFixed(12)),
+        amountReturned: Number(amountReturned.toFixed(12)),
+        rewardsRealized: Number((accrued * ratio).toFixed(12)),
+        apr,
+        balance: Number(balance.toFixed(12)),
+      });
+    } catch (e: any) {
+      await client.query('ROLLBACK').catch(() => {});
+      res.status(400).json({ error: e.message ?? 'Unstaking failed. No funds were moved.' });
+    } finally {
+      client.release();
+    }
+  });
+
   // ── Staking Stats ──────────────────────────────────────────────────────────
   app.get('/api/staking/stats', async (_req, res) => {
+    const client = await pgPool.connect();
     try {
-      const { rows } = await pgPool.query(`
-        SELECT
-          COALESCE(SUM(CASE WHEN to_address = 'staking-pool' THEN amount ELSE 0 END), 0)
-            - COALESCE(SUM(CASE WHEN from_address = 'staking-pool' THEN amount ELSE 0 END), 0)
-          AS total_staked,
-          COUNT(DISTINCT CASE WHEN to_address = 'staking-pool' THEN user_id END) AS stakers,
-          COUNT(*) FILTER (WHERE to_address = 'staking-pool' AND created_at > NOW() - INTERVAL '24h') AS stakes_24h
-        FROM transactions WHERE status = 'confirmed'
-      `);
-      const totalStaked = Math.max(0, parseFloat(rows[0]?.total_staked ?? '0'));
-      const stakers = parseInt(rows[0]?.stakers ?? '0');
-      // Dynamic APR: base 12% + bonus up to 80% based on lock demand
-      const dynamicApr = Math.min(92, 12 + (totalStaked > 0 ? Math.log10(totalStaked + 1) * 8 : 60));
-      const exchangeRate = 1 + (totalStaked / 10_000_000) * 0.04; // xGYD ratio grows with TVL
-      res.json({
-        totalStaked,
-        totalStakedUsd: totalStaked * 0.0000001,
-        stakers,
-        stakes24h: parseInt(rows[0]?.stakes_24h ?? '0'),
-        apr: parseFloat(dynamicApr.toFixed(2)),
-        exchangeRate: parseFloat(Math.max(1, exchangeRate).toFixed(6)),
-        buybacks24h: totalStaked * 0.0000001 * 0.003,
-        updatedAt: new Date().toISOString(),
-      });
+      res.json(await getStakingStats(client));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+    finally { client.release(); }
   });
 
   // ── Farming Pools ─────────────────────────────────────────────────────────

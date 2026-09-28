@@ -277,6 +277,36 @@ export async function startupMigrate(pool: Pool): Promise<void> {
   await run("transactions-token-symbol-col", `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS token_symbol TEXT NOT NULL DEFAULT 'GYD'`);
   await run("transactions-network-col", `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'testnet'`);
 
+  await run("staking_positions", `
+    CREATE TABLE IF NOT EXISTS staking_positions (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      wallet_address    TEXT NOT NULL,
+      principal         NUMERIC(30, 18) NOT NULL DEFAULT 0,
+      shares            NUMERIC(30, 18) NOT NULL DEFAULT 0,
+      accrued_rewards   NUMERIC(30, 18) NOT NULL DEFAULT 0,
+      last_accrual_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      status            TEXT NOT NULL DEFAULT 'active',
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT staking_positions_status_check CHECK (status IN ('active', 'closed')),
+      CONSTRAINT staking_positions_nonnegative_check CHECK (principal >= 0 AND shares >= 0 AND accrued_rewards >= 0)
+    )
+  `);
+  await run("staking_positions-user-wallet-idx", `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_staking_positions_user_wallet_active
+    ON staking_positions(user_id, LOWER(wallet_address))
+    WHERE status = 'active'
+  `);
+  await run("staking_positions-status-idx", `
+    CREATE INDEX IF NOT EXISTS idx_staking_positions_status ON staking_positions(status)
+  `);
+  await run("staking_apr-default", `
+    INSERT INTO admin_config (config_key, config_value)
+    VALUES ('staking_apr', '12'::jsonb)
+    ON CONFLICT (config_key) DO NOTHING
+  `);
+
   // ── 5. Node tables ───────────────────────────────────────────────────────────
   await run("node_installations", `
     CREATE TABLE IF NOT EXISTS node_installations (

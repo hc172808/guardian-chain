@@ -11,15 +11,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { getUserAddresses, computeUserBalances } from '@/lib/balances';
-import {
-  getFarmPools,
-  executeFarmDeposit,
-  executeFarmWithdraw,
-  executeFarmHarvest,
-} from '@/lib/swapContract';
+import { api } from '@/lib/api';
 
 interface StakingStats {
   totalStaked: number;
@@ -37,7 +30,7 @@ const FALLBACK_STATS: StakingStats = {
   totalStakedUsd: 0,
   stakers: 0,
   stakes24h: 0,
-  apr: 18.5,
+  apr: 12,
   exchangeRate: 1.0,
   buybacks24h: 0,
   updatedAt: new Date().toISOString(),
@@ -50,13 +43,14 @@ export const StakeInterface = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [userBalance, setUserBalance] = useState(0);
   const [userStaked, setUserStaked] = useState(0);
+  const [stakingAddress, setStakingAddress] = useState<string | null>(null);
   const [stats, setStats] = useState<StakingStats>(FALLBACK_STATS);
   const [loadingStats, setLoadingStats] = useState(true);
   const { user } = useAuth();
   const { address, isConnected } = useWalletConnect();
   const { toast } = useToast();
-  // Allow staking with DB wallet when no browser wallet is connected
-  const effectiveAddress = address || user?.walletAddress || null;
+  // Allow staking with a linked database wallet when no browser wallet is connected.
+  const effectiveAddress = address || user?.walletAddress || stakingAddress || null;
 
   const fetchStats = useCallback(async () => {
     try {
@@ -78,39 +72,33 @@ export const StakeInterface = () => {
     return () => clearInterval(id);
   }, [fetchStats]);
 
-  useEffect(() => {
-    const loadBalances = async () => {
-      if (!user) return;
-      const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
-      const { gydBalance } = await computeUserBalances(user.id, myAddresses);
-      const { data: txData } = await supabase
-        .from('transactions')
-        .select('from_address, to_address, amount')
-        .eq('user_id', user.id)
-        .eq('status', 'confirmed');
-      let staked = 0;
-      if (txData) {
-        txData.forEach((tx) => {
-          const fromMe = myAddresses.has(tx.from_address.toLowerCase());
-          const toMe = myAddresses.has(tx.to_address.toLowerCase());
-          if (tx.to_address === 'staking-pool' && fromMe) staked += tx.amount;
-          if (tx.from_address === 'staking-pool' && toMe) staked -= tx.amount;
-        });
-      }
-      setUserStaked(Math.max(0, staked));
-      setUserBalance(Math.max(0, gydBalance));
-    };
-    loadBalances();
-    const channel = supabase
-      .channel('stake-balances')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadBalances())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'token_operations' }, () => loadBalances())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+  const loadPosition = useCallback(async () => {
+    if (!user) {
+      setUserBalance(0);
+      setUserStaked(0);
+      setStakingAddress(null);
+      return;
+    }
+    try {
+      const query = address ? `?address=${encodeURIComponent(address)}` : '';
+      const data = await api.get(`/api/staking/position${query}`);
+      setStakingAddress(data.walletAddress ?? null);
+      setUserBalance(Number(data.balance ?? 0));
+      setUserStaked(Number(data.position?.shares ?? 0));
+    } catch {
+      setUserBalance(0);
+      setUserStaked(0);
+    }
   }, [user, address]);
 
+  useEffect(() => {
+    loadPosition();
+    const id = setInterval(loadPosition, 30_000);
+    return () => clearInterval(id);
+  }, [loadPosition]);
+
   const { apr, exchangeRate, totalStaked, stakers, buybacks24h } = stats;
-  const userXgyd = userStaked > 0 ? userStaked / exchangeRate : 0;
+  const userXgyd = userStaked;
   const stakeReceive = parseFloat(stakeAmount || '0') / exchangeRate;
   const unstakeReceive = parseFloat(unstakeAmount || '0') * exchangeRate;
 
@@ -133,26 +121,18 @@ export const StakeInterface = () => {
 
     setIsProcessing(true);
     try {
-      // Try on-chain Farm contract first (if deployed)
-      const pools = await getFarmPools();
-      if (pools.length > 0) {
-        const pid = 0;
-        const wei = BigInt(Math.floor(amount * 1e18)).toString();
-        let txHash: string | null = null;
-        if (type === 'stake') {
-          txHash = await executeFarmDeposit(pid, wei);
-        } else {
-          txHash = await executeFarmWithdraw(pid, wei);
-        }
-        if (txHash) {
-          toast({ title: type === 'stake' ? '🔒 Staked on-chain' : '🔓 Unstaked on-chain', description: `TX: ${txHash.slice(0, 20)}…` });
-          type === 'stake' ? setStakeAmount('') : setUnstakeAmount('');
-          setIsProcessing(false);
-          return;
-        }
-      }
-
-      throw new Error('Staking is unavailable because no staking contract is deployed. No funds were moved.');
+      const data = await api.post(`/api/staking/${type}`, {
+        amount,
+        walletAddress: effectiveAddress,
+      });
+      toast({
+        title: type === 'stake' ? '🔒 GYD staked' : '🔓 xGYD unstaked',
+        description: type === 'stake'
+          ? `${amount.toFixed(4)} GYD deposited. TX: ${data.transaction?.txHash ?? 'recorded'}`
+          : `${Number(data.amountReturned ?? 0).toFixed(4)} GYD returned${Number(data.rewardsRealized ?? 0) > 0 ? ` · ${Number(data.rewardsRealized).toFixed(4)} GYD rewards` : ''}.`,
+      });
+      type === 'stake' ? setStakeAmount('') : setUnstakeAmount('');
+      await Promise.all([loadPosition(), fetchStats()]);
     } catch (e: any) {
       toast({ title: 'Transaction Failed', description: e.message, variant: 'destructive' });
     } finally {
@@ -354,7 +334,7 @@ export const StakeInterface = () => {
           {showDetails && (
             <div className="mt-3 space-y-2 text-sm">
               {[
-                ['Protocol', 'GYDSchain Native Staking'],
+                 ['Protocol', 'GYDSchain ledger staking'],
                 ['Token In',  'GYD (Governance Token)'],
                 ['Token Out', 'xGYD (Staked Receipt)'],
                 ['APR', `${apr.toFixed(2)}% (dynamic)`],
