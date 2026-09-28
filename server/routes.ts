@@ -45,8 +45,31 @@ interface GithubWebhookEvent {
 const githubWebhookEvents: GithubWebhookEvent[] = [];
 const githubPendingRecheck = new Set<string>(); // repos that need a NodeRepoSync recheck
 
-const STAKING_POOL_ADDRESS = "staking-pool";
 const STAKING_YEAR_SECONDS = 365.25 * 24 * 60 * 60;
+
+function getStakingPoolAddress(): string {
+  // The local GYDS node accepts the named pool account. Production must set
+  // STAKING_POOL_ADDRESS to the deployed staking contract or custody address.
+  return String(process.env.STAKING_POOL_ADDRESS ?? "staking-pool").trim();
+}
+
+async function broadcastStakingTransfer(
+  fromAddress: string,
+  toAddress: string,
+  amount: number,
+): Promise<{ txHash: string; blockNumber?: number | null }> {
+  const result = await broadcastTransfer({
+    fromAddress,
+    toAddress,
+    amountEther: amount,
+    token: "GYD",
+    chainId: Number(process.env.GYDS_CHAIN_ID ?? 198282),
+  });
+  if (!result.onChain) {
+    throw new Error(result.error ?? "The GYD transfer was rejected by the chain.");
+  }
+  return { txHash: result.txHash, blockNumber: result.blockNumber };
+}
 
 function parsePositiveAmount(value: unknown): number {
   const amount = typeof value === "number" ? value : Number(String(value ?? "").trim());
@@ -121,7 +144,7 @@ async function getStakingStats(client: any) {
     `SELECT COUNT(*)::int AS count FROM transactions
      WHERE status='confirmed' AND LOWER(to_address)=$1
        AND created_at > NOW() - INTERVAL '24 hours'`,
-    [STAKING_POOL_ADDRESS],
+    [getStakingPoolAddress().toLowerCase()],
   );
   return {
     totalStaked: Number(totalAssets.toFixed(12)),
@@ -6590,10 +6613,10 @@ export function registerRoutes(app: Express) {
   // DeFi Extended Routes
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // ── Native GYD staking ledger ──────────────────────────────────────────────
-  // This is the real app ledger used until a deployed staking contract is
-  // configured. Every mutation is atomic: the confirmed GYD transaction and
-  // the staking position change commit together or neither is committed.
+  // ── Native GYD staking ─────────────────────────────────────────────────────
+  // The chain's custom GYD transfer RPC is the source of truth for the asset
+  // movement. The database position and transaction record are committed only
+  // after the chain accepts the transfer.
   app.get('/api/staking/position', requireAuth, async (req, res) => {
     const client = await pgPool.connect();
     try {
@@ -6683,14 +6706,15 @@ export function registerRoutes(app: Express) {
         positionId = inserted.rows[0].id;
       }
 
-      const txHash = `staking-${crypto.randomUUID()}`;
+      const poolAddress = getStakingPoolAddress();
+      const chainTransfer = await broadcastStakingTransfer(address, poolAddress, amount);
       const tx = await client.query(
         `INSERT INTO transactions
            (from_address, to_address, amount, fee, tx_hash, status, user_id,
-            token_symbol, confirmed_at, network)
-         VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYD',NOW(),$6)
+             token_symbol, block_height, confirmed_at, network)
+          VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYD',$6,NOW(),$7)
          RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
-        [address, STAKING_POOL_ADDRESS, amount, txHash, user.id, process.env.GYDS_NETWORK ?? 'mainnet'],
+        [address, poolAddress, amount, chainTransfer.txHash, user.id, chainTransfer.blockNumber ?? null, process.env.GYDS_NETWORK ?? 'mainnet'],
       );
       await client.query('COMMIT');
       res.status(201).json({
@@ -6703,6 +6727,7 @@ export function registerRoutes(app: Express) {
         shares: Number(shares.toFixed(12)),
         exchangeRate,
         apr,
+        onChain: true,
         balance: Number(Math.max(0, available - amount).toFixed(12)),
       });
     } catch (e: any) {
@@ -6749,7 +6774,8 @@ export function registerRoutes(app: Express) {
       const remainingShares = shares - sharesToWithdraw;
       const remainingPrincipal = principal * (1 - ratio);
       const remainingRewards = accrued * (1 - ratio);
-      const txHash = `staking-${crypto.randomUUID()}`;
+      const poolAddress = getStakingPoolAddress();
+      const chainTransfer = await broadcastStakingTransfer(poolAddress, address, amountReturned);
 
       if (remainingShares <= 1e-12) {
         await client.query(
@@ -6770,10 +6796,10 @@ export function registerRoutes(app: Express) {
       const tx = await client.query(
         `INSERT INTO transactions
            (from_address, to_address, amount, fee, tx_hash, status, user_id,
-            token_symbol, confirmed_at, network)
-         VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYD',NOW(),$6)
+             token_symbol, block_height, confirmed_at, network)
+          VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYD',$6,NOW(),$7)
          RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
-        [STAKING_POOL_ADDRESS, address, amountReturned, txHash, user.id, process.env.GYDS_NETWORK ?? 'mainnet'],
+        [poolAddress, address, amountReturned, chainTransfer.txHash, user.id, chainTransfer.blockNumber ?? null, process.env.GYDS_NETWORK ?? 'mainnet'],
       );
       const addresses = await getUserWalletAddresses(client, user.id);
       const balance = await getUserGydBalance(client, addresses);
@@ -6788,6 +6814,7 @@ export function registerRoutes(app: Express) {
         amountReturned: Number(amountReturned.toFixed(12)),
         rewardsRealized: Number((accrued * ratio).toFixed(12)),
         apr,
+        onChain: true,
         balance: Number(balance.toFixed(12)),
       });
     } catch (e: any) {

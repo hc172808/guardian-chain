@@ -128,8 +128,8 @@ export const StakeInterface = () => {
       toast({
         title: type === 'stake' ? '🔒 GYD staked' : '🔓 xGYD unstaked',
         description: type === 'stake'
-          ? `${amount.toFixed(4)} GYD deposited. TX: ${data.transaction?.txHash ?? 'recorded'}`
-          : `${Number(data.amountReturned ?? 0).toFixed(4)} GYD returned${Number(data.rewardsRealized ?? 0) > 0 ? ` · ${Number(data.rewardsRealized).toFixed(4)} GYD rewards` : ''}.`,
+          ? `${amount.toFixed(4)} GYD transferred on-chain. TX: ${data.transaction?.txHash ?? 'submitted'}`
+          : `${Number(data.amountReturned ?? 0).toFixed(4)} GYD transferred back on-chain${Number(data.rewardsRealized ?? 0) > 0 ? ` · ${Number(data.rewardsRealized).toFixed(4)} GYD rewards` : ''}.`,
       });
       type === 'stake' ? setStakeAmount('') : setUnstakeAmount('');
       await Promise.all([loadPosition(), fetchStats()]);

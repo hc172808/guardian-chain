@@ -137,11 +137,13 @@ export async function broadcastTransfer(params: {
   fromAddress: string;
   toAddress: string;
   amountEther: number;
+  token?: "GYDS" | "GYD" | "GUSD";
   nonce?: number;
   chainId?: number;
   signedRawTx?: string;
 }): Promise<BroadcastResult> {
   const { fromAddress, toAddress, amountEther, signedRawTx } = params;
+  const token = params.token ?? "GYDS";
   const chainId = params.chainId ?? 198282;
 
   if (signedRawTx) {
@@ -170,6 +172,7 @@ export async function broadcastTransfer(params: {
     const txObj = {
       from:     fromAddress,
       to:       toAddress,
+      token,
       value:    amountHex,
       gas:      gasHex,
       gasPrice: gasPriceHex,
