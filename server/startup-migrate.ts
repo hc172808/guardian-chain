@@ -306,6 +306,11 @@ export async function startupMigrate(pool: Pool): Promise<void> {
     VALUES ('staking_apr', '12'::jsonb)
     ON CONFLICT (config_key) DO NOTHING
   `);
+  await run("staking_unstake_fee-default", `
+    INSERT INTO admin_config (config_key, config_value)
+    VALUES ('staking_unstake_fee_bps', '50'::jsonb)
+    ON CONFLICT (config_key) DO NOTHING
+  `);
 
   // ── 5. Node tables ───────────────────────────────────────────────────────────
   await run("node_installations", `
@@ -722,6 +727,64 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       contract_address  TEXT,
       created_at        TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+  // Keep older installs compatible with the full stablecoin factory schema.
+  await run("user_stablecoins-full-columns", `
+    ALTER TABLE user_stablecoins
+      ADD COLUMN IF NOT EXISTS creator_id TEXT,
+      ADD COLUMN IF NOT EXISTS decimals INTEGER DEFAULT 18,
+      ADD COLUMN IF NOT EXISTS description TEXT,
+      ADD COLUMN IF NOT EXISTS logo_url TEXT,
+      ADD COLUMN IF NOT EXISTS peg_type TEXT DEFAULT 'usd',
+      ADD COLUMN IF NOT EXISTS peg_value NUMERIC DEFAULT 1.00,
+      ADD COLUMN IF NOT EXISTS basket_weights JSONB DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS liquidation_threshold NUMERIC DEFAULT 120,
+      ADD COLUMN IF NOT EXISTS reserve_assets JSONB DEFAULT '[\"GYD\", \"GYDS\"]'::jsonb,
+      ADD COLUMN IF NOT EXISTS stability_fee NUMERIC DEFAULT 2.50,
+      ADD COLUMN IF NOT EXISTS minting_fee NUMERIC DEFAULT 0.50,
+      ADD COLUMN IF NOT EXISTS burn_fee NUMERIC DEFAULT 0.10,
+      ADD COLUMN IF NOT EXISTS circulating_supply NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS total_collateral_usd NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS website_url TEXT,
+      ADD COLUMN IF NOT EXISTS twitter_url TEXT,
+      ADD COLUMN IF NOT EXISTS address TEXT,
+      ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending_review',
+      ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS approved_by TEXT,
+      ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS paused_reason TEXT,
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
+  `);
+  await run("user_stablecoins-legacy-creator", `
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='user_stablecoins' AND column_name='user_id'
+      ) THEN
+        UPDATE user_stablecoins
+        SET creator_id = user_id
+        WHERE creator_id IS NULL;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='user_stablecoins' AND column_name='user_id'
+      ) THEN
+        ALTER TABLE user_stablecoins ALTER COLUMN user_id DROP NOT NULL;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='user_stablecoins' AND column_name='creation_fee_paid'
+      ) AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='user_stablecoins'
+          AND column_name='creation_fee_paid' AND data_type='boolean'
+      ) THEN
+        ALTER TABLE user_stablecoins
+          ALTER COLUMN creation_fee_paid TYPE NUMERIC
+          USING CASE WHEN creation_fee_paid THEN 1 ELSE 0 END;
+      END IF;
+    END $$
   `);
 
   // ── 13. Community tables ─────────────────────────────────────────────────────

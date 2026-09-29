@@ -44,6 +44,7 @@ export const StakeInterface = () => {
   const [userBalance, setUserBalance] = useState(0);
   const [userStaked, setUserStaked] = useState(0);
   const [stakingAddress, setStakingAddress] = useState<string | null>(null);
+  const [unstakeFeeBps, setUnstakeFeeBps] = useState(50);
   const [stats, setStats] = useState<StakingStats>(FALLBACK_STATS);
   const [loadingStats, setLoadingStats] = useState(true);
   const { user } = useAuth();
@@ -85,6 +86,7 @@ export const StakeInterface = () => {
       setStakingAddress(data.walletAddress ?? null);
       setUserBalance(Number(data.balance ?? 0));
       setUserStaked(Number(data.position?.shares ?? 0));
+      setUnstakeFeeBps(Number(data.unstakeFeeBps ?? 50));
     } catch {
       setUserBalance(0);
       setUserStaked(0);
@@ -100,7 +102,9 @@ export const StakeInterface = () => {
   const { apr, exchangeRate, totalStaked, stakers, buybacks24h } = stats;
   const userXgyd = userStaked;
   const stakeReceive = parseFloat(stakeAmount || '0') / exchangeRate;
-  const unstakeReceive = parseFloat(unstakeAmount || '0') * exchangeRate;
+  const unstakeGross = parseFloat(unstakeAmount || '0') * exchangeRate;
+  const unstakeFee = unstakeGross * unstakeFeeBps / 10_000;
+  const unstakeReceive = Math.max(0, unstakeGross - unstakeFee);
 
   const executeStake = async (type: 'stake' | 'unstake') => {
     if (!user || !effectiveAddress) {
@@ -129,7 +133,7 @@ export const StakeInterface = () => {
         title: type === 'stake' ? '🔒 GYD staked' : '🔓 xGYD unstaked',
         description: type === 'stake'
           ? `${amount.toFixed(4)} GYD transferred on-chain. TX: ${data.transaction?.txHash ?? 'submitted'}`
-          : `${Number(data.amountReturned ?? 0).toFixed(4)} GYD transferred back on-chain${Number(data.rewardsRealized ?? 0) > 0 ? ` · ${Number(data.rewardsRealized).toFixed(4)} GYD rewards` : ''}.`,
+          : `${Number(data.amountReturned ?? 0).toFixed(4)} GYD transferred back on-chain${Number(data.unstakeFee ?? 0) > 0 ? ` · ${Number(data.unstakeFee).toFixed(4)} GYD unstake fee` : ''}${Number(data.rewardsRealized ?? 0) > 0 ? ` · ${Number(data.rewardsRealized).toFixed(4)} GYD rewards` : ''}.`,
       });
       type === 'stake' ? setStakeAmount('') : setUnstakeAmount('');
       await Promise.all([loadPosition(), fetchStats()]);
@@ -297,13 +301,19 @@ export const StakeInterface = () => {
             </div>
 
             <GlassCard className="p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground text-sm">You Receive ~</span>
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-xs font-bold">
-                    G
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground text-sm">You Receive ~</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-full bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-xs font-bold">
+                      G
+                    </div>
+                    <span className="font-semibold">{unstakeReceive.toFixed(4)} GYD</span>
                   </div>
-                  <span className="font-semibold">{unstakeReceive.toFixed(4)} GYD</span>
+                </div>
+                <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+                  <span>Unstake fee ({(unstakeFeeBps / 100).toFixed(2)}%)</span>
+                  <span>{unstakeFee.toFixed(4)} GYD</span>
                 </div>
               </div>
             </GlassCard>
@@ -339,7 +349,8 @@ export const StakeInterface = () => {
                 ['Token Out', 'xGYD (Staked Receipt)'],
                 ['APR', `${apr.toFixed(2)}% (dynamic)`],
                 ['Exchange Rate', `1 GYD = ${exchangeRate.toFixed(6)} xGYD`],
-                ['Unstake Delay', 'Instant (no lock-up)'],
+                 ['Unstake Fee', `${(unstakeFeeBps / 100).toFixed(2)}% of withdrawal`],
+                 ['Unstake Delay', 'Instant (no lock-up)'],
                 ['Rewards', 'Protocol fees + validator rewards'],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between">

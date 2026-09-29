@@ -211,13 +211,15 @@ export const StablecoinFactory = () => {
         if (myRes.ok) setMyStablecoins(await myRes.json());
       }
       // Load config
-      const [feeRow, maxRow, tokensData] = await Promise.all([
+      const [feeRow, maxRow, tokensData, balanceData] = await Promise.all([
         api.get('/api/config/stablecoin_creation_fee').catch(() => null),
         api.get('/api/config/stablecoin_max_per_user').catch(() => null),
         api.get('/api/tokens').catch(() => []),
+        api.get('/api/user/balance').catch(() => null),
       ]);
       if (feeRow?.configValue) setCreationFee(Number(feeRow.configValue) || 10000);
       if (maxRow?.configValue) setMaxPerUser(Number(maxRow.configValue) || 3);
+      setUserGydsBalance(Number(balanceData?.gyds ?? 0));
       const tokens = Array.isArray(tokensData) ? tokensData : [];
       const symbols = [...RESERVED_SYMBOLS, ...tokens.map((t: any) => t.symbol)];
       setExistingSymbols(symbols.map(s => s.toUpperCase()));
@@ -720,9 +722,16 @@ export const StablecoinFactory = () => {
               <GlassCard className="p-4 border-primary/30 bg-primary/5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Creation Fee</span>
-                  <span className="text-lg font-bold font-mono text-primary">{creationFee.toLocaleString()} GYDS</span>
+                  <span className="text-lg font-bold font-mono text-primary">{(user?.isAdmin ? 0 : creationFee).toLocaleString()} GYDS</span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">Deducted from your GYDS balance on submission</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {user?.isAdmin ? 'Admin accounts are exempt from the creation fee.' : 'Deducted from your GYDS balance on submission.'}
+                </p>
+                {!user?.isAdmin && (
+                  <p className={cn('text-xs mt-1', userGydsBalance >= creationFee ? 'text-emerald-400' : 'text-destructive')}>
+                    Available: {userGydsBalance.toLocaleString()} GYDS
+                  </p>
+                )}
               </GlassCard>
 
               <GlassCard className="p-3 border-amber-500/20 bg-amber-500/5">

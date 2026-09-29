@@ -115,6 +115,17 @@ async function getConfiguredStakingApr(client: any): Promise<number> {
   return Number.isFinite(apr) && apr >= 0 && apr <= 100 ? apr : 12;
 }
 
+async function getConfiguredStakingUnstakeFeeBps(client: any): Promise<number> {
+  const { rows } = await client.query(
+    `SELECT config_value FROM admin_config WHERE config_key='staking_unstake_fee_bps' LIMIT 1`,
+  ).catch(() => ({ rows: [] as any[] }));
+  const raw = rows[0]?.config_value;
+  const feeBps = typeof raw === "object" && raw !== null
+    ? Number(raw.bps ?? raw.value)
+    : Number(raw);
+  return Number.isFinite(feeBps) && feeBps >= 0 && feeBps <= 1_000 ? feeBps : 50;
+}
+
 function positionRewards(position: any, apr: number, now = Date.now()): number {
   const principal = Number(position?.principal ?? 0);
   const storedRewards = Number(position?.accrued_rewards ?? 0);
@@ -159,6 +170,14 @@ async function getStakingStats(client: any) {
 }
 
 async function getUserGydBalance(client: any, addresses: string[]): Promise<number> {
+  return getUserTokenBalance(client, addresses, "GYD");
+}
+
+async function getUserTokenBalance(
+  client: any,
+  addresses: string[],
+  tokenSymbol: "GYDS" | "GYD" | "GUSD",
+): Promise<number> {
   if (!addresses.length) return 0;
   const { rows: txRows } = await client.query(
     `SELECT COALESCE(SUM(
@@ -170,24 +189,36 @@ async function getUserGydBalance(client: any, addresses: string[]): Promise<numb
      ), 0) AS balance
      FROM transactions
      WHERE status='confirmed'
-       AND UPPER(COALESCE(token_symbol, 'GYD'))='GYD'
+        AND UPPER(COALESCE(token_symbol, 'GYD'))=$2
        AND (LOWER(to_address)=ANY($1::text[]) OR LOWER(from_address)=ANY($1::text[]))`,
-    [addresses],
+    [addresses, tokenSymbol],
   );
   const { rows: operationRows } = await client.query(
     `SELECT COALESCE(SUM(
        CASE
-         WHEN operation_type IN ('mint_gyd', 'premine_gyd') THEN amount
-         WHEN operation_type='burn_gyd' THEN -amount
+          WHEN $2::text='GYDS' AND operation_type IN ('mint_gyds', 'premine_gyds', 'mint', 'bridge_mint_gyds') THEN amount
+          WHEN $2::text='GYDS' AND operation_type IN ('burn_gyds', 'burn', 'bridge_burn_gyds') THEN -amount
+          WHEN $2::text='GYD' AND operation_type IN ('mint_gyd', 'premine_gyd') THEN amount
+          WHEN $2::text='GYD' AND operation_type='burn_gyd' THEN -amount
+          WHEN $2::text='GUSD' AND operation_type IN ('mint_gusd', 'premine_gusd') THEN amount
+          WHEN $2::text='GUSD' AND operation_type='burn_gusd' THEN -amount
          ELSE 0
        END
      ), 0) AS balance
      FROM token_operations
      WHERE status='confirmed'
        AND LOWER(REPLACE(REPLACE(wallet_address, 'gyd:', ''), 'bridge:', ''))=ANY($1::text[])`,
-    [addresses],
+    [addresses, tokenSymbol],
   );
   return Math.max(0, Number(txRows[0]?.balance ?? 0) + Number(operationRows[0]?.balance ?? 0));
+}
+
+function getStablecoinFeeAddress(): string {
+  const configured = String(process.env.STABLECOIN_FEE_ADDRESS ?? "").trim();
+  if (configured && !isWalletAddress(configured)) {
+    throw new Error("STABLECOIN_FEE_ADDRESS must be a valid wallet address.");
+  }
+  return (configured || RESERVED_WALLETS.find((wallet) => wallet.key === "developmentFund")!.address).toLowerCase();
 }
 
 // 20 req / 15 min — matches auth.ts authLimiter
@@ -1136,6 +1167,7 @@ export function registerRoutes(app: Express) {
   app.post("/api/stablecoins", requireAuth, async (req, res) => {
     const user = req.user as any;
     const isAdminOrFounder = user._isAdmin || user._isFounder;
+    const client = await pgPool.connect();
     try {
       const {
         name, symbol, description, logoUrl, pegType, pegValue, basketWeights,
@@ -1208,7 +1240,46 @@ export function registerRoutes(app: Express) {
       const { rows: [feeCfg] } = await pgPool.query(`SELECT config_value FROM admin_config WHERE config_key='stablecoin_creation_fee'`).catch(() => ({ rows: [] as any[] }));
       const creationFee = Number(feeCfg?.config_value) || 10000;
 
-      const { rows: [newSc] } = await pgPool.query(`
+      await client.query('BEGIN');
+      await client.query(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, [user.id]);
+
+      let creationTransaction: any = null;
+      if (!isAdminOrFounder && creationFee > 0) {
+        const addresses = await getUserWalletAddresses(client, user.id);
+        if (!addresses.length) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Link a wallet before creating a stablecoin.' });
+        }
+        const available = await getUserTokenBalance(client, addresses, "GYDS");
+        if (creationFee > available + 1e-12) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: `Insufficient GYDS balance. Creation requires ${creationFee.toFixed(4)} GYDS; available: ${available.toFixed(4)} GYDS.` });
+        }
+        const feeTransfer = await broadcastTransfer({
+          fromAddress: addresses[0],
+          toAddress: getStablecoinFeeAddress(),
+          amountEther: creationFee,
+          token: "GYDS",
+          chainId: Number(process.env.GYDS_CHAIN_ID ?? 198282),
+        });
+        if (!feeTransfer.onChain) {
+          throw new Error(feeTransfer.error ?? "The stablecoin creation fee transfer was rejected by the chain.");
+        }
+        const { rows: [feeTx] } = await client.query(
+          `INSERT INTO transactions
+             (from_address, to_address, amount, fee, tx_hash, status, user_id,
+              token_symbol, block_height, confirmed_at, network)
+           VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYDS',$6,NOW(),$7)
+           RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
+          [
+            addresses[0], getStablecoinFeeAddress(), creationFee, feeTransfer.txHash,
+            user.id, feeTransfer.blockNumber ?? null, process.env.GYDS_NETWORK ?? 'mainnet',
+          ],
+        );
+        creationTransaction = feeTx;
+      }
+
+      const { rows: [newSc] } = await client.query(`
         INSERT INTO user_stablecoins
           (creator_id, name, symbol, description, logo_url, peg_type, peg_value, basket_weights,
            collateral_type, collateral_ratio, liquidation_threshold, reserve_assets,
@@ -1228,8 +1299,10 @@ export function registerRoutes(app: Express) {
           isAdminOrFounder,
         ]
       );
-      res.status(201).json(newSc);
+      await client.query('COMMIT');
+      res.status(201).json({ ...newSc, creationTransaction, creationFee: isAdminOrFounder ? 0 : creationFee });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+    finally { client.release(); }
   });
 
   app.patch("/api/stablecoins/:id", requireAuth, async (req, res) => {
@@ -6630,12 +6703,14 @@ export function registerRoutes(app: Express) {
       );
       const position = rows[0] ?? null;
       const apr = await getConfiguredStakingApr(client);
+      const unstakeFeeBps = await getConfiguredStakingUnstakeFeeBps(client);
       const pendingRewards = position ? positionRewards(position, apr) : 0;
       const addresses = await getUserWalletAddresses(client, user.id);
       const stats = await getStakingStats(client);
       res.json({
         walletAddress: address,
         balance: Number((await getUserGydBalance(client, addresses)).toFixed(12)),
+        unstakeFeeBps,
         position: position ? {
           id: position.id,
           principal: Number(Number(position.principal).toFixed(12)),
@@ -6770,10 +6845,17 @@ export function registerRoutes(app: Express) {
       }
 
       const ratio = sharesToWithdraw / shares;
-      const amountReturned = (principal + accrued) * ratio;
+      const grossAmountReturned = (principal + accrued) * ratio;
+      const unstakeFeeBps = await getConfiguredStakingUnstakeFeeBps(client);
+      const unstakeFee = grossAmountReturned * unstakeFeeBps / 10_000;
+      const amountReturned = grossAmountReturned - unstakeFee;
       const remainingShares = shares - sharesToWithdraw;
       const remainingPrincipal = principal * (1 - ratio);
       const remainingRewards = accrued * (1 - ratio);
+      if (amountReturned <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'The unstake amount is too small to cover the unstake fee.' });
+      }
       const poolAddress = getStakingPoolAddress();
       const chainTransfer = await broadcastStakingTransfer(poolAddress, address, amountReturned);
 
@@ -6812,6 +6894,9 @@ export function registerRoutes(app: Express) {
         walletAddress: address,
         shares: Number(sharesToWithdraw.toFixed(12)),
         amountReturned: Number(amountReturned.toFixed(12)),
+        grossAmountReturned: Number(grossAmountReturned.toFixed(12)),
+        unstakeFee: Number(unstakeFee.toFixed(12)),
+        unstakeFeeBps,
         rewardsRealized: Number((accrued * ratio).toFixed(12)),
         apr,
         onChain: true,
