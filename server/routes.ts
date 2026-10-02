@@ -1688,20 +1688,35 @@ export function registerRoutes(app: Express) {
   app.post("/api/security/blocked-ips", requireAdmin, (req, res) => {
     const { ip } = req.body ?? {};
     if (!ip) return res.status(400).json({ error: "ip required" });
-    blockIp(String(ip).trim());
-    res.json({ ok: true, blocked: getBlockedIpList() });
+    try {
+      blockIp(String(ip).trim());
+      res.json({ ok: true, blocked: getBlockedIpList() });
+    } catch (error: any) {
+      console.error("[Security] Could not persist blocked IP:", error?.message ?? error);
+      res.status(500).json({ error: "Could not save the blocked IP list." });
+    }
   });
 
   // Unblock a specific IP
   app.delete("/api/security/blocked-ips/:ip", requireAdmin, (req, res) => {
-    unblockIp(decodeURIComponent(req.params.ip));
-    res.json({ ok: true });
+    try {
+      unblockIp(decodeURIComponent(req.params.ip));
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[Security] Could not persist IP unblock:", error?.message ?? error);
+      res.status(500).json({ error: "Could not save the blocked IP list." });
+    }
   });
 
   // Clear ALL blocked IPs
   app.delete("/api/security/blocked-ips", requireAdmin, (_req, res) => {
-    clearAllBlockedIps();
-    res.json({ ok: true, message: "All blocked IPs cleared" });
+    try {
+      clearAllBlockedIps();
+      res.json({ ok: true, message: "All blocked IPs cleared" });
+    } catch (error: any) {
+      console.error("[Security] Could not persist blocked IP list:", error?.message ?? error);
+      res.status(500).json({ error: "Could not save the blocked IP list." });
+    }
   });
 
   // ── Persistent public-IP bans (DB-backed) ─────────────────────────────────

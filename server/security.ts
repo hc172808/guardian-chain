@@ -19,9 +19,27 @@
  */
 import { storage } from "./storage";
 import { pool as pgConnPool } from "./db";
+import fs from "node:fs";
+import path from "node:path";
 
 // ── In-memory state ──────────────────────────────────────────────────────────
 const blockedIps   = new Set<string>();                  // permanent bans
+let blockedIpsMirrorQueue = Promise.resolve();
+
+function blockedIpsFilePath() {
+  return path.resolve(
+    process.env.BLOCKED_IPS_FILE?.trim() || path.join(process.cwd(), "data", "blocked-ips.json"),
+  );
+}
+
+function replaceBlockedIps(ips: unknown) {
+  if (!Array.isArray(ips) || !ips.every(ip => typeof ip === "string")) {
+    throw new Error("Blocked IP file must contain a JSON array of strings.");
+  }
+  const cleanedIps = ips.map(ip => ip.trim()).filter(Boolean);
+  blockedIps.clear();
+  cleanedIps.forEach(ip => blockedIps.add(ip));
+}
 
 // IPs that bypass ALL firewall checks — loopback + anything in IP_WHITELIST env var.
 // IP_WHITELIST=1.2.3.4,5.6.7.8  (comma-separated, supports CIDR notation stripped to host)
@@ -469,20 +487,43 @@ setInterval(() => {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 export function blockIp(ip: string) {
-  blockedIps.add(ip);
-  persistBlockedIps();
+  const normalizedIp = ip.trim();
+  if (!normalizedIp) throw new Error("IP address is required.");
+  const alreadyBlocked = blockedIps.has(normalizedIp);
+  blockedIps.add(normalizedIp);
+  try {
+    persistBlockedIps();
+  } catch (error) {
+    if (!alreadyBlocked) blockedIps.delete(normalizedIp);
+    throw error;
+  }
 }
 
 export function unblockIp(ip: string) {
-  blockedIps.delete(ip);
+  const wasBlocked = blockedIps.delete(ip);
+  const previousTempBan = tempBanned.get(ip);
   tempBanned.delete(ip);
-  persistBlockedIps();
+  try {
+    persistBlockedIps();
+  } catch (error) {
+    if (wasBlocked) blockedIps.add(ip);
+    if (previousTempBan) tempBanned.set(ip, previousTempBan);
+    throw error;
+  }
 }
 
 export function clearAllBlockedIps() {
+  const previousBlocked = [...blockedIps];
+  const previousTempBans = [...tempBanned.entries()];
   blockedIps.clear();
   tempBanned.clear();
-  persistBlockedIps();
+  try {
+    persistBlockedIps();
+  } catch (error) {
+    previousBlocked.forEach(ip => blockedIps.add(ip));
+    previousTempBans.forEach(([ip, ban]) => tempBanned.set(ip, ban));
+    throw error;
+  }
 }
 
 export function getBlockedIpList(): string[] {
@@ -499,6 +540,7 @@ export function getTempBannedList(): Array<{ ip: string; expiresAt: number; stri
 export function getFirewallStatus() {
   return {
     enabled:        firewallEnabled,
+    ipBlockEnabled,
     lockdown:       lockdownMode,
     autoBlock,
     sensitivity:    sensitivityLevel,
@@ -510,7 +552,23 @@ export function getFirewallStatus() {
 }
 
 function persistBlockedIps() {
-  storage.upsertConfig("blocked_ips", [...blockedIps] as any).catch(() => {});
+  const ips = [...blockedIps].sort();
+  const filePath = blockedIpsFilePath();
+  const temporaryPath = `${filePath}.${process.pid}.tmp`;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(ips, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    try { fs.unlinkSync(temporaryPath); } catch {}
+    throw error;
+  }
+
+  // Keep the old config row current as a recovery copy for older installs.
+  // The file is authoritative once it exists.
+  blockedIpsMirrorQueue = blockedIpsMirrorQueue
+    .then(() => storage.upsertConfig("blocked_ips", ips as any))
+    .catch(error => console.warn("[Security] Could not mirror blocked IP file to admin_config:", error?.message ?? error));
 }
 
 // ── Load / refresh settings ───────────────────────────────────────────────────
@@ -525,10 +583,17 @@ export async function refreshSecuritySettings() {
       sensitivityLevel = s.sensitivity ?? 6;
       lockdownMode     = s.threat_response === "lockdown";
     }
-    const ipCfg = await storage.getConfig("blocked_ips");
-    if (ipCfg?.configValue && Array.isArray(ipCfg.configValue)) {
-      blockedIps.clear();
-      (ipCfg.configValue as string[]).forEach(ip => blockedIps.add(ip));
+    const filePath = blockedIpsFilePath();
+    if (fs.existsSync(filePath)) {
+      const fileValue = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      replaceBlockedIps(fileValue);
+    } else {
+      // One-time migration for installs that only have the former DB-backed list.
+      const ipCfg = await storage.getConfig("blocked_ips");
+      const legacyIps = Array.isArray(ipCfg?.configValue) ? ipCfg.configValue : [];
+      replaceBlockedIps(legacyIps);
+      persistBlockedIps();
+      console.log(`[Security] Initialized persistent IP block file at ${filePath}`);
     }
     const blockEnforceCfg = await storage.getConfig("ip_block_enforcement");
     if (blockEnforceCfg?.configValue && typeof (blockEnforceCfg.configValue as any).enabled === "boolean") {
@@ -833,27 +898,22 @@ export async function removeIpBan(ip: string) {
 }
 
 /**
- * Purge any bans/temp-bans that were mistakenly placed on a Cloudflare edge IP
- * itself (rather than a real visitor IP). This happens when the app was running
- * without Cloudflare-aware trust: every visitor looked like they shared
- * Cloudflare's edge IP, so one abusive visitor's auto-ban blocked everyone,
- * including the site owner. Safe to run any time — real attacker IPs are never
- * inside Cloudflare's published ranges.
+ * Purge expiring bans that were mistakenly placed on a Cloudflare edge IP
+ * itself (rather than a real visitor IP). Permanent blocks are retained until
+ * an administrator explicitly removes them.
  */
 export async function clearCloudflareEdgeFalsePositives(): Promise<{ removedBans: number; removedTemp: number; removedBlocked: number }> {
-  let removedTemp = 0, removedBlocked = 0, removedBans = 0;
+  let removedTemp = 0, removedBans = 0;
 
   for (const ip of [...tempBanned.keys()]) {
     if (isCloudflareEdgeIp(ip)) { tempBanned.delete(ip); removedTemp++; }
   }
-  for (const ip of [...blockedIps]) {
-    if (isCloudflareEdgeIp(ip)) { blockedIps.delete(ip); removedBlocked++; }
-  }
-  if (removedBlocked > 0) persistBlockedIps();
 
   const pool = pgConnPool;
   if (pool) {
-    const r = await pool.query(`SELECT ip FROM ip_bans WHERE expires_at IS NULL OR expires_at > NOW()`).catch(() => ({ rows: [] as any[] }));
+    // Only purge expiring Cloudflare-edge bans. Permanent blocks must remain
+    // until an administrator explicitly removes them.
+    const r = await pool.query(`SELECT ip FROM ip_bans WHERE expires_at IS NOT NULL AND expires_at > NOW()`).catch(() => ({ rows: [] as any[] }));
     const badIps = r.rows.map((row: any) => row.ip).filter((ip: string) => isCloudflareEdgeIp(ip));
     if (badIps.length > 0) {
       await pool.query(`DELETE FROM ip_bans WHERE ip = ANY($1)`, [badIps]).catch(() => {});
@@ -862,10 +922,10 @@ export async function clearCloudflareEdgeFalsePositives(): Promise<{ removedBans
     }
   }
 
-  if (removedTemp + removedBlocked + removedBans > 0) {
-    console.warn(`[Security] Cleared Cloudflare-edge false-positive bans: ${removedBans} persistent, ${removedTemp} temp, ${removedBlocked} permanent-blocked`);
+  if (removedTemp + removedBans > 0) {
+    console.warn(`[Security] Cleared Cloudflare-edge false-positive expiring bans: ${removedBans} DB, ${removedTemp} in-memory`);
   }
-  return { removedBans, removedTemp, removedBlocked };
+  return { removedBans, removedTemp, removedBlocked: 0 };
 }
 
 export async function listIpBans() {

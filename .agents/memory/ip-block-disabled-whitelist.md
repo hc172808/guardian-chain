@@ -9,6 +9,8 @@ The user reported getting IP-blocked repeatedly (admin/founder included) and ask
 
 Also added `ip_whitelist` table + `addIpToWhitelist()`, called from every successful login path in `server/auth.ts` (password login and wallet/web3 login, any role). Whitelisted IPs bypass firewall/ban checks like loopback does, but `last_seen_at`/`login_count` keep updating (throttled to once every 5 min) so they remain visible/monitored, not silently exempt forever.
 
+**Permanent-block retention:** Permanent IP blocks must persist in a server-side file and remain until an administrator manually unblocks them. Startup, deployments, and Cloudflare false-positive cleanup must not remove permanent entries; temporary/expiring bans may still expire automatically.
+
 **Why:** Cloudflare-edge IP collapsing (see cloudflare-trust.md) and aggressive auto-ban thresholds were false-positive-blocking legitimate users including the site owner; the fix needed to preserve future opt-back-in without ripping out the detection logic.
 
-**How to apply:** To re-enable real enforcement later, call `setIpBlockEnforcement(true)` from `server/security.ts` (writes to `admin_config`) once thresholds/allowlists have been tuned — don't just flip `ipBlockEnabled` in code without also considering Cloudflare-edge collapsing and whether admin/founder wallets are in `ip_whitelist` first.
+**How to apply:** Preserve the existing default of monitoring-only enforcement unless the user explicitly asks to enable it. Permanent blocks still persist while monitoring-only is active. When enforcement is re-enabled, keep the file-backed list durable and do not add automatic expiration for permanent entries.

@@ -695,12 +695,18 @@ export const AIFirewallTab = () => {
             </div>
           )}
 
+          <div className="text-xs text-muted-foreground">
+            <p>Permanent IP blocks are saved on the server and stay until an admin removes them.</p>
+            {fwStatus?.ipBlockEnabled === false && (
+              <p className="mt-1 text-amber-500">IP-block enforcement is off; the list is monitored but requests are not rejected.</p>
+            )}
+          </div>
+
           {/* Blocked IPs list */}
           {blockedIps.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Lock className="h-8 w-8 mx-auto mb-2 opacity-40" />
               <p className="text-sm">No IPs currently blocked</p>
-              <p className="text-xs mt-1">IPs are auto-blocked when attack patterns are detected at high sensitivity</p>
             </div>
           ) : (
             <div className="space-y-1.5 max-h-72 overflow-y-auto">
