@@ -936,27 +936,32 @@ export function registerRoutes(app: Express) {
     let finalTxHash = tx_hash ?? rest.txHash;
     let onChain = false;
     let onChainError: string | undefined;
-
-    // Mints become real transfers from the treasury account when one is
-    // configured — otherwise this stays the existing off-chain ledger entry
-    // (with a fabricated tx hash), same as before.
-    const isMint = opType === "mint" || opType === "mint_gusd";
-    if (isMint && hasTreasuryKey() && wallet_address && amount) {
-      try {
-        const result = await sendTreasuryTransfer(wallet_address, Number(amount));
-        finalTxHash = result.txHash;
-        onChain = true;
-      } catch (err: any) {
-        onChainError = err.message;
-        // Fall through and record as an off-chain/simulated op so the admin
-        // still has a ledger entry, but the response tells them it failed
-        // on-chain instead of silently pretending it worked.
-      }
-    }
-
     const reqNetwork = (["mainnet","testnet","devnet"].includes(req.body.network)
       ? req.body.network : "mainnet") as "mainnet" | "testnet" | "devnet";
     const targetAddress = (wallet_address ?? rest.walletAddress ?? "").toLowerCase();
+
+    // The treasury RPC is currently configured for Mainnet only. Never route
+    // a Testnet/Devnet mint through it: that could move real Mainnet funds while
+    // the admin expects a credit on another network.
+    if (opType === "mint" && wallet_address && amount) {
+      if (reqNetwork !== "mainnet") {
+        onChainError = `Treasury transfers are currently available on Mainnet only; no real ${reqNetwork} transfer was sent.`;
+      } else if (!hasTreasuryKey()) {
+        onChainError = "Treasury transfer is not configured; no real blockchain transfer was sent.";
+      } else {
+        try {
+          const result = await sendTreasuryTransfer(wallet_address, Number(amount));
+          finalTxHash = result.txHash;
+          onChain = true;
+        } catch (err: any) {
+          onChainError = err.message;
+          // Preserve the ledger record, but let the caller distinguish this
+          // from a real chain transfer.
+        }
+      }
+    } else if (opType === "mint_gusd" && wallet_address && amount) {
+      onChainError = "GUSD was recorded as an internal credit; the treasury transfer path only sends native GYDS.";
+    }
 
     const row = await storage.insertTokenOperation({
       ...rest,
@@ -969,7 +974,8 @@ export function registerRoutes(app: Express) {
       network: reqNetwork,
     });
 
-    // Credit the in-memory balance trie immediately so balance shows on-chain
+    // Mirror the operation into the in-memory test-node balance trie. This
+    // does not replace a real transfer on a public chain.
     if (targetAddress && amount) {
       const amtNum = parseFloat(String(amount));
       if (amtNum > 0) {
