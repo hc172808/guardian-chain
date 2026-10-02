@@ -50,6 +50,7 @@ import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { HealthCheck } from '@/components/admin/HealthCheck';
 import { CaptchaMonitorDashboard } from '@/components/admin/CaptchaMonitorDashboard';
 import { OperationsOverview } from '@/components/admin/OperationsOverview';
+import IndexerDbHealth from '@/components/admin/IndexerDbHealth';
 import { TreasuryWallets } from '@/components/admin/TreasuryWallets';
 import { CaptchaSecuritySettings } from '@/components/admin/CaptchaSecuritySettings';
 import { TokenPricingManager } from '@/components/admin/TokenPricingManager';
@@ -1060,7 +1061,8 @@ const AdminContent = () => {
           </Badge>
         </div>
 
-        <TabsContent value="operations">
+        <TabsContent value="operations" className="space-y-6">
+          <IndexerDbHealth />
           <OperationsOverview />
         </TabsContent>
 
