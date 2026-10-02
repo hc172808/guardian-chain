@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CaptchaWidget, type CaptchaPayload, type CaptchaWidgetHandle } from '@/components/CaptchaWidget';
+import { CompactNetworkSelector } from '@/components/ui/NetworkSelector';
 
 type Tab = 'login' | 'register' | 'web3' | 'reset' | 'totp';
 
@@ -1055,6 +1056,9 @@ const Auth = () => {
 
   return (
     <div className="min-h-screen bg-background grid-pattern flex items-center justify-center p-4">
+      <div className="fixed top-4 right-4 z-30">
+        <CompactNetworkSelector />
+      </div>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
         <div className="glass-card p-8 rounded-2xl border border-border/50">
           <div className="text-center mb-6">

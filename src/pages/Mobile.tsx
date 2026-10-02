@@ -23,8 +23,14 @@ import {
   disableBiometric,
 } from '@/lib/biometric';
 import { cn } from '@/lib/utils';
+import { useNetwork, type NetworkKind } from '@/contexts/NetworkContext';
+import { NETWORK_BY_KIND } from '@/config/network';
+import { CompactNetworkSelector } from '@/components/ui/NetworkSelector';
 
 type Tab = 'home' | 'explorer' | 'defi' | 'wallet' | 'more';
+
+const networkForData = (network: NetworkKind | 'all'): NetworkKind =>
+  network === 'all' ? 'mainnet' : network;
 
 function useMobileNavigate() {
   const navigate = useNavigate();
@@ -156,6 +162,8 @@ const useCopy = () => {
 // ── Receive QR Modal ──────────────────────────────────────────────────────────
 const ReceiveModal = ({ address, onClose }: { address: string; onClose: () => void }) => {
   const { copied, copy } = useCopy();
+  const { selectedNetwork } = useNetwork();
+  const activeNetwork = networkForData(selectedNetwork);
   const [qrUrl, setQrUrl] = useState('');
   useEffect(() => {
     if (address && address !== '—') {
@@ -179,7 +187,9 @@ const ReceiveModal = ({ address, onClose }: { address: string; onClose: () => vo
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="text-base font-bold">Receive GYDS</h3>
-            <p className="text-[11px] text-muted-foreground">GYDSchain · Chain ID 198282</p>
+            <p className="text-[11px] text-muted-foreground">
+              {selectedNetwork === 'all' ? 'All networks' : `${NETWORK_BY_KIND[activeNetwork].chainName} · Chain ID ${NETWORK_BY_KIND[activeNetwork].chainId}`}
+            </p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-muted/60 transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
@@ -222,6 +232,8 @@ const ReceiveModal = ({ address, onClose }: { address: string; onClose: () => vo
 // ── Home Tab ──────────────────────────────────────────────────────────────────
 const HomeTab = () => {
   const { user } = useAuth();
+  const { selectedNetwork } = useNetwork();
+  const activeNetwork = networkForData(selectedNetwork);
   const go = useMobileNavigate();
   const [balanceHidden, setBalanceHidden] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
@@ -242,18 +254,21 @@ const HomeTab = () => {
     fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
       if (ws?.[0]?.address) setWalletAddr(ws[0].address);
     }).catch(() => {});
-    // Fetch authoritative balance from /api/user/balance (testnet — faucet is testnet-only)
-    fetch('/api/user/balance?network=testnet').then(r => r.json()).then((b: any) => {
-      if (b && (b.gyds !== undefined || b.gyd !== undefined)) {
-        const gyds = Number(b.gyds ?? 0);
-        setWalletBalance(gyds > 0 ? gyds.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
-      }
-    }).catch(() => {});
+    // Fetch the selected network's balance when signed in; the faucet itself remains testnet-only.
+    if (user) {
+      const balanceQuery = selectedNetwork === 'all' ? '' : `?network=${activeNetwork}`;
+      fetch(`/api/user/balance${balanceQuery}`).then(r => r.json()).then((b: any) => {
+        if (b && (b.gyds !== undefined || b.gyd !== undefined)) {
+          const gyds = Number(b.gyds ?? 0);
+          setWalletBalance(gyds > 0 ? gyds.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
+        }
+      }).catch(() => {});
+    }
     if (user?.walletAddress) setWalletAddr(user.walletAddress);
     fetch('/api/transactions').then(r => r.json()).then((txs: any[]) => {
       if (Array.isArray(txs)) setRecentTxReal(txs.slice(0, 4));
     }).catch(() => {});
-    fetch('/api/network-stats').then(r => r.json()).then(d => {
+    fetch(`/api/network-stats?network=${activeNetwork}`).then(r => r.json()).then(d => {
       if (d?.stats) setNetStats(d.stats);
     }).catch(() => {});
     fetch('/api/staking/stats').then(r => r.json()).then(d => {
@@ -269,7 +284,7 @@ const HomeTab = () => {
       const cooldown = 24 * 60 * 60 * 1000;
       setFaucetInfo({ canClaim: Date.now() - lastAt > cooldown, lastClaim: last.createdAt ?? last.claimed_at });
     }).catch(() => setFaucetInfo({ canClaim: true }));
-  }, [user]);
+  }, [user, selectedNetwork, activeNetwork]);
 
   const address = walletAddr || '—';
   const shortAddr = address.length > 10 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address;
@@ -538,15 +553,17 @@ const HomeTab = () => {
 // ── Explorer Tab ──────────────────────────────────────────────────────────────
 const ExplorerTab = () => {
   const go = useMobileNavigate();
+  const { selectedNetwork } = useNetwork();
+  const activeNetwork = networkForData(selectedNetwork);
   const [query, setQuery] = useState('');
   const [netStats, setNetStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/network-stats').then(r => r.json()).then(d => {
+    fetch(`/api/network-stats?network=${activeNetwork}`).then(r => r.json()).then(d => {
       if (d?.stats) setNetStats(d.stats);
     }).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  }, [activeNetwork]);
 
   const handleSearch = () => {
     const q = query.trim();
@@ -576,7 +593,7 @@ const ExplorerTab = () => {
   ];
 
   const chainInfo = [
-    { label: 'Chain ID',     value: '198282' },
+    { label: 'Chain ID',     value: String(NETWORK_BY_KIND[activeNetwork].chainId) },
     { label: 'Block Time',   value: netStats?.avgBlockTime ? `${netStats.avgBlockTime}s` : '5s' },
     { label: 'Finality',     value: '99.99%' },
     { label: 'Consensus',    value: 'PoS' },
@@ -850,6 +867,8 @@ const MultiChainAssets = ({ address, onBridge }: { address: string; onBridge: ()
 const WalletTab = () => {
   const go = useMobileNavigate();
   const { user } = useAuth();
+  const { selectedNetwork } = useNetwork();
+  const activeNetwork = networkForData(selectedNetwork);
   const { copied, copy } = useCopy();
   const [walletAddr, setWalletAddr] = useState<string>(user?.walletAddress ?? '');
   const [walletBalance, setWalletBalance] = useState<string>('');
@@ -869,15 +888,18 @@ const WalletTab = () => {
       if (ws?.[0]?.address) setWalletAddr(ws[0].address);
     }).catch(() => {});
     if (user?.walletAddress) setWalletAddr(user.walletAddress);
-    // Authoritative balance from /api/user/balance — all networks combined
-    fetch('/api/user/balance').then(r => r.json()).then((b: any) => {
-      if (b) {
-        const gyds = Number(b.gyds ?? 0);
-        const gyd = Number(b.gyd ?? 0);
-        setWalletBalance(gyds > 0 ? gyds.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
-        setGydBalance(gyd > 0 ? gyd.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
-      }
-    }).catch(() => {});
+    // Show the selected network's balance; "All networks" requests the combined total.
+    if (user) {
+      const balanceQuery = selectedNetwork === 'all' ? '' : `?network=${activeNetwork}`;
+      fetch(`/api/user/balance${balanceQuery}`).then(r => r.json()).then((b: any) => {
+        if (b) {
+          const gyds = Number(b.gyds ?? 0);
+          const gyd = Number(b.gyd ?? 0);
+          setWalletBalance(gyds > 0 ? gyds.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
+          setGydBalance(gyd > 0 ? gyd.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
+        }
+      }).catch(() => {});
+    }
     fetch('/api/nft/my-tokens').then(r => r.json()).then((t: any[]) => {
       if (Array.isArray(t)) setNfts(t.slice(0, 3));
     }).catch(() => {});
@@ -891,7 +913,7 @@ const WalletTab = () => {
     fetch('/api/transactions').then(r => r.json()).then((txs: any[]) => {
       if (Array.isArray(txs)) setTxHistory(txs);
     }).catch(() => {});
-  }, [user]);
+  }, [user, selectedNetwork, activeNetwork]);
 
   const address = walletAddr || '—';
   const gydsBalance = walletBalance || '0.00';
@@ -929,7 +951,9 @@ const WalletTab = () => {
             </div>
             <div>
               <p className="text-xs font-semibold">My Wallet</p>
-              <p className="text-[10px] text-muted-foreground">GYDSchain Network · ID 198282</p>
+              <p className="text-[10px] text-muted-foreground">
+                {selectedNetwork === 'all' ? 'All networks' : `${NETWORK_BY_KIND[activeNetwork].chainName} · ID ${NETWORK_BY_KIND[activeNetwork].chainId}`}
+              </p>
             </div>
           </div>
           <span className="text-[10px] font-medium px-2 py-1 rounded-full bg-green-400/10 text-green-400 border border-green-400/20">
@@ -1416,6 +1440,8 @@ const MobilePage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [notifCount, setNotifCount] = useState(0);
   const { user } = useAuth();
+  const { selectedNetwork } = useNetwork();
+  const activeNetwork = networkForData(selectedNetwork);
   const go = useMobileNavigate();
 
   useEffect(() => {
@@ -1455,11 +1481,14 @@ const MobilePage = () => {
           <div>
             <span className="font-bold text-base leading-none">{titles[tab]}</span>
             {tab === 'home' && (
-              <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Chain ID: 198282</p>
+              <p className="text-[10px] text-muted-foreground leading-none mt-0.5">
+                {selectedNetwork === 'all' ? 'All networks' : `${NETWORK_BY_KIND[activeNetwork].chainName} · ID ${NETWORK_BY_KIND[activeNetwork].chainId}`}
+              </p>
             )}
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <CompactNetworkSelector className="w-[112px] px-1.5" />
           <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-400/10 border border-green-400/20">
             <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
             <span className="text-[10px] text-green-400 font-medium">Live</span>

@@ -2,6 +2,7 @@ import { useNetwork, ALL_NETWORKS, NetworkKind, NETWORK_BADGE } from '@/contexts
 import { cn } from '@/lib/utils';
 import { Power, PowerOff, Globe } from 'lucide-react';
 import { Button } from './button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
 
 interface NetworkSelectorProps {
   showToggles?: boolean;
@@ -77,5 +78,27 @@ export const NetworkSelector = ({ showToggles = true, className }: NetworkSelect
         </button>
       )}
     </div>
+  );
+};
+
+export const CompactNetworkSelector = ({ className }: { className?: string }) => {
+  const { selectedNetwork, setSelectedNetwork } = useNetwork();
+
+  return (
+    <Select value={selectedNetwork} onValueChange={value => setSelectedNetwork(value as NetworkKind | 'all')}>
+      <SelectTrigger
+        aria-label="Select blockchain network"
+        className={cn('h-8 w-[132px] text-xs border-border/50 bg-background/80 backdrop-blur-sm px-2', className)}
+      >
+        <Globe className="h-3.5 w-3.5 shrink-0" />
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectItem value="all" className="text-xs">All networks</SelectItem>
+        <SelectItem value="mainnet" className="text-xs">Mainnet</SelectItem>
+        <SelectItem value="testnet" className="text-xs">Testnet</SelectItem>
+        <SelectItem value="devnet" className="text-xs">Devnet</SelectItem>
+      </SelectContent>
+    </Select>
   );
 };

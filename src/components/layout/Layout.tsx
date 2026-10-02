@@ -13,6 +13,7 @@ import { useMaintenance } from '@/hooks/useMaintenance';
 import { useCurrency, CURRENCIES } from '@/contexts/CurrencyContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
+import { CompactNetworkSelector } from '@/components/ui/NetworkSelector';
 
 type BannerType = 'info' | 'warning' | 'success' | 'error';
 
@@ -133,15 +134,20 @@ export const Layout = ({ children }: LayoutProps) => {
         {enabled && <UpgradeBanner message={message} />}
         <AnnouncementBanner />
 
-        {/* Top-right header bar with currency selector + wallet download + notification bell (desktop only) */}
-        {!isMobile && (
-          <div className="fixed top-4 right-4 z-30 flex items-center gap-2">
+        {/* Network selection stays available to signed-out visitors too. */}
+        <div className="fixed top-4 right-4 z-30 flex items-center gap-2">
+          {!isMobile && (
             <ThemeToggle />
+          )}
+          <CompactNetworkSelector />
+          {!isMobile && (
+            <>
             <NavCurrencySelector />
             <WalletDownloadButton />
             <NotificationBell />
-          </div>
-        )}
+            </>
+          )}
+        </div>
 
         <div className={isMobile ? "p-4 pt-16" : "p-8"}>
           {/* Back to Mobile hub button — shown only when navigated from /mobile */}
