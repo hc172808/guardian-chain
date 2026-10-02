@@ -242,8 +242,8 @@ const MathChallengeWidget = ({
   }, []);
 
   const fetchChallenge = useCallback(async (autoFocus: boolean = true, attempt: number = 0) => {
-    const MAX_ATTEMPTS = 3;
-    const RETRY_DELAY_MS = 1500;
+    const MAX_ATTEMPTS = 2;
+    const RETRY_DELAY_MS = 600;
 
     setLoading(true);
     setError('');
@@ -379,10 +379,9 @@ const MathChallengeWidget = ({
             </div>
           </div>
           {offline && (
-            <div className="flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400" role="status">
-              <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-              <span>Security service routing is degraded. This temporary question is still verified by the login server.</span>
-            </div>
+            <p className="text-[11px] text-muted-foreground" role="status">
+              Quick check — answer the question to continue.
+            </p>
           )}
         </div>
       )}
