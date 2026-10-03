@@ -15,6 +15,8 @@ function buildConnection() {
     const mode = u.searchParams.get("sslmode");
     if (mode === "disable") wantsSsl = false;
     u.searchParams.delete("sslmode");
+    // DB_NAME lets gydschain use its own database on a shared server.
+    if (process.env.DB_NAME) u.pathname = "/" + process.env.DB_NAME;
     if (["localhost", "127.0.0.1"].includes(u.hostname) && !mode) wantsSsl = false;
     connectionString = u.toString();
   } catch { /* leave as-is */ }
