@@ -282,6 +282,10 @@ const WalletContent = () => {
   }, []);
 
   useEffect(() => {
+    // Reset only when the signed-in account changes. Background refreshes keep
+    // the current values visible so the balance panel does not blink.
+    setBalances([]);
+    setBalancesLoading(true);
     fetchWallets();
     loadBalances();
     fetchBridgeHistory();
@@ -321,7 +325,6 @@ const WalletContent = () => {
 
   const loadBalances = async () => {
     if (!user) { setBalancesLoading(false); return; }
-    setBalancesLoading(true);
 
     const [priceData, userWallets, allTx, opsRaw, allTokensRaw, founderCfg, gydsCfg, gydCfg, gusdCfg] = await Promise.all([
       api.get('/api/token-price').catch(() => null),
@@ -489,7 +492,18 @@ const WalletContent = () => {
       });
     }
 
-    setBalances(tokenBalances);
+    setBalances(current => {
+      const unchanged = current.length === tokenBalances.length && current.every((balance, index) => {
+        const next = tokenBalances[index];
+        return balance.symbol === next.symbol &&
+          balance.name === next.name &&
+          balance.balance === next.balance &&
+          balance.value === next.value &&
+          balance.price === next.price &&
+          balance.logo === next.logo;
+      });
+      return unchanged ? current : tokenBalances;
+    });
     setBalancesLoading(false);
   };
 
