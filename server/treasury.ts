@@ -65,6 +65,9 @@ export async function sendTreasuryTransfer(toAddress: string, amountEther: numbe
     getGasPrice(),
     getChainIdRpc(),
   ]);
+  if (chainId !== 198282) {
+    throw new Error(`Treasury RPC is on chain ${chainId}; expected GYDS Mainnet (198282).`);
+  }
 
   const signedRawTx = await wallet.signTransaction({
     to: toAddress,

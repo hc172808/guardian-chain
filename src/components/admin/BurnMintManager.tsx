@@ -80,6 +80,21 @@ export const BurnMintManager = () => {
     return usdtAmount / tokenPrice.price;
   };
 
+  const notifyMintOutcome = (result: any, amount: number, token: string) => {
+    if (result?.on_chain) {
+      toast({
+        title: `${token} transfer submitted on Mainnet`,
+        description: `${amount.toLocaleString()} ${token} sent. Transaction: ${result.tx_hash ?? 'submitted'}`,
+      });
+      return;
+    }
+
+    toast({
+      title: `${token} credit recorded off-chain`,
+      description: `${result?.on_chain_error || 'No public-chain transfer was submitted.'} This may update the dashboard or a local test node, but it does not fund an external wallet.`,
+    });
+  };
+
   const handleBurnUsdt = async () => {
     if (!burnUsdtAmount) {
       toast({ title: 'Enter USDT amount', variant: 'destructive' });
@@ -103,7 +118,7 @@ export const BurnMintManager = () => {
         status: 'confirmed',
           network,
       });
-      await api.post('/api/token-operations', {
+      const mintResult = await api.post('/api/token-operations', {
         operation_type: 'mint',
         amount: gydsToMint,
         usdt_amount: usdtNum,
@@ -118,9 +133,11 @@ export const BurnMintManager = () => {
           burned_total: tokenPrice.burned_total + usdtNum,
         });
       }
-      toast({ 
-        title: 'Burn & Mint successful!', 
-        description: `Burned ${usdtNum} USDT, minted ${gydsToMint.toLocaleString()} GYDS`
+      toast({
+        title: mintResult?.on_chain ? 'GYDS transfer submitted on Mainnet' : 'Burn/mint recorded off-chain',
+        description: mintResult?.on_chain
+          ? `GYDS transfer submitted. The USDT burn is an internal ledger record. Transaction: ${mintResult.tx_hash ?? 'submitted'}`
+          : `${mintResult?.on_chain_error || 'No public-chain transfer was submitted.'} The burn/mint entries are internal ledger records.`,
       });
       setBurnUsdtAmount('');
       fetchData();
@@ -143,7 +160,7 @@ export const BurnMintManager = () => {
     setProcessing(true);
     const txHash = '0x' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '').slice(0, 32);
     try {
-      await api.post('/api/token-operations', {
+      const result = await api.post('/api/token-operations', {
         operation_type: 'mint',
         amount: amountNum,
         usdt_amount: 0,
@@ -152,7 +169,7 @@ export const BurnMintManager = () => {
         status: 'confirmed',
         network,
       });
-      toast({ title: 'Mint successful!', description: `Minted ${amountNum.toLocaleString()} GYDS` });
+      notifyMintOutcome(result, amountNum, 'GYDS');
       setMintAmount('');
       setMintAddress('');
       fetchData();
@@ -175,7 +192,7 @@ export const BurnMintManager = () => {
     setGusdProcessing(true);
     const txHash = '0x' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '').slice(0, 32);
     try {
-      await api.post('/api/token-operations', {
+      const result = await api.post('/api/token-operations', {
         operation_type: 'mint_gusd',
         amount: amountNum,
         usdt_amount: amountNum,
@@ -184,7 +201,7 @@ export const BurnMintManager = () => {
         status: 'confirmed',
         network,
       });
-      toast({ title: 'Mint successful!', description: `Minted ${amountNum.toLocaleString()} GUSD` });
+      notifyMintOutcome(result, amountNum, 'GUSD');
       setGusdMintAmount('');
       setGusdMintAddress('');
       fetchData();
