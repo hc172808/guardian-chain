@@ -121,20 +121,29 @@ function requireAuth(req: any, res: any, next: any) {
 
 export function getSession(): RequestHandler {
   const PgSession = connectPg(session);
-  return session({
-    store: new PgSession({ pool, createTableIfMissing: true }),
-    secret: process.env.SESSION_SECRET ?? "chaincore-secret-" + (process.env.REPL_ID ?? "local"),
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      // On Replit the preview is served in an iframe over HTTPS, so cookies
-      // must be Secure + SameSite=None or the browser won't send them back.
-      secure: !!(process.env.REPL_ID || process.env.REPLIT_DEPLOYMENT),
-      sameSite: (process.env.REPL_ID || process.env.REPLIT_DEPLOYMENT) ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    },
+  const store = new PgSession({ pool, createTableIfMissing: true });
+  const secret = process.env.SESSION_SECRET ?? "chaincore-secret-" + (process.env.REPL_ID ?? "local");
+  const base = { store, secret, resave: false, saveUninitialized: false, proxy: true } as const;
+  const maxAge = 7 * 24 * 60 * 60 * 1000;
+
+  // HTTPS (preview iframe, production behind a TLS proxy): the app is often
+  // embedded cross-site, so the cookie must be Secure + SameSite=None or the
+  // browser drops it and the user bounces back to the login page.
+  const secureSession = session({
+    ...base,
+    cookie: { httpOnly: true, secure: true, sameSite: "none", maxAge },
   });
+  // Plain HTTP (local dev): browsers reject SameSite=None without Secure.
+  const plainSession = session({
+    ...base,
+    cookie: { httpOnly: true, secure: false, sameSite: "lax", maxAge },
+  });
+
+  return (req, res, next) => {
+    const proto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim();
+    const isHttps = req.secure || proto === "https";
+    return (isHttps ? secureSession : plainSession)(req, res, next);
+  };
 }
 
 export async function setupAuth(app: Express): Promise<void> {
