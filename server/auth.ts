@@ -121,21 +121,22 @@ function requireAuth(req: any, res: any, next: any) {
 
 export function getSession(): RequestHandler {
   const PgSession = connectPg(session);
-  const store = new PgSession({ pool, createTableIfMissing: true });
   const secret = process.env.SESSION_SECRET ?? "chaincore-secret-" + (process.env.REPL_ID ?? "local");
-  const base = { store, secret, resave: false, saveUninitialized: false, proxy: true } as const;
+  // Each middleware needs its own store instance: express-session attaches its
+  // cookie settings to store.generate, which is used on login (regenerate).
+  const base = () => ({ store: new PgSession({ pool, createTableIfMissing: true }), secret, resave: false, saveUninitialized: false, proxy: true });
   const maxAge = 7 * 24 * 60 * 60 * 1000;
 
   // HTTPS (preview iframe, production behind a TLS proxy): the app is often
   // embedded cross-site, so the cookie must be Secure + SameSite=None or the
   // browser drops it and the user bounces back to the login page.
   const secureSession = session({
-    ...base,
+    ...base(),
     cookie: { httpOnly: true, secure: true, sameSite: "none", maxAge },
   });
   // Plain HTTP (local dev): browsers reject SameSite=None without Secure.
   const plainSession = session({
-    ...base,
+    ...base(),
     cookie: { httpOnly: true, secure: false, sameSite: "lax", maxAge },
   });
 
