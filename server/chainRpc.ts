@@ -112,6 +112,32 @@ export async function getTransactionByHash(txHash: string): Promise<any | null> 
   }
 }
 
+export async function estimateTransactionGas(fromAddress: string, data: string): Promise<bigint> {
+  const { result } = await rpcCallWithFallback("eth_estimateGas", [{
+    from: fromAddress,
+    data,
+    value: "0x0",
+  }]);
+  return BigInt(result);
+}
+
+export async function broadcastRawTransaction(rawTransaction: string): Promise<{ txHash: string; endpoint: string }> {
+  const { result, endpoint } = await rpcCallWithFallback("eth_sendRawTransaction", [rawTransaction]);
+  if (typeof result !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(result)) {
+    throw new Error("RPC returned an invalid transaction hash");
+  }
+  return { txHash: result, endpoint };
+}
+
+export async function getContractCode(address: string): Promise<string | null> {
+  try {
+    const { result } = await rpcCallWithFallback("eth_getCode", [address, "latest"]);
+    return typeof result === "string" ? result : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface BuildTxParams {
   fromAddress: string;
   toAddress: string;
