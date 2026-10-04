@@ -6691,7 +6691,13 @@ export function registerRoutes(app: Express) {
   // movement. The database position and transaction record are committed only
   // after the chain accepts the transfer.
   app.get('/api/staking/position', requireAuth, async (req, res) => {
-    const client = await pgPool.connect();
+    let client: any;
+    try {
+      client = await pgPool.connect();
+    } catch (e: any) {
+      console.error('[staking] Failed to connect for position lookup:', e?.message ?? e);
+      return res.status(503).json({ error: 'Staking position is temporarily unavailable.' });
+    }
     try {
       const user = req.user as any;
       const address = await resolveStakingAddress(client, user.id, req.query.address);
@@ -6730,7 +6736,13 @@ export function registerRoutes(app: Express) {
   });
 
   app.post('/api/staking/stake', requireAuth, async (req, res) => {
-    const client = await pgPool.connect();
+    let client: any;
+    try {
+      client = await pgPool.connect();
+    } catch (e: any) {
+      console.error('[staking] Failed to connect for stake:', e?.message ?? e);
+      return res.status(503).json({ error: 'Staking is temporarily unavailable.' });
+    }
     try {
       const user = req.user as any;
       const amount = parsePositiveAmount(req.body?.amount);
@@ -6814,7 +6826,13 @@ export function registerRoutes(app: Express) {
   });
 
   app.post('/api/staking/unstake', requireAuth, async (req, res) => {
-    const client = await pgPool.connect();
+    let client: any;
+    try {
+      client = await pgPool.connect();
+    } catch (e: any) {
+      console.error('[staking] Failed to connect for unstake:', e?.message ?? e);
+      return res.status(503).json({ error: 'Staking is temporarily unavailable.' });
+    }
     try {
       const user = req.user as any;
       const sharesToWithdraw = parsePositiveAmount(req.body?.amount);
@@ -6912,7 +6930,13 @@ export function registerRoutes(app: Express) {
 
   // ── Staking Stats ──────────────────────────────────────────────────────────
   app.get('/api/staking/stats', async (_req, res) => {
-    const client = await pgPool.connect();
+    let client: any;
+    try {
+      client = await pgPool.connect();
+    } catch (e: any) {
+      console.error('[staking] Failed to connect for stats:', e?.message ?? e);
+      return res.status(503).json({ error: 'Staking stats are temporarily unavailable.' });
+    }
     try {
       res.json(await getStakingStats(client));
     } catch (e: any) { res.status(500).json({ error: e.message }); }

@@ -15,8 +15,13 @@ function buildConnection() {
     const mode = u.searchParams.get("sslmode");
     if (mode === "disable") wantsSsl = false;
     u.searchParams.delete("sslmode");
-    // DB_NAME lets gydschain use its own database on a shared server.
-    if (process.env.DB_NAME) u.pathname = "/" + process.env.DB_NAME;
+    // Replit provides the authoritative managed database in DATABASE_URL and
+    // PGDATABASE. Do not let a standalone/VPS .env DB_NAME redirect the app to
+    // a database that does not exist in the Replit PostgreSQL instance.
+    const isReplitManagedDatabase = Boolean(process.env.REPL_ID && process.env.PGDATABASE);
+    if (process.env.DB_NAME && !isReplitManagedDatabase) {
+      u.pathname = "/" + process.env.DB_NAME;
+    }
     if (["localhost", "127.0.0.1"].includes(u.hostname) && !mode) wantsSsl = false;
     connectionString = u.toString();
   } catch { /* leave as-is */ }
