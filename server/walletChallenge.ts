@@ -7,7 +7,18 @@
 import { ethers } from "ethers";
 import { checkNonce, consumeNonce, type NonceCheck } from "./nonceGuard";
 
-export const CHALLENGE_MESSAGE = (nonce: string) => `Sign in to ChainCore\nNonce: ${nonce}`;
+export type WalletChallengePurpose = "login" | "password-reset" | "wallet-link";
+
+const CHALLENGE_ACTION: Record<WalletChallengePurpose, string> = {
+  login: "Sign in to ChainCore",
+  "password-reset": "Reset your ChainCore account password",
+  "wallet-link": "Link this wallet to your ChainCore account",
+};
+
+export const CHALLENGE_MESSAGE = (
+  nonce: string,
+  purpose: WalletChallengePurpose = "login",
+) => `${CHALLENGE_ACTION[purpose]}\nNonce: ${nonce}`;
 
 export interface WalletChallengeStorage {
   getUserNonce: (address: string) => Promise<string | null | undefined>;
@@ -29,6 +40,7 @@ export async function verifyWalletChallenge(
   rawAddress: unknown,
   signature: unknown,
   storage: WalletChallengeStorage,
+  purpose: WalletChallengePurpose = "login",
 ): Promise<WalletChallengeResult> {
   if (typeof rawAddress !== "string" || typeof signature !== "string" || !rawAddress || !signature) {
     return { ok: false, status: 400, error: "address and signature required", code: "MISSING_FIELDS" };
@@ -60,7 +72,7 @@ export async function verifyWalletChallenge(
 
   let recovered: string;
   try {
-    recovered = ethers.verifyMessage(CHALLENGE_MESSAGE(nonce), signature).toLowerCase();
+    recovered = ethers.verifyMessage(CHALLENGE_MESSAGE(nonce, purpose), signature).toLowerCase();
   } catch {
     return { ok: false, status: 401, error: "Signature verification failed", code: "BAD_SIGNATURE" };
   }

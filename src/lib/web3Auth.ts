@@ -60,8 +60,15 @@ export const connectWallet = async (): Promise<{ address: string; provider: any 
   return { address: accounts[0].toLowerCase(), provider };
 };
 
-export const signAuthMessage = async (address: string, provider: any): Promise<string> => {
-  const nonceRes = await fetch(`/api/auth/nonce?address=${encodeURIComponent(address)}`, {
+export type WalletChallengePurpose = 'login' | 'password-reset' | 'wallet-link';
+
+export const signAuthMessage = async (
+  address: string,
+  provider: any,
+  purpose: WalletChallengePurpose = 'login',
+): Promise<string> => {
+  const params = new URLSearchParams({ address, purpose });
+  const nonceRes = await fetch(`/api/auth/nonce?${params.toString()}`, {
     credentials: 'include',
   });
   if (!nonceRes.ok) throw new Error('Failed to fetch auth nonce from server');
@@ -100,13 +107,14 @@ export const signInWithWallet = signUpWithWallet;
 export const linkWalletToUser = async (
   _userId: string,
   address: string,
+  signature: string,
 ): Promise<{ error: Error | null }> => {
   try {
-    const res = await fetch('/api/wallets', {
+    const res = await fetch('/api/auth/link-wallet', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address, encrypted_seed: '', pin_hash: '' }),
+      body: JSON.stringify({ address, signature }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));

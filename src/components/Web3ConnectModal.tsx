@@ -60,9 +60,8 @@ export const Web3ConnectModal = ({ open, onClose, mode, userId, onSuccess }: Web
   const handleSign = async (address: string, provider: any) => {
     setStep('processing');
     try {
-      // One signature — used both for UX confirmation and to derive the login password.
-      // No nonce means the same wallet always produces the same credentials (no storage needed).
-      const signature = await signAuthMessage(address, provider);
+      const purpose = mode === 'link' ? 'wallet-link' : 'login';
+      const signature = await signAuthMessage(address, provider, purpose);
 
       let error: Error | null = null;
 
@@ -71,7 +70,7 @@ export const Web3ConnectModal = ({ open, onClose, mode, userId, onSuccess }: Web
         if (!userId) {
           error = new Error('Cannot link wallet: no user ID provided');
         } else {
-          const { error: linkError } = await linkWalletToUser(userId, address);
+          const { error: linkError } = await linkWalletToUser(userId, address, signature);
           error = linkError;
         }
       } else {

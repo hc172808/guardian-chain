@@ -505,12 +505,18 @@ export async function setupAuth(app: Express): Promise<void> {
   app.get("/api/auth/nonce", authLimiter, async (req, res) => {
     try {
       const { issueNonce } = await import("./nonceGuard");
+      const { CHALLENGE_MESSAGE } = await import("./walletChallenge");
       const address = String(req.query.address ?? "").toLowerCase();
       if (!address || !address.startsWith("0x")) return res.status(400).json({ error: "address required" });
+      const requestedPurpose = String(req.query.purpose ?? "login");
+      if (!["login", "password-reset", "wallet-link"].includes(requestedPurpose)) {
+        return res.status(400).json({ error: "Unsupported wallet challenge purpose" });
+      }
+      const purpose = requestedPurpose as "login" | "password-reset" | "wallet-link";
       const nonce = crypto.randomBytes(24).toString("hex") + Date.now().toString(36);
-      await storage.setUserNonce(address, nonce);
+      await storage.setUserNonce(address, nonce, { createPlaceholder: purpose === "login" });
       issueNonce(address, nonce);
-      res.json({ nonce, message: `Sign in to ChainCore\nNonce: ${nonce}` });
+      res.json({ nonce, message: CHALLENGE_MESSAGE(nonce, purpose) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -521,7 +527,7 @@ export async function setupAuth(app: Express): Promise<void> {
     try {
       const { verifyWalletChallenge } = await import("./walletChallenge");
       const { address, signature } = req.body ?? {};
-      const result = await verifyWalletChallenge(address, signature, storage);
+      const result = await verifyWalletChallenge(address, signature, storage, "login");
       if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
       const addr = result.address;
 
@@ -595,6 +601,75 @@ export async function setupAuth(app: Express): Promise<void> {
     } catch (err: any) {
       console.error("Web3 auth error:", err.message);
       res.status(500).json({ error: "Web3 authentication failed" });
+    }
+  });
+
+  // ── Web3: link a wallet after proving ownership ────────────────────────────
+  app.post("/api/auth/link-wallet", authLimiter, async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const { address, signature } = req.body ?? {};
+    const user = req.user as any;
+    const { verifyWalletChallenge } = await import("./walletChallenge");
+    const result = await verifyWalletChallenge(address, signature, storage, "wallet-link");
+    if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+
+    const client = await pgPool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const directOwner = await client.query(
+        `SELECT id FROM users WHERE LOWER(wallet_address) = $1 LIMIT 1 FOR UPDATE`,
+        [result.address],
+      );
+      if (directOwner.rows[0] && directOwner.rows[0].id !== user.id) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "This wallet is already associated with another account" });
+      }
+
+      const verifiedOwner = await client.query(
+        `SELECT user_id FROM wallets
+         WHERE LOWER(address) = $1 AND auth_verified_at IS NOT NULL
+         LIMIT 1 FOR UPDATE`,
+        [result.address],
+      );
+      if (verifiedOwner.rows[0] && verifiedOwner.rows[0].user_id !== user.id) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "This wallet is already associated with another account" });
+      }
+
+      if (!verifiedOwner.rows[0]) {
+        const existingWallet = await client.query(
+          `SELECT id FROM wallets
+           WHERE user_id = $1 AND LOWER(address) = $2
+           ORDER BY created_at ASC
+           LIMIT 1 FOR UPDATE`,
+          [user.id, result.address],
+        );
+        if (existingWallet.rows[0]) {
+          await client.query(
+            `UPDATE wallets SET auth_verified_at = NOW() WHERE id = $1`,
+            [existingWallet.rows[0].id],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO wallets (user_id, address, encrypted_seed, pin_hash, auth_verified_at)
+             VALUES ($1, $2, '', '', NOW())`,
+            [user.id, result.address],
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+      return res.json({ ok: true, address: result.address });
+    } catch (err: any) {
+      await client.query("ROLLBACK").catch(() => {});
+      if (err.code === "23505") {
+        return res.status(409).json({ error: "This wallet is already associated with another account" });
+      }
+      console.error("Wallet link verification error:", err.message);
+      return res.status(500).json({ error: "Wallet could not be linked" });
+    } finally {
+      client.release();
     }
   });
 
@@ -711,13 +786,13 @@ export async function setupAuth(app: Express): Promise<void> {
     try {
       const { verifyWalletChallenge } = await import("./walletChallenge");
       const { address, signature } = req.body ?? {};
-      const result = await verifyWalletChallenge(address, signature, storage);
+      const result = await verifyWalletChallenge(address, signature, storage, "password-reset");
       if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
       const addr = result.address;
 
       // Find account linked to this wallet
       const user = await storage.getUserByWallet(addr);
-      if (!user) return res.status(404).json({ error: "No account is linked to this wallet address. Connect the wallet to an account first, or use username reset." });
+      if (!user) return res.status(404).json({ error: "No account is linked to this verified wallet. Sign in and link the wallet first, or use another reset method." });
       // Wallet-only accounts (no passwordHash) are allowed through — they use this flow to SET a password for the first time.
 
       // Generate reset token (same flow as username reset)

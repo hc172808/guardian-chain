@@ -50,6 +50,7 @@ export const wallets = pgTable("wallets", {
   address: text("address").notNull(),
   encryptedSeed: text("encrypted_seed").notNull().default(""),
   pinHash: text("pin_hash").notNull().default(""),
+  authVerifiedAt: timestamp("auth_verified_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
