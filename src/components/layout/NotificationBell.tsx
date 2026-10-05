@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, CheckCheck, X, Zap, ArrowRightLeft, Shield, TrendingUp, Megaphone, RefreshCw } from 'lucide-react';
+import { Bell, CheckCheck, X, Zap, ArrowRightLeft, Shield, TrendingUp, Megaphone, RefreshCw, Coins } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
 interface Notification {
   id: string;
-  type: 'tx' | 'price' | 'node' | 'governance' | 'announcement';
+  type: 'tx' | 'price' | 'node' | 'governance' | 'announcement' | 'stablecoin_review';
   title: string;
   body: string;
   read: boolean;
@@ -20,6 +20,7 @@ const TYPE_ICON: Record<Notification['type'], any> = {
   node:         Zap,
   governance:   Shield,
   announcement: Megaphone,
+  stablecoin_review: Coins,
 };
 
 const TYPE_COLOR: Record<Notification['type'], string> = {
@@ -28,6 +29,7 @@ const TYPE_COLOR: Record<Notification['type'], string> = {
   node:         'text-amber-400 bg-amber-500/10',
   governance:   'text-purple-400 bg-purple-500/10',
   announcement: 'text-red-400 bg-red-500/10',
+  stablecoin_review: 'text-cyan-400 bg-cyan-500/10',
 };
 
 const fmtRelative = (d: string) => {

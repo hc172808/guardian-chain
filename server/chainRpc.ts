@@ -46,7 +46,15 @@ async function rpcCall(url: string, method: string, params: any[] = []): Promise
   }
 }
 
-async function rpcCallWithFallback(method: string, params: any[] = []): Promise<{ result: any; endpoint: string }> {
+async function rpcCallWithFallback(
+  method: string,
+  params: any[] = [],
+  pinnedEndpoint?: string,
+): Promise<{ result: any; endpoint: string }> {
+  if (pinnedEndpoint) {
+    const result = await rpcCall(pinnedEndpoint, method, params);
+    return { result, endpoint: pinnedEndpoint };
+  }
   const errors: string[] = [];
   for (const url of getRpcEndpoints()) {
     try {
@@ -79,28 +87,33 @@ export async function getChainBalance(address: string): Promise<string | null> {
   }
 }
 
-export async function getTransactionReceipt(txHash: string): Promise<any | null> {
+export async function getTransactionReceipt(txHash: string, endpoint?: string): Promise<any | null> {
   try {
-    const { result } = await rpcCallWithFallback("eth_getTransactionReceipt", [txHash]);
+    const { result } = await rpcCallWithFallback("eth_getTransactionReceipt", [txHash], endpoint);
     return result;
   } catch {
     return null;
   }
 }
 
-export async function getTransactionCount(address: string): Promise<number> {
-  const { result } = await rpcCallWithFallback("eth_getTransactionCount", [address, "pending"]);
+export async function getTransactionCount(address: string, endpoint?: string): Promise<number> {
+  const { result } = await rpcCallWithFallback("eth_getTransactionCount", [address, "pending"], endpoint);
   return parseInt(result, 16);
 }
 
-export async function getGasPrice(): Promise<bigint> {
-  const { result } = await rpcCallWithFallback("eth_gasPrice");
+export async function getGasPrice(endpoint?: string): Promise<bigint> {
+  const { result } = await rpcCallWithFallback("eth_gasPrice", [], endpoint);
   return BigInt(result);
 }
 
 export async function getChainIdRpc(): Promise<number> {
-  const { result } = await rpcCallWithFallback("eth_chainId");
-  return parseInt(result, 16);
+  const { chainId } = await getChainContextRpc();
+  return chainId;
+}
+
+export async function getChainContextRpc(): Promise<{ chainId: number; endpoint: string }> {
+  const { result, endpoint } = await rpcCallWithFallback("eth_chainId");
+  return { chainId: parseInt(result, 16), endpoint };
 }
 
 export async function getTransactionByHash(txHash: string): Promise<any | null> {
@@ -112,26 +125,29 @@ export async function getTransactionByHash(txHash: string): Promise<any | null> 
   }
 }
 
-export async function estimateTransactionGas(fromAddress: string, data: string): Promise<bigint> {
+export async function estimateTransactionGas(fromAddress: string, data: string, endpoint?: string): Promise<bigint> {
   const { result } = await rpcCallWithFallback("eth_estimateGas", [{
     from: fromAddress,
     data,
     value: "0x0",
-  }]);
+  }], endpoint);
   return BigInt(result);
 }
 
-export async function broadcastRawTransaction(rawTransaction: string): Promise<{ txHash: string; endpoint: string }> {
-  const { result, endpoint } = await rpcCallWithFallback("eth_sendRawTransaction", [rawTransaction]);
+export async function broadcastRawTransaction(
+  rawTransaction: string,
+  pinnedEndpoint?: string,
+): Promise<{ txHash: string; endpoint: string }> {
+  const { result, endpoint } = await rpcCallWithFallback("eth_sendRawTransaction", [rawTransaction], pinnedEndpoint);
   if (typeof result !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(result)) {
     throw new Error("RPC returned an invalid transaction hash");
   }
   return { txHash: result, endpoint };
 }
 
-export async function getContractCode(address: string): Promise<string | null> {
+export async function getContractCode(address: string, endpoint?: string): Promise<string | null> {
   try {
-    const { result } = await rpcCallWithFallback("eth_getCode", [address, "latest"]);
+    const { result } = await rpcCallWithFallback("eth_getCode", [address, "latest"], endpoint);
     return typeof result === "string" ? result : null;
   } catch {
     return null;

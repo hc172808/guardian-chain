@@ -5,7 +5,7 @@ import { pool } from "./db";
 import {
   broadcastRawTransaction,
   estimateTransactionGas,
-  getChainIdRpc,
+  getChainContextRpc,
   getContractCode,
   getGasPrice,
   getTransactionCount,
@@ -42,11 +42,19 @@ let schemaReady: Promise<void> | undefined;
 export function ensureStablecoinDeploymentSchema(): Promise<void> {
   if (!schemaReady) {
     schemaReady = pool.query(`
+      ALTER TABLE user_stablecoins ADD COLUMN IF NOT EXISTS legacy_address TEXT;
       ALTER TABLE user_stablecoins ADD COLUMN IF NOT EXISTS owner_address TEXT;
       ALTER TABLE user_stablecoins ADD COLUMN IF NOT EXISTS deployment_chain_id INTEGER;
       ALTER TABLE user_stablecoins ADD COLUMN IF NOT EXISTS deployment_tx_hash TEXT;
       ALTER TABLE user_stablecoins ADD COLUMN IF NOT EXISTS deployment_raw_tx TEXT;
       ALTER TABLE user_stablecoins ADD COLUMN IF NOT EXISTS deployment_error TEXT;
+      UPDATE user_stablecoins
+      SET status='pending_review', is_approved=false, approved_by=NULL, approved_at=NULL,
+          legacy_address=COALESCE(legacy_address,address),
+          address=NULL,
+          deployment_error='This approval predates on-chain deployment and must be reviewed again.',
+          updated_at=NOW()
+      WHERE status='active' AND deployment_tx_hash IS NULL;
     `).then(() => undefined).catch((error) => {
       schemaReady = undefined;
       throw error;
@@ -86,23 +94,23 @@ function getDeploymentWallet(): ethers.Wallet {
   }
 }
 
-async function getVerifiedMainnetChainId(): Promise<number> {
+async function getVerifiedMainnetRpc(): Promise<{ chainId: number; endpoint: string }> {
   if (process.env.GYDS_NETWORK && process.env.GYDS_NETWORK.toLowerCase() !== "mainnet") {
     throw new StablecoinDeploymentError("Stablecoin contract deployment is restricted to GYDS mainnet.", 409);
   }
-  let chainId: number;
+  let context: { chainId: number; endpoint: string };
   try {
-    chainId = await getChainIdRpc();
+    context = await getChainContextRpc();
   } catch {
     throw new StablecoinDeploymentError("Could not reach a GYDS Chain RPC to verify the deployment network.", 503);
   }
-  if (chainId !== GYDS_MAINNET_CHAIN_ID) {
+  if (context.chainId !== GYDS_MAINNET_CHAIN_ID) {
     throw new StablecoinDeploymentError(
-      `The connected RPC is not GYDS mainnet (expected chain ID ${GYDS_MAINNET_CHAIN_ID}; got ${chainId}).`,
+      `The connected RPC is not GYDS mainnet (expected chain ID ${GYDS_MAINNET_CHAIN_ID}; got ${context.chainId}).`,
       409,
     );
   }
-  return chainId;
+  return context;
 }
 
 function transactionSucceeded(receipt: any): boolean {
@@ -119,22 +127,22 @@ export async function reconcileStablecoinDeployment(
 ): Promise<UserStablecoinRow | null> {
   await ensureStablecoinDeploymentSchema();
 
-  let chainId: number;
+  let context: { chainId: number; endpoint: string };
   try {
-    chainId = await getChainIdRpc();
+    context = await getChainContextRpc();
   } catch {
     return null;
   }
-  if (chainId !== GYDS_MAINNET_CHAIN_ID) return null;
+  if (context.chainId !== GYDS_MAINNET_CHAIN_ID) return null;
 
-  const receipt = await getTransactionReceipt(txHash);
+  const receipt = await getTransactionReceipt(txHash, context.endpoint);
   if (!receipt || receipt.status === undefined || receipt.status === null) return null;
 
   if (transactionSucceeded(receipt)) {
     const contractAddress = typeof receipt.contractAddress === "string" ? receipt.contractAddress : "";
     if (!ethers.isAddress(contractAddress)) return null;
 
-    const code = await getContractCode(contractAddress);
+    const code = await getContractCode(contractAddress, context.endpoint);
     if (code === null) return null;
     if (code === "0x") {
       await pool.query(
@@ -207,9 +215,10 @@ export async function deployOrResumeStablecoin(
       await lockClient.query("COMMIT");
       transactionOpen = false;
 
+      const { endpoint } = await getVerifiedMainnetRpc();
       if (rawTransaction) {
         try {
-          await broadcastRawTransaction(rawTransaction);
+          await broadcastRawTransaction(rawTransaction, endpoint);
         } catch {
           await pool.query(
             `UPDATE user_stablecoins SET deployment_error='RPC did not acknowledge the saved deployment transaction; retry is safe', updated_at=NOW()
@@ -244,8 +253,9 @@ export async function deployOrResumeStablecoin(
       throw new StablecoinDeploymentError("Stablecoin decimals must be between 0 and 18.", 400);
     }
 
-    const chainId = await getVerifiedMainnetChainId();
-    const deployData = await new ethers.ContractFactory(getArtifact().abi, getArtifact().bytecode)
+    const { chainId, endpoint } = await getVerifiedMainnetRpc();
+    const artifact = getArtifact();
+    const deployData = await new ethers.ContractFactory(artifact.abi, artifact.bytecode)
       .getDeployTransaction(
         String(coin.name),
         String(coin.symbol),
@@ -262,9 +272,9 @@ export async function deployOrResumeStablecoin(
     let estimatedGas: bigint;
     try {
       [nonce, gasPrice, estimatedGas] = await Promise.all([
-        getTransactionCount(signer.address),
-        getGasPrice(),
-        estimateTransactionGas(signer.address, deployData.data),
+        getTransactionCount(signer.address, endpoint),
+        getGasPrice(endpoint),
+        estimateTransactionGas(signer.address, deployData.data, endpoint),
       ]);
     } catch {
       throw new StablecoinDeploymentError(
@@ -306,7 +316,7 @@ export async function deployOrResumeStablecoin(
     transactionOpen = false;
 
     try {
-      const broadcast = await broadcastRawTransaction(rawTransaction);
+      const broadcast = await broadcastRawTransaction(rawTransaction, endpoint);
       if (broadcast.txHash.toLowerCase() !== txHash.toLowerCase()) {
         await pool.query(
           `UPDATE user_stablecoins SET deployment_error='RPC returned a different hash for the signed deployment transaction', updated_at=NOW()

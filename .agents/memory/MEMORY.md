@@ -71,3 +71,4 @@
 - [Admin node approval](admin-node-approval.md) — Approval/revocation uses a dedicated JSON action endpoint, separate from general node PATCH mutations.
 - [Admin user tools](admin-user-tools.md) — User edits, password resets, and session revocation are audited; console commands stay bounded and server-validated.
 - [Staking chain settlement](staking-chain-settlement.md) — Settle GYD through the chain transfer RPC before committing positions; production needs a real STAKING_POOL_ADDRESS.
+- [Stablecoin contract build isolation](stablecoin-contract-build.md) — Keep stablecoin compilation isolated from unrelated legacy AMM Solidity blockers.

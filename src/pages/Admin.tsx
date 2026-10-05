@@ -39,6 +39,7 @@ import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
 import { BurnMintManager } from '@/components/admin/BurnMintManager';
 import { StablecoinManager } from '@/components/admin/StablecoinManager';
+import { StablecoinReviewQueue } from '@/components/admin/StablecoinReviewQueue';
 import { SponsorManager } from '@/components/admin/SponsorManager';
 import { DatabaseSettings } from '@/components/admin/DatabaseSettings';
 import { WhatsAppSettings } from '@/components/admin/WhatsAppSettings';
@@ -803,7 +804,12 @@ const AdminContent = () => {
   const { user, isFounder, isAdmin } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('activity');
+  const [activeTab, setActiveTab] = useState(() => {
+    const requestedTab = new URLSearchParams(window.location.search).get('tab');
+    return ADMIN_TABS.some(({ tabs }) => tabs.some(({ value }) => value === requestedTab))
+      ? requestedTab!
+      : 'activity';
+  });
   const [nodes, setNodes] = useState<NodeInstallation[]>([]);
   const [loading, setLoading] = useState(true);
   const [mainNodeId, setMainNodeId] = useState<string | null>(null);
@@ -1124,7 +1130,10 @@ const AdminContent = () => {
         </TabsContent>
 
         <TabsContent value="stablecoin">
-          <StablecoinManager />
+          <div className="space-y-6">
+            <StablecoinReviewQueue />
+            <StablecoinManager />
+          </div>
         </TabsContent>
 
         <TabsContent value="sponsors">

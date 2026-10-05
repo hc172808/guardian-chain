@@ -15,6 +15,11 @@ node_modules
 dist
 dist-ssr
 *.local
+contracts/cache-stablecoin/
+contracts/typechain-types/
+contracts/stablecoin-artifacts/@openzeppelin/
+contracts/stablecoin-artifacts/build-info/
+contracts/stablecoin-artifacts/UserStablecoin.sol/*.dbg.json
 
 # Editor directories and files
 .vscode/*

@@ -503,6 +503,7 @@ export const userStablecoins = pgTable("user_stablecoins", {
   websiteUrl: text("website_url"),
   twitterUrl: text("twitter_url"),
   address: text("address"),
+  legacyAddress: text("legacy_address"),
   ownerAddress: text("owner_address"),
   deploymentChainId: integer("deployment_chain_id"),
   deploymentTxHash: text("deployment_tx_hash"),

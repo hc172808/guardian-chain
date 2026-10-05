@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils';
 
 type PegType = 'usd' | 'eur' | 'gbp' | 'btc' | 'eth' | 'gold' | 'custom' | 'basket';
 type CollateralType = 'over_collateralized' | 'algorithmic' | 'hybrid' | 'fiat_backed';
-type StablecoinStatus = 'pending_review' | 'active' | 'paused' | 'deprecated' | 'draft';
+type StablecoinStatus = 'pending_review' | 'deployment_pending' | 'active' | 'paused' | 'deprecated' | 'draft';
 
 interface UserStablecoin {
   id: string;
@@ -38,6 +38,9 @@ interface UserStablecoin {
   total_supply: string;
   status: StablecoinStatus;
   is_approved: boolean;
+  deployment_tx_hash?: string | null;
+  deployment_error?: string | null;
+  address?: string | null;
   created_at: string;
   logo_url: string | null;
   description: string | null;
@@ -313,11 +316,20 @@ export const StablecoinFactory = () => {
       if (!res.ok) throw new Error(data.error ?? 'Creation failed');
 
       const activatedImmediately = data.status === 'active';
+      const deploymentPending = data.status === 'deployment_pending';
       toast({
-        title: activatedImmediately ? `✅ ${params.symbol} created` : `✅ ${params.symbol} submitted for review!`,
+        title: activatedImmediately
+          ? `${params.symbol} created`
+          : deploymentPending
+            ? `${params.symbol} deployment submitted`
+            : `${params.symbol} submitted`,
         description: activatedImmediately
-          ? 'It is active in the Stablecoin Factory.'
-          : 'An admin will review your stablecoin before activation.',
+          ? 'Its contract is confirmed and it is active in the Stablecoin Factory.'
+          : deploymentPending
+            ? 'It will become active after GYDS Chain confirms the deployment.'
+            : isPrivileged
+              ? 'It is waiting for wallet or deployment configuration before activation.'
+              : 'An admin will review and deploy the contract before activation.',
       });
       logAuditEvent(user.id, user.email ?? null, { action: 'stablecoin_create', category: 'token', target_type: 'stablecoin', details: { symbol: params.symbol, peg: params.pegType } });
       setDialogOpen(false);
@@ -341,6 +353,7 @@ export const StablecoinFactory = () => {
   const statusColor = (s: StablecoinStatus) => ({
     active: 'text-green-400 border-green-400',
     pending_review: 'text-yellow-400 border-yellow-400',
+    deployment_pending: 'text-blue-400 border-blue-400',
     paused: 'text-orange-400 border-orange-400',
     deprecated: 'text-red-400 border-red-400',
     draft: 'text-muted-foreground border-border',
@@ -419,6 +432,11 @@ export const StablecoinFactory = () => {
                   <div><p className="text-muted-foreground">Collateral</p><p>{parseFloat(sc.collateral_ratio).toFixed(0)}%</p></div>
                   <div><p className="text-muted-foreground">Fee</p><p>{parseFloat(sc.stability_fee).toFixed(2)}%/yr</p></div>
                 </div>
+                {sc.address && (
+                  <p className="mt-3 text-[10px] text-muted-foreground break-all">
+                    Contract address: <code className="font-mono text-foreground/80">{sc.address}</code>
+                  </p>
+                )}
               </GlassCard>
             ))}
           </div>
@@ -441,9 +459,26 @@ export const StablecoinFactory = () => {
                     </div>
                   </div>
                   <Badge variant="outline" className={`text-xs ${statusColor(sc.status)}`}>
-                    {sc.status === 'pending_review' ? '⏳ Pending' : sc.status === 'active' ? '✅ Active' : sc.status}
+                    {sc.status === 'pending_review'
+                      ? 'Pending review'
+                      : sc.status === 'deployment_pending'
+                        ? 'Deploying'
+                        : sc.status === 'active'
+                          ? 'Active'
+                          : sc.status}
                   </Badge>
                 </div>
+                {sc.deployment_error && (
+                  <p className="mt-2 text-xs text-amber-400">{sc.deployment_error}</p>
+                )}
+                {sc.status === 'active' && sc.address && (
+                  <p className="mt-2 text-xs text-muted-foreground break-all">
+                    Contract address: <code className="font-mono text-foreground/80">{sc.address}</code>
+                  </p>
+                )}
+                {sc.deployment_tx_hash && sc.status === 'deployment_pending' && (
+                  <p className="mt-2 text-xs text-muted-foreground break-all">Deployment transaction: {sc.deployment_tx_hash}</p>
+                )}
               </GlassCard>
             ))}
           </div>
@@ -745,8 +780,8 @@ export const StablecoinFactory = () => {
                 <p className="text-xs text-amber-400 flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   {isPrivileged
-                    ? 'Admin and founder submissions are activated immediately in the factory.'
-                    : 'Your stablecoin will be reviewed by an admin before activation. This usually takes 24–48 hours.'}
+                    ? 'Admin and founder submissions go straight to on-chain deployment; activation waits for chain confirmation.'
+                    : 'An admin will review and deploy your contract before it becomes active.'}
                 </p>
               </GlassCard>
             </div>

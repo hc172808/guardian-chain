@@ -122,6 +122,15 @@ async function notifyStablecoinReviewers(stablecoin: { name: string; symbol: str
   }
 }
 
+function withoutRawDeploymentTransaction<T extends Record<string, any>>(stablecoin: T) {
+  const {
+    deployment_raw_tx: _rawTransaction,
+    legacy_address: _legacyAddress,
+    ...safeStablecoin
+  } = stablecoin;
+  return safeStablecoin;
+}
+
 async function resolveStakingAddress(client: any, userId: string, requested: unknown): Promise<string> {
   const addresses = await getUserWalletAddresses(client, userId);
   if (!addresses.length) throw new Error("A valid wallet address must be linked to your account before staking.");
@@ -1178,7 +1187,7 @@ export function registerRoutes(app: Express) {
            AND deployment_tx_hash IS NOT NULL AND address IS NOT NULL
          ORDER BY created_at DESC`,
       );
-      res.json(rows);
+      res.json(rows.map(withoutRawDeploymentTransaction));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1187,7 +1196,7 @@ export function registerRoutes(app: Express) {
     try {
       await ensureStablecoinDeploymentSchema();
       const { rows } = await pgPool.query(`SELECT * FROM user_stablecoins WHERE creator_id=$1 ORDER BY created_at DESC`, [user.id]);
-      res.json(rows);
+      res.json(rows.map(withoutRawDeploymentTransaction));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1201,7 +1210,7 @@ export function registerRoutes(app: Express) {
         [req.params.id],
       );
       if (!rows[0]) return res.status(404).json({ error: 'Not found' });
-      res.json(rows[0]);
+      res.json(withoutRawDeploymentTransaction(rows[0]));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1351,11 +1360,13 @@ export function registerRoutes(app: Express) {
             ? "The stablecoin deployment signer is not configured."
             : null;
         if (deploymentIssue) {
-          await pgPool.query(
+          const { rows: [updated] } = await pgPool.query(
             `UPDATE user_stablecoins SET deployment_error=$1, updated_at=NOW()
-             WHERE id=$2 AND status='pending_review'`,
+             WHERE id=$2 AND status='pending_review'
+             RETURNING *`,
             [deploymentIssue, newSc.id],
           );
+          responseStablecoin = updated ?? newSc;
         } else {
           try {
             const deployment = await deployOrResumeStablecoin(newSc.id, user.id, ownerAddresses[0]);
@@ -1380,7 +1391,7 @@ export function registerRoutes(app: Express) {
         await notifyStablecoinReviewers(newSc);
       }
       res.status(201).json({
-        ...responseStablecoin,
+        ...withoutRawDeploymentTransaction(responseStablecoin),
         creationTransaction,
         creationFee: isAdminOrFounder ? 0 : creationFee,
       });
@@ -1397,6 +1408,9 @@ export function registerRoutes(app: Express) {
       if (!sc) return res.status(404).json({ error: 'Not found' });
       if (sc.creator_id !== user.id && !isAdminOrFounder)
         return res.status(403).json({ error: 'Forbidden' });
+      if (req.body.name !== undefined && sc.status !== 'pending_review') {
+        return res.status(409).json({ error: 'The on-chain token name is immutable after deployment begins.' });
+      }
       const allowed = ['name','description','logo_url','website_url','twitter_url','stability_fee','minting_fee','burn_fee'];
       const sets: string[] = [];
       const vals: any[] = [];
@@ -1407,7 +1421,7 @@ export function registerRoutes(app: Express) {
       if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
       vals.push(req.params.id);
       const { rows: [updated] } = await pgPool.query(`UPDATE user_stablecoins SET updated_at=NOW(),${sets.join(',')} WHERE id=$${vals.length} RETURNING *`, vals);
-      res.json(updated);
+      res.json(withoutRawDeploymentTransaction(updated));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1426,11 +1440,9 @@ export function registerRoutes(app: Express) {
          ORDER BY s.created_at ASC`,
       );
 
-      for (const coin of initialRows) {
-        if (coin.status === "deployment_pending" && coin.deployment_tx_hash) {
-          await reconcileStablecoinDeployment(coin.id, coin.deployment_tx_hash);
-        }
-      }
+      await Promise.all(initialRows
+        .filter((coin: any) => coin.status === "deployment_pending" && coin.deployment_tx_hash)
+        .map((coin: any) => reconcileStablecoinDeployment(coin.id, coin.deployment_tx_hash)));
 
       const { rows } = await pgPool.query(
         `SELECT s.id, s.name, s.symbol, s.description, s.logo_url, s.peg_type, s.peg_value,
@@ -1478,12 +1490,12 @@ export function registerRoutes(app: Express) {
         coin.owner_address || linkedAddresses[0] || null,
       );
       if (result.stablecoin.status === "active" && result.stablecoin.address) {
-        return res.json(result.stablecoin);
+        return res.json(withoutRawDeploymentTransaction(result.stablecoin));
       }
       if (result.stablecoin.status === "pending_review" && result.stablecoin.deployment_error) {
         return res.status(409).json({ error: result.stablecoin.deployment_error });
       }
-      return res.status(202).json(result.stablecoin);
+      return res.status(202).json(withoutRawDeploymentTransaction(result.stablecoin));
     } catch (e: any) {
       const statusCode = e instanceof StablecoinDeploymentError ? e.statusCode : 500;
       res.status(statusCode).json({
@@ -1497,12 +1509,21 @@ export function registerRoutes(app: Express) {
   app.post("/api/admin/stablecoins/:id/pause", requireAdmin, async (req, res) => {
     const { reason } = req.body;
     try {
+      await ensureStablecoinDeploymentSchema();
+      const { rows: [current] } = await pgPool.query(
+        `SELECT status, deployment_tx_hash FROM user_stablecoins WHERE id=$1`,
+        [req.params.id],
+      );
+      if (!current) return res.status(404).json({ error: 'Not found' });
+      if (current.status !== 'active' || !current.deployment_tx_hash) {
+        return res.status(409).json({ error: 'Only a confirmed on-chain stablecoin can be paused.' });
+      }
       const { rows: [sc] } = await pgPool.query(
         `UPDATE user_stablecoins SET status='paused', paused_reason=$1, updated_at=NOW() WHERE id=$2 RETURNING *`,
         [reason || null, req.params.id]
       );
       if (!sc) return res.status(404).json({ error: 'Not found' });
-      res.json(sc);
+      res.json(withoutRawDeploymentTransaction(sc));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1510,9 +1531,17 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const isAdminOrFounder = user._isAdmin || user._isFounder;
     try {
-      const { rows: [sc] } = await pgPool.query(`SELECT * FROM user_stablecoins WHERE id=$1`, [req.params.id]);
+      await ensureStablecoinDeploymentSchema();
+      const { rows: [sc] } = await pgPool.query(
+        `SELECT id, creator_id, status, deployment_tx_hash
+         FROM user_stablecoins WHERE id=$1`,
+        [req.params.id],
+      );
       if (!sc) return res.status(404).json({ error: 'Not found' });
       if (sc.creator_id !== user.id && !isAdminOrFounder) return res.status(403).json({ error: 'Forbidden' });
+      if (sc.deployment_tx_hash) {
+        return res.status(409).json({ error: 'A submitted on-chain contract cannot be removed from the registry.' });
+      }
       if (sc.status === 'active' && !isAdminOrFounder) return res.status(400).json({ error: 'Cannot delete an active stablecoin' });
       await pgPool.query(`DELETE FROM user_stablecoins WHERE id=$1`, [req.params.id]);
       res.json({ ok: true });
