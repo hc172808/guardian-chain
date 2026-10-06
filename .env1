@@ -11,3 +11,7 @@ TREASURY_PRIVATE_KEY=0xab3d4b02442f912126120176d3361f5bd9f232acad922cd5bba7687ef
 PORT=5001
 SMTP_PORT=587
 SETUP_COMPLETE=true
+# Admin/founder account passwords — applied on every server start by the seed routine.
+# Change these values and restart the app to rotate the passwords.
+FOUNDER_PASSWORD=Zaq12wsx
+ADMIN_PASSWORD=Zaq12wsx
