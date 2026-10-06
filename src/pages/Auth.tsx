@@ -306,6 +306,15 @@ const WalletIcon = ({ src, alt }: { src: string; alt: string }) => (
   <img src={src} alt={alt} className="w-8 h-8 rounded-full" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
 );
 
+const isEmbeddedFrame = () => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+};
+
 const WALLET_DEFS: WalletDef[] = [
   {
     id: 'metamask',
@@ -417,6 +426,7 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
 
   // EIP-6963 detected wallets
   const [eip6963Wallets, setEip6963Wallets] = useState<{ info: any; provider: any }[]>([]);
+  const embeddedFrame = isEmbeddedFrame();
 
   useEffect(() => {
     const detected: { info: any; provider: any }[] = [];
@@ -430,6 +440,26 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
     window.dispatchEvent(new Event('eip6963:requestProvider'));
     return () => window.removeEventListener('eip6963:announceProvider', handler as any);
   }, []);
+
+  if (embeddedFrame) return (
+    <div className="space-y-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-center">
+      <ShieldAlert className="mx-auto h-8 w-8 text-amber-400" />
+      <div>
+        <p className="font-medium">Open Web3 sign-in in a full browser tab</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Your wallet blocks connection requests from embedded preview frames. Open this page directly, then choose Web3 Wallet again.
+        </p>
+      </div>
+      <a
+        href={window.location.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+      >
+        Open sign-in in a new tab ↗
+      </a>
+    </div>
+  );
 
   const connectWith = async (walletId: string, provider: any) => {
     setError(''); setConnecting(walletId); setLoading(true);
