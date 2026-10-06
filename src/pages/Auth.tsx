@@ -315,6 +315,14 @@ const isEmbeddedFrame = () => {
   }
 };
 
+const getWalletErrorMessage = (error: any) => {
+  const message = typeof error?.message === 'string' ? error.message : String(error ?? 'Wallet connection failed.');
+  if (/broadcast[\s_-]*channel(?:\s+is)?\s+unavailable/i.test(message)) {
+    return "Your wallet couldn't communicate with its browser extension. No blockchain transaction was sent. If this page is in Replit preview, open it directly in a full browser tab; otherwise unlock or reload the wallet extension and refresh this page.";
+  }
+  return message;
+};
+
 const WALLET_DEFS: WalletDef[] = [
   {
     id: 'metamask',
@@ -477,7 +485,7 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
       setStep('sign');
     } catch (err: any) {
       if (err.code === 4001) setError('Connection cancelled.');
-      else setError(err.message);
+      else setError(getWalletErrorMessage(err));
     } finally { setLoading(false); setConnecting(null); }
   };
 
@@ -490,7 +498,7 @@ const Web3Form = ({ onSuccess }: { onSuccess: () => void }) => {
       setTimeout(onSuccess, 800);
     } catch (err: any) {
       if (err.code === 4001) setError('Signature rejected. Please try again.');
-      else setError(err.message);
+      else setError(getWalletErrorMessage(err));
     } finally { setLoading(false); }
   };
 
