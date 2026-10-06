@@ -50,6 +50,7 @@ export const wallets = pgTable("wallets", {
   address: text("address").notNull(),
   encryptedSeed: text("encrypted_seed").notNull().default(""),
   pinHash: text("pin_hash").notNull().default(""),
+  authVerifiedAt: timestamp("auth_verified_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -503,8 +504,14 @@ export const userStablecoins = pgTable("user_stablecoins", {
   websiteUrl: text("website_url"),
   twitterUrl: text("twitter_url"),
   address: text("address"),
+  legacyAddress: text("legacy_address"),
+  ownerAddress: text("owner_address"),
+  deploymentChainId: integer("deployment_chain_id"),
+  deploymentTxHash: text("deployment_tx_hash"),
+  deploymentRawTx: text("deployment_raw_tx"),
+  deploymentError: text("deployment_error"),
   // Status
-  status: text("status").notNull().default("pending_review"), // draft|pending_review|active|paused|deprecated
+  status: text("status").notNull().default("pending_review"), // draft|pending_review|deployment_pending|active|paused|deprecated
   isApproved: boolean("is_approved").notNull().default(false),
   approvedBy: text("approved_by"),
   approvedAt: timestamp("approved_at"),

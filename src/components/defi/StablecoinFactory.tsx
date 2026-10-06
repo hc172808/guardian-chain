@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils';
 
 type PegType = 'usd' | 'eur' | 'gbp' | 'btc' | 'eth' | 'gold' | 'custom' | 'basket';
 type CollateralType = 'over_collateralized' | 'algorithmic' | 'hybrid' | 'fiat_backed';
-type StablecoinStatus = 'pending_review' | 'active' | 'paused' | 'deprecated' | 'draft';
+type StablecoinStatus = 'pending_review' | 'deployment_pending' | 'active' | 'paused' | 'deprecated' | 'draft';
 
 interface UserStablecoin {
   id: string;
@@ -38,6 +38,9 @@ interface UserStablecoin {
   total_supply: string;
   status: StablecoinStatus;
   is_approved: boolean;
+  deployment_tx_hash?: string | null;
+  deployment_error?: string | null;
+  address?: string | null;
   created_at: string;
   logo_url: string | null;
   description: string | null;
@@ -180,6 +183,7 @@ function validateStep(step: number, p: CreateParams, existingSymbols: string[]):
 export const StablecoinFactory = () => {
   const { toast } = useToast();
   const { user } = useAuth();
+  const isPrivileged = Boolean(user?.isAdmin || user?.isFounder);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -272,7 +276,7 @@ export const StablecoinFactory = () => {
       if (errs.length) { setStep(s); setStepErrors(errs); return; }
     }
     if (!user) { toast({ title: 'Sign in required', variant: 'destructive' }); return; }
-    if (myStablecoins.length >= maxPerUser) {
+    if (!isPrivileged && myStablecoins.length >= maxPerUser) {
       toast({ title: `Max ${maxPerUser} stablecoins per user`, variant: 'destructive' }); return;
     }
 
@@ -311,7 +315,22 @@ export const StablecoinFactory = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Creation failed');
 
-      toast({ title: `✅ ${params.symbol} submitted for review!`, description: 'Admin will review and approve your stablecoin.' });
+      const activatedImmediately = data.status === 'active';
+      const deploymentPending = data.status === 'deployment_pending';
+      toast({
+        title: activatedImmediately
+          ? `${params.symbol} created`
+          : deploymentPending
+            ? `${params.symbol} deployment submitted`
+            : `${params.symbol} submitted`,
+        description: activatedImmediately
+          ? 'Its contract is confirmed and it is active in the Stablecoin Factory.'
+          : deploymentPending
+            ? 'It will become active after GYDS Chain confirms the deployment.'
+            : isPrivileged
+              ? 'It is waiting for wallet or deployment configuration before activation.'
+              : 'An admin will review and deploy the contract before activation.',
+      });
       logAuditEvent(user.id, user.email ?? null, { action: 'stablecoin_create', category: 'token', target_type: 'stablecoin', details: { symbol: params.symbol, peg: params.pegType } });
       setDialogOpen(false);
       loadData();
@@ -334,6 +353,7 @@ export const StablecoinFactory = () => {
   const statusColor = (s: StablecoinStatus) => ({
     active: 'text-green-400 border-green-400',
     pending_review: 'text-yellow-400 border-yellow-400',
+    deployment_pending: 'text-blue-400 border-blue-400',
     paused: 'text-orange-400 border-orange-400',
     deprecated: 'text-red-400 border-red-400',
     draft: 'text-muted-foreground border-border',
@@ -354,7 +374,7 @@ export const StablecoinFactory = () => {
           <p className="text-sm text-muted-foreground mt-0.5">Create your own pegged token on the GYDS network</p>
         </div>
         {user && (
-          <Button onClick={openWizard} disabled={myStablecoins.length >= maxPerUser} className="gap-2">
+          <Button onClick={openWizard} disabled={!isPrivileged && myStablecoins.length >= maxPerUser} className="gap-2">
             <Plus className="h-4 w-4" /> Create Stablecoin
           </Button>
         )}
@@ -412,6 +432,11 @@ export const StablecoinFactory = () => {
                   <div><p className="text-muted-foreground">Collateral</p><p>{parseFloat(sc.collateral_ratio).toFixed(0)}%</p></div>
                   <div><p className="text-muted-foreground">Fee</p><p>{parseFloat(sc.stability_fee).toFixed(2)}%/yr</p></div>
                 </div>
+                {sc.address && (
+                  <p className="mt-3 text-[10px] text-muted-foreground break-all">
+                    Contract address: <code className="font-mono text-foreground/80">{sc.address}</code>
+                  </p>
+                )}
               </GlassCard>
             ))}
           </div>
@@ -434,9 +459,26 @@ export const StablecoinFactory = () => {
                     </div>
                   </div>
                   <Badge variant="outline" className={`text-xs ${statusColor(sc.status)}`}>
-                    {sc.status === 'pending_review' ? '⏳ Pending' : sc.status === 'active' ? '✅ Active' : sc.status}
+                    {sc.status === 'pending_review'
+                      ? 'Pending review'
+                      : sc.status === 'deployment_pending'
+                        ? 'Deploying'
+                        : sc.status === 'active'
+                          ? 'Active'
+                          : sc.status}
                   </Badge>
                 </div>
+                {sc.deployment_error && (
+                  <p className="mt-2 text-xs text-amber-400">{sc.deployment_error}</p>
+                )}
+                {sc.status === 'active' && sc.address && (
+                  <p className="mt-2 text-xs text-muted-foreground break-all">
+                    Contract address: <code className="font-mono text-foreground/80">{sc.address}</code>
+                  </p>
+                )}
+                {sc.deployment_tx_hash && sc.status === 'deployment_pending' && (
+                  <p className="mt-2 text-xs text-muted-foreground break-all">Deployment transaction: {sc.deployment_tx_hash}</p>
+                )}
               </GlassCard>
             ))}
           </div>
@@ -722,12 +764,12 @@ export const StablecoinFactory = () => {
               <GlassCard className="p-4 border-primary/30 bg-primary/5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Creation Fee</span>
-                  <span className="text-lg font-bold font-mono text-primary">{(user?.isAdmin ? 0 : creationFee).toLocaleString()} GYDS</span>
+                  <span className="text-lg font-bold font-mono text-primary">{(isPrivileged ? 0 : creationFee).toLocaleString()} GYDS</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {user?.isAdmin ? 'Admin accounts are exempt from the creation fee.' : 'Deducted from your GYDS balance on submission.'}
+                  {isPrivileged ? 'Admin and founder accounts are exempt from the creation fee.' : 'Deducted from your GYDS balance on submission.'}
                 </p>
-                {!user?.isAdmin && (
+                {!isPrivileged && (
                   <p className={cn('text-xs mt-1', userGydsBalance >= creationFee ? 'text-emerald-400' : 'text-destructive')}>
                     Available: {userGydsBalance.toLocaleString()} GYDS
                   </p>
@@ -737,8 +779,9 @@ export const StablecoinFactory = () => {
               <GlassCard className="p-3 border-amber-500/20 bg-amber-500/5">
                 <p className="text-xs text-amber-400 flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  Your stablecoin will be reviewed by an admin before going live. This usually takes 24–48 hours.
-                  Once approved, it will be deployed on-chain and listed in the DeFi ecosystem.
+                  {isPrivileged
+                    ? 'Admin and founder submissions go straight to on-chain deployment; activation waits for chain confirmation.'
+                    : 'An admin will review and deploy your contract before it becomes active.'}
                 </p>
               </GlassCard>
             </div>

@@ -172,8 +172,15 @@ export const SwapInterface = () => {
   const { address, isConnected } = useWalletConnect();
   const { user } = useAuth();
   const { toast } = useToast();
-  // Allow swapping with DB wallet when no browser wallet is connected
+  // This address is useful for balance display, but on-chain swaps still need
+  // a browser wallet signer from window.ethereum.
   const effectiveAddress = address || user?.walletAddress || null;
+  const zeroAddress = '0x0000000000000000000000000000000000000000';
+  const swapContractsConfigured = [
+    CONTRACT_ADDRESSES.mainnet.Router,
+    CONTRACT_ADDRESSES.mainnet.Factory,
+    CONTRACT_ADDRESSES.mainnet.WGYDS,
+  ].every(contractAddress => contractAddress && contractAddress.toLowerCase() !== zeroAddress);
 
   // Load tokens from database + coin logos + real balances
   useEffect(() => {
@@ -314,6 +321,15 @@ export const SwapInterface = () => {
   const fee = payValue * (1 - SWAP_FEE_NUMERATOR / SWAP_FEE_DENOMINATOR);
 
   const executeSwap = async () => {
+    if (!swapContractsConfigured) {
+      toast({
+        title: 'Swaps are not deployed',
+        description: 'The GydsSwap router, factory, and wrapped GYDS addresses are not configured for Chain ID 198282.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!user || !effectiveAddress) {
       toast({ title: 'Login Required', description: 'Sign in to trade.', variant: 'destructive' });
       return;
@@ -441,7 +457,7 @@ export const SwapInterface = () => {
     }
   };
 
-  const canSwap = !!user && !!effectiveAddress && !!payAmount && parseFloat(payAmount) > 0 && !isSwapping;
+  const canSwap = swapContractsConfigured && !!user && !!effectiveAddress && !!payAmount && parseFloat(payAmount) > 0 && !isSwapping;
 
   return (
     <div className="space-y-4">
@@ -586,6 +602,15 @@ export const SwapInterface = () => {
         </div>
       )}
 
+      {!swapContractsConfigured && (
+        <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+          <p className="font-medium text-amber-400">Swaps are unavailable: GydsSwap is not deployed/configured.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            The displayed output is only an indicative estimate. Deploy the router, factory, and wrapped GYDS contract, then configure real token addresses and liquidity before trading.
+          </p>
+        </div>
+      )}
+
       {/* Trade Button */}
       <Button
         className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
@@ -596,6 +621,8 @@ export const SwapInterface = () => {
           <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Swapping...</span>
         ) : !user ? (
           'Sign In to Trade'
+        ) : !swapContractsConfigured ? (
+          'Swap Unavailable'
         ) : (
           'Trade'
         )}

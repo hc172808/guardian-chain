@@ -324,7 +324,7 @@ contract GydsSwapRouter {
     function _ensurePair(address tokenA, address tokenB) internal {
         if (IGydsSwapFactory(factory).getPair(tokenA, tokenB) == address(0)) {
             // Pair doesn't exist yet — caller must create it manually via factory.createPair()
-            revert("GydsSwapRouter: PAIR_NOT_FOUND — call factory.createPair() first");
+            revert("GydsSwapRouter: PAIR_NOT_FOUND - call factory.createPair() first");
         }
     }
 
@@ -349,10 +349,6 @@ contract GydsSwapRouter {
 }
 
 // ─── Minimal interfaces ───────────────────────────────────────────────────────
-
-interface IGydsSwapFactory {
-    function getPair(address tokenA, address tokenB) external view returns (address pair);
-}
 
 interface IWGYDS {
     function deposit() external payable;

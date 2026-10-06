@@ -46,7 +46,7 @@ const DeFiPage = () => {
   const isAdminLike = isAdmin || isFounder;
 
   const visibleTabs = Object.keys(TAB_MAP).filter(
-    t => t === 'position' || isAdminLike || !isHidden(TAB_MAP[t].featureKey)
+    t => t !== 'position' && (isAdminLike || !isHidden(TAB_MAP[t].featureKey))
   );
 
   useEffect(() => {
@@ -79,7 +79,17 @@ const DeFiPage = () => {
   };
 
   const renderContent = () => {
-    if (activeTab === 'position') return <PositionDetails position={selectedPosition} />;
+    if (activeTab === 'position' && selectedPosition) return <PositionDetails position={selectedPosition} />;
+    if (!visibleTabs.includes(activeTab)) {
+      return (
+        <div role="status" className="rounded-xl border border-border/50 bg-card/50 p-6 text-center">
+          <h2 className="font-semibold">DeFi access is not enabled for this account</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Ask an administrator to grant access to DeFi: Swap or another DeFi feature.
+          </p>
+        </div>
+      );
+    }
     const entry = TAB_MAP[activeTab];
     if (!entry) return <SwapInterface />;
     if (activeTab === 'portfolio') return <Portfolio onViewPosition={handleViewPosition} />;

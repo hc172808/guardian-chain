@@ -1,3 +1,4 @@
+import "./loadEnv";
 import fs from "fs";
 import http from "http";
 import express from "express";

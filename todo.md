@@ -228,7 +228,7 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 ## 🔜 2026-09-06 — Open requests (queued)
 
 - [ ] **Run the genesis seed against the live PostgreSQL database** — must be executed on the user's own server (`seedGenesisAllocations()` runs on boot in `server/seed.ts`). Then verify founder wallet shows real GYDS and can send to a reserved wallet via Admin → Treasury Wallets.
-- [ ] **PostgreSQL connection guide for production settings** — document `DATABASE_URL` wiring in `public/scripts/.env.production.template` + `public/docs/SERVER_INSTALL_REQUIREMENTS.md` so gydschain points at the real PostgreSQL/pgAdmin instance instead of the paused database.
+- [x] **PostgreSQL connection guide for production settings** — documented `DATABASE_URL` wiring, runtime `.env` paths, PostgreSQL host vs. pgAdmin, SSL, and connection verification in the production template and install guide.
 - [ ] **Wallet page: mint / transfer / burn screens** — consolidate into `src/pages/Wallet.tsx` with live on-chain balance polling and a transaction-history table.
 - [ ] **Admin wallet page** — balances + send form + history as its own admin tab (partially covered by Treasury Wallets; needs per-user wallet view).
 - [ ] **Wire wallet login to a real blockchain node** — signing and balance updates on-chain via `GYDS_RPC_URL`, not database-only. Requires the Go node stack running on the user's server.

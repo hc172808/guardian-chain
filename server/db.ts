@@ -2,8 +2,37 @@ import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "../shared/schema";
 
+// Managed PostgreSQL hosts often use self-signed / private-CA certificates.
+// Strip sslmode from the URL (it would override our ssl option) and apply SSL
+// explicitly. Set DB_SSL_STRICT=true to require a publicly trusted certificate,
+// or DB_SSL=false for a local server without SSL.
+function buildConnection() {
+  const raw = process.env.DATABASE_URL ?? "";
+  let connectionString = raw;
+  let wantsSsl = process.env.DB_SSL !== "false";
+  try {
+    const u = new URL(raw);
+    const mode = u.searchParams.get("sslmode");
+    if (mode === "disable") wantsSsl = false;
+    u.searchParams.delete("sslmode");
+    // Replit provides the authoritative managed database in DATABASE_URL and
+    // PGDATABASE. Do not let a standalone/VPS .env DB_NAME redirect the app to
+    // a database that does not exist in the Replit PostgreSQL instance.
+    const isReplitManagedDatabase = Boolean(process.env.REPL_ID && process.env.PGDATABASE);
+    if (process.env.DB_NAME && !isReplitManagedDatabase) {
+      u.pathname = "/" + process.env.DB_NAME;
+    }
+    if (["localhost", "127.0.0.1"].includes(u.hostname) && !mode) wantsSsl = false;
+    connectionString = u.toString();
+  } catch { /* leave as-is */ }
+  const ssl = wantsSsl
+    ? { rejectUnauthorized: process.env.DB_SSL_STRICT === "true" }
+    : undefined;
+  return { connectionString, ssl };
+}
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  ...buildConnection(),
 
   // Pool sizing
   max: 10,

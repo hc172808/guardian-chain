@@ -213,6 +213,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       address        TEXT NOT NULL,
       encrypted_seed TEXT DEFAULT '' NOT NULL,
       pin_hash       TEXT DEFAULT '' NOT NULL,
+      auth_verified_at TIMESTAMPTZ,
       created_at     TIMESTAMPTZ DEFAULT NOW()
     )
   `);
@@ -1131,6 +1132,13 @@ export async function startupMigrate(pool: Pool): Promise<void> {
   // These ALTER TABLE … ADD COLUMN IF NOT EXISTS statements fix gaps between the
   // legacy CREATE TABLE definitions above and the columns the application code
   // actually queries. All statements are idempotent — safe on every boot.
+
+  await run("wallets-auth-verified-at", `ALTER TABLE wallets ADD COLUMN IF NOT EXISTS auth_verified_at TIMESTAMPTZ`);
+  await run(
+    "wallets-verified-address-idx",
+    `CREATE UNIQUE INDEX IF NOT EXISTS wallets_verified_auth_address_key
+     ON wallets (LOWER(address)) WHERE auth_verified_at IS NOT NULL`,
+  );
 
   // payment_methods
   for (const col of [

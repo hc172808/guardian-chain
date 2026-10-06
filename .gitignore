@@ -17,6 +17,11 @@ dist-ssr
 *.local
 /data/blocked-ips.json
 /data/blocked-ips.json.*.tmp
+contracts/cache-stablecoin/
+contracts/typechain-types/
+contracts/stablecoin-artifacts/@openzeppelin/
+contracts/stablecoin-artifacts/build-info/
+contracts/stablecoin-artifacts/UserStablecoin.sol/*.dbg.json
 
 # Editor directories and files
 .vscode/*

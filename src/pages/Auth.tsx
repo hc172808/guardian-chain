@@ -10,6 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { CaptchaWidget, type CaptchaPayload, type CaptchaWidgetHandle } from '@/components/CaptchaWidget';
 import { CompactNetworkSelector } from '@/components/ui/NetworkSelector';
+import { connectWallet, signAuthMessage } from '@/lib/web3Auth';
 
 type Tab = 'login' | 'register' | 'web3' | 'reset' | 'totp';
 
@@ -663,15 +664,9 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
   const handleWalletReset = async () => {
     setError(''); setLoading(true);
     try {
-      const provider = (window as any).ethereum;
-      if (!provider) throw new Error('No wallet detected. Install MetaMask or Trust Wallet.');
-      const [acct] = await provider.request({ method: 'eth_requestAccounts' });
-      const addr = String(acct).toLowerCase();
+      const { address: addr, provider } = await connectWallet();
       setWalletAddress(addr);
-      const nonceRes = await fetch(`/api/auth/nonce?address=${addr}`);
-      const { nonce, message } = await nonceRes.json();
-      if (!nonce) throw new Error('Failed to get challenge from server');
-      const signature = await provider.request({ method: 'personal_sign', params: [message, addr] });
+      const signature = await signAuthMessage(addr, provider, 'password-reset');
       const data = await api('/api/auth/reset-password/wallet', { address: addr, signature });
       setResetToken(data.token);
       setStep('confirm');
@@ -817,7 +812,7 @@ const ResetForm = ({ onBack }: { onBack: () => void }) => {
             <div className="space-y-4">
               <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm text-blue-300 space-y-1">
                 <p className="font-medium">Most secure method</p>
-                <p className="text-xs">Connect the wallet linked to your account and sign a challenge. No transaction needed.</p>
+                <p className="text-xs">Connect a wallet verified on your account and sign a password-reset challenge. No transaction needed.</p>
               </div>
               {walletAddress && (
                 <div className="p-2 rounded bg-secondary/30 text-xs font-mono text-muted-foreground break-all">{walletAddress}</div>

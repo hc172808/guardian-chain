@@ -898,6 +898,7 @@ const EMPTY_NODE_STATUS: NodeStatus = { running: false, startedAt: null, port: 0
 const EMPTY_STATUS: FullStatus = {
   mainnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8545 }, lite: { ...EMPTY_NODE_STATUS, port: 8555 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8565 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8575 }, validator: { ...EMPTY_NODE_STATUS, port: 8585 }, genesis: { ...EMPTY_NODE_STATUS, port: 8590 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8595 } },
   testnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8600 }, lite: { ...EMPTY_NODE_STATUS, port: 8601 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8602 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8603 }, validator: { ...EMPTY_NODE_STATUS, port: 8604 }, genesis: { ...EMPTY_NODE_STATUS, port: 8605 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8606 } },
+  devnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8610 }, lite: { ...EMPTY_NODE_STATUS, port: 8611 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8612 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8613 }, validator: { ...EMPTY_NODE_STATUS, port: 8614 }, genesis: { ...EMPTY_NODE_STATUS, port: 8615 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8616 } },
 };
 
 export function TestNodeManager() {

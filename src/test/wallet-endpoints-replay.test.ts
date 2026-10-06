@@ -29,12 +29,16 @@ function makeStorage(): WalletChallengeStorage & { _nonces: Map<string, string> 
 /** Any object with a signMessage method — covers Wallet and HDNodeWallet. */
 type Signer = { address: string; signMessage: (m: string) => Promise<string> };
 
-async function mintChallenge(storage: ReturnType<typeof makeStorage>, signer: Signer) {
+async function mintChallenge(
+  storage: ReturnType<typeof makeStorage>,
+  signer: Signer,
+  purpose: 'login' | 'password-reset' | 'wallet-link' = 'login',
+) {
   const nonce = 'n_' + Math.random().toString(36).slice(2, 20);
   const addr = signer.address.toLowerCase();
   storage._nonces.set(addr, nonce);
   issueNonce(addr, nonce);
-  const signature = await signer.signMessage(CHALLENGE_MESSAGE(nonce));
+  const signature = await signer.signMessage(CHALLENGE_MESSAGE(nonce, purpose));
   return { nonce, signature, address: addr };
 }
 
@@ -115,6 +119,23 @@ describe('wallet-login endpoints: protocol-level replay protection', () => {
     const forgedSig = await forger.signMessage(CHALLENGE_MESSAGE(nonce));
     const res = await verifyWalletChallenge(address, forgedSig, storage);
     expect(failCode(res)).toBe('BAD_SIGNATURE');
+  });
+
+  it('does not accept a login signature as proof for password reset', async () => {
+    const { signature, address } = await mintChallenge(storage, wallet, 'login');
+
+    const resetAttempt = await verifyWalletChallenge(address, signature, storage, 'password-reset');
+    expect(failCode(resetAttempt)).toBe('BAD_SIGNATURE');
+
+    const loginAttempt = await verifyWalletChallenge(address, signature, storage, 'login');
+    expect(loginAttempt.ok).toBe(true);
+  });
+
+  it('accepts a password-reset signature only for the password-reset action', async () => {
+    const { signature, address } = await mintChallenge(storage, wallet, 'password-reset');
+
+    const result = await verifyWalletChallenge(address, signature, storage, 'password-reset');
+    expect(result.ok).toBe(true);
   });
 
   it('rejects missing or malformed inputs', async () => {
