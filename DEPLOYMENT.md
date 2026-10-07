@@ -51,6 +51,19 @@ export VITE_SUPABASE_PROJECT_ID=your-project-id
 sudo -E bash public/scripts/deploy-dashboard.sh
 ```
 
+The dashboard installer defaults to `https://github.com/hc172808/guardian-chain.git`.
+If `/var/www/gydschain` is currently a different repository, it stops without
+pulling or installing from that repository. To preserve the existing directory
+and install the dashboard separately:
+
+```bash
+sudo -E env APP_DIR=/var/www/chaincore-dashboard bash public/scripts/deploy-dashboard.sh
+```
+
+Only use `REPLACE_APP_CHECKOUT=1` if replacing the existing directory is
+intentional. It moves the old directory to a timestamped backup, but services
+configured to run from the old path may need to be updated.
+
 This will:
 1. Install Node.js and Nginx
 2. Clone the repo and build the SPA

@@ -227,27 +227,80 @@ else
     peer="${peer//[[:space:]]/}"
     [[ -z "$peer" ]] && continue
 
-    # IPv6 must be passed as [addr]:port. Strip brackets only after splitting.
-    host="${peer%:*}"
-    port="${peer##*:}"
-    host="${host#[}"
-    host="${host%]}"
     CHECKS=$((CHECKS + 1))
-    if [[ -z "$host" || ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
-      fail "Invalid peer address: $peer (expected HOST:PORT)"
+    # Accept only a DNS name / IPv4 literal or a bracketed IPv6 literal.
+    # Besides rejecting malformed peers, this prevents shell metacharacters
+    # from reaching any fallback connection probe.
+    host=""
+    port=""
+    is_ipv6=0
+    if [[ "$peer" =~ ^\[([0-9A-Fa-f:.]+)\]:([0-9]{1,5})$ ]]; then
+      host="${BASH_REMATCH[1]}"
+      port="${BASH_REMATCH[2]}"
+      is_ipv6=1
+    elif [[ "$peer" =~ ^([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*):([0-9]{1,5})$ ]]; then
+      host="${BASH_REMATCH[1]}"
+      port="${BASH_REMATCH[5]}"
+    else
+      printf -v peer_display '%q' "$peer"
+      fail "Invalid peer address: $peer_display (expected HOST:PORT or [IPv6]:PORT)"
       continue
     fi
+    if (( 10#$port < 1 || 10#$port > 65535 )); then
+      printf -v peer_display '%q' "$peer"
+      fail "Invalid peer port in address: $peer_display"
+      continue
+    fi
+
     if command -v getent >/dev/null 2>&1; then
-      if getent ahosts "$host" >/dev/null 2>&1; then
+      if getent ahosts "$host" >/dev/null 2>&1 || [[ "$is_ipv6" == "1" && "$host" == *:* ]]; then
         ok "Peer DNS resolves: $host"
       else
         fail "Peer DNS does not resolve: $host"
         continue
       fi
     fi
-    if timeout 8 bash -c ":</dev/tcp/$host/$port" >/dev/null 2>&1; then
-      ok "Peer TCP port is reachable: $host:$port"
-    elif command -v nc >/dev/null 2>&1 && nc -z -w 8 "$host" "$port" >/dev/null 2>&1; then
+    if [[ "$is_ipv6" == "1" ]]; then
+      if command -v python3 >/dev/null 2>&1; then
+        probe_output="$(python3 -c 'import errno,socket,sys
+try:
+ s=socket.socket(socket.AF_INET6,socket.SOCK_STREAM)
+except OSError as e:
+ print(e)
+ sys.exit(2 if e.errno == errno.EAFNOSUPPORT else 1)
+s.settimeout(8)
+try:
+ s.connect((sys.argv[1],int(sys.argv[2])))
+ s.close()
+except OSError as e:
+ print(e)
+sys.exit(1)' "$host" "$port" 2>&1)"
+        probe_rc=$?
+        if [[ "$probe_rc" -eq 0 ]]; then
+          ok "Peer TCP port is reachable: [$host]:$port"
+        elif [[ "$probe_rc" -eq 2 ]]; then
+          warn "IPv6 probing is unavailable on this host; skipped [$host]:$port"
+        else
+          fail "Peer TCP port is not reachable: [$host]:$port"
+          info "  $probe_output"
+          info "  Check the peer's public IP, cloud firewall, UFW/firewalld, and node P2P port."
+        fi
+      elif command -v nc >/dev/null 2>&1 && nc -6 -z -w 8 "$host" "$port" >/dev/null 2>&1; then
+        ok "Peer TCP port is reachable: [$host]:$port"
+      elif command -v nc >/dev/null 2>&1; then
+        fail "Peer TCP port is not reachable: [$host]:$port"
+        info "  Check the peer's public IP, cloud firewall, UFW/firewalld, and node P2P port."
+      else
+        warn "Cannot probe IPv6 peer [$host]:$port because neither python3 nor IPv6-capable netcat is installed."
+      fi
+    elif command -v nc >/dev/null 2>&1; then
+      if nc -z -w 8 "$host" "$port" >/dev/null 2>&1; then
+        ok "Peer TCP port is reachable: $host:$port"
+      else
+        fail "Peer TCP port is not reachable: $host:$port"
+        info "  Check the peer's public IP, cloud firewall, UFW/firewalld, and node P2P port."
+      fi
+    elif timeout 8 bash -c ':</dev/tcp/$1/$2' _ "$host" "$port" >/dev/null 2>&1; then
       ok "Peer TCP port is reachable: $host:$port"
     else
       fail "Peer TCP port is not reachable: $host:$port"

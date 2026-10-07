@@ -143,6 +143,21 @@ gyds-redeploy
 
 `deploy-dashboard.sh` interactively asks for all optional config values (wallets, tokens, SMTP, etc.) — press Enter to skip any. Writes both `.env` and `gyds-config.env`.
 
+The dashboard deployment scripts use `https://github.com/hc172808/guardian-chain.git`.
+If the standard app directory contains a different repository (for example, a
+node-only `fullnode` checkout), setup stops before `npm install`. To leave that
+node checkout untouched and install the dashboard separately:
+
+```bash
+sudo -E env APP_DIR=/var/www/chaincore-dashboard bash public/scripts/deploy-dashboard.sh
+```
+
+If you intentionally want to replace the existing directory instead, set
+`REPLACE_APP_CHECKOUT=1`; the script renames it to a timestamped backup rather
+than deleting it. Do not do this if a node service still uses that directory.
+The PostgreSQL connection test can succeed independently of this repository-root
+problem.
+
 ## Network Config
 
 | Parameter | Value |

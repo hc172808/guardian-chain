@@ -1,0 +1,58 @@
+[→] Testing connection...
+[✓] Connection OK → 10.0.0.8:5432/cashchain
+[✓] Database ready: cashchain (0 existing tables)
+
+━━━ 3/8 — Repository ━━━
+[→] Updating from main...
+remote: Enumerating objects: 48, done.
+remote: Counting objects: 100% (48/48), done.
+remote: Compressing objects: 100% (11/11), done.
+remote: Total 34 (delta 22), reused 34 (delta 22), pack-reused 0 (from 0)
+Unpacking objects: 100% (34/34), 11.58 KiB | 164.00 KiB/s, done.
+From https://github.com/hc172808/fullnode
+   ea2e155..4f985df  main       -> origin/main
+Your branch is behind 'origin/main' by 6 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+From https://github.com/hc172808/fullnode
+ * branch            main       -> FETCH_HEAD
+Updating ea2e155..4f985df
+Fast-forward
+ .agents/memory/MEMORY.md                               |   1 +
+ .agents/memory/node-launch-priority.md                 |  10 ++
+ .replit                                                |   2 +-
+ ...-if-all-of-this-is-in-there-Core-_1791381760974.txt |  57 ++++++++++
+ config/config.go                                       |  26 ++++-
+ config/config_test.go                                  |  50 ++++++++-
+ main.go                                                |  64 +++++------
+ main_test.go                                           |  26 +++++
+ rpc/static/admin-node.html                             |   2 +-
+ todo.md                                                | 135 ++++++++++++++++++++++-
+ 10 files changed, 327 insertions(+), 46 deletions(-)
+ create mode 100644 .agents/memory/node-launch-priority.md
+ create mode 100644 attached_assets/Pasted-debug-the-nodes-to-see-if-all-of-this-is-in-there-Core-_1791381760974.txt
+ create mode 100644 main_test.go
+[✓] Updated: 4f985df Refactor main logic and update memory documentation and tasks
+
+━━━ 4/8 — Install & build ━━━
+[✓] Shared config written → /var/www/gydschain/gyds-config.env
+[✓] npm registry → registry.npmjs.org (all levels, cache cleared)
+[→] Checking registry connectivity...
+[→] Running npm install — this downloads ~300 packages; 3-10 min on first run.
+[→] You will see each package name scroll by (no spinner). Do NOT interrupt.
+npm error code ENOENT
+npm error syscall open
+npm error path /var/www/gydschain/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/var/www/gydschain/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /root/.npm/_logs/2026-10-07T16_24_28_610Z-debug-0.log
+[✗] npm install failed — last 40 lines:
+npm error code ENOENT
+npm error syscall open
+npm error path /var/www/gydschain/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/var/www/gydschain/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /root/.npm/_logs/2026-10-07T16_24_28_610Z-debug-0.log

@@ -31,8 +31,9 @@ USE_CERTBOT="${USE_CERTBOT:-0}"                     # set to 1 for direct SSL (n
 SSL_EMAIL="${GYDS_SSL_EMAIL:-${EMAIL:-}}"
 CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-}"
 APP_DIR="${APP_DIR:-/var/www/gydschain}"
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
 BRANCH="${BRANCH:-main}"
+REPLACE_APP_CHECKOUT="${REPLACE_APP_CHECKOUT:-0}"
 NODE_USER="${SUDO_USER:-ubuntu}"
 [[ "$NODE_USER" == "root" ]] && NODE_USER="ubuntu"
 PORT_API="${PORT_API:-5001}"
@@ -257,18 +258,68 @@ mkdir -p "$(dirname "$APP_DIR")"
 REPO_AUTH="${REPO_URL}"
 [[ -n "${GITHUB_TOKEN:-}" ]] && REPO_AUTH="${REPO_URL/https:\/\//https:\/\/${GITHUB_TOKEN}@}"
 
+normalize_repo_url() {
+    local value="${1%/}"
+    case "$value" in
+        https://*) value="${value#https://}"; value="${value#*@}" ;;
+        http://*)  value="${value#http://}"; value="${value#*@}" ;;
+        git@*)     value="${value#git@}"; value="${value/:/\/}" ;;
+        ssh://*)   value="${value#ssh://}"; value="${value#*@}" ;;
+    esac
+    value="${value%.git}"
+    printf '%s' "${value,,}"
+}
+
+backup_existing_app_dir() {
+    local backup="${APP_DIR}.backup-$(date +%Y%m%d-%H%M%S)"
+    while [[ -e "$backup" ]]; do backup="${backup}-$(printf '%04d' "$RANDOM")"; done
+    mv "$APP_DIR" "$backup"
+    warn "Preserved the previous directory at $backup"
+}
+
 if [[ -d "$APP_DIR/.git" ]]; then
-    info "Updating from $BRANCH..."
-    git -C "$APP_DIR" config pull.rebase false
-    git -C "$APP_DIR" fetch origin
-    git -C "$APP_DIR" checkout "$BRANCH" 2>/dev/null || true
-    git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
-    log "Updated: $(git -C "$APP_DIR" log -1 --format='%h %s')"
+    CURRENT_REPO="$(git -C "$APP_DIR" remote get-url origin 2>/dev/null || true)"
+    if [[ -z "$CURRENT_REPO" ]] || [[ "$(normalize_repo_url "$CURRENT_REPO")" != "$(normalize_repo_url "$REPO_URL")" ]]; then
+        if [[ "$REPLACE_APP_CHECKOUT" != "1" ]]; then
+            err "APP_DIR contains a different repository, so no files were changed."
+            err "Expected dashboard repo: $REPO_URL"
+            err "Set REPLACE_APP_CHECKOUT=1 to preserve the old directory under APP_DIR.backup-TIMESTAMP and install the dashboard."
+            exit 1
+        fi
+        backup_existing_app_dir
+        info "Cloning dashboard repo $REPO_URL..."
+        git clone --branch "$BRANCH" "$REPO_AUTH" "$APP_DIR"
+        [[ -n "${GITHUB_TOKEN:-}" ]] && git -C "$APP_DIR" remote set-url origin "$REPO_AUTH"
+        log "Cloned to $APP_DIR"
+    else
+        info "Updating dashboard from $BRANCH..."
+        git -C "$APP_DIR" config pull.rebase false
+        git -C "$APP_DIR" fetch origin
+        git -C "$APP_DIR" checkout "$BRANCH" 2>/dev/null || true
+        git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
+        log "Updated: $(git -C "$APP_DIR" log -1 --format='%h %s')"
+    fi
+elif [[ -e "$APP_DIR" ]]; then
+    if [[ "$REPLACE_APP_CHECKOUT" != "1" ]]; then
+        err "APP_DIR exists but is not a Git checkout; refusing to clone over it."
+        err "Set REPLACE_APP_CHECKOUT=1 to preserve it under APP_DIR.backup-TIMESTAMP and install the dashboard."
+        exit 1
+    fi
+    backup_existing_app_dir
+    info "Cloning dashboard repo $REPO_URL..."
+    git clone --branch "$BRANCH" "$REPO_AUTH" "$APP_DIR"
+    [[ -n "${GITHUB_TOKEN:-}" ]] && git -C "$APP_DIR" remote set-url origin "$REPO_AUTH"
+    log "Cloned to $APP_DIR"
 else
     info "Cloning repository..."
     git clone --branch "$BRANCH" "$REPO_AUTH" "$APP_DIR"
     [[ -n "${GITHUB_TOKEN:-}" ]] && git -C "$APP_DIR" remote set-url origin "$REPO_AUTH"
     log "Cloned to $APP_DIR"
+fi
+if [[ ! -f "$APP_DIR/package.json" || ! -f "$APP_DIR/server/index.ts" || ! -d "$APP_DIR/src" ]]; then
+    err "The selected repository is not the ChainCore dashboard root (expected package.json, server/index.ts, and src/)."
+    err "Set REPO_URL to the dashboard repository before running setup; npm install was not started."
+    exit 1
 fi
 id -u "$NODE_USER" &>/dev/null && chown -R "$NODE_USER:$NODE_USER" "$APP_DIR" || true
 
