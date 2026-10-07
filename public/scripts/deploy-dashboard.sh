@@ -41,6 +41,8 @@ SESSION_SECRET="${SESSION_SECRET:-$(openssl rand -hex 32)}"
 NODE_ENV="${NODE_ENV:-production}"
 
 # ── Optional extras (skippable) ───────────────────────────────────────────────
+# For an unattended deployment against a populated database, set
+# ALLOW_EXISTING_DB_MIGRATIONS=1 only after reviewing the migration warning and taking a backup.
 ADMIN_WALLET="${ADMIN_WALLET:-}"
 FOUNDER_WALLET="${FOUNDER_WALLET:-}"
 REWARD_ADDRESS="${REWARD_ADDRESS:-}"
@@ -129,6 +131,10 @@ echo -e "${NC}"
 
 if [[ "$USE_CERTBOT" == "1" && -z "$SSL_EMAIL" ]]; then
     warn "USE_CERTBOT=1 requires SSL_EMAIL"
+    if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
+        err "Set GYDS_SSL_EMAIL (or EMAIL) when using USE_CERTBOT=1 in non-interactive mode."
+        exit 1
+    fi
     read -rp "Email for SSL cert: " SSL_EMAIL
     [[ -n "$SSL_EMAIL" ]] || { err "Email required for certbot"; exit 1; }
 fi
@@ -143,8 +149,12 @@ echo "  API port:       $PORT_API"
 echo "  CF Tunnel:      ${CF_TUNNEL_TOKEN:+yes}${CF_TUNNEL_TOKEN:-no}"
 echo "  Certbot SSL:    ${USE_CERTBOT}"
 echo ""
-read -rp "Continue? (y/N) " -n 1 reply; echo
-[[ "$reply" =~ ^[Yy]$ ]] || exit 0
+if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
+    info "Non-interactive mode — continuing with the supplied configuration and defaults."
+else
+    read -rp "Continue? (y/N) " -n 1 reply; echo
+    [[ "$reply" =~ ^[Yy]$ ]] || exit 0
+fi
 
 # ─── Step 1: System packages ──────────────────────────────────────────────────
 step "1/8 — System packages"
@@ -173,18 +183,26 @@ echo "  [2] Use an existing database (provide connection details)"
 echo ""
 if [[ -n "${DATABASE_URL:-}" ]]; then
     echo -e "${YELLOW}DATABASE_URL is already set in environment — using it.${NC}"
-    echo "  DATABASE_URL: ${DATABASE_URL}"
-    read -rp "  Use this existing value? (Y/n) " -n 1 _use_existing; echo
-    if [[ ! "$_use_existing" =~ ^[Nn]$ ]]; then
+    if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
         PG_MODE="existing_url"
     else
-        unset DATABASE_URL
-        PG_MODE=""
+        read -rp "  Use this existing value? (Y/n) " -n 1 _use_existing; echo
+        if [[ ! "$_use_existing" =~ ^[Nn]$ ]]; then
+            PG_MODE="existing_url"
+        else
+            unset DATABASE_URL
+            PG_MODE=""
+        fi
     fi
 fi
 
 if [[ -z "${PG_MODE:-}" ]]; then
-    read -rp "Choice [1/2]: " -n 1 PG_CHOICE; echo
+    if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
+        PG_CHOICE="1"
+        info "Non-interactive mode — creating a new local database with generated credentials."
+    else
+        read -rp "Choice [1/2]: " -n 1 PG_CHOICE; echo
+    fi
     if [[ "$PG_CHOICE" == "2" ]]; then
         PG_MODE="existing"
         echo ""
@@ -216,7 +234,10 @@ if [[ -z "${PG_MODE:-}" ]]; then
         echo "  User:     $PG_USER"
         echo "  Password: $PG_PASS"
         echo ""
-        read -rp "  Customise these values? (y/N) " -n 1 _custom; echo
+        _custom="n"
+        if [[ "${NONINTERACTIVE:-0}" != "1" && -t 0 ]]; then
+            read -rp "  Customise these values? (y/N) " -n 1 _custom; echo
+        fi
         if [[ "$_custom" =~ ^[Yy]$ ]]; then
             read -rp "  Database name [$PG_DBNAME]: " _in; [[ -n "$_in" ]] && PG_DBNAME="$_in"
             read -rp "  Username      [$PG_USER]:   " _in; [[ -n "$_in" ]] && PG_USER="$_in"
@@ -245,9 +266,18 @@ if [[ "$_EXISTING_TABLES" -gt 0 ]]; then
     echo -e "${YELLOW}│                                                                   │${NC}"
     echo -e "${YELLOW}│  Your existing data is safe UNLESS you chose to wipe the DB.     │${NC}"
     echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────┘${NC}"
-    echo ""
-    read -rp "Continue and apply migrations to the existing database? (y/N) " -n 1 _mig_ok; echo
-    [[ "$_mig_ok" =~ ^[Yy]$ ]] || { warn "Aborted — no changes made to the database."; exit 0; }
+    if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
+        if [[ "${ALLOW_EXISTING_DB_MIGRATIONS:-0}" != "1" ]]; then
+            err "Refusing to migrate an existing database in non-interactive mode."
+            err "Back up the database, then rerun with ALLOW_EXISTING_DB_MIGRATIONS=1 to approve additive migrations."
+            exit 1
+        fi
+        warn "ALLOW_EXISTING_DB_MIGRATIONS=1 — applying the documented additive migrations."
+    else
+        echo ""
+        read -rp "Continue and apply migrations to the existing database? (y/N) " -n 1 _mig_ok; echo
+        [[ "$_mig_ok" =~ ^[Yy]$ ]] || { warn "Aborted — no changes made to the database."; exit 0; }
+    fi
 fi
 
 log "Database ready: ${PG_DBNAME:-${DATABASE_URL%%@*}@...} (${_EXISTING_TABLES} existing tables)"
@@ -628,8 +658,23 @@ NGINXEOF
 
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/gydschain
-nginx -t && systemctl reload nginx || systemctl restart nginx
+if ! nginx -t; then
+    err "Nginx configuration is invalid; refusing to report a successful dashboard deployment."
+    exit 1
+fi
+systemctl reload nginx || systemctl restart nginx
 log "Nginx: $FQDN → $APP_DIR/dist"
+
+# Verify the configured virtual host serves the app, not Ubuntu's default page.
+NGINX_RESPONSE=$(curl -fsS --max-time 10 -H "Host: ${FQDN}" http://127.0.0.1/ 2>/dev/null || true)
+if [[ -z "$NGINX_RESPONSE" ]]; then
+    warn "Could not verify the dashboard over local HTTP; check Nginx and the server logs."
+elif grep -qi "Welcome to nginx" <<< "$NGINX_RESPONSE"; then
+    err "Nginx is still serving its default welcome page. Inspect enabled sites with: nginx -T"
+    exit 1
+else
+    log "Nginx virtual host serves the dashboard for ${FQDN}"
+fi
 
 # ─── Step 7: UFW Firewall ──────────────────────────────────────────────────────
 step "7/8 — Firewall"

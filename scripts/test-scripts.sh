@@ -101,6 +101,7 @@ echo -e "${BOLD}[ 1 ] Locate scripts${NC}"
 SCRIPTS=(
   "$SCRIPT_DIR/setup-ubuntu-server.sh"
   "$SCRIPT_DIR/setup-validator-node.sh"
+  "$REPO_ROOT/install.sh"
 )
 
 # Also include legacy scripts in public/scripts/
@@ -212,7 +213,17 @@ if [[ -f "$S" ]]; then
 fi
 
 echo ""
-echo -e "${BOLD}[ 7 ] Security checks${NC}"
+echo -e "${BOLD}[ 7 ] Installer regression checks${NC}"
+# ═════════════════════════════════════════════════════════════════════════════
+check_contains "$REPO_ROOT/install.sh" "does not deploy the dashboard" "requirements-only warning"
+check_contains "$REPO_ROOT/install.sh" "dashboard has NOT been deployed" "requirements-only completion notice"
+check_contains "$REPO_ROOT/install.sh" "cannot complete the dashboard installation" "dashboard install failure is not masked"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Non-interactive mode" "non-interactive deploy path"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "ALLOW_EXISTING_DB_MIGRATIONS" "existing DB migration approval"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Welcome to nginx" "default Nginx page verification"
+
+echo ""
+echo -e "${BOLD}[ 8 ] Security checks${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
 for s in "${SCRIPTS[@]}"; do
   [[ ! -f "$s" ]] && continue
@@ -226,7 +237,7 @@ for s in "${SCRIPTS[@]}"; do
 done
 
 echo ""
-echo -e "${BOLD}[ 8 ] Legacy scripts in public/scripts/${NC}"
+echo -e "${BOLD}[ 9 ] Legacy scripts in public/scripts/${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
 for s in "${LEGACY_SCRIPTS[@]}"; do
   [[ ! -f "$s" ]] && continue
@@ -240,7 +251,7 @@ for s in "${LEGACY_SCRIPTS[@]}"; do
 done
 
 echo ""
-echo -e "${BOLD}[ 9 ] Chain ID consistency${NC}"
+echo -e "${BOLD}[ 10 ] Chain ID consistency${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
 info "Checking all scripts reference chain ID 198282 (not other IDs)..."
 WRONG_ID=0
@@ -260,7 +271,7 @@ done
 [[ "$WRONG_ID" -eq 0 ]] && pass "All chain IDs are 198282"
 
 echo ""
-echo -e "${BOLD}[ 10 ] Help flag smoke test${NC}"
+echo -e "${BOLD}[ 11 ] Help flag smoke test${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
 for s in "${SCRIPTS[@]}"; do
   [[ ! -f "$s" ]] && continue

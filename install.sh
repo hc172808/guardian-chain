@@ -30,9 +30,6 @@ err()    { echo -e "${RED}[✗]${NC} $*" >&2; }
 info()   { echo -e "${CYAN}[→]${NC} $*"; }
 step()   { echo ""; echo -e "${BOLD}${GREEN}━━━ $* ━━━${NC}"; }
 
-# ─── Root check ───────────────────────────────────────────────────────────────
-[[ $EUID -eq 0 ]] || { err "Run as root:  sudo bash install.sh $*"; exit 1; }
-
 # ─── OS detection ─────────────────────────────────────────────────────────────
 if [[ -f /etc/os-release ]]; then
   # shellcheck disable=SC1091
@@ -65,6 +62,9 @@ for arg in "$@"; do
   esac
 done
 
+# ─── Root check (help is available without sudo) ───────────────────────────────
+[[ $EUID -eq 0 ]] || { err "Run as root:  sudo bash install.sh $*"; exit 1; }
+
 # ─── Banner ───────────────────────────────────────────────────────────────────
 clear 2>/dev/null || true
 echo -e "${BOLD}${CYAN}"
@@ -86,7 +86,8 @@ echo ""
 if [[ -z "$MODE" && "$NONINTERACTIVE" != "1" ]]; then
   echo -e "  ${BOLD}What would you like to install?${NC}"
   echo ""
-  echo -e "  ${GREEN}[1]${NC}  System requirements only"
+  echo -e "  ${GREEN}[1]${NC}  System requirements only — does not deploy the dashboard"
+  echo -e "       (The default Nginx welcome page remains until you choose option 2)"
   echo -e "       (Node.js, npm, PM2, PostgreSQL, Nginx, UFW, fail2ban, Go, Docker, WireGuard)"
   echo ""
   echo -e "  ${GREEN}[2]${NC}  ChainCore Dashboard"
@@ -242,7 +243,12 @@ case "$MODE" in
 
     info "2/3 — ChainCore Dashboard"
     DEPLOY_SCRIPT=$(find_script "deploy-dashboard.sh")
-    [[ -n "$DEPLOY_SCRIPT" ]] && NONINTERACTIVE=1 bash "$DEPLOY_SCRIPT" || warn "deploy-dashboard.sh not found — skipping"
+    if [[ -n "$DEPLOY_SCRIPT" ]]; then
+      NONINTERACTIVE=1 bash "$DEPLOY_SCRIPT"
+    else
+      err "deploy-dashboard.sh not found — cannot complete the dashboard installation"
+      exit 1
+    fi
 
     info "3/3 — All node types"
     ALL_NODES_SCRIPT=$(find_script "install-all-nodes.sh")
@@ -268,4 +274,10 @@ case "$MODE" in
 esac
 
 echo ""
-log "Installation complete — $(date '+%Y-%m-%d %H:%M:%S')"
+if [[ "$MODE" == "requirements" ]]; then
+  log "System requirements installed — the dashboard has NOT been deployed."
+  info "To install the dashboard and replace the Nginx welcome page, run:"
+  echo "  sudo bash \"$SCRIPT_DIR/install.sh\" --dashboard"
+else
+  log "Installation complete — $(date '+%Y-%m-%d %H:%M:%S')"
+fi
