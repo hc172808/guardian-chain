@@ -1,0 +1,63 @@
+cd guardian-chain
+root@app:~/guardian-chain# cd public
+root@app:~/guardian-chain/public# cd scripts
+root@app:~/guardian-chain/public/scripts# ls
+bootnode.requirements.md       install-fullnode.sh       pgadmin-schema.sql
+db-reset.sh                    install-genesis.sh        quick-fix.sh
+deploy-dashboard.sh            install-gyds-node.sh      redeploy.sh
+deploy-devtools.sh             install-litenode.sh       setup-gydschain.sh
+deploy-ecosystem.sh            install-localnode.sh      setup-postgres-ubuntu.sh
+deploy-remote-fullnode.sh      install-node.sh           setup-server.sh
+gyds-update.sh                 install-pgadmin.sh        setup-ssl.sh
+gydschain-complete-schema.sql  install-rpc-proxy.sh      setup-wireguard-mesh.sh
+gydschain-schema.sql           install-rpcnode.sh        ssl-setup.sh
+install-all-nodes.sh           install-termux.sh         update-chaincore.sh
+install-boostnode.sh           install-validatornode.sh  wireguard-config.template
+install-bootnode.sh            node.env.template
+root@app:~/guardian-chain/public/scripts# bash setup-server.sh
+[config] Loaded shared config from /var/www/gydschain/gyds-config.env
+
+╔══════════════════════════════════════════════════════════════════╗
+║   ChainCore Server Setup v4.0.0 — Cloudflare + Subdomain        ║
+║   Target: app.netlifegy.com                                 
+║   Dir:    /var/www/gydschain                              
+╚══════════════════════════════════════════════════════════════════╝
+[→] Configuration:
+  Subdomain:   app.netlifegy.com
+  App dir:     /var/www/gydschain
+  Repo:        https://github.com/hc172808/guardian-chain.git
+  Branch:      main
+  API port:    5001
+  Node user:   ubuntu
+  CF Tunnel:   not configured (Proxy mode)
+
+Continue? (y/N) y
+
+━━━ 1/9 — System packages ━━━
+[✓] Node v22.23.3 | npm 10.9.9
+[✓] PM2 7.0.4
+
+━━━ 2/9 — PostgreSQL ━━━
+
+PostgreSQL setup:
+  [1] Create a new local database (auto-configure)
+  [2] Use an existing database (provide connection details)
+
+Choice [1/2]: 2
+
+Enter your PostgreSQL connection details:
+  Host         [localhost]: 10.0.0.8
+  Port         [5432]:      
+  Database name:            cashchain
+  Username:                 cashchain
+  Password:                 
+
+[→] Testing connection...
+[✓] Connection OK → 10.0.0.8:5432/cashchain
+[✓] Database ready: cashchain (0 existing tables)
+
+━━━ 3/9 — Repository ━━━
+[!] GITHUB_TOKEN not set — set it to enable auto-pulls
+[✗] APP_DIR contains a different repository, so no files were changed.
+[✗] Expected dashboard repo: https://github.com/hc172808/guardian-chain.git
+[✗] Set REPLACE_APP_CHECKOUT=1 to preserve the old directory under APP_DIR.backup-TIMESTAMP and install the dashboard.
