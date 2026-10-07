@@ -99,6 +99,7 @@ log "Pulled: $NEW_HASH"; log_msg "Pulled: $NEW_HASH"
 
 # ─── Load shared config (if present) ──────────────────────────────────────────
 GYDS_CONF="${GYDS_CONF:-/etc/gydschain/gyds-config.env}"
+# shellcheck disable=SC1090
 [[ -f "$GYDS_CONF" ]] && source "$GYDS_CONF" && info "Loaded config: $GYDS_CONF"
 
 # ─── Install deps ─────────────────────────────────────────────────────────────

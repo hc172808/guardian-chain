@@ -155,7 +155,6 @@ STAGING_FLAG=""
 if [[ "$CF_ORIGIN_CERT" = "1" && -n "$CF_API_TOKEN" ]]; then
   # ── Cloudflare Origin Certificate (15-year cert, Cloudflare-signed) ──
   step "Generating Cloudflare Origin Certificate via API"
-  CF_ZONE_NAME="$DOMAIN"
   HOSTNAMES="[\"${DOMAIN}\",\"*.${DOMAIN}\"]"
 
   if [[ -n "$EXTRA_DOMAINS" ]]; then

@@ -32,8 +32,12 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --p2p-port) P2P_PORT="${2:-}"; shift 2 ;;
-    --source) SOURCE_CIDR="${2:-}"; shift 2 ;;
+    --p2p-port)
+      [[ $# -ge 2 && -n "${2:-}" && "${2:-}" != --* ]] || { echo "--p2p-port requires a port value." >&2; exit 2; }
+      P2P_PORT="$2"; shift 2 ;;
+    --source)
+      [[ $# -ge 2 && -n "${2:-}" && "${2:-}" != --* ]] || { echo "--source requires a CIDR value." >&2; exit 2; }
+      SOURCE_CIDR="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -49,7 +53,7 @@ if [[ $EUID -ne 0 && "$DRY_RUN" -ne 1 ]]; then
   exit 1
 fi
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 ok() { echo -e "${GREEN}[OK]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }

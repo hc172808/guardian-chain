@@ -5,7 +5,6 @@ set -e
 
 GENESIS="$DATA_DIR/genesis.json"
 GETH_DATA="$DATA_DIR/geth"
-KEYSTORE="$DATA_DIR/keystore"
 
 echo "[gyds] GydsChain Geth node starting…"
 echo "[gyds] Chain ID: $CHAIN_ID | Data dir: $DATA_DIR"

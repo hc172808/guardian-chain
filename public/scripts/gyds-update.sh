@@ -77,7 +77,10 @@ tee_log() { tee -a "$LOG_FILE"; }
 # Load .env for DATABASE_URL, NODE_ENV, etc.
 ENV_FILE="${APP_DIR}/.env"
 if [[ -f "$ENV_FILE" ]]; then
-    set -a; source "$ENV_FILE"; set +a
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
 fi
 
 # Resolve branch

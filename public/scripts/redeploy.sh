@@ -10,7 +10,7 @@
 # ╚══════════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 err()  { echo -e "${RED}[✗]${NC} $*" >&2; }
 info() { echo -e "${CYAN}[→]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
@@ -36,7 +36,10 @@ trap 'echo "FAILED at line $LINENO" >> "$DEPLOY_LOG"; err "Redeploy failed at li
 # ─── Load existing .env ───────────────────────────────────────────────────────
 ENV_FILE="${APP_DIR}/.env"
 if [[ -f "$ENV_FILE" ]]; then
-    set -a; source "$ENV_FILE"; set +a
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
     info "Loaded .env from $ENV_FILE"
 fi
 

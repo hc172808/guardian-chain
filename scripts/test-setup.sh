@@ -38,7 +38,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-$(dirname "$SCRIPT_DIR")}"
 ENV_FILE="${APP_DIR}/.env"
 if [[ -f "$ENV_FILE" ]]; then
-  set -a; source "$ENV_FILE"; set +a
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
   info "Loaded .env from $ENV_FILE"
 fi
 

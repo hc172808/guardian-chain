@@ -24,11 +24,6 @@ BLOCK_TIME="${BLOCK_TIME:-120}"
 P2P_PORT="${P2P_PORT:-30303}"
 RPC_PORT="${RPC_PORT:-8546}"
 
-PRIMARY_RPC="https://rpc.netlifegy.com"
-BACKUP_RPC_1="https://rpc2.netlifegy.com"
-BACKUP_RPC_2="https://rpc3.netlifegy.com"
-WS_ENDPOINT="wss://ws.netlifegy.com"
-
 REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 REPO_DIR="${REPO_DIR:-/opt/gyds-fullnode}"
 

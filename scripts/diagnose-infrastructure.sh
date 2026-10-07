@@ -94,14 +94,12 @@ info "RPC:      $(redact_url "$RPC_URL")"
 info "Chain ID: $EXPECTED_CHAIN_ID"
 
 section "Local prerequisites"
-for command_name in curl; do
-  CHECKS=$((CHECKS + 1))
-  if command -v "$command_name" >/dev/null 2>&1; then
-    ok "$command_name is installed"
-  else
-    fail "$command_name is not installed"
-  fi
-done
+CHECKS=$((CHECKS + 1))
+if command -v curl >/dev/null 2>&1; then
+  ok "curl is installed"
+else
+  fail "curl is not installed"
+fi
 if command -v ss >/dev/null 2>&1; then
   ok "ss is installed (local listener details will be shown)"
 else

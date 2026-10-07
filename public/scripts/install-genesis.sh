@@ -10,7 +10,11 @@ set -euo pipefail
 
 # ── Load shared config (written by deploy-dashboard.sh) ───────────────────────
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
-[[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
+if [[ -f "$GYDS_CONF" ]]; then
+  # shellcheck disable=SC1090
+  source "$GYDS_CONF"
+  echo "[config] Loaded shared config from $GYDS_CONF"
+fi
 
 GYDS_VERSION="1.0.0"
 BINARY="gyds-genesis"
@@ -184,7 +188,7 @@ systemctl restart gyds-genesis
 sleep 3
 
 NODE_OK=false
-for i in 1 2 3; do
+for _ in 1 2 3; do
   curl -sf --max-time 4 "http://localhost:${RPC_PORT}/health" &>/dev/null && NODE_OK=true && break
   sleep 4
 done

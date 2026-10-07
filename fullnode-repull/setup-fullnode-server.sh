@@ -25,7 +25,6 @@
 set -euo pipefail
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
-APP_NAME="gyds-fullnode"
 APP_USER="gyds"
 APP_DIR="/opt/gyds-fullnode"
 REPO_URL="https://github.com/hc172808/fullnode.git"

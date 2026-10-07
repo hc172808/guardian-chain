@@ -271,7 +271,8 @@ normalize_repo_url() {
 }
 
 backup_existing_app_dir() {
-    local backup="${APP_DIR}.backup-$(date +%Y%m%d-%H%M%S)"
+    local backup
+    backup="${APP_DIR}.backup-$(date +%Y%m%d-%H%M%S)"
     while [[ -e "$backup" ]]; do backup="${backup}-$(printf '%04d' "$RANDOM")"; done
     mv "$APP_DIR" "$backup"
     warn "Preserved the previous directory at $backup"

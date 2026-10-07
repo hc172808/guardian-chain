@@ -48,16 +48,31 @@ echo "╚═══════════════════════�
 echo -e "${NC}"
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
+require_value() {
+  [[ $# -ge 2 && -n "${2:-}" && "${2:-}" != --* ]] || die "$1 requires a value"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --rpc-port)        RPC_PORT="$2";   shift 2 ;;
-    --p2p-port)        P2P_PORT="$2";   shift 2 ;;
-    --data-dir)        DATA_DIR="$2";   shift 2 ;;
-    --log-level)       LOG_LEVEL="$2";  shift 2 ;;
-    --bootstrap-nodes) BOOTSTRAP="$2";  shift 2 ;;
+    --rpc-port)        require_value "$@"; RPC_PORT="$2";   shift 2 ;;
+    --ws-port)         require_value "$@"; WS_PORT="$2";    shift 2 ;;
+    --p2p-port)        require_value "$@"; P2P_PORT="$2";   shift 2 ;;
+    --data-dir)        require_value "$@"; DATA_DIR="$2";   shift 2 ;;
+    --log-level)       require_value "$@"; LOG_LEVEL="$2";  shift 2 ;;
+    --bootstrap-nodes) require_value "$@"; BOOTSTRAP="$2";  shift 2 ;;
     *) warn "Unknown flag: $1"; shift ;;
   esac
 done
+
+valid_port() {
+  [[ "$1" =~ ^[0-9]{1,5}$ ]] || return 1
+  (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+valid_port "$RPC_PORT" || die "RPC port must be from 1 to 65535."
+valid_port "$WS_PORT" || die "WebSocket port must be from 1 to 65535."
+valid_port "$P2P_PORT" || die "P2P port must be from 1 to 65535."
+[[ "$RPC_PORT" != "$WS_PORT" && "$RPC_PORT" != "$P2P_PORT" && "$WS_PORT" != "$P2P_PORT" ]] \
+  || die "RPC, WebSocket, and P2P ports must be different."
 
 # ── OS & arch ─────────────────────────────────────────────────────────────────
 OS="$(uname -s)"
@@ -136,6 +151,7 @@ ENV_VARS="GYDS_CHAIN_ID=${CHAIN_ID} \
 GYDS_NODE_MODE=lite \
 GYDS_RPC_PORT=${RPC_PORT} \
 GYDS_RPC_HOST=127.0.0.1 \
+GYDS_WS_PORT=${WS_PORT} \
 GYDS_P2P_PORT=${P2P_PORT} \
 GYDS_DATA_DIR=${DATA_DIR} \
 GYDS_LOG_LEVEL=${LOG_LEVEL}"
@@ -148,6 +164,7 @@ export GYDS_CHAIN_ID="${CHAIN_ID}"
 export GYDS_NODE_MODE="lite"
 export GYDS_RPC_PORT="${RPC_PORT}"
 export GYDS_RPC_HOST="127.0.0.1"
+export GYDS_WS_PORT="${WS_PORT}"
 export GYDS_P2P_PORT="${P2P_PORT}"
 export GYDS_DATA_DIR="${DATA_DIR}"
 export GYDS_LOG_LEVEL="${LOG_LEVEL}"
@@ -188,6 +205,7 @@ GYDS_CHAIN_ID=${CHAIN_ID}
 GYDS_NODE_MODE=lite
 GYDS_RPC_PORT=${RPC_PORT}
 GYDS_RPC_HOST=127.0.0.1
+GYDS_WS_PORT=${WS_PORT}
 GYDS_P2P_PORT=${P2P_PORT}
 GYDS_DATA_DIR=${DATA_DIR}
 GYDS_LOG_LEVEL=${LOG_LEVEL}

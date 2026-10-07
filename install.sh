@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 log()    { echo -e "${GREEN}[✓]${NC} $*"; }
 warn()   { echo -e "${YELLOW}[!]${NC} $*"; }
 err()    { echo -e "${RED}[✗]${NC} $*" >&2; }
@@ -38,10 +38,8 @@ if [[ -f /etc/os-release ]]; then
   # shellcheck disable=SC1091
   source /etc/os-release
   OS_NAME="${PRETTY_NAME:-unknown}"
-  OS_ID="${ID:-unknown}"
 else
   OS_NAME="$(uname -s)"
-  OS_ID="unknown"
 fi
 
 # ─── Argument parsing ─────────────────────────────────────────────────────────

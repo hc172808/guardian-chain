@@ -55,12 +55,15 @@ check_executable() {
 
 check_shebang() {
   local file="$1"
-  local first
+  local first name
   first="$(head -1 "$file")"
-  if [[ "$first" == "#!/usr/bin/env bash" ]]; then
+  name="$(basename "$file")"
+  if [[ "$first" == "#!/usr/bin/env bash" || "$first" == "#!/bin/bash" ]]; then
     pass "Shebang OK: $(basename "$file")"
+  elif [[ "$first" == "#!/data/data/com.termux/files/usr/bin/bash" && "$name" == "install-termux.sh" ]]; then
+    pass "Termux shebang OK: $name"
   else
-    warn "Missing/non-portable shebang in $(basename "$file"): $first"
+    warn "Unrecognized shebang in $(basename "$file"): $first"
   fi
 }
 
@@ -107,6 +110,16 @@ for f in "$REPO_ROOT/public/scripts/"*.sh; do
 done
 
 ALL_SCRIPTS=("${SCRIPTS[@]}" "${LEGACY_SCRIPTS[@]}")
+SYNTAX_SCRIPTS=()
+while IFS= read -r -d '' f; do
+  SYNTAX_SCRIPTS+=("$f")
+done < <(find "$REPO_ROOT" -type f -name '*.sh' \
+  -not -path "$REPO_ROOT/.git/*" \
+  -not -path "$REPO_ROOT/node_modules/*" \
+  -not -path "$REPO_ROOT/dist/*" \
+  -not -path "$REPO_ROOT/.local/*" \
+  -not -path "$REPO_ROOT/.cache/*" \
+  -not -path "$REPO_ROOT/attached_assets/*" -print0)
 
 for s in "${ALL_SCRIPTS[@]}"; do
   if [[ -f "$s" ]]; then
@@ -119,9 +132,22 @@ done
 echo ""
 echo -e "${BOLD}[ 2 ] Syntax check (bash -n)${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
-for s in "${ALL_SCRIPTS[@]}"; do
-  [[ -f "$s" ]] && check_syntax "$s"
+info "Checking ${#SYNTAX_SCRIPTS[@]} project shell scripts (excluding generated dist and tooling)"
+for s in "${SYNTAX_SCRIPTS[@]}"; do
+  check_syntax "$s"
 done
+
+echo ""
+echo -e "${BOLD}[ 2a ] ShellCheck error-level scan${NC}"
+if command -v shellcheck >/dev/null 2>&1; then
+  if shellcheck --severity=error "${SYNTAX_SCRIPTS[@]}"; then
+    pass "No ShellCheck error-level findings"
+  else
+    fail "ShellCheck error-level findings"
+  fi
+else
+  warn "ShellCheck is not installed; skipping its error-level scan"
+fi
 
 echo ""
 echo -e "${BOLD}[ 3 ] Shebang check${NC}"

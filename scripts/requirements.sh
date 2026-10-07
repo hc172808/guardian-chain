@@ -39,7 +39,6 @@ INSTALL_DOCKER=true
 INSTALL_GO=true
 INSTALL_WIREGUARD=true
 INSTALL_CERTBOT=false
-MINIMAL=false
 PG_CLIENT_ONLY=false
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 
@@ -49,7 +48,7 @@ for arg in "$@"; do
     --no-go)          INSTALL_GO=false ;;
     --no-wireguard)   INSTALL_WIREGUARD=false ;;
     --certbot)        INSTALL_CERTBOT=true ;;
-    --minimal)        MINIMAL=true; INSTALL_DOCKER=false; INSTALL_GO=false; INSTALL_WIREGUARD=false ;;
+    --minimal)        INSTALL_DOCKER=false; INSTALL_GO=false; INSTALL_WIREGUARD=false ;;
     --pg-client-only) PG_CLIENT_ONLY=true ;;
     --noninteractive|--non-interactive) NONINTERACTIVE=1 ;;
     -h|--help)

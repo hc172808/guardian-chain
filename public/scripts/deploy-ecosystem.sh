@@ -2,9 +2,8 @@
 # GydsChain Ecosystem Deployment v2.1.0
 # Deploys: Explorer, Indexer DB
 # Domain: netlifegy.com | Chain ID: 198282
-set -e
+set -euo pipefail
 
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 NC='\033[0m'
@@ -37,10 +36,20 @@ fi
 cd "$(dirname "$0")/../docker"
 
 # Set secure indexer password
-if [ -z "$INDEXER_DB_PASSWORD" ]; then
-    export INDEXER_DB_PASSWORD=$(openssl rand -hex 16)
+if [[ -z "${INDEXER_DB_PASSWORD:-}" ]]; then
+    INDEXER_DB_PASSWORD="$(openssl rand -hex 16)" || {
+        echo "Failed to generate indexer DB password" >&2
+        exit 1
+    }
+    [[ -n "$INDEXER_DB_PASSWORD" ]] || {
+        echo "Generated indexer DB password was empty" >&2
+        exit 1
+    }
+    export INDEXER_DB_PASSWORD
     echo -e "${GREEN}Generated indexer DB password${NC}"
-    echo "INDEXER_DB_PASSWORD=$INDEXER_DB_PASSWORD" >> .env 2>/dev/null || true
+    umask 077
+    printf 'INDEXER_DB_PASSWORD=%s\n' "$INDEXER_DB_PASSWORD" >> .env
+    chmod 600 .env
 fi
 
 echo -e "${GREEN}🚀 Building and starting ecosystem services...${NC}"

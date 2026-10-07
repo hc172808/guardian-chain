@@ -56,18 +56,16 @@ ok "Dependencies installed"
 banner "Step 2/6 — Installing Geth $GETH_VERSION"
 
 ARCH=$(dpkg --print-architecture)
-[[ "$ARCH" == "amd64" ]] && GETH_ARCH="amd64" || GETH_ARCH="arm64"
-GETH_URL="https://gethstore.blob.core.windows.net/builds/geth-linux-${GETH_ARCH}-${GETH_VERSION}-*.tar.gz"
+case "$ARCH" in
+  amd64|arm64) GETH_ARCH="$ARCH" ;;
+  *) die "Unsupported architecture for the Geth download: $ARCH" ;;
+esac
 
 if command -v geth &>/dev/null; then
   INSTALLED=$(geth version 2>/dev/null | grep "^Version:" | awk '{print $2}' || echo "unknown")
   ok "Geth already installed (v$INSTALLED) — skipping"
 else
   TMP=$(mktemp -d)
-  # Download via go-ethereum release page
-  GETH_TAG="v${GETH_VERSION}"
-  DL_URL="https://github.com/ethereum/go-ethereum/releases/download/${GETH_TAG}/geth-linux-${GETH_ARCH}-${GETH_VERSION}-$(curl -fsSL https://api.github.com/repos/ethereum/go-ethereum/releases/tags/${GETH_TAG} 2>/dev/null | jq -r '.assets[] | select(.name | test("geth-linux-'${GETH_ARCH}'")) | .name' | head -1 | sed 's/geth-linux-'${GETH_ARCH}'-//' | sed 's/\.tar\.gz//'  ).tar.gz" 2>/dev/null || true
-
   # Fallback: install from add-apt-repository
   if ! wget -q "https://gethstore.blob.core.windows.net/builds/geth-linux-${GETH_ARCH}-${GETH_VERSION}-stable.tar.gz" -O "$TMP/geth.tar.gz" 2>/dev/null; then
     warn "Direct download failed — trying apt …"

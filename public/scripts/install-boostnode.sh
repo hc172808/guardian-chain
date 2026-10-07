@@ -152,7 +152,7 @@ systemctl restart gyds-boostnode
 sleep 3
 
 NODE_OK=false
-for i in 1 2 3; do
+for _ in 1 2 3; do
   curl -sf --max-time 4 "http://localhost:${RPC_PORT}/health" &>/dev/null && NODE_OK=true && break
   sleep 4
 done
