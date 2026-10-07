@@ -1,0 +1,1 @@
+when i click on trust wallet it saying, Your wallet couldn't communicate with its browser extension. No blockchain transaction was sent. If this page is in Replit preview, open it directly in a full browser tab; otherwise unlock or reload the wallet extension and refresh this page. and when i click on metamask i getting 
