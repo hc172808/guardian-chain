@@ -800,6 +800,73 @@ export function registerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  app.get("/api/nodes/:id/enode", requireAdmin, async (req, res) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const { rows } = await pgPool.query(
+        `SELECT ip_address, hostname, rpc_port, wireguard_public_key
+         FROM node_installations WHERE id=$1`,
+        [req.params.id],
+      );
+      if (!rows.length) return res.status(404).json({ error: "Node not found" });
+
+      const node = rows[0];
+      const localPort = typeof node.wireguard_public_key === "string" && node.wireguard_public_key.startsWith("LOCAL:")
+        ? Number(node.wireguard_public_key.slice("LOCAL:".length))
+        : null;
+      const host = localPort ? "127.0.0.1" : String(node.ip_address || node.hostname || "").trim();
+      const port = localPort || Number(node.rpc_port || 8545);
+      if (!host) return res.status(400).json({ error: "Node has no IP address or hostname configured" });
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        return res.status(400).json({ error: "Node has an invalid RPC port configured" });
+      }
+
+      const authorityHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+      const rpcUrl = new URL(`http://${authorityHost}:${port}`);
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), 5000);
+      const methods = ["admin_nodeInfo", "net_enode"] as const;
+
+      for (const method of methods) {
+        const rpcRes = await fetch(rpcUrl, {
+          method: "POST",
+          signal: controller.signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", method, params: [], id: 1 }),
+        });
+        if (!rpcRes.ok) continue;
+
+        const payload: any = await rpcRes.json().catch(() => null);
+        const candidate = method === "net_enode" ? payload?.result : payload?.result?.enode;
+        if (typeof candidate !== "string" || candidate.length > 2048 || /\s/.test(candidate)) continue;
+
+        try {
+          const parsed = new URL(candidate);
+          const enodePort = Number(parsed.port);
+          if (parsed.protocol !== "enode:" || !parsed.username || !parsed.hostname ||
+              !Number.isInteger(enodePort) || enodePort < 1 || enodePort > 65535) {
+            continue;
+          }
+        } catch {
+          continue;
+        }
+
+        return res.json({ enode: candidate, source: method });
+      }
+
+      return res.status(502).json({
+        error: "The node RPC did not return an enode. Ensure net_enode or admin_nodeInfo is enabled.",
+      });
+    } catch (e: any) {
+      const message = e?.name === "AbortError"
+        ? "Timed out while requesting enode information from the node"
+        : e?.message || "Failed to request enode information from the node";
+      return res.status(502).json({ error: message });
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  });
+
   app.get("/api/nodes/:id/ping-history", requireAdmin, async (req, res) => {
     res.json(pingHistory.get(req.params.id) ?? []);
   });

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -58,6 +58,10 @@ export function NodeDetailsDrawer({ nodeId, vpnTunnelIp, isMain, onClose }: Prop
   const { toast } = useToast();
   const [node, setNode] = useState<NodeDetails | null>(null);
   const [history, setHistory] = useState<PingEntry[]>([]);
+  const [enode, setEnode] = useState<string | null>(null);
+  const [enodeError, setEnodeError] = useState<string | null>(null);
+  const [loadingEnode, setLoadingEnode] = useState(false);
+  const enodeRequestId = useRef(0);
   const [pinging, setPinging] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editingStorage, setEditingStorage] = useState(false);
@@ -79,7 +83,40 @@ export function NodeDetailsDrawer({ nodeId, vpnTunnelIp, isMain, onClose }: Prop
     finally { setLoading(false); }
   }, [nodeId]);
 
-  useEffect(() => { if (nodeId) { setNode(null); setHistory([]); load(); } }, [nodeId, load]);
+  const loadEnode = useCallback(async () => {
+    if (!nodeId) return;
+    const requestId = ++enodeRequestId.current;
+    setLoadingEnode(true);
+    setEnodeError(null);
+    try {
+      const res = await fetch(`/api/nodes/${nodeId}/enode`, { credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      if (typeof data.enode !== 'string') throw new Error('Node did not return an enode address');
+      if (requestId !== enodeRequestId.current) return;
+      setEnode(data.enode);
+    } catch (e: any) {
+      if (requestId !== enodeRequestId.current) return;
+      setEnode(null);
+      setEnodeError(e.message || 'Could not load enode information');
+    } finally {
+      if (requestId === enodeRequestId.current) setLoadingEnode(false);
+    }
+  }, [nodeId]);
+
+  useEffect(() => {
+    if (!nodeId) {
+      enodeRequestId.current += 1;
+      return;
+    }
+    setNode(null);
+    setHistory([]);
+    setEnode(null);
+    setEnodeError(null);
+    load();
+    loadEnode();
+    return () => { enodeRequestId.current += 1; };
+  }, [nodeId, load, loadEnode]);
 
   const handleSetStorage = async (sizeGb: number) => {
     if (!nodeId) return;
@@ -247,6 +284,72 @@ export function NodeDetailsDrawer({ nodeId, vpnTunnelIp, isMain, onClose }: Prop
                   className="flex items-center gap-1 text-xs text-primary hover:underline font-mono mt-1">
                   <ExternalLink className="h-3 w-3" /> {rpcUrl}
                 </a>
+              )}
+            </GlassCard>
+
+            <GlassCard className="p-4 mb-4">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                  <Network className="h-3.5 w-3.5" /> Enode Address
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 text-xs"
+                  onClick={loadEnode}
+                  disabled={loadingEnode}
+                  data-testid={`button-refresh-node-enode-${node.id}`}
+                >
+                  <RefreshCw className={`h-3 w-3 ${loadingEnode ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+              {loadingEnode ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Querying node RPC…
+                </div>
+              ) : enode ? (
+                <div className="flex items-start gap-2">
+                  <code
+                    className="min-w-0 flex-1 rounded bg-background/60 p-2 text-xs font-mono text-primary break-all"
+                    data-testid={`text-node-enode-${node.id}`}
+                  >
+                    {enode}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => copyText(enode, toast)}
+                    aria-label="Copy enode address"
+                    data-testid={`button-copy-node-enode-${node.id}`}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-xs text-muted-foreground" role="status">
+                    {enodeError || 'Enode information is not available yet.'}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 shrink-0 text-xs"
+                    onClick={loadEnode}
+                    disabled={loadingEnode}
+                    data-testid={`button-retry-node-enode-${node.id}`}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+              {enode && /@(0\.0\.0\.0|127\.0\.0\.1|localhost|\[::\]|\[::1\]|::1):/i.test(enode) && (
+                <p className="mt-2 text-xs text-amber-500" role="status">
+                  This enode advertises a local-only address, so external peers cannot reach it. Configure
+                  GYDS_P2P_ADVERTISE_HOST with the node’s public, reachable IP or hostname.
+                </p>
               )}
             </GlassCard>
 
