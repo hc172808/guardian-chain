@@ -58,6 +58,34 @@ require_root() {
 
 require_root
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --p2p-port|--public-addr|--bootstrap-peers|--max-peers)
+      [[ $# -ge 2 && "$2" != --* ]] || { err "$1 requires a value"; exit 2; }
+      case "$1" in
+        --p2p-port) P2P_PORT="$2" ;;
+        --public-addr) PUBLIC_ADDR="$2" ;;
+        --bootstrap-peers) BOOTSTRAP_PEERS="$2" ;;
+        --max-peers) MAX_PEERS="$2" ;;
+      esac
+      shift 2
+      ;;
+    --p2p-port=*|--public-addr=*|--bootstrap-peers=*|--max-peers=*)
+      option="${1%%=*}"
+      value="${1#*=}"
+      [[ -n "$value" ]] || { err "$option requires a value"; exit 2; }
+      case "$option" in
+        --p2p-port) P2P_PORT="$value" ;;
+        --public-addr) PUBLIC_ADDR="$value" ;;
+        --bootstrap-peers) BOOTSTRAP_PEERS="$value" ;;
+        --max-peers) MAX_PEERS="$value" ;;
+      esac
+      shift
+      ;;
+    *) warn "Unknown flag: $1"; shift ;;
+  esac
+done
+
 # ---------------------- 1. System packages ----------------------
 log "Updating apt and installing prerequisites..."
 export DEBIAN_FRONTEND=noninteractive
@@ -76,6 +104,11 @@ if ! command -v go >/dev/null 2>&1 || [[ "$(go version | awk '{print $3}')" != "
   ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 fi
 log "Go: $(go version)"
+
+if [[ -z "$PUBLIC_ADDR" ]]; then
+  PUBLIC_IP="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  [[ -n "$PUBLIC_IP" ]] && PUBLIC_ADDR="${PUBLIC_IP}:${P2P_PORT}"
+fi
 
 # ---------------------- 3. System user & directories ----------------------
 if ! id -u "${GYDS_USER}" >/dev/null 2>&1; then
@@ -231,12 +264,19 @@ systemctl restart fail2ban || warn "fail2ban restart failed (non-fatal)"
 log "Starting gyds-bootnode..."
 systemctl restart gyds-bootnode.service
 sleep 2
+if ! systemctl is-active --quiet gyds-bootnode.service; then
+  err "Bootnode service did not become active."
+  systemctl --no-pager --full status gyds-bootnode.service >&2 || true
+  journalctl -u gyds-bootnode.service -n 50 --no-pager >&2 || true
+  exit 1
+fi
 systemctl --no-pager --full status gyds-bootnode.service || true
 
 # ---------------------- 11. Summary ----------------------
 NODE_ID_SHORT="$(head -c 16 "${KEY_FILE}" 2>/dev/null || echo unknown)"
 LOCAL_IP="$(hostname -I | awk '{print $1}')"
 ADVERT="${PUBLIC_ADDR:-${LOCAL_IP}:${P2P_PORT}}"
+[[ -n "$PUBLIC_ADDR" ]] || warn "Public address could not be detected; set PUBLIC_ADDR to a publicly reachable host:port and forward this P2P port."
 
 cat <<EOF
 

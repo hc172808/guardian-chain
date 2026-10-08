@@ -24,12 +24,13 @@ LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
 GO_VERSION="${GO_VERSION:-1.21.13}"
 
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
-RPC_PORT="${GYDS_RPC_PORT:-8545}"
-WS_PORT="${GYDS_WS_PORT:-8546}"
-P2P_PORT="${GYDS_P2P_PORT:-30305}"   # different P2P port for RPC nodes
+RPC_PORT="${GYDS_RPCNODE_RPC_PORT:-8547}"
+WS_PORT="${GYDS_RPCNODE_WS_PORT:-8548}"
+P2P_PORT="${GYDS_RPCNODE_P2P_PORT:-30305}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 RATE_LIMIT="${RATE_LIMIT:-100}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
+P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
 DOMAIN="${DOMAIN:-rpc.netlifegy.com}"
 
 REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
@@ -62,6 +63,7 @@ while [[ $# -gt 0 ]]; do
     --data-dir)        DATA_DIR="$2";   shift 2 ;;
     --log-level)       LOG_LEVEL="$2";  shift 2 ;;
     --bootstrap-nodes) BOOTSTRAP="$2";  shift 2 ;;
+    --advertise-host)  P2P_ADVERTISE_HOST="$2"; shift 2 ;;
     *) warn "Unknown flag: $1"; shift ;;
   esac
 done
@@ -94,6 +96,9 @@ elif is_rhel; then
   dnf install -y gcc git curl wget jq firewalld fail2ban nginx certbot python3-certbot-nginx \
     ca-certificates openssl net-tools 2>/dev/null || \
   yum install -y gcc git curl wget jq firewalld fail2ban nginx ca-certificates openssl net-tools
+fi
+if [[ -z "$P2P_ADVERTISE_HOST" ]]; then
+  P2P_ADVERTISE_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
 fi
 
 # ── Go ────────────────────────────────────────────────────────────────────────
@@ -256,6 +261,7 @@ Environment=GYDS_NODE_MODE=rpc
 Environment=GYDS_RPC_PORT=${RPC_PORT}
 Environment=GYDS_RPC_HOST=127.0.0.1
 Environment=GYDS_P2P_PORT=${P2P_PORT}
+Environment=GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json
@@ -293,6 +299,13 @@ for i in 1 2 3 4 5; do
   warn "    Attempt $i/5: waiting for node... (5s)"
   sleep 5
 done
+
+if [[ "$NODE_OK" != "true" ]]; then
+  echo "RPC node did not pass its health check on port ${RPC_PORT}." >&2
+  systemctl --no-pager --full status gyds-rpcnode >&2 || true
+  journalctl -u gyds-rpcnode -n 50 --no-pager >&2 || true
+  exit 1
+fi
 
 SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
 

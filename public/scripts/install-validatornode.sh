@@ -29,11 +29,12 @@ LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
 GO_VERSION="${GO_VERSION:-1.21.13}"
 
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
-RPC_PORT="${GYDS_RPC_PORT:-8547}"
-WS_PORT="${GYDS_WS_PORT:-8548}"
-P2P_PORT="${GYDS_P2P_PORT:-30306}"
+RPC_PORT="${GYDS_VALIDATOR_RPC_PORT:-8552}"
+WS_PORT="${GYDS_VALIDATOR_WS_PORT:-8553}"
+P2P_PORT="${GYDS_VALIDATOR_P2P_PORT:-30307}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
+P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
 REWARD_ADDRESS="${GYDS_REWARD_ADDRESS:-}"
 STAKE_AMOUNT="${GYDS_STAKE_AMOUNT:-10000}"
 UPSTREAM_RPC="${GYDS_UPSTREAM_RPC:-https://rpc.netlifegy.com}"
@@ -97,6 +98,9 @@ esac
 
 # ── Pre-flight: reward address ────────────────────────────────────────────────
 if [[ -z "$REWARD_ADDRESS" ]]; then
+  if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
+    die "GYDS_REWARD_ADDRESS is required for non-interactive validator installation."
+  fi
   warn "GYDS_REWARD_ADDRESS not set. Enter your GYDS wallet address for staking rewards:"
   read -r REWARD_ADDRESS
   [[ -n "$REWARD_ADDRESS" ]] || die "Reward address is required"
@@ -116,6 +120,9 @@ elif is_rhel; then
   dnf install -y gcc git curl wget jq firewalld fail2ban nginx certbot python3-certbot-nginx \
     ca-certificates openssl net-tools lsof wireguard-tools 2>/dev/null || \
   yum install -y gcc git curl wget jq firewalld fail2ban nginx ca-certificates openssl net-tools lsof
+fi
+if [[ -z "$P2P_ADVERTISE_HOST" ]]; then
+  P2P_ADVERTISE_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
 fi
 
 # ── Go ────────────────────────────────────────────────────────────────────────
@@ -189,7 +196,6 @@ fi
 # ── Firewall ──────────────────────────────────────────────────────────────────
 log "[7/8] Configuring firewall..."
 if is_debian && command -v ufw &>/dev/null; then
-  ufw --force reset >/dev/null
   ufw default deny incoming >/dev/null
   ufw default allow outgoing >/dev/null
   ufw limit 22/tcp             comment "SSH (rate-limited)" >/dev/null
@@ -257,6 +263,8 @@ Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json"
 [[ -n "$BOOTSTRAP" ]] && ENV_BLOCK+="
 Environment=GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}"
+[[ -n "$P2P_ADVERTISE_HOST" ]] && ENV_BLOCK+="
+Environment=GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}"
 
 cat > /etc/systemd/system/gyds-validatornode.service <<EOF
 [Unit]
@@ -353,6 +361,13 @@ for i in 1 2 3 4 5; do
   warn "    Attempt $i/5: waiting for validator node... (5s)"
   sleep 5
 done
+
+if [[ "$NODE_OK" != "true" ]]; then
+  err "Validator node did not pass its RPC health check on port ${RPC_PORT}."
+  systemctl --no-pager --full status gyds-validatornode >&2 || true
+  journalctl -u gyds-validatornode -n 50 --no-pager >&2 || true
+  exit 1
+fi
 
 SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
 

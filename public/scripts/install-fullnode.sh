@@ -24,11 +24,12 @@ LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
 GO_VERSION="${GO_VERSION:-1.21.13}"
 
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
-RPC_PORT="${GYDS_RPC_PORT:-8545}"
-WS_PORT="${GYDS_WS_PORT:-8546}"
-P2P_PORT="${GYDS_P2P_PORT:-30303}"
+RPC_PORT="${GYDS_FULLNODE_RPC_PORT:-${GYDS_RPC_PORT:-8545}}"
+WS_PORT="${GYDS_FULLNODE_WS_PORT:-${GYDS_WS_PORT:-8546}}"
+P2P_PORT="${GYDS_FULLNODE_P2P_PORT:-${GYDS_P2P_PORT:-30304}}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
+P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
 DOMAIN="${DOMAIN:-}"
 
 REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
@@ -60,6 +61,8 @@ while [[ $# -gt 0 ]]; do
     --domain)          DOMAIN="$2";      shift 2 ;;
     --log-level)       LOG_LEVEL="$2";   shift 2 ;;
     --bootstrap-nodes) BOOTSTRAP="$2";   shift 2 ;;
+    --advertise-host)  P2P_ADVERTISE_HOST="$2"; shift 2 ;;
+    --no-wizard)       GYDS_SKIP_WIZARD=1; shift ;;
     *) warn "Unknown flag: $1"; shift ;;
   esac
 done
@@ -96,6 +99,9 @@ elif is_rhel; then
   dnf install -y gcc git curl wget jq firewalld fail2ban nginx certbot python3-certbot-nginx \
     ca-certificates openssl net-tools lsof 2>/dev/null || \
   yum install -y gcc git curl wget jq firewalld fail2ban nginx ca-certificates openssl net-tools lsof
+fi
+if [[ -z "$P2P_ADVERTISE_HOST" ]]; then
+  P2P_ADVERTISE_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
 fi
 
 # ── Go ────────────────────────────────────────────────────────────────────────
@@ -147,7 +153,6 @@ chmod 700 "${DATA_DIR}/keystore"
 # ── Firewall ──────────────────────────────────────────────────────────────────
 log "[6/7] Configuring firewall..."
 if is_debian && command -v ufw &>/dev/null; then
-  ufw --force reset >/dev/null
   ufw default deny incoming >/dev/null
   ufw default allow outgoing >/dev/null
   ufw limit 22/tcp    comment "SSH (rate-limited)" >/dev/null
@@ -210,6 +215,8 @@ Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json"
 [[ -n "$BOOTSTRAP" ]] && ENV_BLOCK+="
 Environment=GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}"
+[[ -n "$P2P_ADVERTISE_HOST" ]] && ENV_BLOCK+="
+Environment=GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}"
 
 cat > /etc/systemd/system/gyds-fullnode.service <<EOF
 [Unit]
@@ -330,9 +337,7 @@ echo ""
 
 # ── Ask user if they want the web setup wizard ────────────────────────────────
 LAUNCH_WIZARD="${GYDS_SKIP_WIZARD:-}"
-if echo "${@}" | grep -q "\-\-no-wizard"; then
-  LAUNCH_WIZARD="n"
-fi
+[[ "${NONINTERACTIVE:-0}" == "1" ]] && LAUNCH_WIZARD="n"
 if [[ -z "$LAUNCH_WIZARD" ]]; then
   read -r -p "  Launch web setup wizard now? [Y/n]: " WIZARD_REPLY
   case "${WIZARD_REPLY,,}" in
@@ -376,6 +381,13 @@ for i in 1 2 3 4 5; do
   warn "    Attempt $i/5: waiting for node... (5s)"
   sleep 5
 done
+
+if [[ "$NODE_OK" != "true" ]]; then
+  err "Full node did not pass its RPC health check on port ${RPC_PORT}."
+  systemctl --no-pager --full status gyds-fullnode >&2 || true
+  journalctl -u gyds-fullnode -n 50 --no-pager >&2 || true
+  exit 1
+fi
 
 SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
 WIZARD_DOMAIN=""

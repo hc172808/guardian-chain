@@ -24,14 +24,17 @@ GYDS_BIN="${GYDS_BIN:-$GYDS_HOME/bin}"
 DATA_DIR="${GYDS_HOME}/data"
 LOG_DIR="${GYDS_HOME}/logs"
 
-RPC_PORT="${GYDS_RPC_PORT:-8545}"
-WS_PORT="${GYDS_WS_PORT:-8546}"
-P2P_PORT="${GYDS_P2P_PORT:-30303}"
+RPC_PORT="${GYDS_LITENODE_RPC_PORT:-${GYDS_RPC_PORT:-8550}}"
+WS_PORT="${GYDS_LITENODE_WS_PORT:-${GYDS_WS_PORT:-8551}}"
+P2P_PORT="${GYDS_LITENODE_P2P_PORT:-${GYDS_P2P_PORT:-30306}}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
+P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
 
 REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 REPO_DIR="${REPO_DIR:-$HOME/gyds-litenode-src}"
+SRC_DIR="${SRC_DIR:-}"
+SYSTEMD_USER_AVAILABLE=0
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -47,6 +50,8 @@ echo "║   Repo: github.com/hc172808/fullnode                       ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
+[[ $EUID -ne 0 ]] || die "Run this user-mode installer as a regular user. Use install.sh --litenode when installing as root."
+
 # ── Arg parsing ───────────────────────────────────────────────────────────────
 require_value() {
   [[ $# -ge 2 && -n "${2:-}" && "${2:-}" != --* ]] || die "$1 requires a value"
@@ -60,6 +65,8 @@ while [[ $# -gt 0 ]]; do
     --data-dir)        require_value "$@"; DATA_DIR="$2";   shift 2 ;;
     --log-level)       require_value "$@"; LOG_LEVEL="$2";  shift 2 ;;
     --bootstrap-nodes) require_value "$@"; BOOTSTRAP="$2";  shift 2 ;;
+    --advertise-host)  require_value "$@"; P2P_ADVERTISE_HOST="$2"; shift 2 ;;
+    --no-wizard) GYDS_SKIP_WIZARD=1; shift ;;
     *) warn "Unknown flag: $1"; shift ;;
   esac
 done
@@ -99,6 +106,13 @@ elif [[ "$OS" == "Darwin" ]]; then
   command -v brew &>/dev/null || { warn "Homebrew not found. Install: https://brew.sh"; }
   command -v brew &>/dev/null && brew install git curl wget jq openssl 2>/dev/null || true
 fi
+if [[ -z "$P2P_ADVERTISE_HOST" ]]; then
+  P2P_ADVERTISE_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+fi
+if [[ "$OS" == "Linux" ]] && command -v sudo &>/dev/null && command -v ufw &>/dev/null; then
+  sudo ufw allow "${P2P_PORT}/tcp" >/dev/null 2>&1 || warn "Could not add the lite-node TCP P2P firewall rule."
+  sudo ufw allow "${P2P_PORT}/udp" >/dev/null 2>&1 || warn "Could not add the lite-node UDP P2P firewall rule."
+fi
 
 # ── Go ────────────────────────────────────────────────────────────────────────
 log "[2/6] Ensuring Go ${GO_VERSION}..."
@@ -122,7 +136,11 @@ log "    $(go version)"
 
 # ── Clone / update repo ───────────────────────────────────────────────────────
 log "[3/6] Fetching source from ${REPO_URL}..."
-if [[ -d "$REPO_DIR/.git" ]]; then
+if [[ -n "$SRC_DIR" ]]; then
+  [[ -f "$SRC_DIR/go.mod" ]] || die "Shared source directory has no go.mod: $SRC_DIR"
+  REPO_DIR="$SRC_DIR"
+  log "    Using shared source at $REPO_DIR"
+elif [[ -d "$REPO_DIR/.git" ]]; then
   log "    Existing source found — pulling latest..."
   git -C "$REPO_DIR" fetch origin main
   git -C "$REPO_DIR" reset --hard origin/main
@@ -156,6 +174,7 @@ GYDS_P2P_PORT=${P2P_PORT} \
 GYDS_DATA_DIR=${DATA_DIR} \
 GYDS_LOG_LEVEL=${LOG_LEVEL}"
 [[ -n "$BOOTSTRAP" ]] && ENV_VARS="${ENV_VARS} GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}"
+[[ -n "$P2P_ADVERTISE_HOST" ]] && ENV_VARS="${ENV_VARS} GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}"
 
 cat > "${GYDS_HOME}/start.sh" <<EOF
 #!/usr/bin/env bash
@@ -168,17 +187,31 @@ export GYDS_WS_PORT="${WS_PORT}"
 export GYDS_P2P_PORT="${P2P_PORT}"
 export GYDS_DATA_DIR="${DATA_DIR}"
 export GYDS_LOG_LEVEL="${LOG_LEVEL}"
+export GYDS_P2P_ADVERTISE_HOST="${P2P_ADVERTISE_HOST}"
 $([ -n "$BOOTSTRAP" ] && echo "export GYDS_BOOTSTRAP_NODES=\"${BOOTSTRAP}\"")
 exec "${GYDS_BIN}/${BINARY}" start
 EOF
 chmod +x "${GYDS_HOME}/start.sh"
-# Append API namespace env vars into the node env file immediately (also written below for systemd)
-grep -qxF "GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug" "${GYDS_HOME}/config/node.env" 2>/dev/null \
-  || printf '\nGYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug\nGYDS_WS_API=eth,net,web3,txpool,admin\n' >> "${GYDS_HOME}/config/node.env"
-
 # User systemd service (no root required)
-if command -v systemctl &>/dev/null && [[ -d "$HOME/.config" ]]; then
+if [[ "$OS" == "Linux" ]]; then
+  command -v systemctl &>/dev/null || die "systemd is required for a persistent Linux lite-node service."
   mkdir -p "$HOME/.config/systemd/user"
+  # Write env file for systemd
+  cat > "${GYDS_HOME}/config/node.env" <<EOF
+GYDS_CHAIN_ID=${CHAIN_ID}
+GYDS_NODE_MODE=lite
+GYDS_RPC_PORT=${RPC_PORT}
+GYDS_RPC_HOST=127.0.0.1
+GYDS_WS_PORT=${WS_PORT}
+GYDS_P2P_PORT=${P2P_PORT}
+GYDS_DATA_DIR=${DATA_DIR}
+GYDS_LOG_LEVEL=${LOG_LEVEL}
+GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}
+$([ -n "$BOOTSTRAP" ] && echo "GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}")
+GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
+GYDS_WS_API=eth,net,web3,txpool,admin
+EOF
+
   cat > "$HOME/.config/systemd/user/gyds-litenode.service" <<EOF
 [Unit]
 Description=GYDSchain Lite Node v${GYDS_VERSION}
@@ -199,23 +232,10 @@ StandardError=append:${LOG_DIR}/litenode-error.log
 [Install]
 WantedBy=default.target
 EOF
-  # Write env file for systemd
-  cat > "${GYDS_HOME}/config/node.env" <<EOF
-GYDS_CHAIN_ID=${CHAIN_ID}
-GYDS_NODE_MODE=lite
-GYDS_RPC_PORT=${RPC_PORT}
-GYDS_RPC_HOST=127.0.0.1
-GYDS_WS_PORT=${WS_PORT}
-GYDS_P2P_PORT=${P2P_PORT}
-GYDS_DATA_DIR=${DATA_DIR}
-GYDS_LOG_LEVEL=${LOG_LEVEL}
-$([ -n "$BOOTSTRAP" ] && echo "GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}")
-GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
-GYDS_WS_API=eth,net,web3,txpool,admin
-EOF
 
-  systemctl --user daemon-reload 2>/dev/null || true
-  systemctl --user enable gyds-litenode 2>/dev/null || true
+  systemctl --user daemon-reload || die "Could not reach the user systemd manager. Use install.sh --litenode from a regular login or sudo session."
+  systemctl --user enable gyds-litenode || die "Could not enable the lite-node user service."
+  SYSTEMD_USER_AVAILABLE=1
 fi
 
 # ── Summary & Web Setup Wizard ────────────────────────────────────────────────
@@ -252,9 +272,7 @@ echo ""
 
 # ── Ask user if they want the web setup wizard ────────────────────────────────
 LAUNCH_WIZARD="${GYDS_SKIP_WIZARD:-}"
-if echo "${@}" | grep -q "\-\-no-wizard"; then
-  LAUNCH_WIZARD="n"
-fi
+[[ "${NONINTERACTIVE:-0}" == "1" ]] && LAUNCH_WIZARD="n"
 if [[ -z "$LAUNCH_WIZARD" ]]; then
   read -r -p "  Launch web setup wizard now? [Y/n]: " WIZARD_REPLY
   case "${WIZARD_REPLY,,}" in
@@ -284,4 +302,32 @@ else
   echo "  RPC test:"
   echo "  curl -s http://localhost:${RPC_PORT}/health"
   echo ""
+fi
+
+if [[ "$SYSTEMD_USER_AVAILABLE" == "1" ]]; then
+  if ! systemctl --user restart gyds-litenode; then
+    echo "Lite-node service failed to start." >&2
+    systemctl --user --no-pager --full status gyds-litenode >&2 || true
+    journalctl --user -u gyds-litenode -n 50 --no-pager >&2 || true
+    exit 1
+  fi
+  if [[ -f "${GYDS_HOME}/config/node.env" ]]; then
+    WIZARD_RPC="$(grep '^GYDS_RPC_PORT=' "${GYDS_HOME}/config/node.env" | tail -1 | cut -d= -f2 | tr -d ' ' || true)"
+    [[ -n "$WIZARD_RPC" ]] && RPC_PORT="$WIZARD_RPC"
+  fi
+  NODE_OK=false
+  for attempt in 1 2 3 4 5; do
+    if curl -sf --max-time 4 "http://localhost:${RPC_PORT}/health" >/dev/null 2>&1; then
+      NODE_OK=true
+      break
+    fi
+    warn "    Attempt ${attempt}/5: waiting for lite node health endpoint..."
+    sleep 5
+  done
+  if [[ "$NODE_OK" != "true" ]]; then
+    echo "Lite node did not pass its RPC health check on port ${RPC_PORT}." >&2
+    systemctl --user --no-pager --full status gyds-litenode >&2 || true
+    journalctl --user -u gyds-litenode -n 50 --no-pager >&2 || true
+    exit 1
+  fi
 fi

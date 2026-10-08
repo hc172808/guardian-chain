@@ -45,25 +45,55 @@ fi
 # ─── Argument parsing ─────────────────────────────────────────────────────────
 MODE=""
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
+NODE_INSTALL_ARGS=()
+REQ_ARGS=()
 
-for arg in "$@"; do
+while [[ $# -gt 0 ]]; do
+  arg="$1"
   case "$arg" in
-    --requirements|-r) MODE="requirements" ;;
-    --dashboard|-d)    MODE="dashboard" ;;
-    --fullnode)        MODE="fullnode" ;;
-    --litenode)        MODE="litenode" ;;
-    --validator)       MODE="validator" ;;
-    --rpc)             MODE="rpc" ;;
-    --bootnode)        MODE="bootnode" ;;
-    --genesis)         MODE="genesis" ;;
-    --all|-a)          MODE="all" ;;
-    --noninteractive|--non-interactive) NONINTERACTIVE=1 ;;
+    --requirements|-r) MODE="requirements"; shift ;;
+    --dashboard|-d)    MODE="dashboard"; shift ;;
+    --fullnode)        MODE="fullnode"; shift ;;
+    --litenode)        MODE="litenode"; shift ;;
+    --validator)       MODE="validator"; shift ;;
+    --rpc)             MODE="rpc"; shift ;;
+    --bootnode)        MODE="bootnode"; shift ;;
+    --genesis)         MODE="genesis"; shift ;;
+    --all|-a)          MODE="all"; shift ;;
+    --noninteractive|--non-interactive) NONINTERACTIVE=1; shift ;;
+    --no-docker|--no-wireguard|--minimal)
+      REQ_ARGS+=("$arg")
+      shift
+      ;;
+    --no-wizard)
+      NODE_INSTALL_ARGS+=("$arg")
+      shift
+      ;;
+    --rpc-port|--ws-port|--p2p-port|--data-dir|--domain|--log-level|--bootstrap-nodes|--reward-address|--stake-amount|--upstream-rpc|--public-addr|--max-peers)
+      [[ $# -ge 2 && "$2" != --* ]] || { err "$arg requires a value"; exit 2; }
+      NODE_INSTALL_ARGS+=("$arg" "$2")
+      shift 2
+      ;;
+    --rpc-port=*|--ws-port=*|--p2p-port=*|--data-dir=*|--domain=*|--log-level=*|--bootstrap-nodes=*|--reward-address=*|--stake-amount=*|--upstream-rpc=*|--public-addr=*|--max-peers=*)
+      [[ -n "${arg#*=}" ]] || { err "$arg requires a value"; exit 2; }
+      NODE_INSTALL_ARGS+=("${arg%%=*}" "${arg#*=}")
+      shift
+      ;;
     -h|--help)
       sed -n '3,18p' "$0" | sed 's/^# //' | sed 's/^#//'
-      exit 0 ;;
-    *) warn "Unknown flag: $arg" ;;
+      exit 0
+      ;;
+    *)
+      warn "Unknown flag: $arg"
+      shift
+      ;;
   esac
 done
+
+if [[ "$MODE" == "all" && ${#NODE_INSTALL_ARGS[@]} -gt 0 ]]; then
+  err "Per-node options cannot be applied to the all-install bundle. Use GYDS_*_PORT environment variables for role-specific ports."
+  exit 2
+fi
 
 # ─── Banner ───────────────────────────────────────────────────────────────────
 clear 2>/dev/null || true
@@ -170,7 +200,7 @@ case "$MODE" in
     step "Installing system requirements"
     REQ_SCRIPT="${SCRIPT_DIR}/scripts/requirements.sh"
     [[ -f "$REQ_SCRIPT" ]] || { err "requirements.sh not found at $REQ_SCRIPT"; exit 1; }
-    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" "${@:-}"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" "${REQ_ARGS[@]}"
     ;;
 
   # ── 2. Dashboard ───────────────────────────────────────────────────────────
@@ -193,44 +223,44 @@ case "$MODE" in
   # ── 3. Individual node types ───────────────────────────────────────────────
   fullnode)
     step "Installing requirements + Full Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker
-    run_script "install-fullnode.sh"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker "${REQ_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-fullnode.sh" "${NODE_INSTALL_ARGS[@]}"
     ;;
 
   litenode)
     step "Installing requirements + Lite Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker --no-wireguard
-    run_script "install-litenode.sh"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker --no-wireguard "${REQ_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-all-nodes.sh" --litenode "${NODE_INSTALL_ARGS[@]}"
     ;;
 
   validator)
     step "Installing requirements + Validator Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh"
-    run_script "install-validatornode.sh"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" "${REQ_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-validatornode.sh" "${NODE_INSTALL_ARGS[@]}"
     ;;
 
   rpc)
     step "Installing requirements + RPC Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker
-    run_script "install-rpcnode.sh"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker "${REQ_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-rpcnode.sh" "${NODE_INSTALL_ARGS[@]}"
     ;;
 
   bootnode)
     step "Installing requirements + Bootnode"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker
-    run_script "install-bootnode.sh"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker "${REQ_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-bootnode.sh" "${NODE_INSTALL_ARGS[@]}"
     ;;
 
   genesis)
     step "Installing requirements + Genesis Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh"
-    run_script "install-genesis.sh"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" "${REQ_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-genesis.sh" "${NODE_INSTALL_ARGS[@]}"
     ;;
 
   # ── 4. Everything ──────────────────────────────────────────────────────────
   all)
-    step "Full installation — requirements + dashboard + all node types"
-    warn "This will install ALL components. This may take 15-30 minutes."
+    step "Full installation — requirements + dashboard + core node bundle"
+    warn "This installs the dashboard, bootnode, full node, and lite node. It may take 15-30 minutes."
 
     if [[ "$NONINTERACTIVE" != "1" ]]; then
       read -rp "Continue? (y/N) " -n 1 _all_ok; echo
@@ -240,13 +270,32 @@ case "$MODE" in
     info "1/3 — System requirements"
     NONINTERACTIVE=1 bash "${SCRIPT_DIR}/scripts/requirements.sh"
 
+    ALL_INSTALL_FAILED=0
+
     info "2/3 — ChainCore Dashboard"
     DEPLOY_SCRIPT=$(find_script "deploy-dashboard.sh")
-    [[ -n "$DEPLOY_SCRIPT" ]] && NONINTERACTIVE=1 bash "$DEPLOY_SCRIPT" || warn "deploy-dashboard.sh not found — skipping"
+    if [[ -z "$DEPLOY_SCRIPT" ]]; then
+      err "deploy-dashboard.sh not found"
+      ALL_INSTALL_FAILED=1
+    elif ! NONINTERACTIVE=1 bash "$DEPLOY_SCRIPT"; then
+      err "Dashboard deployment failed; continuing with node installation."
+      ALL_INSTALL_FAILED=1
+    fi
 
-    info "3/3 — All node types"
+    info "3/3 — Bootnode, full node, and lite node"
     ALL_NODES_SCRIPT=$(find_script "install-all-nodes.sh")
-    [[ -n "$ALL_NODES_SCRIPT" ]] && NONINTERACTIVE=1 bash "$ALL_NODES_SCRIPT" --all || warn "install-all-nodes.sh not found — skipping"
+    if [[ -z "$ALL_NODES_SCRIPT" ]]; then
+      err "install-all-nodes.sh not found"
+      ALL_INSTALL_FAILED=1
+    elif ! NONINTERACTIVE=1 bash "$ALL_NODES_SCRIPT" --all; then
+      err "One or more node installations failed."
+      ALL_INSTALL_FAILED=1
+    fi
+
+    if [[ "$ALL_INSTALL_FAILED" -eq 1 ]]; then
+      err "Full installation incomplete. Review the errors above before retrying."
+      exit 1
+    fi
     ;;
 
   # ── 5. Redeploy / update ────────────────────────────────────────────────────

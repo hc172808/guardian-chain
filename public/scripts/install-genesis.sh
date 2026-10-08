@@ -29,6 +29,7 @@ GENESIS_PORT="${GENESIS_PORT:-30300}"
 RPC_PORT="${GYDS_RPC_PORT:-8544}"
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 STORAGE_SIZE="${STORAGE_SIZE:-500}"
+P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
 
 REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 REPO_DIR="$APP_DIR"
@@ -37,6 +38,7 @@ GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 err()  { echo -e "${RED}[✗]${NC} $*" >&2; }
+die()  { err "$*"; exit 1; }
 
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -48,10 +50,43 @@ echo -e "${NC}"
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --rpc-port|--p2p-port|--data-dir)
+      [[ $# -ge 2 && "$2" != --* ]] || { err "$1 requires a value"; exit 2; }
+      case "$1" in
+        --rpc-port) RPC_PORT="$2" ;;
+        --p2p-port) GENESIS_PORT="$2" ;;
+        --data-dir) DATA_DIR="$2" ;;
+      esac
+      shift 2
+      ;;
+    --rpc-port=*|--p2p-port=*|--data-dir=*)
+      option="${1%%=*}"
+      value="${1#*=}"
+      [[ -n "$value" ]] || { err "$option requires a value"; exit 2; }
+      case "$option" in
+        --rpc-port) RPC_PORT="$value" ;;
+        --p2p-port) GENESIS_PORT="$value" ;;
+        --data-dir) DATA_DIR="$value" ;;
+      esac
+      shift
+      ;;
+    *) warn "Unknown flag: $1"; shift ;;
+  esac
+done
+
 warn "This is the GENESIS node — it creates the blockchain from block 0."
 warn "Only run this ONCE on your primary genesis server."
-read -rp "Proceed? (yes/no) " confirm
-[[ "$confirm" == "yes" ]] || { echo "Aborted."; exit 0; }
+if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
+  [[ "${GYDS_CONFIRM_GENESIS:-0}" == "1" ]] || {
+    err "Non-interactive genesis setup requires GYDS_CONFIRM_GENESIS=1. This node initializes the chain."
+    exit 2
+  }
+else
+  read -rp "Proceed? (yes/no) " confirm
+  [[ "$confirm" == "yes" ]] || { echo "Aborted."; exit 0; }
+fi
 
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -65,6 +100,9 @@ log "[1/7] Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y --no-install-recommends build-essential git curl wget jq ufw fail2ban ca-certificates openssl
+if [[ -z "$P2P_ADVERTISE_HOST" ]]; then
+  P2P_ADVERTISE_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+fi
 
 # ─── 2. Go ───────────────────────────────────────────────────────────────────
 log "[2/7] Installing Go ${GO_VERSION}..."
@@ -159,6 +197,7 @@ Environment=GYDS_NODE_MODE=genesis
 Environment=GYDS_RPC_PORT=${RPC_PORT}
 Environment=GYDS_RPC_HOST=0.0.0.0
 Environment=GYDS_P2P_PORT=${GENESIS_PORT}
+Environment=GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=info
 Environment=GYDS_LOG_FORMAT=json
@@ -192,6 +231,13 @@ for _ in 1 2 3; do
   curl -sf --max-time 4 "http://localhost:${RPC_PORT}/health" &>/dev/null && NODE_OK=true && break
   sleep 4
 done
+
+if [[ "$NODE_OK" != "true" ]]; then
+  err "Genesis node did not pass its RPC health check on port ${RPC_PORT}."
+  systemctl --no-pager --full status gyds-genesis >&2 || true
+  journalctl -u gyds-genesis -n 50 --no-pager >&2 || true
+  exit 1
+fi
 
 SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
 
