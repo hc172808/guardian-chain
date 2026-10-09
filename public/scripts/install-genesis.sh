@@ -23,7 +23,7 @@ APP_DIR="${APP_DIR:-/opt/gyds-genesis}"
 DATA_DIR="${DATA_DIR:-/var/lib/gyds-genesis}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
-GO_VERSION="${GO_VERSION:-1.21.13}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 GENESIS_PORT="${GENESIS_PORT:-30300}"
 RPC_PORT="${GYDS_RPC_PORT:-8544}"

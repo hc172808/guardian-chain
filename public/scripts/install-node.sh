@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Universal Node Installer
-#  Usage:  sudo bash install-node.sh [validator|fullnode|rpc|litenode|bootnode]
+#  Usage:  sudo bash install-node.sh [validator|fullnode|rpc|lite|litenode]
 #  Builds every node mode from the single fullnode repository.
 #  Chain ID: 198282  |  Domain: netlifegy.com
 #═══════════════════════════════════════════════════════════════════════════════
@@ -9,15 +9,19 @@ set -euo pipefail
 
 NODE_TYPE="${1:-fullnode}"
 case "$NODE_TYPE" in
-  validator|fullnode|rpc|litenode|bootnode) ;;
-  *) echo "Usage: $0 [validator|fullnode|rpc|litenode|bootnode]"; exit 1 ;;
+  validator|fullnode|rpc|lite|litenode) ;;
+  bootnode)
+    echo "bootnode mode is not implemented in fullnode.git; use install-bootnode.sh only after upstream support is added." >&2
+    exit 1
+    ;;
+  *) echo "Usage: $0 [validator|fullnode|rpc|lite|litenode]"; exit 1 ;;
 esac
 
 INSTALL_DIR="/opt/gydschain"
 DATA_DIR="/var/lib/gydschain"
 LOG_DIR="/var/log/gydschain"
 SERVICE_NAME="gydschain-${NODE_TYPE}"
-GO_VERSION="${GO_VERSION:-1.22.5}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 CHAIN_ID="${CHAIN_ID:-198282}"
 BLOCK_TIME="${BLOCK_TIME:-120}"
@@ -114,9 +118,10 @@ KEY_FILE="$INSTALL_DIR/keys/${NODE_TYPE}.key"
 [[ -f "$KEY_FILE" ]] || { openssl rand -hex 32 > "$KEY_FILE"; chmod 600 "$KEY_FILE"; }
 
 case "$NODE_TYPE" in
-  validator|fullnode|rpc|litenode)
+  validator|fullnode|rpc|lite|litenode)
     MODE="$NODE_TYPE"
     [[ "$MODE" == "fullnode" ]] && MODE="full"
+    [[ "$MODE" == "litenode" ]] && MODE="lite"
     EXEC_CMD="GYDS_NODE_MODE=${MODE} GYDS_CHAIN_ID=${CHAIN_ID} GYDS_RPC_PORT=${RPC_PORT} GYDS_P2P_PORT=${P2P_PORT} GYDS_DATA_DIR=${DATA_DIR} ${INSTALL_DIR}/gyds-fullnode start"
     ;;
   bootnode)

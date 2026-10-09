@@ -17,7 +17,7 @@ GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 GYDS_VERSION="1.0.0"
 BINARY="gyds-litenode"
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
-GO_VERSION="${GO_VERSION:-1.21.13}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 GYDS_HOME="${GYDS_HOME:-$HOME/.gydschain}"
 GYDS_BIN="${GYDS_BIN:-$GYDS_HOME/bin}"

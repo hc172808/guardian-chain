@@ -26,7 +26,7 @@ DATA_DIR="${DATA_DIR:-/var/lib/gyds-validatornode}"
 KEY_DIR="${KEY_DIR:-${DATA_DIR}/keystore}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
-GO_VERSION="${GO_VERSION:-1.21.13}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 RPC_PORT="${GYDS_RPC_PORT:-8547}"

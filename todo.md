@@ -1,6 +1,6 @@
 # ChainCore — Developer TODO
 
-> Last updated: 2026-08-15  
+> Last updated: 2026-10-09  
 > Stack: Vite+React+TS frontend · Express+Drizzle backend · PostgreSQL · Chain ID 198282 · Domain: app.netlifegy.com
 
 ---
@@ -108,6 +108,22 @@
 ## 🔲 Pending / In Progress
 
 ### High Priority
+
+- [ ] **Make user-created tokens real on-chain contracts (GRC-20 / GRC-721 / GRC-1155)** — `TokenFactory.tsx` currently invents a random address and `tx_hash`; `POST /api/tokens` only stores metadata. It does not deploy a contract.
+  - [ ] Add `contracts/GRC20Token.sol`, `contracts/GRC721Token.sol`, `contracts/GRC1155Token.sol`, and `contracts/GydsTokenFactory.sol` (or document and test a direct-deployment alternative). Implement the selected standard, creator/authority rules, initial supply, and a `TokenCreated` event.
+  - [ ] Update `src/components/token/TokenFactory.tsx` to have the connected wallet sign and submit the real deployment transaction on mainnet (chain ID 198282); do not fall back to `user:<id>` as a deployer.
+  - [ ] Update `server/routes.ts` so token metadata is accepted only after checking the real transaction receipt, deployed address/code, creator, and chain ID. Remove fabricated address/transaction hashes and reconcile the GYDS fee burn with an actual confirmed chain operation.
+  - [ ] Add isolated Hardhat tests for each supported contract, authority choices, initial supply, transfer, revert cases, and factory events. Keep these tests isolated from unrelated legacy AMM compile blockers.
+  - [ ] **Canonical Go fullnode files to verify/update only where tests expose a gap:**
+    - `evm/engine.go` — EVM execution and contract-creation transactions.
+    - `core/chain.go` — transaction inclusion, contract state, receipt persistence, and restart recovery.
+    - `rpc/server.go` — JSON-RPC deployment/call/read methods; `eth_getLogs` currently returns an empty list and needs real receipt-log filtering for token events.
+    - `core/evm_integration_test.go` and RPC tests — deploy compiled token bytecode through a signed raw transaction; verify receipt/status, `eth_getCode`, `eth_call`, transfer, event logs, and persistence after restart.
+  - [ ] Do not add a separate Go implementation for each token standard: the canonical node already embeds geth's EVM and exposes raw-transaction submission, receipts, code, calls, and gas estimation. Use Go changes for missing generic EVM/RPC behavior; keep token standards in Solidity.
+- [ ] **Create a safe repeatable full-service installer** — first decide whether it installs only the Go node, the node plus dashboard/API, or a fresh server stack. Each run must verify `https://github.com/hc172808/fullnode.git`, fetch/fast-forward before building, and refuse to force-reset local source changes.
+  - [ ] Preserve existing chain data and service configuration; make backups before changing configuration and clearly report the brief RPC interruption caused by a node restart.
+  - [ ] If dashboard/API or PostgreSQL are included, reuse the existing database without resetting it and keep migrations explicit.
+- [ ] **Pull the canonical fullnode before Go feature work** — verify the checkout's origin is `hc172808/fullnode` and fast-forward `main` before editing/building; do not treat `fullnode-repull` as canonical (its origin is `guardian-chain`).
 
 - [x] **Real SMTP email verification** — Nodemailer delivery is wired through `server/email.ts` and the SMTP settings are available in Admin → Server Config. Without `SMTP_HOST`, development safely logs the message instead.
 - [ ] **Production Geth node** — genesis.json is correct; deploy a real Geth binary on a VPS, run `geth init genesis.json`, and peer the test nodes to the live network.

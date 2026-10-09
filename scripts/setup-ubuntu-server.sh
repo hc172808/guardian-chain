@@ -19,7 +19,7 @@ set -euo pipefail
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
 GYDS_VERSION="2.1.0"
-GO_VERSION="1.22.5"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 GYDS_USER="${GYDS_USER:-gydschain}"
 GYDS_HOME="${GYDS_HOME:-/var/lib/gydschain}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
@@ -89,16 +89,12 @@ echo ""
 # ─── Locate source dir ───────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SRC_DIR="${SRC_DIR:-$REPO_ROOT/public/blockchain-go}"
-
-if [[ ! -d "$SRC_DIR/cmd/fullnode" ]]; then
-  warn "blockchain-go source not found at: $SRC_DIR"
-  warn "Binary build will be skipped. Set SRC_DIR=/path/to/blockchain-go to override."
-  BUILD_BINARY=false
-else
-  BUILD_BINARY=true
-  log "Source found: $SRC_DIR"
-fi
+FULLNODE_REPO_URL="${FULLNODE_REPO_URL:-https://github.com/hc172808/fullnode.git}"
+FULLNODE_REPO_DIR="${FULLNODE_REPO_DIR:-/opt/gyds-fullnode}"
+SRC_DIR_OVERRIDE="${SRC_DIR:-}"
+SRC_DIR="${SRC_DIR_OVERRIDE:-$FULLNODE_REPO_DIR}"
+BUILD_BINARY=true
+log "Canonical fullnode source path: $SRC_DIR"
 
 # ═════════════════════════════════════════════════════════════════════════════
 header "Step 1/8 — System Update & Core Packages"
@@ -161,27 +157,54 @@ log "Directories ready: $GYDS_HOME"
 header "Step 4/8 — Build Binary"
 # ═════════════════════════════════════════════════════════════════════════════
 if [[ "$BUILD_BINARY" == "true" ]]; then
-  info "Building gyds-fullnode from $SRC_DIR ..."
+  if [[ -d "$SRC_DIR/.git" ]]; then
+    ORIGIN_URL="$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null || true)"
+    if [[ -z "$ORIGIN_URL" || "${ORIGIN_URL%.git}" != "${FULLNODE_REPO_URL%.git}" ]]; then
+      err "Existing checkout at $SRC_DIR does not match $FULLNODE_REPO_URL."
+      exit 1
+    fi
+    git -C "$SRC_DIR" pull --ff-only origin main
+  elif [[ ! -f "$SRC_DIR/go.mod" ]]; then
+    if [[ -n "$SRC_DIR_OVERRIDE" ]]; then
+      err "SRC_DIR override must be a fullnode.git checkout with go.mod: $SRC_DIR"
+      exit 1
+    fi
+    if [[ -e "$SRC_DIR" ]]; then
+      err "Refusing to clone over the existing non-repository path: $SRC_DIR"
+      exit 1
+    fi
+    git clone --depth=1 --branch main "$FULLNODE_REPO_URL" "$SRC_DIR"
+  fi
+
+  if [[ ! -f "$SRC_DIR/go.mod" ]] || ! grep -Eq '^module[[:space:]]+github\.com/gydschain/fullnode([[:space:]]|$)' "$SRC_DIR/go.mod"; then
+    err "Expected canonical module github.com/gydschain/fullnode at $SRC_DIR."
+    exit 1
+  fi
+  info "Building canonical gyds-fullnode from $SRC_DIR ..."
   BUILD_TMP="$(mktemp -d)"
-  cp -r "$SRC_DIR" "$BUILD_TMP/blockchain-go"
+  trap 'rm -rf "${BUILD_TMP:-}"' EXIT
+  cp -r "$SRC_DIR" "$BUILD_TMP/fullnode"
   chown -R "$GYDS_USER:$GYDS_USER" "$BUILD_TMP"
 
   sudo -u "$GYDS_USER" -H env HOME="$GYDS_HOME" PATH="$PATH" \
-    bash -c "cd '$BUILD_TMP/blockchain-go' && go mod download && \
-             go build -ldflags '-s -w -X main.Version=${GYDS_VERSION}' \
-             -o '$BUILD_TMP/gyds-fullnode' ./cmd/fullnode && \
-             go build -ldflags '-s -w' \
-             -o '$BUILD_TMP/gyds-litenode' ./cmd/litenode && \
-             go build -ldflags '-s -w' \
-             -o '$BUILD_TMP/gyds-bootnode' ./cmd/bootnode"
+    bash -c "cd '$BUILD_TMP/fullnode' && go mod download && \
+             go build -ldflags '-s -w -X main.version=${GYDS_VERSION}' \
+             -o '$BUILD_TMP/gyds-fullnode' ."
 
-  install -m 0755 -o root -g root "$BUILD_TMP/gyds-fullnode"  "$GYDS_BIN/gyds-fullnode"
-  install -m 0755 -o root -g root "$BUILD_TMP/gyds-litenode"  "$GYDS_BIN/gyds-litenode"
-  install -m 0755 -o root -g root "$BUILD_TMP/gyds-bootnode"  "$GYDS_BIN/gyds-bootnode"
+  install -m 0755 -o root -g root "$BUILD_TMP/gyds-fullnode" "$GYDS_BIN/gyds-fullnode"
+  cat > "$GYDS_BIN/gyds-litenode" <<EOF
+#!/usr/bin/env bash
+export GYDS_NODE_MODE=lite
+exec "${GYDS_BIN}/gyds-fullnode" "\$@"
+EOF
+  chmod 0755 "$GYDS_BIN/gyds-litenode"
   rm -rf "$BUILD_TMP"
-  log "Binaries installed to $GYDS_BIN"
+  trap - EXIT
+  log "Canonical binaries installed to $GYDS_BIN"
+  warn "fullnode.git does not implement bootnode mode; no new gyds-bootnode binary was installed."
 else
-  warn "Skipping binary build (source not found). Install binaries manually."
+  err "Canonical node binary build was disabled unexpectedly."
+  exit 1
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -304,7 +327,7 @@ server {
     server_name ws.${DOMAIN};
 
     location / {
-        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_pass http://127.0.0.1:${RPC_PORT}/api/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade          \$http_upgrade;
         proxy_set_header Connection       "upgrade";
@@ -398,7 +421,7 @@ server {
     ssl_protocols       TLSv1.2 TLSv1.3;
 
     location / {
-        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_pass http://127.0.0.1:${RPC_PORT}/api/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";

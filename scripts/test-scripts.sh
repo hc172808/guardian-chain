@@ -223,6 +223,43 @@ check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "ALLOW_EXISTING_D
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Welcome to nginx" "default Nginx page verification"
 
 echo ""
+echo -e "${BOLD}[ 7a ] Canonical node source and mode checks${NC}"
+# ═════════════════════════════════════════════════════════════════════════════
+for s in \
+  "$REPO_ROOT/public/scripts/install-node.sh" \
+  "$REPO_ROOT/public/scripts/install-localnode.sh" \
+  "$REPO_ROOT/public/scripts/install-termux.sh" \
+  "$SCRIPT_DIR/setup-ubuntu-server.sh"; do
+  check_contains "$s" "github.com/hc172808/fullnode.git" "canonical fullnode source"
+done
+check_contains "$REPO_ROOT/public/scripts/install-localnode.sh" "github.com/gydschain/fullnode" "canonical module validation"
+check_contains "$REPO_ROOT/public/scripts/install-termux.sh" "github.com/gydschain/fullnode" "canonical module validation"
+check_contains "$SCRIPT_DIR/setup-ubuntu-server.sh" "github.com/gydschain/fullnode" "canonical module validation"
+check_contains "$REPO_ROOT/public/scripts/install-localnode.sh" 'GYDS_NODE_MODE=${NODE_MODE}' "role-based localnode mode"
+check_contains "$REPO_ROOT/public/scripts/install-termux.sh" "GYDS_NODE_MODE=lite" "Termux lite mode"
+check_contains "$REPO_ROOT/public/scripts/install-node.sh" 'MODE="lite"' "universal installer lite mode"
+check_contains "$SCRIPT_DIR/setup-ubuntu-server.sh" "GYDS_NODE_MODE=lite" "Ubuntu lite wrapper"
+check_contains "$REPO_ROOT/public/scripts/install-localnode.sh" "/api/ws" "canonical WebSocket endpoint"
+check_contains "$SCRIPT_DIR/setup-ubuntu-server.sh" "/api/ws" "canonical WebSocket endpoint"
+check_no_pattern "$REPO_ROOT/public/scripts/install-localnode.sh" "public/blockchain-go" "legacy blockchain-go source"
+check_no_pattern "$REPO_ROOT/public/scripts/install-termux.sh" "public/blockchain-go" "legacy blockchain-go source"
+check_no_pattern "$SCRIPT_DIR/setup-ubuntu-server.sh" "public/blockchain-go" "legacy blockchain-go source"
+if output="$(bash "$REPO_ROOT/public/scripts/install-node.sh" bootnode 2>&1)"; then
+  fail "Universal installer accepted unsupported bootnode mode"
+elif [[ "$output" == *"not implemented"* ]]; then
+  pass "Universal installer rejects unsupported bootnode mode before setup"
+else
+  fail "Universal installer bootnode rejection was unclear: $output"
+fi
+if output="$(NODE_TYPE=validator bash "$REPO_ROOT/public/scripts/install-localnode.sh" 2>&1)"; then
+  fail "Local-network installer accepted validator mode"
+elif [[ "$output" == *"remains on the dedicated setup script"* ]]; then
+  pass "Local-network installer leaves validator setup on its dedicated path"
+else
+  fail "Local-network validator rejection was unclear: $output"
+fi
+
+echo ""
 echo -e "${BOLD}[ 8 ] Security checks${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
 for s in "${SCRIPTS[@]}"; do
