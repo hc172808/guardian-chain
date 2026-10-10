@@ -101,6 +101,7 @@ echo -e "${BOLD}[ 1 ] Locate scripts${NC}"
 SCRIPTS=(
   "$SCRIPT_DIR/setup-ubuntu-server.sh"
   "$SCRIPT_DIR/setup-validator-node.sh"
+  "$REPO_ROOT/public/scripts/install-fullnode-service.sh"
   "$REPO_ROOT/install.sh"
 )
 
@@ -235,6 +236,73 @@ done
 check_contains "$REPO_ROOT/public/scripts/install-localnode.sh" "github.com/gydschain/fullnode" "canonical module validation"
 check_contains "$REPO_ROOT/public/scripts/install-termux.sh" "github.com/gydschain/fullnode" "canonical module validation"
 check_contains "$SCRIPT_DIR/setup-ubuntu-server.sh" "github.com/gydschain/fullnode" "canonical module validation"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "https://github.com/hc172808/fullnode.git" "canonical fullnode installer source"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "git_app merge --ff-only" "fast-forward-only source update"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "test ./..." "installer tests source before replacing binary"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "SetLoopbackOnly()" "fresh fullnode listeners bind to loopback"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "Existing native service found; its current listener binding will be preserved." "existing service binding is preserved"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "apply_new_service_loopback_hardening" "fresh service loopback hardening"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "other GYDS_RPC_HOST values are not supported" "reject unsafe new-service RPC binds"
+check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "reset --hard" "destructive source reset"
+check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "ufw --force reset" "firewall reset"
+if command -v python3 >/dev/null 2>&1; then
+  if python3 - "$REPO_ROOT/public/scripts/install-fullnode-service.sh" <<'PY'
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+offset = 0
+count = 0
+blocks = []
+marker = "<<'PY'\n"
+while True:
+    heredoc = source.find(marker, offset)
+    if heredoc < 0:
+        break
+    start = heredoc + len(marker)
+    end = source.find("\nPY\n", start)
+    if end < 0:
+        raise SystemExit("unterminated embedded Python heredoc")
+    block = source[start:end]
+    count += 1
+    compile(block, f"fullnode-installer-python-{count}", "exec")
+    blocks.append(block)
+    offset = end + len("\nPY\n")
+if count == 0:
+    raise SystemExit("no embedded Python heredocs found")
+
+patcher = next((block for block in blocks if "func runFullNode(" in block), None)
+if patcher is None:
+    raise SystemExit("loopback build-worktree patcher was not found")
+fixture = """package main
+func runFullNode(cfg *Config) error {
+    rpcSrv.SetNodeMode(cfg.NodeMode)
+    return nil
+}
+func runLiteNode() {}
+"""
+with tempfile.TemporaryDirectory() as directory:
+    main_go = pathlib.Path(directory) / "main.go"
+    main_go.write_text(fixture, encoding="utf-8")
+    subprocess.run([sys.executable, "-c", patcher, str(main_go)], check=True)
+    patched = main_go.read_text(encoding="utf-8")
+    loopback = patched.find("rpcSrv.SetLoopbackOnly()")
+    node_mode = patched.find("rpcSrv.SetNodeMode(cfg.NodeMode)")
+    if loopback < 0 or node_mode < 0 or loopback > node_mode:
+        raise SystemExit("loopback patch was not inserted before node-mode setup")
+    if patched.count("rpcSrv.SetLoopbackOnly()") != 1:
+        raise SystemExit("loopback patch was inserted more than once")
+PY
+  then
+    pass "Embedded Python blocks compile and loopback overlay is scoped correctly"
+  else
+    fail "Invalid embedded Go download metadata parser"
+  fi
+else
+  warn "Python 3 unavailable; skipping embedded metadata parser syntax check"
+fi
 check_contains "$REPO_ROOT/public/scripts/install-localnode.sh" 'GYDS_NODE_MODE=${NODE_MODE}' "role-based localnode mode"
 check_contains "$REPO_ROOT/public/scripts/install-termux.sh" "GYDS_NODE_MODE=lite" "Termux lite mode"
 check_contains "$REPO_ROOT/public/scripts/install-node.sh" 'MODE="lite"' "universal installer lite mode"
