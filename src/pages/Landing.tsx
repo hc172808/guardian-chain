@@ -14,12 +14,12 @@ const STATS = [
 ];
 
 const TOKENOMICS = [
-  { label: 'Total Supply', value: '1,000,000,000', unit: 'GYDS', color: 'text-primary' },
-  { label: 'Validator Rewards', value: '30%', unit: '300M GYDS', color: 'text-violet-400' },
-  { label: 'Ecosystem & DeFi', value: '25%', unit: '250M GYDS', color: 'text-blue-400' },
-  { label: 'Team & Advisors', value: '15%', unit: '150M GYDS', color: 'text-amber-400' },
-  { label: 'Public Sale', value: '20%', unit: '200M GYDS', color: 'text-emerald-400' },
-  { label: 'Reserve', value: '10%', unit: '100M GYDS', color: 'text-rose-400' },
+  { label: 'Max Supply', value: '3,000,000,000', unit: 'GYDS', color: 'text-primary' },
+  { label: 'Validator Rewards', value: '30%', unit: '900M GYDS', color: 'text-violet-400' },
+  { label: 'Ecosystem & DeFi', value: '25%', unit: '750M GYDS', color: 'text-blue-400' },
+  { label: 'Team & Advisors', value: '15%', unit: '450M GYDS', color: 'text-amber-400' },
+  { label: 'Public Sale', value: '20%', unit: '600M GYDS', color: 'text-emerald-400' },
+  { label: 'Reserve', value: '10%', unit: '300M GYDS', color: 'text-rose-400' },
 ];
 
 const ROADMAP = [
@@ -213,7 +213,7 @@ const Landing = () => {
                   })}
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <p className="text-2xl font-black">1B</p>
+                  <p className="text-2xl font-black">3B</p>
                   <p className="text-xs text-muted-foreground">GYDS</p>
                 </div>
               </div>

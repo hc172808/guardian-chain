@@ -355,7 +355,7 @@ const AnalyticsPage = () => {
         {/* Secondary metrics */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'Total Supply', value: loading ? '…' : fmtBig(overview?.totalSupply ?? '1000000000') + ' GYDS', icon: Coins },
+            { label: 'Total Supply', value: loading ? '…' : fmtBig(overview?.totalSupply ?? '3000000000') + ' GYDS', icon: Coins },
             { label: 'Circulating', value: loading ? '…' : fmtBig(overview?.circulatingSupply ?? '0') + ' GYDS', icon: Zap },
             { label: 'Burned Total', value: loading ? '…' : fmtBig(overview?.burnedTotal ?? '0') + ' GYDS', icon: Flame },
             { label: 'Launched Tokens', value: loading ? '…' : (overview?.launchedTokens ?? 0).toString(), icon: Package },
@@ -483,7 +483,7 @@ const AnalyticsPage = () => {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
                   { label: 'Chain ID', value: '198282' },
-                  { label: 'Max Supply', value: '1B GYDS' },
+                  { label: 'Max Supply', value: '3B GYDS' },
                   { label: 'Circulating', value: loading ? '…' : fmtBig(overview?.circulatingSupply ?? 0) },
                   { label: 'Burned', value: loading ? '…' : fmtBig(overview?.burnedTotal ?? 0) },
                   { label: 'Validators', value: loading ? '…' : String(overview?.activeValidators ?? 0) },

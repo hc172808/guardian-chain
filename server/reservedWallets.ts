@@ -2,7 +2,7 @@
  * reservedWallets.ts — canonical genesis allocation table (server side).
  *
  * Mirrors src/config/wallets.ts (RESERVED_WALLETS) so the API and the UI agree
- * on which addresses hold the 1,000,000,000 GYDS genesis supply.
+ * on which addresses hold the 3,000,000,000 GYDS fresh-database genesis supply.
  *
  * The founder slot uses the real founder wallet address (FOUNDER_WALLET_ADDRESS
  * / FOUNDER_WALLET env, same fallback as seed.ts) so that logging in with that
@@ -28,42 +28,42 @@ export const RESERVED_WALLETS: ReservedWallet[] = [
     key: "founder",
     name: "Founder Wallet",
     address: FOUNDER_WALLET_ADDRESS,
-    allocation: 100_000_000,
+    allocation: 300_000_000,
     description: "Founder allocation (10% of supply)",
   },
   {
     key: "miningPool",
     name: "Mining Pool",
     address: "0x0000000000000000000000000000000000000002",
-    allocation: 400_000_000,
+    allocation: 1_200_000_000,
     description: "Mining rewards distribution pool (40%)",
   },
   {
     key: "liquidityPool",
     name: "Liquidity Pool",
     address: "0x0000000000000000000000000000000000000003",
-    allocation: 200_000_000,
+    allocation: 600_000_000,
     description: "DEX liquidity provision (20%)",
   },
   {
     key: "stakingRewards",
     name: "Staking Rewards",
     address: "0x0000000000000000000000000000000000000004",
-    allocation: 150_000_000,
+    allocation: 450_000_000,
     description: "PoS validator staking rewards (15%)",
   },
   {
     key: "developmentFund",
     name: "Development Fund",
     address: "0x0000000000000000000000000000000000000005",
-    allocation: 100_000_000,
+    allocation: 300_000_000,
     description: "Development and ecosystem growth (10%)",
   },
   {
     key: "team",
     name: "Team Wallet",
     address: "0x0000000000000000000000000000000000000006",
-    allocation: 50_000_000,
+    allocation: 150_000_000,
     description: "Team allocation, 36-month vesting (5%)",
   },
 ];

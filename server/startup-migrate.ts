@@ -532,11 +532,16 @@ export async function startupMigrate(pool: Pool): Promise<void> {
     CREATE TABLE IF NOT EXISTS token_price (
       id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       price              NUMERIC DEFAULT '0.0000001' NOT NULL,
-      total_supply       NUMERIC DEFAULT '1000000000' NOT NULL,
+      total_supply       NUMERIC DEFAULT '3000000000' NOT NULL,
       circulating_supply NUMERIC DEFAULT '0' NOT NULL,
       burned_total       NUMERIC DEFAULT '0' NOT NULL,
       updated_at         TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+  // Set the default for future rows without changing the supply recorded on
+  // any existing network.
+  await run("token_price-total-supply-default", `
+    ALTER TABLE token_price ALTER COLUMN total_supply SET DEFAULT '3000000000'
   `);
 
   await run("token_price_alerts", `
