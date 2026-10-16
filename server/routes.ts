@@ -7,7 +7,8 @@ import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { pool as pgPool } from "./db";
-import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY, isReservedAddress, FOUNDER_WALLET_ADDRESS } from "./reservedWallets";
+import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY, isReservedAddress } from "./reservedWallets";
+import { normalizeNodeRpcUrl, readGenesisSnapshotFromRpc } from "./genesisStatus";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { discordNodeDown, discordLargeBridgeTransfer, discordNewGovernanceProposal } from "./discord";
@@ -3717,10 +3718,91 @@ export function registerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // ── Genesis JSON builder — reads ALL confirmed balances from DB ─────────────
-  // Public so the install script can curl it; sensitive fields excluded.
-  app.get("/api/chain/genesis.json", async (req, res) => {
-    const { pool: pgPool } = await import("./db");
+  // ── Genesis status — supply is read from block zero on an approved live node ─
+  app.get("/api/chain/genesis-status", requireAuth, async (req, res) => {
+    const requestedNetwork = typeof req.query.network === "string" ? req.query.network : "mainnet";
+    if (!ALL_NETWORKS.includes(requestedNetwork as any)) {
+      return res.status(400).json({ error: "Invalid network" });
+    }
+    const network = requestedNetwork as (typeof ALL_NETWORKS)[number];
+    const chainId = NETWORK_CFGS[network].chainId;
+    const addresses = RESERVED_WALLETS.filter((wallet) => wallet.allocation > 0).map((wallet) => wallet.address);
+
+    try {
+      const { rows } = await pgPool.query<{
+        node_type: string;
+        ip_address: string | null;
+        hostname: string | null;
+        rpc_port: number | null;
+      }>(
+        `SELECT node_type, ip_address, hostname, rpc_port
+         FROM node_installations
+         WHERE is_approved=true
+           AND is_online=true
+           AND COALESCE(network, 'mainnet')=$1
+           AND node_type IN ('rpc', 'fullnode', 'validator', 'genesis')
+           AND (ip_address IS NOT NULL OR hostname IS NOT NULL)
+         ORDER BY CASE node_type
+           WHEN 'rpc' THEN 0
+           WHEN 'fullnode' THEN 1
+           WHEN 'validator' THEN 2
+           WHEN 'genesis' THEN 3
+           ELSE 4
+         END
+         LIMIT 8`,
+        [network],
+      );
+
+      const candidates: Array<{ url: string; nodeType: string }> = [];
+      for (const node of rows) {
+        const url = normalizeNodeRpcUrl(
+          node.ip_address || node.hostname,
+          node.rpc_port,
+          NETWORK_CFGS[network].ports.rpc,
+        );
+        if (url && !candidates.some((candidate) => candidate.url === url)) {
+          candidates.push({ url, nodeType: node.node_type });
+        }
+      }
+
+      const configuredRpc = network === "testnet"
+        ? process.env.GYDS_TESTNET_RPC_URL
+        : network === "devnet"
+          ? process.env.GYDS_DEVNET_RPC_URL
+          : process.env.GYDS_RPC_URL;
+      const configuredUrl = normalizeNodeRpcUrl(configuredRpc, null, NETWORK_CFGS[network].ports.rpc);
+      if (configuredUrl && !candidates.some((candidate) => candidate.url === configuredUrl)) {
+        candidates.push({ url: configuredUrl, nodeType: "configured-rpc" });
+      }
+
+      for (const candidate of candidates) {
+        const snapshot = await readGenesisSnapshotFromRpc(candidate.url, chainId, addresses);
+        if (!snapshot) continue;
+        res.setHeader("Cache-Control", "no-store");
+        return res.json({
+          configured: true,
+          network,
+          symbol: NETWORK_CFGS[network].symbol,
+          nodeType: candidate.nodeType,
+          ...snapshot,
+        });
+      }
+
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({
+        configured: false,
+        network,
+        reason: candidates.length ? "genesis-not-confirmed" : "no-online-node",
+      });
+    } catch (error) {
+      console.error("[genesis-status] Failed to read approved node info:", error);
+      return res.status(503).json({ configured: false, error: "Node information is unavailable" });
+    }
+  });
+
+  // ── Genesis JSON builder — fixed approved allocations for new chains ────────
+  // Existing database balances are intentionally excluded from a fresh genesis.
+  app.get("/api/chain/genesis.json", (req, res) => {
     const requestedNetwork = String(req.query.network ?? "mainnet");
     const genesisNetwork = ALL_NETWORKS.includes(requestedNetwork as any)
       ? requestedNetwork as (typeof ALL_NETWORKS)[number]
@@ -3729,34 +3811,21 @@ export function registerRoutes(app: Express) {
     const FOUNDER = (process.env.FOUNDER_WALLET ?? '0xd43455e4ef3E472d81aaA848046FF9a55285F5Fc').toLowerCase();
 
     try {
-      // Aggregate all confirmed on-chain token balances by EVM address.
-      // Skip gyd:/gusd: prefix entries — those are stable-coin ledger entries
-      // that live in the DB, not on the base EVM layer.
-      const { rows } = await pgPool.query(`
-        SELECT wallet_address, SUM(amount) AS total
-        FROM token_operations
-        WHERE status = 'confirmed'
-          AND wallet_address NOT LIKE '%:%'
-          AND wallet_address ~* '^0x[0-9a-fA-F]{40}$'
-        GROUP BY wallet_address
-        HAVING SUM(amount) > 0
-      `);
-
       const alloc: Record<string, { balance: string }> = {};
-
-      // Always include founder with at least the specified allocation
-      alloc[FOUNDER] = { balance: '0x' + (BigInt('1000000000') * BigInt('1000000000000000000')).toString(16) };
-
-      for (const row of rows) {
-        const addr = row.wallet_address.toLowerCase();
-        const wei  = BigInt(Math.floor(Number(row.total))) * BigInt('1000000000000000000');
-        if (alloc[addr]) {
-          // Merge with founder override (take max)
-          const existing = BigInt(alloc[addr].balance);
-          alloc[addr] = { balance: '0x' + (existing > wei ? existing : wei).toString(16) };
-        } else {
-          alloc[addr] = { balance: '0x' + wei.toString(16) };
+      if (TOTAL_GENESIS_SUPPLY !== 3_000_000_000) {
+        throw new Error(`Configured genesis allocation totals ${TOTAL_GENESIS_SUPPLY}, expected 3000000000 GYDS`);
+      }
+      for (const wallet of RESERVED_WALLETS) {
+        if (!Number.isSafeInteger(wallet.allocation) || wallet.allocation < 0) {
+          throw new Error(`Invalid genesis allocation for ${wallet.key}`);
         }
+        if (wallet.allocation === 0) continue;
+        const address = wallet.address.toLowerCase();
+        if (!/^0x[0-9a-f]{40}$/.test(address) || alloc[address]) {
+          throw new Error(`Invalid or duplicate genesis recipient for ${wallet.key}`);
+        }
+        const wei = BigInt(wallet.allocation) * 10n ** 18n;
+        alloc[address] = { balance: `0x${wei.toString(16)}` };
       }
 
       const genesis = {

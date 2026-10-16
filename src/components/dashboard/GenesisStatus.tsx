@@ -14,53 +14,92 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { GENESIS_CONFIG, TOKENOMICS } from '@/config/wallets';
+import { TOKENOMICS } from '@/config/wallets';
+import { useNetwork } from '@/contexts/NetworkContext';
 
 interface GenesisState {
   founderAddress: string | null;
   genesisCreated: boolean;
   genesisTimestamp: number | null;
-  initialSupply: number;
-  currentPrice: number;
+  initialSupplyWei: string | null;
+  symbol: string;
+}
+
+function formatWeiAsGyds(weiValue: string): string | null {
+  try {
+    const wei = BigInt(weiValue);
+    if (wei < 0n) return null;
+    const unit = 10n ** 18n;
+    const whole = (wei / unit).toLocaleString();
+    const fraction = (wei % unit).toString().padStart(18, '0').slice(0, 6).replace(/0+$/, '');
+    return fraction ? `${whole}.${fraction}` : whole;
+  } catch {
+    return null;
+  }
 }
 
 export const GenesisStatus = () => {
   const { isFounder } = useAuth();
   const { toast } = useToast();
+  const { selectedNetwork } = useNetwork();
+  const network = selectedNetwork === 'all' ? null : selectedNetwork;
   const [state, setState] = useState<GenesisState>({
     founderAddress: null,
     genesisCreated: false,
     genesisTimestamp: null,
-    initialSupply: GENESIS_CONFIG.initialSupply,
-    currentPrice: GENESIS_CONFIG.initialPrice,
+    initialSupplyWei: null,
+    symbol: TOKENOMICS.symbol,
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchGenesisStatus();
-  }, []);
+    let active = true;
+    setLoading(true);
 
-  const fetchGenesisStatus = async () => {
-    try {
-      const [walletConfig, priceData] = await Promise.all([
+    const load = async () => {
+      const [walletConfig, genesisInfo] = await Promise.all([
         api.get('/api/config/founder_wallet').catch(() => null),
-        api.get('/api/token-price').catch(() => null),
+        network
+          ? api.get(`/api/chain/genesis-status?network=${encodeURIComponent(network)}`).catch(() => null)
+          : Promise.resolve(null),
       ]);
+      if (!active) return;
 
       const address = walletConfig?.configValue?.address || walletConfig?.config_value?.address || null;
+      const configured = genesisInfo?.configured === true &&
+        typeof genesisInfo?.initialSupplyWei === 'string' &&
+        Number(genesisInfo?.chainId) > 0;
       setState({
         founderAddress: address,
-        genesisCreated: !!address,
-        genesisTimestamp: GENESIS_CONFIG.timestamp,
-        initialSupply: priceData?.totalSupply || priceData?.total_supply || GENESIS_CONFIG.initialSupply,
-        currentPrice: priceData?.price || GENESIS_CONFIG.initialPrice,
+        genesisCreated: configured,
+        genesisTimestamp: configured && Number.isFinite(genesisInfo.genesisTimestamp)
+          ? Number(genesisInfo.genesisTimestamp)
+          : null,
+        initialSupplyWei: configured ? genesisInfo.initialSupplyWei : null,
+        symbol: configured && typeof genesisInfo.symbol === 'string'
+          ? genesisInfo.symbol
+          : TOKENOMICS.symbol,
       });
-    } catch (error) {
-      console.error('Failed to fetch genesis status:', error);
-    } finally {
       setLoading(false);
-    }
-  };
+    };
+
+    load().catch((error) => {
+      if (!active) return;
+      console.error('Failed to fetch genesis node status:', error);
+      setState((current) => ({
+        ...current,
+        genesisCreated: false,
+        genesisTimestamp: null,
+        initialSupplyWei: null,
+      }));
+      setLoading(false);
+    });
+
+    return () => { active = false; };
+  }, [network]);
+
+  const displaySupply = state.initialSupplyWei === null ? null : formatWeiAsGyds(state.initialSupplyWei);
+  const showSupply = state.genesisCreated && displaySupply !== null;
 
   const copyAddress = () => {
     if (state.founderAddress) {
@@ -103,7 +142,7 @@ export const GenesisStatus = () => {
         </Badge>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className={`grid grid-cols-1 ${showSupply ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-4`}>
         {/* Founder Wallet */}
         <div className="p-3 rounded-lg bg-secondary/30">
           <div className="flex items-center gap-2 mb-2">
@@ -124,16 +163,19 @@ export const GenesisStatus = () => {
           )}
         </div>
 
-        {/* Token Supply */}
-        <div className="p-3 rounded-lg bg-secondary/30">
-          <div className="flex items-center gap-2 mb-2">
-            <Coins className="h-4 w-4 text-primary" />
-            <span className="text-sm text-muted-foreground">Initial Supply</span>
+        {/* Supply is only displayed after a live node confirms block zero. */}
+        {showSupply && (
+          <div className="p-3 rounded-lg bg-secondary/30">
+            <div className="flex items-center gap-2 mb-2">
+              <Coins className="h-4 w-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Initial Supply</span>
+            </div>
+            <p className="text-lg font-bold">
+              {displaySupply} {state.symbol}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">Read from the selected network’s genesis block</p>
           </div>
-          <p className="text-lg font-bold">
-            {(state.initialSupply / 1_000_000_000).toFixed(0)}B {TOKENOMICS.symbol}
-          </p>
-        </div>
+        )}
 
         {/* Genesis Timestamp */}
         <div className="p-3 rounded-lg bg-secondary/30">
@@ -142,7 +184,7 @@ export const GenesisStatus = () => {
             <span className="text-sm text-muted-foreground">Genesis Time</span>
           </div>
           <p className="text-sm font-medium">
-            {state.genesisTimestamp 
+            {state.genesisTimestamp !== null
               ? new Date(state.genesisTimestamp * 1000).toLocaleString()
               : 'Pending deployment'
             }

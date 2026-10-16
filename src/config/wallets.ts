@@ -12,7 +12,7 @@ export const GENESIS_CONFIG = {
 export const RESERVED_WALLETS = {
   // Founder wallet - receives genesis block allocation
   founder: {
-    address: '0x0000000000000000000000000000000000000001',
+    address: '0x6422d12bfaddee5142bfad21b3006a74d09017b1',
     name: 'Founder Wallet',
     allocation: 300_000_000, // 10% of total supply
     vestingMonths: 48,
@@ -21,7 +21,7 @@ export const RESERVED_WALLETS = {
 
   // Mining pool wallet - distributes mining rewards
   miningPool: {
-    address: '0x0000000000000000000000000000000000000002',
+    address: '0x484a282e391C75595337F1B0314CCa4e2F31E188',
     name: 'Mining Pool',
     allocation: 1_200_000_000, // 40% of total supply
     description: 'Mining rewards distribution pool',
@@ -29,7 +29,7 @@ export const RESERVED_WALLETS = {
 
   // Liquidity pool wallet - DEX liquidity provision
   liquidityPool: {
-    address: '0x0000000000000000000000000000000000000003',
+    address: '0xcAA827c6F120Bc0cAcbcfa53476eE3b41b37c9e4',
     name: 'Liquidity Pool',
     allocation: 600_000_000, // 20% of total supply
     description: 'DEX liquidity provision',
@@ -37,7 +37,7 @@ export const RESERVED_WALLETS = {
 
   // Staking rewards wallet
   stakingRewards: {
-    address: '0x0000000000000000000000000000000000000004',
+    address: '0xF71EFF5d7290dC897BF2f1619Ce02AB98Af73040',
     name: 'Staking Rewards',
     allocation: 450_000_000, // 15% of total supply
     description: 'PoS validator staking rewards',
@@ -45,7 +45,7 @@ export const RESERVED_WALLETS = {
 
   // Development fund wallet
   developmentFund: {
-    address: '0x0000000000000000000000000000000000000005',
+    address: '0x67B5d5581C2438ae4C1207544960394085125F83',
     name: 'Development Fund',
     allocation: 300_000_000, // 10% of total supply
     vestingMonths: 24,
@@ -54,7 +54,7 @@ export const RESERVED_WALLETS = {
 
   // Team wallet
   team: {
-    address: '0x0000000000000000000000000000000000000006',
+    address: '0xA8029E177f234A7A838dDB36fbA57336b02Df197',
     name: 'Team Wallet',
     allocation: 150_000_000, // 5% of total supply
     vestingMonths: 36,
