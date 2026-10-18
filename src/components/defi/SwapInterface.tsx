@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, forwardRef } from 'react';
+import { useState, useEffect, useMemo, useRef, forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -10,18 +10,17 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { RecentSwaps } from './RecentSwaps';
 import { CrossChainBridge } from './CrossChainBridge';
-import { getUserAddresses, computeUserBalances } from '@/lib/balances';
 import {
-  getAmountOut,
-  getAmountIn,
-  getPairReserves,
   getTokenBalance,
+  getSwapQuoteExactIn,
   executeSwapExactTokensForTokens,
   executeSwapExactGYDSForTokens,
-  buildSwapPath,
+  executeSwapExactTokensForGYDS,
 } from '@/lib/swapContract';
 import {
+  applyRuntimeContractAddresses,
   CONTRACT_ADDRESSES,
+  isConfiguredContractAddress,
   SWAP_FEE_NUMERATOR,
   SWAP_FEE_DENOMINATOR,
 } from '@/config/contracts';
@@ -47,13 +46,20 @@ interface Token {
   logo?: string;
 }
 
-// Native coins always available
-// GYDS = native fee coin (0x000...0000) | GYD = stablecoin (0x000...0001)
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+// GYD and USDT are included only after real ERC-20 addresses are configured.
 const NATIVE_TOKENS: Token[] = [
-  { symbol: 'GYDS', name: 'GYDS Native Coin', balance: 0, price: 0.0000001, address: '0x0000000000000000000000000000000000000000', logo: '/gyds-coin.jpg' },
-  { symbol: 'GYD', name: 'GYD Stablecoin', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: '/gyd-coin.png' },
-  { symbol: 'GUSD', name: 'Guardian Dollar', balance: 0, price: 1.00, address: '0x0000000000000000000000000000000000000002', logo: '/gusd-coin.png' },
+  { symbol: 'GYDS', name: 'GYDS Native Coin', balance: 0, price: 0.0000001, address: ZERO_ADDRESS, logo: '/gyds-coin.jpg' },
 ];
+
+const UNCONFIGURED_TOKEN: Token = {
+  symbol: 'USDT',
+  name: 'USDT contract not configured',
+  balance: 0,
+  price: 1,
+  address: ZERO_ADDRESS,
+};
 
 const TokenSelectorButton = forwardRef<HTMLSpanElement, { token: Token; onClick: () => void }>(
   ({ token, onClick }, ref) => (
@@ -163,11 +169,14 @@ export const SwapInterface = () => {
   const [receiveAmount, setReceiveAmount] = useState('');
   const [allTokens, setAllTokens] = useState<Token[]>(NATIVE_TOKENS);
   const [payToken, setPayToken] = useState<Token>(NATIVE_TOKENS[0]);
-  const [receiveToken, setReceiveToken] = useState<Token>(NATIVE_TOKENS[1]);
+  const [receiveToken, setReceiveToken] = useState<Token>(UNCONFIGURED_TOKEN);
   const [slippage, setSlippage] = useState(0.5);
   const [isSwapping, setIsSwapping] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [swapContractsConfigured, setSwapContractsConfigured] = useState(false);
+  const [quoteUnavailable, setQuoteUnavailable] = useState(false);
+  const quoteSequence = useRef(0);
 
   const { address, isConnected } = useWalletConnect();
   const { user } = useAuth();
@@ -175,16 +184,28 @@ export const SwapInterface = () => {
   // This address is useful for balance display, but on-chain swaps still need
   // a browser wallet signer from window.ethereum.
   const effectiveAddress = address || user?.walletAddress || null;
-  const zeroAddress = '0x0000000000000000000000000000000000000000';
-  const swapContractsConfigured = [
-    CONTRACT_ADDRESSES.mainnet.Router,
-    CONTRACT_ADDRESSES.mainnet.Factory,
-    CONTRACT_ADDRESSES.mainnet.WGYDS,
-  ].every(contractAddress => contractAddress && contractAddress.toLowerCase() !== zeroAddress);
 
   // Load tokens from database + coin logos + real balances
   useEffect(() => {
     const loadTokens = async () => {
+      let dexAddresses: Record<string, string> = {};
+      let dexChainId = 0;
+      try {
+        const dexRes = await fetch('/api/dex/config', { credentials: 'include', cache: 'no-store' });
+        if (dexRes.ok) {
+          const dexConfig = await dexRes.json();
+          dexAddresses = dexConfig.addresses ?? {};
+          dexChainId = Number(dexConfig.chainId);
+          applyRuntimeContractAddresses(dexAddresses);
+        }
+      } catch {}
+      const coreContractsReady = dexChainId === 198282 && [
+        dexAddresses.Router,
+        dexAddresses.Factory,
+        dexAddresses.WGYDS,
+      ].every(isConfiguredContractAddress);
+      setSwapContractsConfigured(coreContractsReady);
+
       const { data } = await supabase
         .from('tokens')
         .select('symbol, name, address, total_supply, logo_url, creator_id')
@@ -224,31 +245,42 @@ export const SwapInterface = () => {
       // Calculate real balances if user is logged in
       let gydsBalance = 0;
       let gydBalance = 0;
-      let gusdBalance = 0;
-
-      if (user) {
-        const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
-        const balances = await computeUserBalances(user.id, myAddresses);
-        gydsBalance = balances.gydsBalance;
-        gydBalance = balances.gydBalance;
-        gusdBalance = balances.gusdBalance;
-
+      let usdtBalance = 0;
+      if (effectiveAddress) {
+        const [nativeBalance, gydTokenBalance, usdtTokenBalance] = await Promise.all([
+          getTokenBalance(ZERO_ADDRESS, effectiveAddress),
+          isConfiguredContractAddress(dexAddresses.GYD)
+            ? getTokenBalance(dexAddresses.GYD, effectiveAddress)
+            : Promise.resolve('0'),
+          isConfiguredContractAddress(dexAddresses.USDT)
+            ? getTokenBalance(dexAddresses.USDT, effectiveAddress)
+            : Promise.resolve('0'),
+        ]);
+        gydsBalance = Number(nativeBalance) || 0;
+        gydBalance = Number(gydTokenBalance) || 0;
+        usdtBalance = Number(usdtTokenBalance) || 0;
       }
 
       const nativeWithLogos: Token[] = [
-        { symbol: 'GYDS', name: 'GYDS Native Coin', balance: gydsBalance, price: gydsPrice, address: '0x0000000000000000000000000000000000000000', logo: logos['gyds_logo'] },
-        { symbol: 'GYD', name: 'GYD Stablecoin', balance: gydBalance, price: 1.00, address: '0x0000000000000000000000000000000000000001', logo: logos['gyd_logo'] },
-        { symbol: 'GUSD', name: 'Guardian Dollar', balance: gusdBalance, price: 1.00, address: '0x0000000000000000000000000000000000000002', logo: logos['gusd_logo'] },
+        { symbol: 'GYDS', name: 'GYDS Native Coin', balance: gydsBalance, price: gydsPrice, address: ZERO_ADDRESS, logo: logos['gyds_logo'] },
+        ...(isConfiguredContractAddress(dexAddresses.GYD)
+          ? [{ symbol: 'GYD', name: 'GYD Stablecoin', balance: gydBalance, price: 1, address: dexAddresses.GYD, logo: logos['gyd_logo'] }]
+          : []),
+        ...(isConfiguredContractAddress(dexAddresses.USDT)
+          ? [{ symbol: 'USDT', name: 'Tether USD', balance: usdtBalance, price: 1, address: dexAddresses.USDT }]
+          : []),
       ];
 
-      const dbTokens: Token[] = (data || []).map(t => ({
+      const dbTokens: Token[] = await Promise.all((data || []).map(async t => ({
         symbol: t.symbol,
         name: t.name,
-        balance: user && t.creator_id === user.id ? t.total_supply : 0,
+        balance: effectiveAddress && isConfiguredContractAddress(t.address)
+          ? Number(await getTokenBalance(t.address, effectiveAddress)) || 0
+          : 0,
         price: 0.01,
         address: t.address,
         logo: t.logo_url || undefined,
-      }));
+      })));
 
       // Merge native + DB tokens, avoiding duplicates
       const merged = [...nativeWithLogos];
@@ -259,7 +291,7 @@ export const SwapInterface = () => {
       });
       setAllTokens(merged);
       setPayToken(prev => merged.find(m => m.symbol === prev.symbol) || prev);
-      setReceiveToken(prev => merged.find(m => m.symbol === prev.symbol) || prev);
+      setReceiveToken(prev => merged.find(m => m.symbol === prev.symbol) || merged.find(m => m.symbol === 'USDT') || UNCONFIGURED_TOKEN);
     };
 
     loadTokens();
@@ -271,7 +303,7 @@ export const SwapInterface = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'token_operations' }, () => loadTokens())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  }, [user, address]);
 
   const handleSwapTokens = () => {
     const temp = payToken;
@@ -283,24 +315,6 @@ export const SwapInterface = () => {
 
   const handlePayAmountChange = (value: string) => {
     setPayAmount(value);
-    const amt = parseFloat(value);
-    if (amt > 0) {
-      // Try real AMM math from reserves if a pair exists
-      const pairKey = `${payToken.symbol}-${receiveToken.symbol}` as keyof typeof CONTRACT_ADDRESSES.mainnet.Pairs;
-      const pairAddr = CONTRACT_ADDRESSES.mainnet.Pairs[pairKey];
-      if (pairAddr && pairAddr !== '0x0000000000000000000000000000000000000000') {
-        // Will be async — for now use price-based fallback; swap quote loads on focus
-        const rate = payToken.price / receiveToken.price;
-        const received = amt * rate * (SWAP_FEE_NUMERATOR / SWAP_FEE_DENOMINATOR);
-        setReceiveAmount(received.toFixed(6));
-      } else {
-        const rate = payToken.price / receiveToken.price;
-        const received = amt * rate * (SWAP_FEE_NUMERATOR / SWAP_FEE_DENOMINATOR);
-        setReceiveAmount(received.toFixed(6));
-      }
-    } else {
-      setReceiveAmount('');
-    }
   };
 
   const handleReceiveAmountChange = (value: string) => {
@@ -314,6 +328,47 @@ export const SwapInterface = () => {
       setPayAmount('');
     }
   };
+
+  useEffect(() => {
+    const sequence = ++quoteSequence.current;
+    const amount = Number(payAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setReceiveAmount('');
+      setQuoteUnavailable(false);
+      return;
+    }
+
+    if (!swapContractsConfigured) {
+      const estimate = amount * (payToken.price / receiveToken.price) *
+        (SWAP_FEE_NUMERATOR / SWAP_FEE_DENOMINATOR);
+      setReceiveAmount(Number.isFinite(estimate) ? estimate.toFixed(6) : '');
+      setQuoteUnavailable(true);
+      return;
+    }
+
+    let active = true;
+    setQuoteUnavailable(false);
+    const timer = window.setTimeout(async () => {
+      const quote = await getSwapQuoteExactIn(
+        payAmount,
+        payToken.address ?? '',
+        receiveToken.address ?? '',
+      );
+      if (!active || sequence !== quoteSequence.current) return;
+      if (!quote) {
+        setReceiveAmount('');
+        setQuoteUnavailable(true);
+        return;
+      }
+      setReceiveAmount(Number(quote.amountOut).toFixed(6));
+      setQuoteUnavailable(false);
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [payAmount, payToken, receiveToken, swapContractsConfigured]);
 
   const payValue = parseFloat(payAmount || '0') * payToken.price;
   const receiveValue = parseFloat(receiveAmount || '0') * receiveToken.price;
@@ -335,24 +390,31 @@ export const SwapInterface = () => {
       return;
     }
 
-    const amount = parseFloat(payAmount);
-    const receiveAmt = parseFloat(receiveAmount || '0');
-    if (!amount || amount <= 0) return;
-
-    if (amount > payToken.balance) {
-      toast({
-        title: 'Insufficient Balance',
-        description: `You only have ${payToken.balance.toFixed(6)} ${payToken.symbol}, but tried to swap ${amount}.`,
-        variant: 'destructive',
-      });
+    if (!payToken.address || !receiveToken.address ||
+        (payToken.address === ZERO_ADDRESS && !isConfiguredContractAddress(CONTRACT_ADDRESSES.mainnet.WGYDS)) ||
+        (receiveToken.address === ZERO_ADDRESS && !isConfiguredContractAddress(CONTRACT_ADDRESSES.mainnet.WGYDS))) {
+      toast({ title: 'Token contract is not configured', description: 'Set valid token contract addresses in Admin → Server Config → DeFi Contracts.', variant: 'destructive' });
       return;
     }
+    const amount = Number(payAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
 
     setIsSwapping(true);
 
     try {
+      const quote = await getSwapQuoteExactIn(payAmount, payToken.address, receiveToken.address);
+      if (!quote) {
+        throw new Error('There is no on-chain liquidity for this pair yet. Create the pair and add real liquidity before trading.');
+      }
+      const receiveAmt = Number(quote.amountOut);
+
+      const chainBalance = Number(await getTokenBalance(payToken.address, effectiveAddress));
+      if (!Number.isFinite(chainBalance) || amount > chainBalance + 1e-12) {
+        throw new Error(`Insufficient on-chain ${payToken.symbol} balance. Available: ${Number.isFinite(chainBalance) ? chainBalance.toFixed(6) : '0.000000'}.`);
+      }
+
       // ── Enforce token purchase limits ──
-      if (receiveToken.address && !receiveToken.address.startsWith('0x000000000000000000000000000000000000000')) {
+      if (receiveToken.address !== ZERO_ADDRESS) {
         // Get per-token limits
         const { data: limitsConfig } = await supabase
           .from('admin_config')
@@ -412,25 +474,19 @@ export const SwapInterface = () => {
         }
       }
 
-      // Try on-chain GydsSwapRouter first (if deployed)
+      // Submit with the router's fresh on-chain quote and the user's slippage.
       const routerAddr = CONTRACT_ADDRESSES.mainnet.Router;
       let txHash: string | null = null;
-      if (routerAddr !== '0x0000000000000000000000000000000000000000' && payToken.address && receiveToken.address) {
-        const path = buildSwapPath(payToken.address, receiveToken.address);
-        const deadline = Math.floor(Date.now() / 1000) + 300; // 5 min deadline
-        const amountInWei = BigInt(Math.floor(amount * 1e18)).toString();
-        const minOut = BigInt(Math.floor((receiveAmt * 0.995) * 1e18)).toString(); // 0.5% slippage
-
-        try {
-          if (payToken.address === '0x0000000000000000000000000000000000000000') {
-            // GYDS (native) → token
-            txHash = await executeSwapExactGYDSForTokens(amountInWei, minOut, path, address, deadline);
-          } else {
-            // token → token
-            txHash = await executeSwapExactTokensForTokens(amountInWei, minOut, path, address, deadline);
-          }
-        } catch {
-          txHash = null;
+      if (isConfiguredContractAddress(routerAddr)) {
+        const slippageBps = Math.min(5000, Math.max(0, Math.round(slippage * 100)));
+        const minOut = (BigInt(quote.amountOutRaw) * BigInt(10000 - slippageBps) / 10000n).toString();
+        const deadline = Math.floor(Date.now() / 1000) + 300;
+        if (payToken.address === ZERO_ADDRESS) {
+          txHash = await executeSwapExactGYDSForTokens(quote.amountInRaw, minOut, quote.path, effectiveAddress, deadline);
+        } else if (receiveToken.address === ZERO_ADDRESS) {
+          txHash = await executeSwapExactTokensForGYDS(quote.amountInRaw, minOut, quote.path, effectiveAddress, deadline);
+        } else {
+          txHash = await executeSwapExactTokensForTokens(quote.amountInRaw, minOut, quote.path, effectiveAddress, deadline);
         }
       }
 
@@ -445,7 +501,7 @@ export const SwapInterface = () => {
         return;
       }
 
-      throw new Error('Swap is unavailable because the swap router is not deployed or the transaction was rejected. No funds were moved.');
+      throw new Error('The on-chain swap transaction was rejected or could not be confirmed. No swap was recorded by this app.');
     } catch (err: any) {
       toast({
         title: 'Swap Failed',
@@ -457,7 +513,13 @@ export const SwapInterface = () => {
     }
   };
 
-  const canSwap = swapContractsConfigured && !!user && !!effectiveAddress && !!payAmount && parseFloat(payAmount) > 0 && !isSwapping;
+  const selectedTokensConfigured = !!payToken.address && !!receiveToken.address &&
+    (payToken.address === ZERO_ADDRESS || isConfiguredContractAddress(payToken.address)) &&
+    (receiveToken.address === ZERO_ADDRESS || isConfiguredContractAddress(receiveToken.address)) &&
+    payToken.address.toLowerCase() !== receiveToken.address.toLowerCase();
+  const canSwap = swapContractsConfigured && selectedTokensConfigured &&
+    !!user && !!effectiveAddress && !!payAmount && !!receiveAmount &&
+    !quoteUnavailable && parseFloat(payAmount) > 0 && !isSwapping;
 
   return (
     <div className="space-y-4">
@@ -606,7 +668,15 @@ export const SwapInterface = () => {
         <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
           <p className="font-medium text-amber-400">Swaps are unavailable: GydsSwap is not deployed/configured.</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            The displayed output is only an indicative estimate. Deploy the router, factory, and wrapped GYDS contract, then configure real token addresses and liquidity before trading.
+            The displayed output is only an indicative estimate. Deploy the router, factory, and wrapped GYDS contract, then configure real token addresses and liquidity in Admin → Server Config → DeFi Contracts.
+          </p>
+        </div>
+      )}
+      {swapContractsConfigured && quoteUnavailable && (
+        <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+          <p className="font-medium text-amber-400">No live quote for this pair.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Check that both token contracts are configured, the pair was created in GydsSwap Factory, and real liquidity has been added.
           </p>
         </div>
       )}

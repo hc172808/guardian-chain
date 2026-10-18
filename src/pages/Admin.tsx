@@ -1222,8 +1222,9 @@ const AdminContent = () => {
               {showAddNodeForm && (
                 <div className="space-y-3 pt-1">
                   <p className="text-xs text-muted-foreground">
-                    Enter the node's RPC URL. <code className="bg-background/50 px-1 rounded">0.0.0.0</code> is auto-resolved to{' '}
-                    <code className="bg-background/50 px-1 rounded">127.0.0.1</code> (localhost).
+                    For a node on this same server, use <code className="bg-background/50 px-1 rounded">127.0.0.1:8545</code>.
+                    <code className="bg-background/50 px-1 rounded ml-1">0.0.0.0</code> is a bind address and is resolved to localhost here.
+                    For remote nodes, use an IP or hostname that this server can reach.
                   </p>
 
                   {/* Quick-fill shortcuts */}
@@ -1297,7 +1298,7 @@ const AdminContent = () => {
                     <p className="text-xs text-muted-foreground font-mono">
                       Will connect to:{' '}
                       <span className="text-primary">
-                        {addNodeUrl.replace(/^(https?:\/\/)?(0\.0\.0\.0|::)/, 'http://127.0.0.1')}
+                        {addNodeUrl.replace(/^(https?:\/\/)?(0\.0\.0\.0|::)(?=[:/]|$)/, 'http://127.0.0.1')}
                       </span>
                     </p>
                   )}

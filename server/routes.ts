@@ -693,15 +693,35 @@ export function registerRoutes(app: Express) {
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ ok: false, error: 'url is required' });
     }
-    // Ensure a parseable URL
+    const supportedNodeTypes = new Set([
+      'rpcnode', 'rpc', 'fullnode', 'litenode', 'lite', 'boostnode',
+      'validatornode', 'validator', 'genesis', 'bootnode',
+    ]);
+    if (typeof nodeType !== 'string' || !supportedNodeTypes.has(nodeType.trim().toLowerCase())) {
+      return res.status(400).json({ ok: false, error: 'Choose a supported node type.' });
+    }
+
+    // The registry and ping service currently use plain HTTP JSON-RPC.
     let parsed: URL;
     try {
-      parsed = new URL(url.startsWith('http') ? url : `http://${url}`);
+      parsed = new URL(/^https?:\/\//i.test(url) ? url : `http://${url}`);
     } catch {
       return res.status(400).json({ ok: false, error: 'Invalid URL format. Use http://host:port' });
     }
+    if (parsed.protocol !== 'http:') {
+      return res.status(400).json({ ok: false, error: 'Use an http:// JSON-RPC URL; HTTPS node URLs are not supported by the node monitor yet.' });
+    }
+    if (parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname && parsed.pathname !== '/')) {
+      return res.status(400).json({ ok: false, error: 'Enter only the node host and port, for example http://203.0.113.10:8545.' });
+    }
     let host = parsed.hostname;
     const port = parsed.port ? parseInt(parsed.port, 10) : 8545;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ ok: false, error: 'RPC port must be between 1 and 65535.' });
+    }
+    if (!host) {
+      return res.status(400).json({ ok: false, error: 'A node IP address or hostname is required.' });
+    }
 
     // Auto-resolve 0.0.0.0 → 127.0.0.1 (bind-all → loopback for connect)
     if (host === '0.0.0.0' || host === '::' || host === '0:0:0:0:0:0:0:0') host = '127.0.0.1';
@@ -716,20 +736,27 @@ export function registerRoutes(app: Express) {
         ? submittedWireguardKey.trim()
         : null);
 
-    const row = await storage.insertNode({
-      nodeType,
-      hostname: host,
-      ipAddress: host,
-      rpcPort: port,
-      wireguardPublicKey: registeredWireguardKey,
-      userId: user.id,
-      isApproved: true,
-      approvedBy: user.id,
-      approvedAt: new Date(),
-      isOnline: false,
-    });
-
-    res.json({ ok: true, node: row });
+    try {
+      const row = await storage.insertNode({
+        nodeType: nodeType.trim().toLowerCase(),
+        hostname: host,
+        ipAddress: host,
+        rpcPort: port,
+        wireguardPublicKey: registeredWireguardKey,
+        userId: user.id,
+        isApproved: true,
+        approvedBy: user.id,
+        approvedAt: new Date(),
+        isOnline: false,
+      });
+      return res.json({ ok: true, node: row });
+    } catch (error: any) {
+      console.error('[nodes/add-url] registration failed:', error?.message ?? error);
+      return res.status(500).json({
+        ok: false,
+        error: 'The node could not be saved. Check the database connection and node_installations schema, then try again.',
+      });
+    }
   });
 
   // ── Node Installations ─────────────────────────────────────────────────────
@@ -4165,6 +4192,12 @@ export function registerRoutes(app: Express) {
     for (const t of prioritized) {
       if (netStatus[t]?.running) urls.push(`http://localhost:${netStatus[t].port}`);
     }
+    const configuredLocal = network === "mainnet"
+      ? (process.env.GYDS_LOCAL_RPC_URL || "http://127.0.0.1:8545")
+      : network === "testnet"
+        ? (process.env.GYDS_TESTNET_LOCAL_RPC_URL || "http://127.0.0.1:8600")
+        : (process.env.GYDS_DEVNET_LOCAL_RPC_URL || "http://127.0.0.1:8700");
+    if (!urls.includes(configuredLocal)) urls.push(configuredLocal);
     const primary = network === "testnet"
       ? (process.env.GYDS_TESTNET_RPC_URL || "http://localhost:8600")
       : network === "devnet"
@@ -6882,6 +6915,9 @@ export function registerRoutes(app: Express) {
     'WHATSAPP_PHONE_ID',
     'GYDS_BOOTSTRAP_NODES',
     'GYDS_RPC_URL', 'GYDS_RPC_BACKUP_URLS', 'GYDS_LOCAL_RPC_URL',
+    'GYDS_SWAP_WGYDS_ADDRESS', 'GYDS_SWAP_FACTORY_ADDRESS',
+    'GYDS_SWAP_ROUTER_ADDRESS', 'GYDS_SWAP_FARM_ADDRESS',
+    'GYDS_USDT_TOKEN_ADDRESS', 'GYDS_GYD_TOKEN_ADDRESS',
     'DISCORD_WEBHOOK_URL',
     'BRIDGE_RELAYER_WEBHOOK_URL',
   ];
@@ -6900,18 +6936,38 @@ export function registerRoutes(app: Express) {
       const env = readEnvFile();
       const values: Record<string, string> = {};
       for (const k of SERVER_CONFIG_READABLE) {
-        values[k] = process.env[k] ?? env[k] ?? '';
+        values[k] = process.env[k] || env[k] || '';
       }
       for (const k of SERVER_CONFIG_SECRET) {
-        const v = process.env[k] ?? env[k] ?? '';
+        const v = process.env[k] || env[k] || '';
         values[k] = v ? '••••••••' : '';
       }
       const keysSet: Record<string, boolean> = {};
       for (const k of SERVER_CONFIG_ALL) {
-        keysSet[k] = !!(process.env[k] ?? env[k]);
+        keysSet[k] = !!(process.env[k] || env[k]);
       }
       res.json({ values, keysSet });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Public DEX addresses are read at runtime so deploys do not require a
+  // frontend rebuild. An address alone does not enable trading: pools must
+  // also exist and hold real liquidity.
+  app.get('/api/dex/config', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const env = readEnvFile();
+    const value = (key: string) => process.env[key] || env[key] || '';
+    res.json({
+      chainId: Number(value('GYDS_CHAIN_ID') || 198282),
+      addresses: {
+        WGYDS: value('GYDS_SWAP_WGYDS_ADDRESS'),
+        Factory: value('GYDS_SWAP_FACTORY_ADDRESS'),
+        Router: value('GYDS_SWAP_ROUTER_ADDRESS'),
+        Farm: value('GYDS_SWAP_FARM_ADDRESS'),
+        USDT: value('GYDS_USDT_TOKEN_ADDRESS'),
+        GYD: value('GYDS_GYD_TOKEN_ADDRESS'),
+      },
+    });
   });
 
   app.post('/api/admin/server-config', requireAdmin, async (req, res) => {
@@ -6922,6 +6978,17 @@ export function registerRoutes(app: Express) {
         if (!allowed.has(k)) continue;
         if (typeof v === 'string' && v.trim() && !v.startsWith('••')) {
           toSave[k] = v.trim();
+        }
+      }
+      const contractAddressKeys = [
+        'GYDS_SWAP_WGYDS_ADDRESS', 'GYDS_SWAP_FACTORY_ADDRESS',
+        'GYDS_SWAP_ROUTER_ADDRESS', 'GYDS_SWAP_FARM_ADDRESS',
+        'GYDS_USDT_TOKEN_ADDRESS', 'GYDS_GYD_TOKEN_ADDRESS',
+      ];
+      for (const key of contractAddressKeys) {
+        const value = toSave[key];
+        if (value && !/^0x[a-fA-F0-9]{40}$/.test(value)) {
+          return res.status(400).json({ error: `${key} must be a valid EVM contract address.` });
         }
       }
 

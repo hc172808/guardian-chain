@@ -34,6 +34,26 @@ GYDS / USDC  →  GLP-GYDS-USDC
 6. Per farm pool: farm.addPool(glpTokenAddress, allocPoints)
 ```
 
+## GYDS Mainnet deployment
+
+The repository starts with zero contract addresses. A real swap cannot execute
+until the contracts are deployed to chain ID `198282`, the token contracts are
+real contracts on that chain, the pair is created, and liquidity is funded.
+
+1. Configure `GYDS_RPC_URL` to a real RPC for chain `198282` and set
+   `DEPLOYER_PRIVATE_KEY` as a server secret (never commit or paste the key).
+2. For USDT trading, set `GYDS_USDT_TOKEN_ADDRESS` to the actual USDT ERC-20
+   contract on GYDS mainnet. For GYD/USDT trading, also set
+   `GYDS_GYD_TOKEN_ADDRESS` to the actual GYD ERC-20 contract. The deployment
+   script checks the chain, contract code, and token symbols before creating
+   pairs; it does not create fake or placeholder tokens.
+3. Run `npm run compile` and then `npm run deploy:gydschain` from this directory.
+   The script deploys WGYDS, the factory, and router, creates only the pairs
+   whose real token addresses were supplied, and saves public contract
+   addresses to the repository-root `.env`.
+4. Configure and fund the required pools with real assets before enabling
+   trading. A deployed router without pair liquidity is not a working market.
+
 ## Security Notes
 
 - Reentrancy guard on all state-changing functions in Pair and Farm

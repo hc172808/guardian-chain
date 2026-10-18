@@ -21,16 +21,14 @@ library GydsSwapLibrary {
 
     /// @notice Compute the CREATE2 address of a pair without any external calls
     function pairFor(address factory, address tokenA, address tokenB)
-        internal pure returns (address pair)
+        internal view returns (address pair)
     {
         (address token0, address token1) = sortTokens(tokenA, tokenB);
-        pair = address(uint160(uint256(keccak256(abi.encodePacked(
-            hex"ff",
-            factory,
-            keccak256(abi.encodePacked(token0, token1)),
-            // keccak256 of GydsSwapPair bytecode — update after deployment
-            hex"96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f"
-        )))));
+        // Ask the factory for the pair created from its actual compiled bytecode.
+        // A hard-coded CREATE2 init-code hash can silently point the router at
+        // the wrong address whenever the pair source or compiler settings change.
+        pair = IGydsSwapFactory(factory).getPair(token0, token1);
+        require(pair != address(0), "GydsSwap: PAIR_NOT_FOUND");
     }
 
     // ─── Reserves ────────────────────────────────────────────────────────────
@@ -135,4 +133,8 @@ library GydsSwapLibrary {
 /// @dev Minimal interface for pair reserve reads used by the library
 interface IGydsSwapPair {
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
+}
+
+interface IGydsSwapFactory {
+    function getPair(address tokenA, address tokenB) external view returns (address pair);
 }

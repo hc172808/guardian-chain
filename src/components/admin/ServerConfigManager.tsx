@@ -41,6 +41,12 @@ interface ConfigValues {
   GYDS_RPC_URL: string;
   GYDS_RPC_BACKUP_URLS: string;
   GYDS_LOCAL_RPC_URL: string;
+  GYDS_SWAP_WGYDS_ADDRESS: string;
+  GYDS_SWAP_FACTORY_ADDRESS: string;
+  GYDS_SWAP_ROUTER_ADDRESS: string;
+  GYDS_SWAP_FARM_ADDRESS: string;
+  GYDS_USDT_TOKEN_ADDRESS: string;
+  GYDS_GYD_TOKEN_ADDRESS: string;
   TREASURY_PRIVATE_KEY: string;
   DISCORD_WEBHOOK_URL: string;
 }
@@ -53,6 +59,9 @@ const EMPTY: ConfigValues = {
   WHATSAPP_TOKEN: '', WHATSAPP_PHONE_ID: '',
   GYDS_BOOTSTRAP_NODES: '',
   GYDS_RPC_URL: '', GYDS_RPC_BACKUP_URLS: '', GYDS_LOCAL_RPC_URL: '',
+  GYDS_SWAP_WGYDS_ADDRESS: '', GYDS_SWAP_FACTORY_ADDRESS: '',
+  GYDS_SWAP_ROUTER_ADDRESS: '', GYDS_SWAP_FARM_ADDRESS: '',
+  GYDS_USDT_TOKEN_ADDRESS: '', GYDS_GYD_TOKEN_ADDRESS: '',
   TREASURY_PRIVATE_KEY: '',
   DISCORD_WEBHOOK_URL: '',
 };
@@ -524,6 +533,32 @@ export function ServerConfigManager() {
               )}
             </div>
           )}
+        </div>
+      </Section>
+
+      <Section icon={Radio} title="DeFi Contracts" desc="Runtime DEX addresses used by the swap interface">
+        <p className="text-xs text-amber-300/90">
+          Addresses must be deployed on chain 198282. GYD/USDT and GYDS/USDT trading also requires real token contracts, created pairs, and funded liquidity. Do not enter placeholder addresses.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Wrapped GYDS (WGYDS)">
+            <Input value={values.GYDS_SWAP_WGYDS_ADDRESS} onChange={e => set('GYDS_SWAP_WGYDS_ADDRESS')(e.target.value)} placeholder="0x…" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="GydsSwap Factory">
+            <Input value={values.GYDS_SWAP_FACTORY_ADDRESS} onChange={e => set('GYDS_SWAP_FACTORY_ADDRESS')(e.target.value)} placeholder="0x…" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="GydsSwap Router">
+            <Input value={values.GYDS_SWAP_ROUTER_ADDRESS} onChange={e => set('GYDS_SWAP_ROUTER_ADDRESS')(e.target.value)} placeholder="0x…" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="GydsSwap Farm (optional)">
+            <Input value={values.GYDS_SWAP_FARM_ADDRESS} onChange={e => set('GYDS_SWAP_FARM_ADDRESS')(e.target.value)} placeholder="0x…" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="USDT ERC-20 contract">
+            <Input value={values.GYDS_USDT_TOKEN_ADDRESS} onChange={e => set('GYDS_USDT_TOKEN_ADDRESS')(e.target.value)} placeholder="Actual USDT contract on GYDS mainnet" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="GYD ERC-20 contract">
+            <Input value={values.GYDS_GYD_TOKEN_ADDRESS} onChange={e => set('GYDS_GYD_TOKEN_ADDRESS')(e.target.value)} placeholder="Actual GYD ERC-20 contract on GYDS mainnet" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
         </div>
       </Section>
 

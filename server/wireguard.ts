@@ -1,4 +1,3 @@
-import { Client } from "ssh2";
 import { storage } from "./storage";
 
 export interface WireGuardServerConfig {
@@ -136,8 +135,19 @@ export async function runRemoteWireGuardCommand(command: string): Promise<Remote
     throw new Error(`Remote WireGuard connection is not configured: ${missing.join(", ")}.`);
   }
 
+  let SshClient: new () => any;
+  try {
+    // WireGuard SSH support is optional. Keep a missing optional dependency from
+    // preventing the main Express API (including node registration) from booting.
+    const ssh2ModuleName = "ssh2";
+    const ssh2 = await import(ssh2ModuleName);
+    SshClient = ssh2.Client as new () => any;
+  } catch {
+    throw new Error("Remote WireGuard management is unavailable because the ssh2 package is not installed in this runtime.");
+  }
+
   return new Promise((resolve, reject) => {
-    const client = new Client();
+    const client = new SshClient();
     let settled = false;
     const finish = (callback: () => void) => {
       if (settled) return;

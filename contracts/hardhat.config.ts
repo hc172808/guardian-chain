@@ -1,5 +1,23 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+
+// Hardhat is often run from the contracts directory, while project settings
+// live in the repository-root .env file. Load only missing values and never
+// print them (especially DEPLOYER_PRIVATE_KEY).
+const rootEnvPath = fileURLToPath(new URL("../.env", import.meta.url));
+if (fs.existsSync(rootEnvPath)) {
+  for (const line of fs.readFileSync(rootEnvPath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator < 1) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim().replace(/^(['"])(.*)\1$/, "$2");
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
+}
 
 const config: HardhatUserConfig = {
   solidity: {

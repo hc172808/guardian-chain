@@ -22,6 +22,7 @@ export const CONTRACT_ADDRESSES = {
 
     // Other tokens
     USDT: '0x0000000000000000000000000000000000000000',
+    GYD:  '0x0000000000000000000000000000000000000000',
     USDC: '0x0000000000000000000000000000000000000000',
     WBTC: '0x0000000000000000000000000000000000000000',
     WETH: '0x0000000000000000000000000000000000000000',
@@ -41,6 +42,34 @@ export const CONTRACT_ADDRESSES = {
     },
   },
 };
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+export function applyRuntimeContractAddresses(addresses: Record<string, unknown>) {
+  const fields: Array<[keyof typeof CONTRACT_ADDRESSES.mainnet, string]> = [
+    ['WGYDS', 'WGYDS'],
+    ['Factory', 'Factory'],
+    ['Router', 'Router'],
+    ['Farm', 'Farm'],
+    ['USDT', 'USDT'],
+    ['GYD', 'GYD'],
+    ['USDC', 'USDC'],
+    ['WBTC', 'WBTC'],
+    ['WETH', 'WETH'],
+  ];
+  for (const [key, configKey] of fields) {
+    const value = addresses[configKey];
+    if (typeof value === 'string' && /^0x[a-fA-F0-9]{40}$/.test(value)) {
+      CONTRACT_ADDRESSES.mainnet[key] = value;
+    }
+  }
+}
+
+export function isConfiguredContractAddress(value: unknown): value is string {
+  return typeof value === 'string' &&
+    /^0x[a-fA-F0-9]{40}$/.test(value) &&
+    value.toLowerCase() !== ZERO_ADDRESS;
+}
 
 // Minimal ABI fragments for ethers.js interaction
 // Full ABIs are in /contracts/*.sol; these are the JS-callable functions.

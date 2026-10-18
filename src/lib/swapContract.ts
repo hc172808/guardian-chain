@@ -217,6 +217,54 @@ export async function getTokenDecimals(tokenAddress: string): Promise<number> {
   }
 }
 
+export interface ExactInputQuote {
+  amountInRaw: string;
+  amountOutRaw: string;
+  amountOut: string;
+  inputDecimals: number;
+  outputDecimals: number;
+  path: string[];
+}
+
+/**
+ * Get an executable quote from the configured on-chain router. Native GYDS is
+ * represented by WGYDS inside the AMM path, while the wallet still sends GYDS.
+ */
+export async function getSwapQuoteExactIn(
+  amountIn: string,
+  tokenIn: string,
+  tokenOut: string,
+): Promise<ExactInputQuote | null> {
+  const router = getRouter();
+  if (!router) return null;
+  const native = '0x0000000000000000000000000000000000000000';
+  const wrapped = CONTRACT_ADDRESSES.mainnet.WGYDS;
+  const path = buildSwapPath(
+    tokenIn.toLowerCase() === native ? wrapped : tokenIn,
+    tokenOut.toLowerCase() === native ? wrapped : tokenOut,
+  );
+  if (path.length < 2 || path.some(address => !ethers.isAddress(address))) return null;
+
+  try {
+    const inputDecimals = tokenIn.toLowerCase() === native ? 18 : await getTokenDecimals(tokenIn);
+    const outputDecimals = tokenOut.toLowerCase() === native ? 18 : await getTokenDecimals(tokenOut);
+    const amountInRaw = ethers.parseUnits(amountIn, inputDecimals);
+    const amounts = await router.getAmountsOut(amountInRaw, path);
+    const amountOutRaw = BigInt(amounts[amounts.length - 1].toString());
+    if (amountOutRaw <= 0n) return null;
+    return {
+      amountInRaw: amountInRaw.toString(),
+      amountOutRaw: amountOutRaw.toString(),
+      amountOut: ethers.formatUnits(amountOutRaw, outputDecimals),
+      inputDecimals,
+      outputDecimals,
+      path,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getTokenSymbol(tokenAddress: string): Promise<string> {
   const provider = getProvider();
   if (!provider) return '???';
@@ -363,6 +411,13 @@ export async function executeSwapExactTokensForTokens(
   const routerAddr = CONTRACT_ADDRESSES.mainnet.Router;
   if (routerAddr === '0x0000000000000000000000000000000000000000') return null;
   try {
+    const owner = await signer.getAddress();
+    const inputToken = new ethers.Contract(path[0], ERC20_ABI, signer);
+    const allowance = BigInt((await inputToken.allowance(owner, routerAddr)).toString());
+    if (allowance < BigInt(amountIn)) {
+      const approval = await inputToken.approve(routerAddr, amountIn);
+      await approval.wait();
+    }
     const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
     const tx = await router.swapExactTokensForTokens(
       amountIn,
@@ -393,6 +448,13 @@ export async function executeSwapExactGYDSForTokens(
   const routerAddr = CONTRACT_ADDRESSES.mainnet.Router;
   if (routerAddr === '0x0000000000000000000000000000000000000000') return null;
   try {
+    const owner = await signer.getAddress();
+    const inputToken = new ethers.Contract(path[0], ERC20_ABI, signer);
+    const allowance = BigInt((await inputToken.allowance(owner, routerAddr)).toString());
+    if (allowance < BigInt(amountIn)) {
+      const approval = await inputToken.approve(routerAddr, amountIn);
+      await approval.wait();
+    }
     const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
     const tx = await router.swapExactGYDSForTokens(
       amountOutMin,
@@ -400,6 +462,36 @@ export async function executeSwapExactGYDSForTokens(
       to,
       deadline,
       { value: amountIn }
+    );
+    const receipt = await tx.wait();
+    return receipt?.hash ?? tx.hash;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Execute a token-to-native-GYDS swap.
+ */
+export async function executeSwapExactTokensForGYDS(
+  amountIn: string,
+  amountOutMin: string,
+  path: string[],
+  to: string,
+  deadline: number,
+): Promise<string | null> {
+  const signer = await getConnectedSigner();
+  if (!signer) return null;
+  const routerAddr = CONTRACT_ADDRESSES.mainnet.Router;
+  if (routerAddr === '0x0000000000000000000000000000000000000000') return null;
+  try {
+    const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
+    const tx = await router.swapExactTokensForGYDS(
+      amountIn,
+      amountOutMin,
+      path,
+      to,
+      deadline,
     );
     const receipt = await tx.wait();
     return receipt?.hash ?? tx.hash;
