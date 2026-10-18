@@ -2054,6 +2054,13 @@ export const storage = {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS notif_user_idx ON user_notifications(user_id, created_at DESC);
+      ALTER TABLE user_notifications
+        ADD COLUMN IF NOT EXISTS read BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS dismissed BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS link TEXT,
+        ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}';
+      UPDATE user_notifications SET read=true WHERE is_read=true AND read IS NOT TRUE;
     `);
   },
 

@@ -3,10 +3,9 @@
 - [Bridge networks](bridge-networks.md) — EXTERNAL_CHAINS in CrossChainBridge.tsx now has 25 networks; non-EVM chains skip wallet verification and use a trust-based flow.
 - [New pages wired](new-pages.md) — 9 new pages added (governance, nft, analytics, community, developer, leaderboard, multisig, identity, rwa); Sidebar has collapsible Core/Ecosystem/Resources sections.
 - [DeFi tabs](defi-tabs.md) — DeFi page has 13 tabs: swap, pools, stake, farm, orderbook, vaults, bridge, stablecoin, perps, predict, launchpad, portfolio, ilcalc. DeFiBottomNav updated to match.
-- [User stablecoins](user-stablecoins.md) — user_stablecoins table in DB; full CRUD at /api/stablecoins; creation rules enforced server-side; StablecoinFactory.tsx 5-step wizard in DeFi → Stable tab.
+- [Stablecoin approval](stablecoin-approval.md) — Every stablecoin submission, including admin/founder submissions, must notify reviewers and wait for explicit approval before deployment.
 - [WireGuard peer manager](wireguard-peers.md) — WireGuardPeerManager.tsx in Admin nodes tab; reads approved nodes, assigns 10.8.0.x tunnel IPs, generates wg0.conf + per-peer client configs, downloads/copies them.
 - [Remote WireGuard management](wireguard-remote-management.md) — Remote VPS peer sync uses SSH with fingerprint verification; private key stays in the WG_SSH_PRIVATE_KEY secret.
-- [Notification bell](notification-bell.md) — NotificationBell in Layout.tsx; live /api/notifications → user_notifications table; server pushes on faucet drip + governance vote + new proposal.
 - [TOTP implementation](totp-impl.md) — otplib v12 dropped the `authenticator` export; use server/totp.ts (built-in crypto, zero-dep RFC 6238 TOTP) instead.
 - [Admin camelCase](admin-camelcase.md) — Drizzle returns camelCase; NodeInstallation interface and nodes tab now use nodeType, isApproved, isSynced, wireguardPublicKey, createdAt.
 - [Test nodes](test-nodes.md) — 5 nodes: rpc(8545), lite(8555), fullnode(8565), boostnode(8575), validator(8585). Validator node has validator_info/validator_set/validator_getRewards/validator_register JSON-RPC methods + /validators endpoint.

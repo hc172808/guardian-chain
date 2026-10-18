@@ -101,25 +101,31 @@ async function getUserWalletAddresses(client: any, userId: string): Promise<stri
     .filter((address: string) => isWalletAddress(address));
 }
 
-async function notifyStablecoinReviewers(stablecoin: { name: string; symbol: string }) {
-  try {
-    const { rows } = await pgPool.query(
-      `SELECT DISTINCT user_id FROM user_roles WHERE role IN ('admin','founder')`,
+async function getStablecoinReviewerIds(client: any): Promise<string[]> {
+  const { rows } = await client.query(
+    `SELECT DISTINCT user_id FROM user_roles WHERE role IN ('admin','founder')`,
+  );
+  const reviewerIds = rows.map((row: any) => String(row.user_id)).filter(Boolean);
+  if (!reviewerIds.length) {
+    throw new Error("No admin or founder reviewers are configured; stablecoin submission cannot continue.");
+  }
+  return reviewerIds;
+}
+
+async function notifyStablecoinReviewers(
+  client: any,
+  stablecoin: { id: string; name: string; symbol: string },
+  reviewerIds: string[],
+) {
+  const title = "Stablecoin review required";
+  const body = `${stablecoin.symbol} — ${stablecoin.name} is waiting for approval.`;
+  const link = "/admin?tab=stablecoin";
+  for (const userId of reviewerIds) {
+    await client.query(
+      `INSERT INTO user_notifications (user_id, type, title, body, link)
+       VALUES ($1, 'stablecoin_review', $2, $3, $4)`,
+      [userId, title, body, link],
     );
-    const notifications = await Promise.allSettled(
-      rows.map(({ user_id }) => storage.createNotification(
-        user_id,
-        "stablecoin_review",
-        "Stablecoin review required",
-        `${stablecoin.symbol} — ${stablecoin.name} is waiting for approval.`,
-        "/admin?tab=stablecoin",
-      )),
-    );
-    if (notifications.some((result) => result.status === "rejected")) {
-      console.error("[stablecoin-review] Some admin/founder notifications could not be saved.");
-    }
-  } catch {
-    console.error("[stablecoin-review] Could not notify admin/founder accounts.");
   }
 }
 
@@ -1319,6 +1325,7 @@ export function registerRoutes(app: Express) {
     const user = req.user as any;
     const isAdminOrFounder = user._isAdmin || user._isFounder;
     const client = await pgPool.connect();
+    let transactionOpen = false;
     try {
       await ensureStablecoinDeploymentSchema();
       const {
@@ -1393,6 +1400,8 @@ export function registerRoutes(app: Express) {
       const creationFee = Number(feeCfg?.config_value) || 10000;
 
       await client.query('BEGIN');
+      transactionOpen = true;
+      const reviewerIds = await getStablecoinReviewerIds(client);
       await client.query(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, [user.id]);
 
       let creationTransaction: any = null;
@@ -1400,11 +1409,13 @@ export function registerRoutes(app: Express) {
         const addresses = await getUserWalletAddresses(client, user.id);
         if (!addresses.length) {
           await client.query('ROLLBACK');
+          transactionOpen = false;
           return res.status(400).json({ error: 'Link a wallet before creating a stablecoin.' });
         }
         const available = await getUserTokenBalance(client, addresses, "GYDS");
         if (creationFee > available + 1e-12) {
           await client.query('ROLLBACK');
+          transactionOpen = false;
           return res.status(400).json({ error: `Insufficient GYDS balance. Creation requires ${creationFee.toFixed(4)} GYDS; available: ${available.toFixed(4)} GYDS.` });
         }
         const feeTransfer = await broadcastTransfer({
@@ -1451,52 +1462,18 @@ export function registerRoutes(app: Express) {
            false,
         ]
       );
+      await notifyStablecoinReviewers(client, newSc, reviewerIds);
       await client.query('COMMIT');
-      let responseStablecoin = newSc;
-      if (isAdminOrFounder) {
-        const ownerAddresses = await getUserWalletAddresses(pgPool, user.id);
-        const deploymentIssue = !ownerAddresses.length
-          ? "Link a wallet before deploying this stablecoin."
-          : !process.env.STABLECOIN_DEPLOYER_PRIVATE_KEY
-            ? "The stablecoin deployment signer is not configured."
-            : null;
-        if (deploymentIssue) {
-          const { rows: [updated] } = await pgPool.query(
-            `UPDATE user_stablecoins SET deployment_error=$1, updated_at=NOW()
-             WHERE id=$2 AND status='pending_review'
-             RETURNING *`,
-            [deploymentIssue, newSc.id],
-          );
-          responseStablecoin = updated ?? newSc;
-        } else {
-          try {
-            const deployment = await deployOrResumeStablecoin(newSc.id, user.id, ownerAddresses[0]);
-            responseStablecoin = deployment.stablecoin;
-          } catch (deploymentError: any) {
-            const message = deploymentError instanceof StablecoinDeploymentError
-              ? deploymentError.message
-              : "On-chain deployment could not be started. Check the deployment configuration.";
-            await pgPool.query(
-              `UPDATE user_stablecoins SET deployment_error=$1, updated_at=NOW()
-               WHERE id=$2 AND status='pending_review'`,
-              [message, newSc.id],
-            );
-            const { rows: [updated] } = await pgPool.query(
-              `SELECT * FROM user_stablecoins WHERE id=$1`,
-              [newSc.id],
-            );
-            responseStablecoin = updated ?? newSc;
-          }
-        }
-      } else {
-        await notifyStablecoinReviewers(newSc);
-      }
+      transactionOpen = false;
       res.status(201).json({
-        ...withoutRawDeploymentTransaction(responseStablecoin),
+        ...withoutRawDeploymentTransaction(newSc),
         creationTransaction,
         creationFee: isAdminOrFounder ? 0 : creationFee,
       });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) {
+      if (transactionOpen) await client.query('ROLLBACK').catch(() => {});
+      res.status(500).json({ error: e.message });
+    }
     finally { client.release(); }
   });
 

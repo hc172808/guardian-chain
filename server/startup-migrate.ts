@@ -888,6 +888,9 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       type       TEXT NOT NULL,
       title      TEXT NOT NULL,
       body       TEXT,
+      read       BOOLEAN DEFAULT false,
+      dismissed  BOOLEAN DEFAULT false,
+      link       TEXT,
       is_read    BOOLEAN DEFAULT false,
       data       JSONB DEFAULT '{}',
       created_at TIMESTAMPTZ DEFAULT NOW()

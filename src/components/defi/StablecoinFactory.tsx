@@ -315,21 +315,9 @@ export const StablecoinFactory = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Creation failed');
 
-      const activatedImmediately = data.status === 'active';
-      const deploymentPending = data.status === 'deployment_pending';
       toast({
-        title: activatedImmediately
-          ? `${params.symbol} created`
-          : deploymentPending
-            ? `${params.symbol} deployment submitted`
-            : `${params.symbol} submitted`,
-        description: activatedImmediately
-          ? 'Its contract is confirmed and it is active in the Stablecoin Factory.'
-          : deploymentPending
-            ? 'It will become active after GYDS Chain confirms the deployment.'
-            : isPrivileged
-              ? 'It is waiting for wallet or deployment configuration before activation.'
-              : 'An admin will review and deploy the contract before activation.',
+        title: `${params.symbol} submitted for review`,
+        description: 'Admin and founder reviewers were notified. The contract is deployed only after approval.',
       });
       logAuditEvent(user.id, user.email ?? null, { action: 'stablecoin_create', category: 'token', target_type: 'stablecoin', details: { symbol: params.symbol, peg: params.pegType } });
       setDialogOpen(false);

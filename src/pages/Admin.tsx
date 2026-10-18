@@ -36,7 +36,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { BurnMintManager } from '@/components/admin/BurnMintManager';
 import { StablecoinManager } from '@/components/admin/StablecoinManager';
 import { StablecoinReviewQueue } from '@/components/admin/StablecoinReviewQueue';
@@ -804,12 +804,19 @@ const AdminContent = () => {
   const { user, isFounder, isAdmin } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState(() => {
     const requestedTab = new URLSearchParams(window.location.search).get('tab');
     return ADMIN_TABS.some(({ tabs }) => tabs.some(({ value }) => value === requestedTab))
       ? requestedTab!
       : 'activity';
   });
+  useEffect(() => {
+    const requestedTab = new URLSearchParams(location.search).get('tab');
+    if (requestedTab && ADMIN_TABS.some(({ tabs }) => tabs.some(({ value }) => value === requestedTab))) {
+      setActiveTab(requestedTab);
+    }
+  }, [location.search]);
   const [nodes, setNodes] = useState<NodeInstallation[]>([]);
   const [loading, setLoading] = useState(true);
   const [mainNodeId, setMainNodeId] = useState<string | null>(null);

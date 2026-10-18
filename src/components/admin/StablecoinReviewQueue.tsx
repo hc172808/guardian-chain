@@ -96,6 +96,9 @@ export function StablecoinReviewQueue() {
           <p className="mt-1 text-sm text-muted-foreground">
             Approving signs and submits an ERC-20 deployment on GYDS Chain (198282). A stablecoin becomes active only after its transaction is confirmed.
           </p>
+          <div role="alert" data-testid="stablecoin-deployment-warning" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-200">
+            The current contract is a basic ERC-20: its creator can mint without a supply cap. Peg, collateral, reserve, and fee settings are stored as metadata and are not enforced on-chain. Review the backing and minting plan before approving.
+          </div>
         </div>
         <Button
           variant="outline"
@@ -171,6 +174,7 @@ export function StablecoinReviewQueue() {
                     onClick={() => void deploy(item)}
                     disabled={workingId !== null || (!deploying && !item.creator_wallet)}
                     className="shrink-0"
+                    data-testid={`approve-stablecoin-${item.id}`}
                   >
                     {workingId === item.id
                       ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
