@@ -37,7 +37,9 @@ export function normalizeNodeRpcUrl(hostValue: unknown, portValue: unknown, defa
     }
     url.search = "";
     url.hash = "";
-    return url.toString().replace(/\/+$/, "");
+    return url.pathname === "/"
+      ? `${url.origin}/`
+      : url.toString().replace(/\/+$/, "");
   } catch {
     return null;
   }

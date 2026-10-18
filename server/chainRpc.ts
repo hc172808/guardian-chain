@@ -11,15 +11,15 @@ import crypto from "crypto";
 const LOCAL_FALLBACK_PORTS = [8545, 8565, 8555, 8575, 8585, 8590, 8595];
 
 function getRpcEndpoints(): string[] {
-  const primary = process.env.GYDS_RPC_URL || "http://localhost:8545";
-  // If admin has configured explicit backup URLs, use those; otherwise fall through local ports
+  const localPrimary = process.env.GYDS_LOCAL_RPC_URL?.trim() || "http://127.0.0.1:8545";
+  const configuredPrimary = process.env.GYDS_RPC_URL?.trim();
+  // If admin has configured explicit backup URLs, use those; otherwise fall through local ports.
   const configuredBackups = process.env.GYDS_RPC_BACKUP_URLS
     ? process.env.GYDS_RPC_BACKUP_URLS.split(",").map((s) => s.trim()).filter(Boolean)
-    : LOCAL_FALLBACK_PORTS.map(p => `http://localhost:${p}`);
-  const explicit = process.env.GYDS_LOCAL_RPC_URL ? [process.env.GYDS_LOCAL_RPC_URL.trim()] : [];
+    : LOCAL_FALLBACK_PORTS.map(p => `http://127.0.0.1:${p}`);
   // Deduplicate while preserving order
   const seen = new Set<string>();
-  return [primary, ...configuredBackups, ...explicit].filter(u => {
+  return [localPrimary, ...LOCAL_FALLBACK_PORTS.map(p => `http://127.0.0.1:${p}`), configuredPrimary, ...configuredBackups].filter(u => {
     if (!u || seen.has(u)) return false;
     seen.add(u);
     return true;
