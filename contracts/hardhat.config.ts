@@ -36,7 +36,7 @@ const config: HardhatUserConfig = {
       chainId: 198282,
     },
     gydschain: {
-      url: process.env.GYDS_RPC_URL ?? "https://rpc.netlifegy.com",
+      url: process.env.GYDS_LOCAL_RPC_URL || process.env.GYDS_RPC_URL || "https://rpc.netlifegy.com",
       chainId: 198282,
       accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
     },

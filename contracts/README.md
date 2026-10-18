@@ -40,8 +40,10 @@ The repository starts with zero contract addresses. A real swap cannot execute
 until the contracts are deployed to chain ID `198282`, the token contracts are
 real contracts on that chain, the pair is created, and liquidity is funded.
 
-1. Configure `GYDS_RPC_URL` to a real RPC for chain `198282` and set
-   `DEPLOYER_PRIVATE_KEY` as a server secret (never commit or paste the key).
+1. Configure `GYDS_LOCAL_RPC_URL` (preferred for this server) or `GYDS_RPC_URL`
+   to a real RPC for chain `198282`; the deployment config uses the local RPC
+   first. Set `DEPLOYER_PRIVATE_KEY` as a server secret (never commit or paste
+   the key).
 2. For USDT trading, set `GYDS_USDT_TOKEN_ADDRESS` to the actual USDT ERC-20
    contract on GYDS mainnet. For GYD/USDT trading, also set
    `GYDS_GYD_TOKEN_ADDRESS` to the actual GYD ERC-20 contract. The deployment
