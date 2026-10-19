@@ -14,21 +14,26 @@ import { ArrowLeft, Droplets } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { loadDeFiTokenCatalog, NATIVE_GYDS_ADDRESS, type DeFiTokenAsset } from '@/lib/defiTokenCatalog';
 
 interface CreatePoolProps {
   onBack: () => void;
 }
 
-const NATIVE_TOKENS = ['GYD', 'GYDS'];
-
 export const CreatePool = ({ onBack }: CreatePoolProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [customTokens, setCustomTokens] = useState<{ symbol: string; address: string }[]>([]);
+  const [availableTokens, setAvailableTokens] = useState<DeFiTokenAsset[]>([{
+    symbol: 'GYDS',
+    name: 'GYDS Native Coin',
+    address: NATIVE_GYDS_ADDRESS,
+    price: 0.0000001,
+    source: 'native',
+  }]);
   const [walletTokens, setWalletTokens] = useState<string[]>([]);
   const [form, setForm] = useState({
-    tokenA: 'GYD',
+    tokenA: 'GYDS',
     tokenB: '',
     feeTier: '0.3',
     initialLiquidityA: '',
@@ -37,19 +42,29 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
 
   useEffect(() => {
     const loadTokens = async () => {
-      const tokensData = await api.get('/api/tokens').catch(() => []);
-      const data = Array.isArray(tokensData) ? tokensData : [];
-      setCustomTokens(data.filter((t: any) => t.isActive || t.is_active));
-
-      if (user) {
-        const userTokens = data.filter((t: any) => t.creatorId === user.id || t.creator_id === user.id);
-        setWalletTokens(userTokens.map((t: any) => t.symbol));
+      try {
+        const dexConfig = await api.get('/api/dex/config').catch((error) => {
+          console.error('[create-pool] Could not load DEX contract config:', error);
+          return { chainId: 0, addresses: {} };
+        });
+        const catalog = await loadDeFiTokenCatalog(dexConfig);
+        setAvailableTokens(catalog);
+        setWalletTokens(user
+          ? catalog.filter(token => token.creatorId === user.id).map(token => token.symbol)
+          : []);
+      } catch (error) {
+        console.error('[create-pool] Could not load the mainnet token catalog:', error);
+        toast({
+          title: 'Could not load tokens',
+          description: 'The server token list could not be loaded. Refresh the page and try again.',
+          variant: 'destructive',
+        });
       }
     };
-    loadTokens();
-  }, [user]);
+    void loadTokens();
+  }, [user, toast]);
 
-  const allTokens = [...new Set([...NATIVE_TOKENS, ...customTokens.map(t => t.symbol)])];
+  const allTokens = availableTokens.map(token => token.symbol);
 
   const handleSubmit = async () => {
     if (!user) {
@@ -63,15 +78,15 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
 
     setLoading(true);
     try {
-      const tokenAMeta = customTokens.find(t => t.symbol === form.tokenA);
-      const tokenBMeta = customTokens.find(t => t.symbol === form.tokenB);
+      const tokenAMeta = availableTokens.find(t => t.symbol === form.tokenA);
+      const tokenBMeta = availableTokens.find(t => t.symbol === form.tokenB);
 
       await api.post('/api/liquidity-pools', {
         creator_id: user.id,
         token_a_symbol: form.tokenA,
         token_b_symbol: form.tokenB,
-        token_a_address: tokenAMeta?.address || null,
-        token_b_address: tokenBMeta?.address || null,
+        token_a_address: tokenAMeta?.source === 'native' ? null : tokenAMeta?.address || null,
+        token_b_address: tokenBMeta?.source === 'native' ? null : tokenBMeta?.address || null,
         fee_tier: parseFloat(form.feeTier),
         tvl: (parseFloat(form.initialLiquidityA) || 0) + (parseFloat(form.initialLiquidityB) || 0),
       });

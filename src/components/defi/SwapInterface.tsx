@@ -24,6 +24,7 @@ import {
   SWAP_FEE_NUMERATOR,
   SWAP_FEE_DENOMINATOR,
 } from '@/config/contracts';
+import { loadDeFiTokenCatalog, NATIVE_GYDS_ADDRESS } from '@/lib/defiTokenCatalog';
 import { NetworkStatusBanner } from '@/components/network/NetworkStatusBanner';
 import {
   Popover,
@@ -46,16 +47,16 @@ interface Token {
   logo?: string;
 }
 
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+const ZERO_ADDRESS = NATIVE_GYDS_ADDRESS;
 
 // GYD and USDT are included only after real ERC-20 addresses are configured.
 const NATIVE_TOKENS: Token[] = [
   { symbol: 'GYDS', name: 'GYDS Native Coin', balance: 0, price: 0.0000001, address: ZERO_ADDRESS, logo: '/gyds-coin.jpg' },
 ];
 
-const UNCONFIGURED_TOKEN: Token = {
-  symbol: 'USDT',
-  name: 'USDT contract not configured',
+const SELECT_TOKEN: Token = {
+  symbol: 'Select',
+  name: 'Select a token',
   balance: 0,
   price: 1,
   address: ZERO_ADDRESS,
@@ -169,7 +170,7 @@ export const SwapInterface = () => {
   const [receiveAmount, setReceiveAmount] = useState('');
   const [allTokens, setAllTokens] = useState<Token[]>(NATIVE_TOKENS);
   const [payToken, setPayToken] = useState<Token>(NATIVE_TOKENS[0]);
-  const [receiveToken, setReceiveToken] = useState<Token>(UNCONFIGURED_TOKEN);
+  const [receiveToken, setReceiveToken] = useState<Token>(SELECT_TOKEN);
   const [slippage, setSlippage] = useState(0.5);
   const [isSwapping, setIsSwapping] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -206,104 +207,58 @@ export const SwapInterface = () => {
       ].every(isConfiguredContractAddress);
       setSwapContractsConfigured(coreContractsReady);
 
-      const { data } = await supabase
-        .from('tokens')
-        .select('symbol, name, address, total_supply, logo_url, creator_id')
-        .eq('is_active', true)
-        .order('symbol');
-
-      // Get coin logos — DB values override static fallbacks
-      // Static fallbacks exist at /gyds-coin.jpg, /gyd-coin.png, /gusd-coin.png
-      const logos: Record<string, string> = {
-        gyds_logo: '/gyds-coin.jpg',
-        gyd_logo:  '/gyd-coin.png',
-        gusd_logo: '/gusd-coin.png',
-      };
       try {
-        const [gydsLogoRes, gydLogoRes, gusdLogoRes] = await Promise.all([
-          fetch('/api/config/gyds_logo', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
-          fetch('/api/config/gyd_logo',  { credentials: 'include' }).then(r => r.ok ? r.json() : null),
-          fetch('/api/config/gusd_logo', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+        const [logoResponses, priceResponse, catalog] = await Promise.all([
+          Promise.all([
+            fetch('/api/config/gyds_logo', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+            fetch('/api/config/gyd_logo', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+            fetch('/api/config/gusd_logo', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+          ]),
+          supabase.from('token_price').select('price').limit(1).single(),
+          loadDeFiTokenCatalog({ chainId: dexChainId, addresses: dexAddresses }),
         ]);
-        const gVal  = gydsLogoRes?.configValue ?? gydsLogoRes?.config_value;
-        const dVal  = gydLogoRes?.configValue  ?? gydLogoRes?.config_value;
-        const uVal  = gusdLogoRes?.configValue ?? gusdLogoRes?.config_value;
-        if (gVal?.url) logos['gyds_logo'] = gVal.url;
-        if (dVal?.url) logos['gyd_logo']  = dVal.url;
-        if (uVal?.url) logos['gusd_logo'] = uVal.url;
-      } catch {}
+        const [gydsLogoRes, gydLogoRes, gusdLogoRes] = logoResponses;
+        const logoValue = (response: any, fallback: string) =>
+          response?.configValue?.url ?? response?.config_value?.url ?? fallback;
+        const gydsLogo = logoValue(gydsLogoRes, '/gyds-coin.jpg');
+        const gydLogo = logoValue(gydLogoRes, '/gyd-coin.png');
+        const gusdLogo = logoValue(gusdLogoRes, '/gusd-coin.png');
+        const gydsPrice = Number(priceResponse.data?.price) || 0.0000001;
 
-      // Get GYDS price
-      const { data: priceData } = await supabase
-        .from('token_price')
-        .select('price')
-        .limit(1)
-        .single();
+        const merged: Token[] = await Promise.all(catalog.map(async asset => ({
+          symbol: asset.symbol,
+          name: asset.name,
+          balance: effectiveAddress
+            ? Number(await getTokenBalance(asset.address, effectiveAddress)) || 0
+            : 0,
+          price: asset.symbol.toUpperCase() === 'GYDS' ? gydsPrice : asset.price,
+          address: asset.address,
+          logo: asset.logo ??
+            (asset.symbol.toUpperCase() === 'GYDS' ? gydsLogo :
+              asset.symbol.toUpperCase() === 'GYD' ? gydLogo :
+                asset.symbol.toUpperCase() === 'GUSD' ? gusdLogo : undefined),
+        })));
 
-      const gydsPrice = priceData?.price || 0.0000001;
-
-      // Calculate real balances if user is logged in
-      let gydsBalance = 0;
-      let gydBalance = 0;
-      let usdtBalance = 0;
-      if (effectiveAddress) {
-        const [nativeBalance, gydTokenBalance, usdtTokenBalance] = await Promise.all([
-          getTokenBalance(ZERO_ADDRESS, effectiveAddress),
-          isConfiguredContractAddress(dexAddresses.GYD)
-            ? getTokenBalance(dexAddresses.GYD, effectiveAddress)
-            : Promise.resolve('0'),
-          isConfiguredContractAddress(dexAddresses.USDT)
-            ? getTokenBalance(dexAddresses.USDT, effectiveAddress)
-            : Promise.resolve('0'),
-        ]);
-        gydsBalance = Number(nativeBalance) || 0;
-        gydBalance = Number(gydTokenBalance) || 0;
-        usdtBalance = Number(usdtTokenBalance) || 0;
-      }
-
-      const nativeWithLogos: Token[] = [
-        { symbol: 'GYDS', name: 'GYDS Native Coin', balance: gydsBalance, price: gydsPrice, address: ZERO_ADDRESS, logo: logos['gyds_logo'] },
-        ...(isConfiguredContractAddress(dexAddresses.GYD)
-          ? [{ symbol: 'GYD', name: 'GYD Stablecoin', balance: gydBalance, price: 1, address: dexAddresses.GYD, logo: logos['gyd_logo'] }]
-          : []),
-        ...(isConfiguredContractAddress(dexAddresses.USDT)
-          ? [{ symbol: 'USDT', name: 'Tether USD', balance: usdtBalance, price: 1, address: dexAddresses.USDT }]
-          : []),
-      ];
-
-      const dbTokens: Token[] = await Promise.all((data || []).map(async t => ({
-        symbol: t.symbol,
-        name: t.name,
-        balance: effectiveAddress && isConfiguredContractAddress(t.address)
-          ? Number(await getTokenBalance(t.address, effectiveAddress)) || 0
-          : 0,
-        price: 0.01,
-        address: t.address,
-        logo: t.logo_url || undefined,
-      })));
-
-      // Merge native + DB tokens, avoiding duplicates
-      const merged = [...nativeWithLogos];
-      dbTokens.forEach(t => {
-        if (!merged.find(m => m.symbol === t.symbol)) {
-          merged.push(t);
-        }
-      });
       setAllTokens(merged);
-      setPayToken(prev => merged.find(m => m.symbol === prev.symbol) || prev);
-      setReceiveToken(prev => merged.find(m => m.symbol === prev.symbol) || merged.find(m => m.symbol === 'USDT') || UNCONFIGURED_TOKEN);
+      const firstReceiveOption = merged.find(token => token.symbol.toUpperCase() === 'USDT') ??
+        merged.find(token => token.symbol.toUpperCase() !== 'GYDS') ??
+        SELECT_TOKEN;
+      setPayToken(prev => merged.find(m => m.symbol === prev.symbol) || merged[0] || NATIVE_TOKENS[0]);
+      setReceiveToken(prev => merged.find(m => m.symbol === prev.symbol) || firstReceiveOption);
+      } catch (error) {
+        console.error('[swap] Could not load the mainnet token catalog:', error);
+        toast({
+          title: 'Could not load tokens',
+          description: 'The server token list could not be loaded. Refresh the page and try again.',
+          variant: 'destructive',
+        });
+      }
     };
 
-    loadTokens();
-
-    const channel = supabase
-      .channel('swap-tokens')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tokens' }, () => loadTokens())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadTokens())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'token_operations' }, () => loadTokens())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user, address]);
+    void loadTokens();
+    const refreshInterval = window.setInterval(() => void loadTokens(), 30_000);
+    return () => window.clearInterval(refreshInterval);
+  }, [user, address, effectiveAddress, toast]);
 
   const handleSwapTokens = () => {
     const temp = payToken;
@@ -332,6 +287,11 @@ export const SwapInterface = () => {
   useEffect(() => {
     const sequence = ++quoteSequence.current;
     const amount = Number(payAmount);
+    if (receiveToken.symbol === 'Select') {
+      setReceiveAmount('');
+      setQuoteUnavailable(false);
+      return;
+    }
     if (!Number.isFinite(amount) || amount <= 0) {
       setReceiveAmount('');
       setQuoteUnavailable(false);
@@ -609,6 +569,7 @@ export const SwapInterface = () => {
           variant="secondary"
           size="icon"
           onClick={handleSwapTokens}
+          disabled={receiveToken.symbol === 'Select'}
           className="rounded-lg border border-border/50 bg-card hover:bg-secondary"
         >
           <ArrowUpDown className="h-4 w-4" />
@@ -651,7 +612,11 @@ export const SwapInterface = () => {
         <div className="rounded-xl border border-border/50 bg-card/30 p-3 space-y-2 text-sm">
           <div className="flex justify-between text-muted-foreground">
             <span>Rate</span>
-            <span className="font-mono">1 {payToken.symbol} = {exchangeRate.toFixed(exchangeRate < 1 ? 7 : 4)} {receiveToken.symbol}</span>
+            {receiveToken.symbol === 'Select' ? (
+              <span className="font-mono">Choose a token</span>
+            ) : (
+              <span className="font-mono">1 {payToken.symbol} = {exchangeRate.toFixed(exchangeRate < 1 ? 7 : 4)} {receiveToken.symbol}</span>
+            )}
           </div>
           <div className="flex justify-between text-muted-foreground">
             <span>Fee (0.3%)</span>
