@@ -12,18 +12,22 @@ const LOCAL_FALLBACK_PORTS = [8545, 8565, 8555, 8575, 8585, 8590, 8595];
 
 function getRpcEndpoints(): string[] {
   const localPrimary = process.env.GYDS_LOCAL_RPC_URL?.trim() || "http://127.0.0.1:8545";
-  const configuredPrimary = process.env.GYDS_RPC_URL?.trim();
-  // If admin has configured explicit backup URLs, use those; otherwise fall through local ports.
-  const configuredBackups = process.env.GYDS_RPC_BACKUP_URLS
-    ? process.env.GYDS_RPC_BACKUP_URLS.split(",").map((s) => s.trim()).filter(Boolean)
-    : LOCAL_FALLBACK_PORTS.map(p => `http://127.0.0.1:${p}`);
+  const configuredEndpoints = getConfiguredRpcEndpoints();
   // Deduplicate while preserving order
   const seen = new Set<string>();
-  return [localPrimary, ...LOCAL_FALLBACK_PORTS.map(p => `http://127.0.0.1:${p}`), configuredPrimary, ...configuredBackups].filter(u => {
+  return [localPrimary, ...LOCAL_FALLBACK_PORTS.map(p => `http://127.0.0.1:${p}`), ...configuredEndpoints].filter(u => {
     if (!u || seen.has(u)) return false;
     seen.add(u);
     return true;
   });
+}
+
+function getConfiguredRpcEndpoints(): string[] {
+  const primary = process.env.GYDS_RPC_URL?.trim();
+  const backups = process.env.GYDS_RPC_BACKUP_URLS
+    ? process.env.GYDS_RPC_BACKUP_URLS.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+  return [...new Set([primary, ...backups].filter((url): url is string => Boolean(url)))];
 }
 
 const TIMEOUT_MS = 8000;
@@ -70,6 +74,38 @@ async function rpcCallWithFallback(
 export async function callGydsRpc(method: string, params: any[] = []): Promise<any> {
   const { result } = await rpcCallWithFallback(method, params);
   return result;
+}
+
+/**
+ * Read from explicitly configured public/mainnet RPC endpoints only. Token
+ * deployment verification must never silently fall back to the local test
+ * nodes, which can return synthetic receipts or empty contract data.
+ */
+export async function callConfiguredGydsRpc(
+  method: string,
+  params: any[] = [],
+  pinnedEndpoint?: string,
+): Promise<{ result: any; endpoint: string }> {
+  const endpoints = getConfiguredRpcEndpoints();
+  if (!endpoints.length) {
+    throw new Error("No explicit GYDS mainnet RPC is configured.");
+  }
+  if (pinnedEndpoint) {
+    if (!endpoints.includes(pinnedEndpoint)) {
+      throw new Error("The pinned GYDS RPC is no longer configured.");
+    }
+    return rpcCallWithFallback(method, params, pinnedEndpoint);
+  }
+
+  const errors: string[] = [];
+  for (const endpoint of endpoints) {
+    try {
+      return await rpcCallWithFallback(method, params, endpoint);
+    } catch (error: any) {
+      errors.push(error?.message ?? String(error));
+    }
+  }
+  throw new Error(`Configured GYDS mainnet RPC endpoints failed: ${errors.join("; ")}`);
 }
 
 export async function getChainBlockNumber(): Promise<number | null> {

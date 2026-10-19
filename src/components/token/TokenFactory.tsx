@@ -1,635 +1,681 @@
-import { useState, useRef, useEffect } from 'react';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
-import { useWalletConnect } from '@/hooks/useWalletConnect';
-import { getUserAddresses, computeUserBalances } from '@/lib/balances';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Coins, Copy, ExternalLink, Loader2, Plus, Upload } from "lucide-react";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
-  Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart, Rocket, Info
-} from 'lucide-react';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { api } from "@/lib/api";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import {
-  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-} from '@/components/ui/dialog';
-import {
-  Accordion, AccordionContent, AccordionItem, AccordionTrigger,
-} from '@/components/ui/accordion';
-import {
-  ALL_AUTHORITIES,
-  AuthorityKey,
-  TokenFactoryPricing,
-  DEFAULT_PRICING,
-  normalizePricing,
-} from '@/lib/tokenAuthorities';
-import { writeTokenNetworkState, computeMarketCapUsd } from '@/lib/tokenPromotion';
+  GYDS_BLOCK_EXPLORER,
+  GYDS_CHAIN_ID,
+  prepareGrc20Deployment,
+  submitGrc20Deployment,
+  verifyConfirmedGrc20Deployment,
+  type DeploymentStep,
+  type Grc20DeploymentResult,
+  type PreparedGrc20Deployment,
+} from "@/lib/tokenDeployment";
+import { DEFAULT_PRICING, normalizePricing } from "@/lib/tokenAuthorities";
+import { makeTokenRegistrationProofMessage } from "../../../shared/tokenDeploymentProof";
 
-// ── Token standards supported on GYDSchain ───────────────────────────────────
-export const TOKEN_STANDARDS = [
-  {
-    value: 'GRC-20',
-    label: 'GRC-20 — Fungible Token',
-    description: 'Divisible, interchangeable tokens. Use for currencies, utility tokens, governance tokens, meme coins, and stablecoins. Equivalent to ERC-20 on Ethereum.',
-    decimalsDefault: 18,
-    supplyEditable: true,
-    use_cases: ['Utility', 'Governance', 'Meme', 'Stablecoin', 'Reward'],
-  },
-  {
-    value: 'GRC-721',
-    label: 'GRC-721 — Non-Fungible Token (NFT)',
-    description: 'Unique, indivisible tokens. Each token has a distinct ID. Use for digital art, collectibles, gaming items, and certificates. Equivalent to ERC-721.',
-    decimalsDefault: 0,
-    supplyEditable: true,
-    use_cases: ['Art', 'Collectibles', 'Gaming', 'Identity', 'Certificates'],
-  },
-  {
-    value: 'GRC-1155',
-    label: 'GRC-1155 — Multi-Token Standard',
-    description: 'Batch-mint both fungible and non-fungible tokens in a single contract. Efficient for gaming assets, bundles, and mixed portfolios. Equivalent to ERC-1155.',
-    decimalsDefault: 0,
-    supplyEditable: true,
-    use_cases: ['Gaming', 'Bundles', 'Mixed assets', 'Marketplaces'],
-  },
-] as const;
+interface Readiness {
+  ready: boolean;
+  chainId: number | null;
+  reason?: string;
+}
 
-export type TokenStandardValue = typeof TOKEN_STANDARDS[number]['value'];
-
-interface TokenCreationParams {
+interface TokenForm {
   name: string;
   symbol: string;
   decimals: number;
   initialSupply: string;
-  tokenStandard: TokenStandardValue;
-  gydsLiquidity: string;
-  authorities: Partial<Record<AuthorityKey, boolean>>;
-  transferFeeBps: string; // for transfer_fee authority
-  lpLockType: 'burn' | 'timelock';
-  timelockDays: number;
-  maxBuyPerWallet: string;
-  dailyBuyLimit: string;
+  mintEnabled: boolean;
 }
+
+const INITIAL_FORM: TokenForm = {
+  name: "",
+  symbol: "",
+  decimals: 18,
+  initialSupply: "1000000",
+  mintEnabled: false,
+};
+
+const STEP_LABELS: Record<DeploymentStep, string> = {
+  awaiting_wallet_approval: "Waiting for wallet approval. Review the transaction and network fee in your wallet.",
+  deployment_pending: "Transaction submitted. Waiting for the mainnet confirmation.",
+  deployment_confirmed: "Transaction confirmed. Checking the contract and initial allocation.",
+  verification_failed: "A transaction was submitted, but token verification did not complete.",
+  deployment_failed: "Deployment did not complete. No token was saved.",
+};
 
 export const TokenFactory = () => {
   const { toast } = useToast();
   const { user } = useAuth();
-  const { address } = useWalletConnect();
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [pricing, setPricing] = useState<TokenFactoryPricing>(DEFAULT_PRICING);
-  const [userGydsBalance, setUserGydsBalance] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [params, setParams] = useState<TokenCreationParams>({
-    name: '', symbol: '', decimals: 18, initialSupply: '1000000',
-    tokenStandard: 'GRC-20',
-    gydsLiquidity: '1000',
-    authorities: {},
-    transferFeeBps: '0',
-    lpLockType: 'burn', timelockDays: 365,
-    maxBuyPerWallet: '10000',
-    dailyBuyLimit: '5000',
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState<TokenForm>(INITIAL_FORM);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<Readiness>({
+    ready: false,
+    chainId: null,
+    reason: "Checking the server's mainnet RPC…",
   });
+  const [mintAuthorityAvailable, setMintAuthorityAvailable] = useState(
+    DEFAULT_PRICING.authorities.mint.enabled,
+  );
+  const [prepared, setPrepared] = useState<PreparedGrc20Deployment | null>(null);
+  const [deployment, setDeployment] = useState<Grc20DeploymentResult | null>(null);
+  const [savedToken, setSavedToken] = useState<any | null>(null);
+  const [deploymentStep, setDeploymentStep] = useState<DeploymentStep | null>(null);
+  const [deploymentHash, setDeploymentHash] = useState<string | null>(null);
+  const [creatorProof, setCreatorProof] = useState<string | null>(null);
+  const [deploymentError, setDeploymentError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [checkingDeployment, setCheckingDeployment] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const selectedStandard = TOKEN_STANDARDS.find(s => s.value === params.tokenStandard) ?? TOKEN_STANDARDS[0];
+  const refreshReadiness = useCallback(async () => {
+    try {
+      const result = await api.get("/api/tokens/deployment-readiness");
+      setReadiness(result);
+      return result as Readiness;
+    } catch {
+      const failed = {
+        ready: false,
+        chainId: null,
+        reason: "Could not check server-side GYDS mainnet verification.",
+      };
+      setReadiness(failed);
+      return failed;
+    }
+  }, []);
 
-  // Load admin pricing and user GYDS balance
   useEffect(() => {
-    const loadData = async () => {
-      const row = await api.get('/api/config/token_factory_pricing').catch(() => null);
-      setPricing(normalizePricing(row?.configValue));
+    void refreshReadiness();
+    api.get("/api/config/token_factory_pricing").then((row) => {
+      const pricing = normalizePricing(row?.configValue ?? row?.config_value);
+      setMintAuthorityAvailable(Boolean(pricing.authorities.mint.enabled));
+    }).catch(() => setMintAuthorityAvailable(false));
+  }, [refreshReadiness]);
 
-      if (user) {
-        const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
-        const { gydsBalance } = await computeUserBalances(user.id, myAddresses);
-        setUserGydsBalance(gydsBalance);
-      }
-    };
-    loadData();
-  }, [user, address]);
+  const resetWorkflow = () => {
+    setForm(INITIAL_FORM);
+    setLogoUrl(null);
+    setPrepared(null);
+    setDeployment(null);
+    setSavedToken(null);
+    setDeploymentStep(null);
+    setDeploymentHash(null);
+    setCreatorProof(null);
+    setDeploymentError(null);
+    setSaveError(null);
+  };
 
-  // Authorities the admin currently lets users enable
-  const enabledAuthorities = ALL_AUTHORITIES.filter((a) => pricing.authorities[a.key]?.enabled);
+  const openFactory = () => {
+    if (savedToken) resetWorkflow();
+    setDialogOpen(true);
+    void refreshReadiness();
+  };
 
-  const calculateAuthorityFees = () =>
-    enabledAuthorities
-      .filter((a) => params.authorities[a.key])
-      .reduce((sum, a) => sum + (pricing.authorities[a.key].fee || 0), 0);
+  const updateForm = (patch: Partial<TokenForm>) => {
+    setForm((current) => ({ ...current, ...patch }));
+    setPrepared(null);
+    if (deploymentStep === "deployment_failed") {
+      setDeploymentStep(null);
+      setDeploymentHash(null);
+      setDeploymentError(null);
+    }
+  };
 
-  const calculateTotalFees = () => pricing.deployment_fee + calculateAuthorityFees();
-  const calculateTotalGyds = () => calculateTotalFees() + parseFloat(params.gydsLiquidity || '0');
-
-  const toggleAuthority = (key: AuthorityKey, value: boolean) =>
-    setParams({ ...params, authorities: { ...params.authorities, [key]: value } });
-
-  const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleLogoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      toast({ title: 'Logo must be under 2MB', variant: 'destructive' });
+    if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
+      toast({
+        title: "Choose an image under 2 MB",
+        description: "PNG, JPG, and SVG images are supported.",
+        variant: "destructive",
+      });
+      event.target.value = "";
       return;
     }
-    setLogoFile(file);
-    // Convert to data URL so no server upload is needed
     const reader = new FileReader();
-    reader.onload = () => setLogoPreview(reader.result as string);
+    reader.onload = () => setLogoUrl(typeof reader.result === "string" ? reader.result : null);
     reader.readAsDataURL(file);
   };
 
-  const handleCreateToken = async () => {
+  const handlePrepare = async () => {
     if (!user) {
-      toast({ title: 'Please sign in first', variant: 'destructive' });
+      setDeploymentError("Sign in before creating and saving a token.");
       return;
     }
-    if (!params.name || !params.symbol) {
-      toast({ title: 'Token name and symbol are required', variant: 'destructive' });
-      return;
-    }
-    if (parseFloat(params.gydsLiquidity) < pricing.min_liquidity) {
-      toast({ title: `Minimum ${pricing.min_liquidity} GYDS liquidity required`, variant: 'destructive' });
-      return;
-    }
-
-    const maxBuy = parseFloat(params.maxBuyPerWallet || '0');
-    const dailyLimit = parseFloat(params.dailyBuyLimit || '0');
-    const supply = parseFloat(params.initialSupply || '0');
-
-    if (maxBuy > supply) {
-      toast({ title: 'Max buy per wallet cannot exceed total supply', variant: 'destructive' });
-      return;
-    }
-    if (dailyLimit > maxBuy) {
-      toast({ title: 'Daily buy limit cannot exceed max wallet holding', variant: 'destructive' });
-      return;
-    }
-
-    // Check GYDS balance
-    const totalRequired = calculateTotalGyds();
-    if (userGydsBalance < totalRequired) {
-      toast({
-        title: 'Insufficient GYDS Balance',
-        description: `You need ${totalRequired.toLocaleString()} GYDS but only have ${userGydsBalance.toLocaleString()} GYDS. Ask an admin to mint GYDS to your wallet.`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setCreating(true);
+    setPreparing(true);
+    setDeploymentError(null);
+    setPrepared(null);
+    setDeploymentStep(null);
     try {
-      // Use the data URL from the file picker, or null if no logo selected (optional)
-      const logoUrl: string | null = logoPreview ?? null;
-
-      const tokenAddress = '0x' + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-      const walletAddr = address || `user:${user.id}`;
-
-      const newToken = await api.post('/api/tokens', {
-        creator_id: user.id,
-        name: params.name,
-        symbol: params.symbol,
-        decimals: params.decimals,
-        total_supply: parseFloat(params.initialSupply),
-        token_standard: params.tokenStandard,
-        gyds_liquidity: parseFloat(params.gydsLiquidity),
-        logo_url: logoUrl,
-        lp_lock_type: params.lpLockType === 'burn' ? 'burned' : 'timelocked',
-        lp_unlock_time: params.lpLockType === 'timelock'
-          ? new Date(Date.now() + params.timelockDays * 86400000).toISOString()
-          : null,
-        freeze_enabled: !!params.authorities.freeze,
-        update_enabled: !!params.authorities.update,
-        mint_enabled:   !!params.authorities.mint,
-        address: tokenAddress,
-        networkType: 'mainnet',
-      });
-
-      const tokenId = newToken?.id;
-
-      // Persist mainnet network state + extended authorities (single source of truth
-      // until the network_type / extra_authorities columns are migrated upstream).
-      if (tokenId) {
-        const extra: Record<string, boolean | number> = {};
-        for (const a of enabledAuthorities) {
-          if (params.authorities[a.key]) extra[a.key] = true;
-        }
-        if (params.authorities.transfer_fee) {
-          extra.transfer_fee_bps = parseInt(params.transferFeeBps || '0') || 0;
-        }
-        const initialMc = computeMarketCapUsd(
-          { id: tokenId, total_supply: parseFloat(params.initialSupply), gyds_liquidity: parseFloat(params.gydsLiquidity) },
-          pricing.mainnet_promotion.gyds_price_usd,
-        );
-        await writeTokenNetworkState(tokenId, {
-          network_type: 'mainnet',
-          mainnet_promoted_at: new Date().toISOString(),
-          market_cap_usd: initialMc,
-          extra_authorities: extra,
-        }, user.id);
+      const serverReadiness = await refreshReadiness();
+      if (!serverReadiness.ready) {
+        throw new Error(serverReadiness.reason || "Server-side mainnet verification is not ready.");
       }
-
-      // Deduct GYDS fee (record as burn operation)
-      await api.post('/api/token-operations', {
-        operation_type: 'burn',
-        wallet_address: walletAddr.toLowerCase(),
-        amount: totalRequired,
-        tx_hash: '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
-        status: 'confirmed',
-        created_by: user.id,
-        usdt_amount: 0,
+      const next = await prepareGrc20Deployment({
+        name: form.name,
+        symbol: form.symbol,
+        decimals: Number(form.decimals),
+        initialSupply: form.initialSupply,
+        mintEnabled: mintAuthorityAvailable && form.mintEnabled,
       });
-
-      // Set creator as first holder with full initial supply
-      if (tokenId) {
-        await api.post('/api/config', {
-          key: `token_holders_${tokenId}`,
-          value: {
-            count: 1,
-            holders: [{ address: walletAddr, amount: parseFloat(params.initialSupply), label: 'Creator' }],
-          },
-        });
-      }
-
-      // Store purchase limits in admin_config keyed by token address
-      await api.post('/api/config', {
-        key: `token_limits_${tokenAddress}`,
-        value: {
-          max_buy_per_wallet: maxBuy,
-          daily_buy_limit: dailyLimit,
-        },
-      });
-
-      // Refresh balance
-      const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
-      const { gydsBalance } = await computeUserBalances(user.id, myAddresses);
-      setUserGydsBalance(gydsBalance);
-
+      setPrepared(next);
       toast({
-        title: `Token Created on Testnet!`,
-        description: `${params.name} (${params.symbol}) is live on mainnet.`,
+        title: "Deployment estimate ready",
+        description: "Review the creator wallet, token supply, and estimated network fee before deploying.",
       });
-      setDialogOpen(false);
-      resetForm();
     } catch (error: any) {
-      toast({ title: 'Token creation failed', description: error.message, variant: 'destructive' });
+      setDeploymentError(error?.message ?? "Could not prepare this token deployment.");
+    } finally {
+      setPreparing(false);
+    }
+  };
+
+  const persistVerifiedDeployment = async (result: Grc20DeploymentResult) => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (!user || !prepared) throw new Error("Reconnect your account and creator wallet before saving.");
+      const proof = creatorProof ?? await prepared.signer.signMessage(
+        makeTokenRegistrationProofMessage(user.id, {
+          chainId: result.chainId,
+          contractAddress: result.contractAddress,
+          deploymentTxHash: result.deploymentTxHash,
+          creatorWallet: result.creatorWallet,
+          initialSupplyBaseUnits: result.initialSupplyBaseUnits,
+        }),
+      );
+      setCreatorProof(proof);
+      const token = await api.post("/api/tokens", {
+        name: result.name,
+        symbol: result.symbol,
+        decimals: result.decimals,
+        initialSupply: result.initialSupply,
+        initialSupplyBaseUnits: result.initialSupplyBaseUnits,
+        creatorWallet: result.creatorWallet,
+        address: result.contractAddress,
+        deploymentTxHash: result.deploymentTxHash,
+        chainId: result.chainId,
+        mintEnabled: result.mintEnabled,
+        tokenStandard: "GRC-20",
+        logoUrl,
+        creatorProof: proof,
+      });
+      setSavedToken(token);
+      toast({
+        title: "Token created and verified",
+        description: `${result.name} (${result.symbol}) is confirmed on GYDS mainnet.`,
+      });
+      return true;
+    } catch (error: any) {
+      const message = error?.message ?? "The confirmed deployment could not be saved.";
+      setSaveError(message);
+      toast({
+        title: "Deployment confirmed; app record not saved",
+        description: message,
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeploy = async () => {
+    if (!prepared) return;
+    setCreating(true);
+    setDeploymentError(null);
+    setSaveError(null);
+    try {
+      const serverReadiness = await refreshReadiness();
+      if (!serverReadiness.ready) {
+        throw new Error(serverReadiness.reason || "Server-side mainnet verification is not ready.");
+      }
+      const result = await submitGrc20Deployment(prepared, (step, hash) => {
+        setDeploymentStep(step);
+        if (hash) setDeploymentHash(hash);
+      });
+      setDeployment(result);
+      await persistVerifiedDeployment(result);
+    } catch (error: any) {
+      setDeploymentError(error?.message ?? "Token deployment failed.");
+      toast({
+        title: "Token deployment failed",
+        description: error?.message ?? "The token was not saved.",
+        variant: "destructive",
+      });
     } finally {
       setCreating(false);
     }
   };
 
-  const resetForm = () => {
-    setParams({
-      name: '', symbol: '', decimals: 18, initialSupply: '1000000',
-      tokenStandard: 'GRC-20',
-      gydsLiquidity: '1000',
-      authorities: {},
-      transferFeeBps: '0',
-      lpLockType: 'burn', timelockDays: 365,
-      maxBuyPerWallet: '10000',
-      dailyBuyLimit: '5000',
-    });
-    setLogoFile(null);
-    setLogoPreview(null);
+  const handleCheckDeployment = async () => {
+    if (!prepared || !deploymentHash) return;
+    setCheckingDeployment(true);
+    setDeploymentError(null);
+    try {
+      const result = await verifyConfirmedGrc20Deployment(prepared, deploymentHash);
+      setDeploymentStep("deployment_confirmed");
+      setDeployment(result);
+      await persistVerifiedDeployment(result);
+    } catch (error: any) {
+      const message = error?.message ?? "Could not verify this transaction yet.";
+      if (message.includes("failed on-chain")) setDeploymentStep("deployment_failed");
+      setDeploymentError(message);
+    } finally {
+      setCheckingDeployment(false);
+    }
   };
+
+  const copyText = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast({ title: `${label} copied` });
+    } catch {
+      toast({ title: "Could not copy", description: "Clipboard access is unavailable.", variant: "destructive" });
+    }
+  };
+
+  const statusText = deploymentStep ? STEP_LABELS[deploymentStep] : null;
+  const transactionNeedsChecking = Boolean(deploymentHash) && deploymentStep !== "deployment_failed";
+  const lockForm = Boolean(deployment) || transactionNeedsChecking || creating || saving;
+  const explorerUrl = deployment
+    ? `${GYDS_BLOCK_EXPLORER.replace(/\/$/, "")}/address/${deployment.contractAddress}`
+    : null;
 
   return (
     <>
       <GlassCard className="p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="mb-6 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 rounded-lg bg-primary/20">
+            <div className="rounded-lg bg-primary/20 p-3">
               <Coins className="h-6 w-6 text-primary" />
             </div>
             <div>
               <h2 className="text-xl font-bold">Token Factory</h2>
-              <p className="text-sm text-muted-foreground">Create tokens backed by GYDS with locked liquidity</p>
+              <p className="text-sm text-muted-foreground">
+                Deploy verified GRC-20 tokens on GYDS mainnet.
+              </p>
             </div>
           </div>
-          <Button onClick={() => setDialogOpen(true)} className="gap-2">
+          <Button onClick={openFactory} className="gap-2">
             <Plus className="h-4 w-4" />
             Create Token
           </Button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-4 rounded-lg bg-secondary/30">
-            <Lock className="h-5 w-5 text-primary mb-2" />
-            <h3 className="font-medium">LP Locking</h3>
-            <p className="text-sm text-muted-foreground">Liquidity is permanently locked or time-locked</p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-lg bg-secondary/30 p-4">
+            <h3 className="font-medium">Exact initial allocation</h3>
+            <p className="text-sm text-muted-foreground">
+              The full declared supply is minted to the creator wallet in the deployment transaction.
+            </p>
           </div>
-          <div className="p-4 rounded-lg bg-secondary/30">
-            <Flame className="h-5 w-5 text-orange-500 mb-2" />
-            <h3 className="font-medium">Burn-to-Lock</h3>
-            <p className="text-sm text-muted-foreground">Supply burned from creator → deposited to LP Bank</p>
+          <div className="rounded-lg bg-secondary/30 p-4">
+            <h3 className="font-medium">Wallet-approved</h3>
+            <p className="text-sm text-muted-foreground">
+              Your wallet shows the transaction and network fee before it is submitted.
+            </p>
           </div>
-          <div className="p-4 rounded-lg bg-secondary/30">
-            <Shield className="h-5 w-5 text-primary mb-2" />
-            <h3 className="font-medium">GYDS Backed</h3>
-            <p className="text-sm text-muted-foreground">All tokens require mandatory GYDS liquidity</p>
+          <div className="rounded-lg bg-secondary/30 p-4">
+            <h3 className="font-medium">Verified before listing</h3>
+            <p className="text-sm text-muted-foreground">
+              The app checks the mainnet receipt, contract, supply, and creator balance before saving.
+            </p>
           </div>
         </div>
       </GlassCard>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!creating && !saving) setDialogOpen(open);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Coins className="h-5 w-5" /> Create New Token
+              <Coins className="h-5 w-5" /> Create a GRC-20 token
             </DialogTitle>
-            <DialogDescription>Tokens are backed by GYDS with locked liquidity</DialogDescription>
+            <DialogDescription>
+              Deploys on GYDS mainnet (chain ID {GYDS_CHAIN_ID}). No seed phrase or private key is requested.
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6 pt-4">
-            <Accordion type="single" collapsible defaultValue="details">
-              <AccordionItem value="details">
-                <AccordionTrigger>
-                  <div className="flex items-center gap-2"><Badge variant="outline">1</Badge> Token Details</div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-4 pt-4">
-                  {/* Token Standard */}
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-1">
-                      Token Standard
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs text-xs">
-                            <p className="font-semibold mb-1">GYDSchain Token Standards</p>
-                            <p><strong>GRC-20</strong> — Fungible (currencies, utility, meme)</p>
-                            <p><strong>GRC-721</strong> — Non-fungible / NFT (art, collectibles)</p>
-                            <p><strong>GRC-1155</strong> — Multi-token (gaming, bundles)</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </Label>
-                    <Select
-                      value={params.tokenStandard}
-                      onValueChange={(v: TokenStandardValue) => {
-                        const std = TOKEN_STANDARDS.find(s => s.value === v)!;
-                        setParams({
-                          ...params,
-                          tokenStandard: v,
-                          decimals: std.decimalsDefault,
-                        });
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TOKEN_STANDARDS.map(s => (
-                          <SelectItem key={s.value} value={s.value}>
-                            <span className="font-medium">{s.label}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <div className="rounded-lg bg-secondary/40 border border-border/50 p-3 text-xs text-muted-foreground space-y-1">
-                      <p>{selectedStandard.description}</p>
-                      <p className="flex flex-wrap gap-1 pt-1">
-                        {selectedStandard.use_cases.map(uc => (
-                          <span key={uc} className="bg-primary/10 text-primary rounded px-1.5 py-0.5">{uc}</span>
-                        ))}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Logo Upload */}
-                  <div className="space-y-2">
-                    <Label>Token Logo</Label>
-                    <div className="flex items-center gap-4">
-                      <div 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-20 h-20 rounded-xl border-2 border-dashed border-border hover:border-primary/50 cursor-pointer flex items-center justify-center overflow-hidden transition-colors bg-secondary/30"
-                      >
-                        {logoPreview ? (
-                          <img src={logoPreview} alt="Logo" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="text-center">
-                            <Upload className="h-5 w-5 mx-auto text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground">Upload</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        <p>PNG, JPG, or SVG</p>
-                        <p>Max 2MB, square recommended</p>
-                      </div>
-                    </div>
-                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleLogoSelect} className="hidden" />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Token Name</Label>
-                      <Input placeholder="My Token" value={params.name} onChange={(e) => setParams({ ...params, name: e.target.value })} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Symbol</Label>
-                      <Input placeholder="MTK" maxLength={8} value={params.symbol} onChange={(e) => setParams({ ...params, symbol: e.target.value.toUpperCase() })} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Initial Supply</Label>
-                      <Input type="number" value={params.initialSupply} onChange={(e) => setParams({ ...params, initialSupply: e.target.value })} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Decimals</Label>
-                      <Input type="number" min={0} max={18} value={params.decimals} onChange={(e) => setParams({ ...params, decimals: parseInt(e.target.value) })} />
-                    </div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="limits">
-                <AccordionTrigger>
-                  <div className="flex items-center gap-2"><Badge variant="outline">2</Badge> Purchase Limits</div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-4 pt-4">
-                  <p className="text-sm text-muted-foreground">Set limits to prevent whale accumulation and ensure fair distribution.</p>
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <ShoppingCart className="h-4 w-4" /> Max Buy Per Wallet
-                      </Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={params.maxBuyPerWallet}
-                        onChange={(e) => setParams({ ...params, maxBuyPerWallet: e.target.value })}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Maximum tokens a single wallet can hold. Once reached, wallet cannot buy more.
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4" /> Daily Buy Limit
-                      </Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={params.dailyBuyLimit}
-                        onChange={(e) => setParams({ ...params, dailyBuyLimit: e.target.value })}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Maximum tokens a wallet can purchase per day (24h rolling window).
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Preview */}
-                  <div className="p-3 rounded-lg bg-secondary/30 space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Max wallet holding</span>
-                      <span className="font-mono">{parseFloat(params.maxBuyPerWallet || '0').toLocaleString()} {params.symbol || 'TOKEN'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Daily limit</span>
-                      <span className="font-mono">{parseFloat(params.dailyBuyLimit || '0').toLocaleString()} {params.symbol || 'TOKEN'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">% of supply (wallet)</span>
-                      <span className="font-mono">
-                        {((parseFloat(params.maxBuyPerWallet || '0') / parseFloat(params.initialSupply || '1')) * 100).toFixed(2)}%
-                      </span>
-                    </div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="liquidity">
-                <AccordionTrigger>
-                  <div className="flex items-center gap-2"><Badge variant="outline">3</Badge> GYDS Liquidity</div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-4 pt-4">
-                  <div className="space-y-2">
-                    <Label>GYDS Liquidity Amount</Label>
-                    <Input type="number" min={pricing.min_liquidity} value={params.gydsLiquidity} onChange={(e) => setParams({ ...params, gydsLiquidity: e.target.value })} />
-                    <p className="text-xs text-muted-foreground">Minimum {pricing.min_liquidity} GYDS required.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>LP Lock Type</Label>
-                    <div className="flex gap-4">
-                      <Button variant={params.lpLockType === 'burn' ? 'default' : 'outline'} size="sm" onClick={() => setParams({ ...params, lpLockType: 'burn' })} className="gap-2">
-                        <Flame className="h-4 w-4" /> Burn LP (Permanent)
-                      </Button>
-                      <Button variant={params.lpLockType === 'timelock' ? 'default' : 'outline'} size="sm" onClick={() => setParams({ ...params, lpLockType: 'timelock' })} className="gap-2">
-                        <Lock className="h-4 w-4" /> Time-Lock
-                      </Button>
-                    </div>
-                  </div>
-                  {params.lpLockType === 'timelock' && (
-                    <div className="space-y-2">
-                      <Label>Lock Duration (Days)</Label>
-                      <Input type="number" min={30} value={params.timelockDays} onChange={(e) => setParams({ ...params, timelockDays: parseInt(e.target.value) })} />
-                    </div>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="authorities">
-                <AccordionTrigger>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">4</Badge> Authorities (Optional)
-                    <Badge variant="outline" className="ml-2">{enabledAuthorities.length} available</Badge>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-4 pt-4">
-                  <p className="text-sm text-muted-foreground">
-                    Only authorities the admin has enabled can be added. Each one adds a GYDS fee.
-                  </p>
-                  {enabledAuthorities.length === 0 ? (
-                    <div className="p-4 rounded-lg bg-secondary/30 text-sm text-muted-foreground text-center">
-                      The admin has not enabled any optional authorities. Your token will launch with no extra authorities.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {enabledAuthorities.map((a) => {
-                        const fee = pricing.authorities[a.key].fee;
-                        const isOn = !!params.authorities[a.key];
-                        return (
-                          <div
-                            key={a.key}
-                            className={`p-3 rounded-lg ${a.warning ? 'border border-amber-500/30 bg-amber-500/5' : 'bg-secondary/30'}`}
-                            data-testid={`authority-row-${a.key}`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="font-medium flex items-center gap-2">
-                                  {a.label}
-                                  {a.warning && <AlertTriangle className="h-3 w-3 text-amber-500" />}
-                                </p>
-                                <p className="text-xs text-muted-foreground">{a.description} • +{fee} GYDS</p>
-                                {a.warning && <p className="text-xs text-amber-500/80 mt-1">{a.warning}</p>}
-                              </div>
-                              <Switch
-                                data-testid={`switch-authority-${a.key}`}
-                                checked={isOn}
-                                onCheckedChange={(v) => toggleAuthority(a.key, v)}
-                              />
-                            </div>
-                            {a.key === 'transfer_fee' && isOn && (
-                              <div className="mt-3 space-y-1">
-                                <Label className="text-xs">Fee in basis points (100 bps = 1%)</Label>
-                                <Input
-                                  data-testid="input-transfer-fee-bps"
-                                  type="number" min={0} max={10000}
-                                  value={params.transferFeeBps}
-                                  onChange={(e) => setParams({ ...params, transferFeeBps: e.target.value })}
-                                  placeholder="0"
-                                />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-
-            <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
-              <Rocket className="h-4 w-4 text-amber-500 shrink-0" />
-              <p className="text-xs text-muted-foreground">
-                Your token launches directly on <span className="font-semibold text-emerald-400">MAINNET</span>.
-                It is available on the GYDS mainnet immediately after creation.
-              </p>
-            </div>
-
-            <GlassCard className="p-4">
-              <h4 className="font-medium mb-3">Cost Summary</h4>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Deployment Fee</span><span>{pricing.deployment_fee} GYDS</span></div>
-                {enabledAuthorities.filter((a) => params.authorities[a.key]).map((a) => (
-                  <div key={a.key} className="flex justify-between">
-                    <span className="text-muted-foreground">{a.label}</span>
-                    <span>{pricing.authorities[a.key].fee} GYDS</span>
-                  </div>
-                ))}
-                <div className="flex justify-between"><span className="text-muted-foreground">LP Liquidity</span><span>{params.gydsLiquidity} GYDS</span></div>
-                <div className="border-t pt-2 flex justify-between font-bold"><span>Total Required</span><span className="text-primary" data-testid="text-total-gyds">{calculateTotalGyds().toLocaleString()} GYDS</span></div>
+          <div className="space-y-5 pt-2">
+            {!readiness.ready && (
+              <div role="alert" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <p className="font-medium">Mainnet deployment is unavailable</p>
+                <p className="mt-1 text-muted-foreground">
+                  {readiness.reason ?? "The server must be able to verify GYDS mainnet transactions before deployment."}
+                </p>
               </div>
-            </GlassCard>
+            )}
 
-            <Button onClick={handleCreateToken} disabled={creating || !params.name || !params.symbol} className="w-full gap-2">
-              {creating ? (<><Loader2 className="h-4 w-4 animate-spin" /> Creating Token...</>) : (<><CheckCircle className="h-4 w-4" /> Create {params.symbol || 'Token'}</>)}
-            </Button>
+            {savedToken && deployment ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4">
+                  <Badge className="mb-2">Confirmed and saved</Badge>
+                  <h3 className="text-lg font-semibold">{deployment.name} ({deployment.symbol})</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Initial supply and creator allocation were independently verified on GYDS mainnet.
+                  </p>
+                </div>
+                <DeploymentDetails
+                  deployment={deployment}
+                  explorerUrl={explorerUrl!}
+                  onCopy={copyText}
+                />
+                <Button className="w-full" onClick={() => setDialogOpen(false)}>Done</Button>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="token-name">Token name</Label>
+                  <Input
+                    id="token-name"
+                    maxLength={64}
+                    value={form.name}
+                    onChange={(event) => updateForm({ name: event.target.value })}
+                    placeholder="My Token"
+                    disabled={lockForm}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="token-symbol">Symbol</Label>
+                    <Input
+                      id="token-symbol"
+                      maxLength={10}
+                      value={form.symbol}
+                      onChange={(event) => updateForm({ symbol: event.target.value.toUpperCase() })}
+                      placeholder="MTK"
+                      disabled={lockForm}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="token-decimals">Decimals (0–18)</Label>
+                    <Input
+                      id="token-decimals"
+                      type="number"
+                      min={0}
+                      max={18}
+                      step={1}
+                      value={form.decimals}
+                      onChange={(event) => updateForm({ decimals: Number(event.target.value) })}
+                      disabled={lockForm}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="token-supply">Initial supply</Label>
+                  <Input
+                    id="token-supply"
+                    type="text"
+                    inputMode="decimal"
+                    value={form.initialSupply}
+                    onChange={(event) => updateForm({ initialSupply: event.target.value })}
+                    placeholder="1000000"
+                    disabled={lockForm}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The full amount will be minted to the creator wallet. Fractional digits cannot exceed the selected decimals.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg bg-secondary/30 p-3">
+                  <div className="pr-4">
+                    <Label htmlFor="mint-authority">Allow future minting</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Optional. If enabled, only the on-chain owner can mint more tokens.
+                    </p>
+                    {!mintAuthorityAvailable && (
+                      <p className="mt-1 text-xs text-muted-foreground">This option is currently disabled by the administrator.</p>
+                    )}
+                  </div>
+                  <Switch
+                    id="mint-authority"
+                    checked={mintAuthorityAvailable && form.mintEnabled}
+                    disabled={!mintAuthorityAvailable || lockForm}
+                    onCheckedChange={(checked) => updateForm({ mintEnabled: checked })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Optional token logo</Label>
+                  <div className="flex items-center gap-3">
+                    {logoUrl ? (
+                      <img src={logoUrl} alt="Token logo preview" className="h-12 w-12 rounded-lg object-cover" />
+                    ) : (
+                      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-secondary/50">
+                        <Upload className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={lockForm}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Choose image
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={handleLogoSelect}
+                    />
+                  </div>
+                </div>
+
+                {prepared && (
+                  <div className="space-y-2 rounded-lg border p-3 text-sm">
+                    <h3 className="font-medium">Review before wallet approval</h3>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Creator wallet</span>
+                      <span className="break-all font-mono text-xs">{prepared.creatorWallet}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Initial supply (base units)</span>
+                      <span className="break-all font-mono text-xs">{prepared.initialSupplyBaseUnits}</span>
+                    </div>
+                    {prepared.estimate ? (
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground">Estimated network fee</span>
+                        <span className="font-mono">{prepared.estimate.estimatedFeeGyds} GYDS</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-amber-600">
+                        {prepared.estimateWarning ?? "Fee estimate unavailable; confirm the fee shown by your wallet."}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      This estimate is informational. Your wallet displays the final transaction fee and asks for approval.
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      After deployment, your wallet will also ask for a free message signature to link the verified token to this signed-in account.
+                    </p>
+                  </div>
+                )}
+
+                {deploymentStep && (
+                  <div
+                    role="status"
+                    className={`rounded-lg border p-3 text-sm ${
+                      deploymentStep === "deployment_confirmed"
+                        ? "border-emerald-500/40 bg-emerald-500/10"
+                        : deploymentStep === "deployment_failed" || deploymentStep === "verification_failed"
+                          ? "border-destructive/40 bg-destructive/5"
+                          : "border-primary/30 bg-primary/5"
+                    }`}
+                  >
+                    {statusText}
+                    {deploymentHash && (
+                      <div className="mt-2 break-all font-mono text-xs">
+                        Transaction: {deploymentHash}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {deployment && !savedToken && (
+                  <div className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+                    <div>
+                      <p className="font-medium">Deployment verified, app record not saved</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        The confirmed contract is on-chain. Retry saving its verified details; do not deploy again.
+                      </p>
+                    </div>
+                    {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
+                    <Button
+                      className="w-full"
+                      disabled={saving}
+                      onClick={() => void persistVerifiedDeployment(deployment)}
+                    >
+                      {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving verified token…</> : "Retry saving verified token"}
+                    </Button>
+                    <DeploymentDetails
+                      deployment={deployment}
+                      explorerUrl={explorerUrl!}
+                      onCopy={copyText}
+                    />
+                  </div>
+                )}
+
+                {deploymentError && (
+                  <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                    {deploymentError}
+                  </p>
+                )}
+
+                {!deployment && transactionNeedsChecking && (
+                  <Button
+                    onClick={handleCheckDeployment}
+                    disabled={checkingDeployment || saving}
+                    className="w-full gap-2"
+                  >
+                    {checkingDeployment ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" />Checking existing transaction…</>
+                    ) : (
+                      "Check existing transaction (do not redeploy)"
+                    )}
+                  </Button>
+                )}
+
+                {!deployment && !transactionNeedsChecking && (
+                  <Button
+                    onClick={prepared ? handleDeploy : handlePrepare}
+                    disabled={
+                      !user ||
+                      !readiness.ready ||
+                      preparing ||
+                      creating ||
+                      !form.name.trim() ||
+                      !form.symbol.trim()
+                    }
+                    className="w-full gap-2"
+                  >
+                    {preparing || creating ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" />{creating ? "Deploying and verifying…" : "Preparing estimate…"}</>
+                    ) : prepared ? (
+                      "Deploy and confirm in wallet"
+                    ) : (
+                      "Estimate and review deployment"
+                    )}
+                  </Button>
+                )}
+
+                {!user && <p className="text-center text-sm text-muted-foreground">Sign in to save the verified token after deployment.</p>}
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>
     </>
   );
 };
+
+function DeploymentDetails({
+  deployment,
+  explorerUrl,
+  onCopy,
+}: {
+  deployment: Grc20DeploymentResult;
+  explorerUrl: string;
+  onCopy: (value: string, label: string) => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border p-3 text-sm">
+      <DetailRow label="Contract" value={deployment.contractAddress} onCopy={onCopy} />
+      <DetailRow label="Creator" value={deployment.creatorWallet} onCopy={onCopy} />
+      <DetailRow label="Initial supply" value={`${deployment.initialSupply} ${deployment.symbol}`} />
+      <DetailRow label="Verified creator balance" value={deployment.verifiedInitialBalanceBaseUnits} />
+      <DetailRow label="Deployment transaction" value={deployment.deploymentTxHash} onCopy={onCopy} />
+      <div className="flex justify-between gap-3">
+        <span className="text-muted-foreground">Chain / block</span>
+        <span className="font-mono text-xs">{deployment.chainId} / {deployment.deploymentBlockNumber}</span>
+      </div>
+      <a
+        href={explorerUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 text-primary hover:underline"
+      >
+        Open contract in GYDS explorer <ExternalLink className="h-3.5 w-3.5" />
+      </a>
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  onCopy?: (value: string, label: string) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="flex min-w-0 items-start gap-1">
+        <span className="break-all text-right font-mono text-xs">{value}</span>
+        {onCopy && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            aria-label={`Copy ${label.toLowerCase()}`}
+            onClick={() => onCopy(value, label)}
+          >
+            <Copy className="h-3 w-3" />
+          </Button>
+        )}
+      </span>
+    </div>
+  );
+}

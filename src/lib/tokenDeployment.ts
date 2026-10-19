@@ -170,11 +170,12 @@ export async function submitGrc20Deployment(
     throw new Error("The active wallet account changed after the estimate. Reconnect the intended creator wallet.");
   }
 
-  let contract: Contract;
   let transactionHash: string | undefined;
+  let confirmed = false;
+  let failedOnChain = false;
   try {
     onStep("awaiting_wallet_approval");
-    contract = await prepared.factory.deploy(
+    const contract = await prepared.factory.deploy(
       prepared.input.name,
       prepared.input.symbol,
       prepared.input.decimals,
@@ -188,71 +189,111 @@ export async function submitGrc20Deployment(
     onStep("deployment_pending", transactionHash);
 
     const receipt = await transaction.wait();
-    if (!receipt || receipt.status !== 1) {
+    if (!receipt) {
+      onStep("deployment_pending", transactionHash);
+      throw new Error(`Deployment transaction ${transactionHash} is still waiting for a mainnet receipt.`);
+    }
+    if (receipt.status !== 1) {
+      failedOnChain = true;
       onStep("deployment_failed", transactionHash);
       throw new Error(`Deployment transaction ${transactionHash} failed on-chain.`);
     }
+    confirmed = true;
     onStep("deployment_confirmed", transactionHash);
 
     const contractAddress = getAddress(await contract.getAddress());
-    const receiptAddress = receipt.contractAddress ? getAddress(receipt.contractAddress) : contractAddress;
+    const receiptAddress = receipt.contractAddress ? getAddress(receipt.contractAddress) : "";
     if (receiptAddress !== contractAddress) {
-      onStep("verification_failed", transactionHash);
       throw new Error("The confirmed receipt contract address does not match the deployed token.");
     }
 
-    const deployedCode = await prepared.provider.getCode(contractAddress);
-    if (!deployedCode || deployedCode === "0x") {
-      onStep("verification_failed", transactionHash);
-      throw new Error("The deployment is confirmed, but no contract code is present at its address.");
-    }
-
-    const deployedToken = new Contract(contractAddress, tokenArtifact.abi, prepared.provider);
-    const [name, symbol, decimals, supply, creatorBalance, owner, mintingEnabled] = await Promise.all([
-      deployedToken.name(),
-      deployedToken.symbol(),
-      deployedToken.decimals(),
-      deployedToken.totalSupply(),
-      deployedToken.balanceOf(prepared.creatorWallet),
-      deployedToken.owner(),
-      deployedToken.mintingEnabled(),
-    ]);
-    const expectedSupply = BigInt(prepared.initialSupplyBaseUnits);
-    if (
-      name !== prepared.input.name ||
-      symbol !== prepared.input.symbol ||
-      Number(decimals) !== prepared.input.decimals ||
-      BigInt(supply) !== expectedSupply ||
-      BigInt(creatorBalance) !== expectedSupply ||
-      getAddress(owner) !== prepared.creatorWallet ||
-      Boolean(mintingEnabled) !== prepared.input.mintEnabled
-    ) {
-      onStep("verification_failed", transactionHash);
-      throw new Error("The deployed contract's name, supply, creator balance, owner, or mint setting did not match the confirmed request.");
-    }
-
-    return {
-      name,
-      symbol,
-      decimals: Number(decimals),
-      initialSupply: formatUnits(supply, Number(decimals)),
-      initialSupplyBaseUnits: BigInt(supply).toString(),
-      verifiedInitialBalanceBaseUnits: BigInt(creatorBalance).toString(),
-      creatorWallet: prepared.creatorWallet,
-      contractAddress,
-      deploymentTxHash: transactionHash,
-      deploymentBlockNumber: BigInt(receipt.blockNumber).toString(),
-      chainId: GYDS_CHAIN_ID,
-      mintEnabled: Boolean(mintingEnabled),
-    };
+    return await verifyDeploymentReceipt(prepared, transactionHash, receipt, contractAddress);
   } catch (error) {
-    if (transactionHash) {
+    if (failedOnChain) {
+      // The confirmed receipt established that this transaction reverted.
+    } else if (confirmed) {
       onStep("verification_failed", transactionHash);
+    } else if (transactionHash) {
+      // A timeout after broadcast is not proof of failure. Keep the UI tied
+      // to this transaction so it cannot accidentally submit another one.
+      onStep("deployment_pending", transactionHash);
     } else {
       onStep("deployment_failed");
     }
     throw error;
   }
+}
+
+export async function verifyConfirmedGrc20Deployment(
+  prepared: PreparedGrc20Deployment,
+  transactionHash: string,
+): Promise<Grc20DeploymentResult> {
+  if (!/^0x[a-fA-F0-9]{64}$/.test(transactionHash)) {
+    throw new Error("Deployment transaction hash is invalid.");
+  }
+  const eth = getEthereumProvider();
+  if (!eth) throw new Error("Wallet connection was lost before verification.");
+  await requireMainnet(eth);
+  const currentAccounts = await eth.request({ method: "eth_accounts" });
+  if (!Array.isArray(currentAccounts) || getAddress(currentAccounts[0] ?? "") !== prepared.creatorWallet) {
+    throw new Error("Reconnect the creator wallet used for this deployment before verification.");
+  }
+  const receipt = await prepared.provider.getTransactionReceipt(transactionHash);
+  if (!receipt) throw new Error("The deployment transaction is not confirmed yet. It has not been resubmitted.");
+  if (receipt.status !== 1) throw new Error("The deployment transaction failed on-chain. No token was saved.");
+  const contractAddress = receipt.contractAddress ? getAddress(receipt.contractAddress) : "";
+  if (!contractAddress) throw new Error("The confirmed receipt does not contain a contract address.");
+  return verifyDeploymentReceipt(prepared, transactionHash, receipt, contractAddress);
+}
+
+async function verifyDeploymentReceipt(
+  prepared: PreparedGrc20Deployment,
+  transactionHash: string,
+  receipt: TransactionReceipt,
+  contractAddress: string,
+): Promise<Grc20DeploymentResult> {
+  const deployedCode = await prepared.provider.getCode(contractAddress);
+  if (!deployedCode || deployedCode === "0x") {
+    throw new Error("The deployment is confirmed, but no contract code is present at its address.");
+  }
+
+  const deployedToken = new Contract(contractAddress, tokenArtifact.abi, prepared.provider);
+  const [name, symbol, decimals, supply, creatorBalance, owner, mintingEnabled] = await Promise.all([
+    deployedToken.name(),
+    deployedToken.symbol(),
+    deployedToken.decimals(),
+    deployedToken.totalSupply(),
+    deployedToken.balanceOf(prepared.creatorWallet),
+    deployedToken.owner(),
+    deployedToken.mintingEnabled(),
+  ]);
+  const expectedSupply = BigInt(prepared.initialSupplyBaseUnits);
+  if (
+    name !== prepared.input.name ||
+    symbol !== prepared.input.symbol ||
+    Number(decimals) !== prepared.input.decimals ||
+    BigInt(supply) !== expectedSupply ||
+    BigInt(creatorBalance) !== expectedSupply ||
+    getAddress(owner) !== prepared.creatorWallet ||
+    Boolean(mintingEnabled) !== prepared.input.mintEnabled
+  ) {
+    throw new Error("The deployed contract's name, supply, creator balance, owner, or mint setting did not match the confirmed request.");
+  }
+
+  return {
+    name,
+    symbol,
+    decimals: Number(decimals),
+    initialSupply: formatUnits(supply, Number(decimals)),
+    initialSupplyBaseUnits: BigInt(supply).toString(),
+    verifiedInitialBalanceBaseUnits: BigInt(creatorBalance).toString(),
+    creatorWallet: prepared.creatorWallet,
+    contractAddress,
+    deploymentTxHash: transactionHash,
+    deploymentBlockNumber: BigInt(receipt.blockNumber).toString(),
+    chainId: GYDS_CHAIN_ID,
+    mintEnabled: Boolean(mintingEnabled),
+  };
 }
 
 export async function transferGrc20Ownership(

@@ -128,9 +128,9 @@ const TokensPage = () => {
           <div className="flex items-start gap-3">
             <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-medium text-warning">Protocol-Enforced Rules</p>
+              <p className="font-medium text-warning">Token Deployment</p>
               <p className="text-sm text-muted-foreground">
-                All tokens require mandatory GYDS liquidity and follow immutable supply rules. LP is permanently locked.
+                New GRC-20 tokens deploy directly to GYDS mainnet. The initial supply goes to the creator wallet; future minting is off unless enabled. Liquidity can be added separately.
               </p>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
+import { getAddress, verifyMessage } from "ethers";
 import { storage } from "./storage";
 import { testNodeManager, getGenesisEnode, NETWORK_CFGS, ALL_NETWORKS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
@@ -22,6 +23,11 @@ import os from "os";
 import bcrypt from "bcryptjs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
 import { broadcastTransfer, pollForConfirmation, checkRpcHealth, testEndpoints } from "./chainRpc";
+import {
+  getTokenDeploymentReadiness,
+  verifyGrc20Deployment,
+} from "./tokenDeploymentVerification";
+import { makeTokenRegistrationProofMessage } from "../shared/tokenDeploymentProof";
 import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasuryBalance, sendTreasuryTransfer } from "./treasury";
 import {
   deployOrResumeStablecoin,
@@ -1201,6 +1207,11 @@ export function registerRoutes(app: Express) {
     res.json(data);
   });
 
+  app.get("/api/tokens/deployment-readiness", async (_req, res) => {
+    const readiness = await getTokenDeploymentReadiness();
+    res.json(readiness);
+  });
+
   // Search tokens by name/symbol/address (must come before /:id)
   app.get("/api/tokens/search", async (req, res) => {
     const q = String(req.query.q ?? "").trim();
@@ -1231,18 +1242,116 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/tokens", requireAuth, async (req, res) => {
     const user = req.user as any;
-    // Token creation is mainnet-only. Ignore any client-supplied network value
-    // so callers cannot create tokens on a retired or unsupported network.
-    const tokenData = { ...req.body };
-    delete tokenData.network_type;
-    delete tokenData.networkType;
-    const row = await storage.insertToken({ ...tokenData, creatorId: user.id, networkType: "mainnet" });
-    res.json(row);
+    const readiness = await getTokenDeploymentReadiness();
+    if (!readiness.ready) {
+      return res.status(503).json({
+        error: readiness.reason ?? "A verified GYDS mainnet RPC is required before token deployments can be saved.",
+      });
+    }
+
+    const logoUrl = req.body?.logoUrl ?? null;
+    if (logoUrl !== null && (typeof logoUrl !== "string" || logoUrl.length > 2_800_000)) {
+      return res.status(400).json({ error: "Token logo must be a string smaller than 2 MB." });
+    }
+
+    let deployment;
+    try {
+      deployment = await verifyGrc20Deployment(req.body ?? {});
+    } catch (error: any) {
+      return res.status(422).json({ error: error?.message ?? "The token deployment could not be independently verified." });
+    }
+
+    const creatorProof = typeof req.body?.creatorProof === "string" ? req.body.creatorProof : "";
+    let recoveredCreator: string;
+    try {
+      const proofMessage = makeTokenRegistrationProofMessage(user.id, deployment);
+      recoveredCreator = getAddress(verifyMessage(proofMessage, creatorProof));
+    } catch {
+      return res.status(403).json({ error: "A wallet signature is required to link this deployment to your account." });
+    }
+    if (recoveredCreator !== deployment.creatorWallet) {
+      return res.status(403).json({ error: "The token creator wallet did not sign the account-linking message." });
+    }
+
+    const duplicate = await pgPool.query(
+      `SELECT id FROM tokens WHERE LOWER(address) = LOWER($1) LIMIT 1`,
+      [deployment.contractAddress],
+    );
+    if (duplicate.rows.length) {
+      return res.status(409).json({ error: "This contract address is already registered." });
+    }
+
+    let row;
+    try {
+      row = await storage.insertToken({
+        creatorId: user.id,
+        name: deployment.name,
+        symbol: deployment.symbol,
+        decimals: deployment.decimals,
+        totalSupply: deployment.initialSupply,
+        burnedSupply: "0",
+        gydsLiquidity: "0",
+        logoUrl,
+        lpLockType: "none",
+        lpUnlockTime: null,
+        freezeEnabled: false,
+        updateEnabled: false,
+        mintEnabled: deployment.mintEnabled,
+        mintHolder: deployment.mintEnabled ? deployment.creatorWallet : null,
+        address: deployment.contractAddress,
+        tokenStandard: "GRC-20",
+        isActive: true,
+        networkType: "mainnet",
+        creatorWallet: deployment.creatorWallet,
+        initialSupplyBaseUnits: deployment.initialSupplyBaseUnits,
+        deploymentTxHash: deployment.deploymentTxHash,
+        deploymentChainId: deployment.chainId,
+        deploymentStatus: "confirmed",
+        deploymentBlockNumber: deployment.deploymentBlockNumber,
+        deploymentConfirmedAt: new Date(),
+        verifiedInitialBalance: deployment.verifiedInitialBalanceBaseUnits,
+        tokenOwnerAddress: deployment.creatorWallet,
+        mainnetPromotedAt: new Date(),
+        marketCapUsd: "0",
+        extraAuthorities: {},
+      });
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(409).json({ error: "This contract address is already registered." });
+      }
+      throw error;
+    }
+
+    invalidate("/api/tokens");
+    res.status(201).json(row);
     storage.awardXpOnce(user.id, 'first_token', 300, 'First token launched on GYDSchain! +300 XP').catch(() => {});
   });
 
   app.patch("/api/tokens/:id", requireAuth, async (req, res) => {
-    const row = await storage.updateToken(req.params.id, req.body);
+    const user = req.user as any;
+    const token = await storage.getToken(req.params.id);
+    if (!token) return res.status(404).json({ error: "Token not found." });
+    const isAdmin = Boolean(user?._isAdmin || user?._isFounder);
+    if (token.creatorId !== user.id && !isAdmin) {
+      return res.status(403).json({ error: "You do not own this token." });
+    }
+
+    const updates: Record<string, unknown> = {};
+    const logoUrl = req.body?.logoUrl ?? req.body?.logo_url;
+    if (logoUrl !== undefined) {
+      if (logoUrl !== null && (typeof logoUrl !== "string" || logoUrl.length > 2_800_000)) {
+        return res.status(400).json({ error: "Token logo must be a string smaller than 2 MB." });
+      }
+      updates.logoUrl = logoUrl;
+    }
+    if (isAdmin && (req.body?.isActive !== undefined || req.body?.is_active !== undefined)) {
+      updates.isActive = Boolean(req.body.isActive ?? req.body.is_active);
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No supported token metadata changes were provided." });
+    }
+
+    const row = await storage.updateToken(req.params.id, updates as any);
     res.json(row);
   });
 
@@ -1255,6 +1364,11 @@ export function registerRoutes(app: Express) {
     const token = await storage.getToken(req.params.id);
     if (!token) return res.status(404).json({ error: "Token not found" });
     if ((token as any).creatorId !== user.id && !user._isAdmin) return res.status(403).json({ error: "Not token creator" });
+    if ((token as any).deploymentStatus === "confirmed") {
+      return res.status(409).json({
+        error: "This token is deployed on-chain. Authority renunciation is not supported here, and no on-chain transaction was sent.",
+      });
+    }
     const updates: Record<string, any> = {};
     updates[`${authorityType}Locked`] = true;
     updates[`${authorityType}Holder`] = null;
