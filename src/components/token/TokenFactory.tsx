@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +25,6 @@ import {
   type Grc20DeploymentResult,
   type PreparedGrc20Deployment,
 } from "@/lib/tokenDeployment";
-import { DEFAULT_PRICING, normalizePricing } from "@/lib/tokenAuthorities";
 import { makeTokenRegistrationProofMessage } from "../../../shared/tokenDeploymentProof";
 
 interface Readiness {
@@ -40,7 +38,6 @@ interface TokenForm {
   symbol: string;
   decimals: number;
   initialSupply: string;
-  mintEnabled: boolean;
 }
 
 const INITIAL_FORM: TokenForm = {
@@ -48,7 +45,6 @@ const INITIAL_FORM: TokenForm = {
   symbol: "",
   decimals: 18,
   initialSupply: "1000000",
-  mintEnabled: false,
 };
 
 const STEP_LABELS: Record<DeploymentStep, string> = {
@@ -71,9 +67,6 @@ export const TokenFactory = () => {
     chainId: null,
     reason: "Checking the server's mainnet RPC…",
   });
-  const [mintAuthorityAvailable, setMintAuthorityAvailable] = useState(
-    DEFAULT_PRICING.authorities.mint.enabled,
-  );
   const [prepared, setPrepared] = useState<PreparedGrc20Deployment | null>(null);
   const [deployment, setDeployment] = useState<Grc20DeploymentResult | null>(null);
   const [savedToken, setSavedToken] = useState<any | null>(null);
@@ -105,10 +98,6 @@ export const TokenFactory = () => {
 
   useEffect(() => {
     void refreshReadiness();
-    api.get("/api/config/token_factory_pricing").then((row) => {
-      const pricing = normalizePricing(row?.configValue ?? row?.config_value);
-      setMintAuthorityAvailable(Boolean(pricing.authorities.mint.enabled));
-    }).catch(() => setMintAuthorityAvailable(false));
   }, [refreshReadiness]);
 
   const resetWorkflow = () => {
@@ -176,7 +165,6 @@ export const TokenFactory = () => {
         symbol: form.symbol,
         decimals: Number(form.decimals),
         initialSupply: form.initialSupply,
-        mintEnabled: mintAuthorityAvailable && form.mintEnabled,
       });
       setPrepared(next);
       toast({
@@ -215,7 +203,6 @@ export const TokenFactory = () => {
         address: result.contractAddress,
         deploymentTxHash: result.deploymentTxHash,
         chainId: result.chainId,
-        mintEnabled: result.mintEnabled,
         tokenStandard: "GRC-20",
         logoUrl,
         creatorProof: proof,
@@ -336,9 +323,9 @@ export const TokenFactory = () => {
             </p>
           </div>
           <div className="rounded-lg bg-secondary/30 p-4">
-            <h3 className="font-medium">Verified before listing</h3>
+            <h3 className="font-medium">No token authorities</h3>
             <p className="text-sm text-muted-foreground">
-              The app checks the mainnet receipt, contract, supply, and creator balance before saving.
+              Fixed supply only. No owner, mint, burn, pause, freeze, blacklist, or metadata-control functions.
             </p>
           </div>
         </div>
@@ -443,22 +430,11 @@ export const TokenFactory = () => {
                   </p>
                 </div>
 
-                <div className="flex items-center justify-between rounded-lg bg-secondary/30 p-3">
-                  <div className="pr-4">
-                    <Label htmlFor="mint-authority">Allow future minting</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Optional. If enabled, only the on-chain owner can mint more tokens.
-                    </p>
-                    {!mintAuthorityAvailable && (
-                      <p className="mt-1 text-xs text-muted-foreground">This option is currently disabled by the administrator.</p>
-                    )}
-                  </div>
-                  <Switch
-                    id="mint-authority"
-                    checked={mintAuthorityAvailable && form.mintEnabled}
-                    disabled={!mintAuthorityAvailable || lockForm}
-                    onCheckedChange={(checked) => updateForm({ mintEnabled: checked })}
-                  />
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                  <p className="font-medium">Permanent fixed supply, no privileged authority</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    No account can mint, burn, pause, freeze, blacklist, or change token metadata after deployment. This cannot be reversed.
+                  </p>
                 </div>
 
                 <div className="space-y-2">

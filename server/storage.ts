@@ -2153,32 +2153,87 @@ export const storage = {
     if (parseInt(count.rows[0].count) === 0) {
       await pgPool.query(`
         INSERT INTO oracle_feeds (feed_id, description, value, provider) VALUES
-        ('GYDS/USD', 'GYDSchain native coin price in USD', 0.0000001, 'internal'),
-        ('GYD/USD',  'GYD stablecoin price in USD', 1.0, 'internal'),
-        ('BTC/USD',  'Bitcoin price in USD', 65000.0, 'external'),
-        ('ETH/USD',  'Ethereum price in USD', 3500.0, 'external')
+        ('GYDS/USD', 'GYDSchain native coin price in USD', 0, 'manual'),
+        ('GYD/USD',  'GYD stablecoin price in USD', 0, 'manual'),
+        ('BTC/USD',  'Bitcoin price in USD', 0, 'manual'),
+        ('ETH/USD',  'Ethereum price in USD', 0, 'manual')
         ON CONFLICT (feed_id) DO NOTHING
       `);
     }
   },
 
   async getOracleFeeds() {
-    const res = await pgPool.query(`SELECT * FROM oracle_feeds ORDER BY feed_id`);
+    const res = await pgPool.query(`
+      SELECT f.*,
+             EXISTS (
+               SELECT 1 FROM oracle_submissions s WHERE s.feed_id = f.feed_id
+             ) AS has_submission
+      FROM oracle_feeds f
+      ORDER BY f.feed_id
+    `);
     return res.rows;
   },
 
-  async updateOracleFeed(feedId: string, value: number) {
+  async createOracleFeed(data: {
+    feedId: string;
+    description: string | null;
+    value: string;
+    decimals: number;
+    provider: string;
+    active: boolean;
+  }) {
     const res = await pgPool.query(
-      `UPDATE oracle_feeds SET value=$1, last_updated=NOW() WHERE feed_id=$2 RETURNING *`,
-      [value, feedId]
+      `INSERT INTO oracle_feeds (feed_id, description, value, decimals, provider, active)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [data.feedId, data.description, data.value, data.decimals, data.provider, data.active],
     );
-    if (res.rows[0]) {
+    const row = res.rows[0];
+    if (row && Number(data.value) > 0) {
       await pgPool.query(
         `INSERT INTO oracle_submissions (feed_id, submitter, value) VALUES ($1,'admin',$2)`,
-        [feedId, value]
+        [data.feedId, data.value],
       );
     }
-    return res.rows[0];
+    return row;
+  },
+
+  async updateOracleFeed(
+    feedId: string,
+    patch: {
+      value?: string;
+      description?: string | null;
+      decimals?: number;
+      provider?: string;
+      active?: boolean;
+    },
+  ) {
+    const assignments: string[] = [];
+    const values: unknown[] = [];
+    const add = (column: string, value: unknown) => {
+      values.push(value);
+      assignments.push(`${column}=$${values.length}`);
+    };
+    if (patch.value !== undefined) add("value", patch.value);
+    if (patch.description !== undefined) add("description", patch.description);
+    if (patch.decimals !== undefined) add("decimals", patch.decimals);
+    if (patch.provider !== undefined) add("provider", patch.provider);
+    if (patch.active !== undefined) add("active", patch.active);
+    if (!assignments.length) return null;
+    assignments.push("last_updated=NOW()");
+    values.push(feedId);
+    const res = await pgPool.query(
+      `UPDATE oracle_feeds SET ${assignments.join(", ")}
+       WHERE feed_id=$${values.length} RETURNING *`,
+      values,
+    );
+    const row = res.rows[0];
+    if (row && patch.value !== undefined) {
+      await pgPool.query(
+        `INSERT INTO oracle_submissions (feed_id, submitter, value) VALUES ($1,'admin',$2)`,
+        [feedId, patch.value],
+      );
+    }
+    return row;
   },
 
   async getOracleSubmissions(feedId: string) {

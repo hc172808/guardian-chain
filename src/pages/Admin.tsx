@@ -330,41 +330,84 @@ function OracleAdmin({ toast }: { toast: any }) {
   const [feeds, setFeeds] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newSymbol, setNewSymbol] = useState('');
-  const [newSource, setNewSource] = useState('');
+  const [newFeedId, setNewFeedId] = useState('');
+  const [newProvider, setNewProvider] = useState('manual');
+  const [newDescription, setNewDescription] = useState('');
+  const [newDecimals, setNewDecimals] = useState('8');
+  const [newValue, setNewValue] = useState('0');
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);
+  const [savingFeed, setSavingFeed] = useState<string | null>(null);
   const [selectedFeed, setSelectedFeed] = useState<string | null>(null);
 
   const fetchFeeds = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/oracle/feeds', { credentials: 'include' });
-      if (res.ok) setFeeds(await res.json());
+      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      const data = await res.json();
+      setFeeds(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      toast({ title: 'Could not load oracle feeds', description: e.message, variant: 'destructive' });
     } finally { setLoading(false); }
   };
 
   const fetchSubmissions = async (feedId: string) => {
     setSelectedFeed(feedId);
-    const res = await fetch(`/api/admin/oracle/feeds/${feedId}`, { credentials: 'include' });
-    if (res.ok) setSubmissions(await res.json());
+    try {
+      const res = await fetch(`/api/admin/oracle/submissions?feedId=${encodeURIComponent(feedId)}`, { credentials: 'include' });
+      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      setSubmissions(await res.json());
+    } catch (e: any) {
+      toast({ title: 'Could not load feed history', description: e.message, variant: 'destructive' });
+    }
   };
 
   const addFeed = async () => {
-    if (!newSymbol.trim()) return;
+    if (!newFeedId.trim()) return;
     setAdding(true);
     try {
-      const res = await fetch('/api/oracle/feeds', {
+      const res = await fetch('/api/admin/oracle/feeds', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: newSymbol.trim().toUpperCase(), source: newSource.trim() || 'manual', heartbeat_seconds: 300 }),
+        body: JSON.stringify({
+          feedId: newFeedId.trim().toUpperCase(),
+          provider: newProvider.trim() || 'manual',
+          description: newDescription.trim(),
+          decimals: Number(newDecimals),
+          value: newValue,
+          active: true,
+        }),
       });
-      if (!res.ok) throw new Error((await res.json()).error);
-      toast({ title: `Oracle feed ${newSymbol.toUpperCase()} created` });
-      setNewSymbol(''); setNewSource('');
-      fetchFeeds();
+      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      toast({ title: `Oracle feed ${newFeedId.toUpperCase()} created` });
+      setNewFeedId('');
+      setNewProvider('manual');
+      setNewDescription('');
+      setNewDecimals('8');
+      setNewValue('0');
+      await fetchFeeds();
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally { setAdding(false); }
+  };
+
+  const updateFeed = async (feedId: string, patch: Record<string, unknown>) => {
+    setSavingFeed(feedId);
+    try {
+      const res = await fetch('/api/admin/oracle/feeds', {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedId, ...patch }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      await fetchFeeds();
+      if (selectedFeed === feedId) await fetchSubmissions(feedId);
+      return true;
+    } catch (e: any) {
+      toast({ title: 'Could not update feed', description: e.message, variant: 'destructive' });
+      return false;
+    } finally { setSavingFeed(null); }
   };
 
   useEffect(() => { fetchFeeds(); }, []);
@@ -378,13 +421,21 @@ function OracleAdmin({ toast }: { toast: any }) {
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
-        <div className="flex gap-2">
-          <input value={newSymbol} onChange={e => setNewSymbol(e.target.value)} placeholder="Symbol (e.g. GYDS)" className="flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
-          <input value={newSource} onChange={e => setNewSource(e.target.value)} placeholder="Source (e.g. coingecko)" className="flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
-          <Button onClick={addFeed} disabled={adding || !newSymbol.trim()} className="gap-1 shrink-0">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <input value={newFeedId} onChange={e => setNewFeedId(e.target.value)} placeholder="Feed ID (e.g. GYDS/USD)" className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+          <input value={newProvider} onChange={e => setNewProvider(e.target.value)} placeholder="Source label (e.g. manual)" className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+          <input value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Description (optional)" className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+          <div className="flex gap-2">
+            <input type="number" min="0" max="18" step="1" value={newDecimals} onChange={e => setNewDecimals(e.target.value)} aria-label="Feed decimals" placeholder="Decimals" className="w-28 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+            <input type="text" inputMode="decimal" value={newValue} onChange={e => setNewValue(e.target.value)} aria-label="Initial feed value" placeholder="Initial price (0 if unset)" className="min-w-0 flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+            <Button onClick={addFeed} disabled={adding || !newFeedId.trim()} className="gap-1 shrink-0">
             {adding ? <RefreshCw className="h-4 w-4 animate-spin" /> : '+'} Add
-          </Button>
+            </Button>
+          </div>
         </div>
+        <p className="text-xs text-amber-400/90">
+          Source labels are configuration only. Values are manually entered by an administrator; automatic provider polling and independent price verification are not enabled.
+        </p>
         {loading ? (
           <div className="text-muted-foreground text-sm py-4 text-center"><RefreshCw className="inline w-4 h-4 animate-spin mr-2" />Loading feeds…</div>
         ) : feeds.length === 0 ? (
@@ -392,20 +443,47 @@ function OracleAdmin({ toast }: { toast: any }) {
         ) : (
           <div className="space-y-2">
             {feeds.map((f: any) => (
-              <div key={f.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-xl text-sm">
-                <div>
-                  <span className="font-mono font-bold text-primary">{f.symbol}</span>
-                  <span className="text-muted-foreground ml-2">·</span>
-                  <span className="text-muted-foreground ml-2">source: {f.source}</span>
+              <div key={f.id} className="flex flex-col gap-3 rounded-xl bg-muted/20 p-3 text-sm lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono font-bold text-primary">{f.feed_id}</span>
+                    <Badge variant={f.active ? 'default' : 'secondary'} className="text-xs">
+                      {f.active ? 'Active' : 'Inactive'}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">source label: {f.provider || 'manual'} · {f.decimals} decimals</span>
+                  </div>
+                  {f.description && <p className="mt-1 text-xs text-muted-foreground">{f.description}</p>}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Current value: {f.has_submission && Number(f.value) > 0 ? Number(f.value).toLocaleString(undefined, { maximumFractionDigits: 12 }) : 'unset'}
+                    {f.last_updated ? ` · feed configuration updated ${new Date(f.last_updated).toLocaleString()}` : ''}
+                  </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  {f.latest_price && (
-                    <span className="font-mono text-emerald-400">${Number(f.latest_price).toFixed(6)}</span>
-                  )}
-                  <Badge variant={f.is_active ? 'default' : 'secondary'} className="text-xs">
-                    {f.is_active ? 'Active' : 'Inactive'}
-                  </Badge>
-                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fetchSubmissions(f.id)}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label={`New value for ${f.feed_id}`}
+                    value={priceDrafts[f.feed_id] ?? String(f.value ?? '')}
+                    onChange={e => setPriceDrafts(current => ({ ...current, [f.feed_id]: e.target.value }))}
+                    className="w-32 rounded-lg border border-border/40 bg-muted/30 px-2 py-1.5 font-mono text-xs outline-none focus:ring-1 ring-primary"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={savingFeed === f.feed_id}
+                    onClick={() => void updateFeed(f.feed_id, { value: priceDrafts[f.feed_id] ?? String(f.value ?? '0') })}
+                  >
+                    Save value
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={savingFeed === f.feed_id}
+                    onClick={() => void updateFeed(f.feed_id, { active: !f.active })}
+                  >
+                    {f.active ? 'Disable' : 'Enable'}
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void fetchSubmissions(f.feed_id)}>
                     History
                   </Button>
                 </div>
@@ -427,8 +505,8 @@ function OracleAdmin({ toast }: { toast: any }) {
             <div className="space-y-1 max-h-64 overflow-y-auto">
               {submissions.map((s: any, i: number) => (
                 <div key={i} className="flex items-center justify-between text-xs p-2 bg-muted/20 rounded-lg">
-                  <span className="font-mono text-primary">${Number(s.price).toFixed(6)}</span>
-                  <span className="text-muted-foreground">{s.submitter_address?.slice(0, 12) || 'system'}…</span>
+                  <span className="font-mono text-primary">{Number(s.value).toLocaleString(undefined, { maximumFractionDigits: 12 })}</span>
+                  <span className="text-muted-foreground">{s.submitter || 'admin'}</span>
                   <span className="text-muted-foreground">{s.submitted_at ? new Date(s.submitted_at).toLocaleString() : '—'}</span>
                 </div>
               ))}

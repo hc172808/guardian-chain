@@ -27,6 +27,11 @@ import {
   getTokenDeploymentReadiness,
   verifyGrc20Deployment,
 } from "./tokenDeploymentVerification";
+import {
+  normalizeOracleDecimals,
+  normalizeOracleFeedId,
+  normalizeOracleValue,
+} from "./oracleFeedValidation";
 import { makeTokenRegistrationProofMessage } from "../shared/tokenDeploymentProof";
 import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasuryBalance, sendTreasuryTransfer } from "./treasury";
 import {
@@ -1296,8 +1301,8 @@ export function registerRoutes(app: Express) {
         lpUnlockTime: null,
         freezeEnabled: false,
         updateEnabled: false,
-        mintEnabled: deployment.mintEnabled,
-        mintHolder: deployment.mintEnabled ? deployment.creatorWallet : null,
+        mintEnabled: false,
+        mintHolder: null,
         address: deployment.contractAddress,
         tokenStandard: "GRC-20",
         isActive: true,
@@ -1310,7 +1315,7 @@ export function registerRoutes(app: Express) {
         deploymentBlockNumber: deployment.deploymentBlockNumber,
         deploymentConfirmedAt: new Date(),
         verifiedInitialBalance: deployment.verifiedInitialBalanceBaseUnits,
-        tokenOwnerAddress: deployment.creatorWallet,
+        tokenOwnerAddress: null,
         mainnetPromotedAt: new Date(),
         marketCapUsd: "0",
         extraAuthorities: {},
@@ -5076,14 +5081,23 @@ export function registerRoutes(app: Express) {
   });
 
   app.get("/v1/oracle/prices", async (_req, res) => {
-    const ph = await storage.getPriceHistory("GYDS", 1).catch(() => []);
-    const latest = ph[ph.length - 1];
+    const feeds = await (storage as any).getOracleFeeds().catch(() => []);
+    const valueFor = (feedId: string) => {
+      const feed = feeds.find((row: any) => row.feed_id === feedId && row.active && row.has_submission);
+      const value = feed ? Number(feed.value) : 0;
+      return Number.isFinite(value) && value > 0 ? value : null;
+    };
+    const updatedAt = feeds
+      .filter((row: any) => row.active && row.has_submission && Number(row.value) > 0 && row.last_updated)
+      .map((row: any) => new Date(row.last_updated).toISOString())
+      .sort();
     res.json({
-      GYDS: latest?.close ?? 0.0000001,
-      GYD: 1.0,
-      BTC: 65000,
-      ETH: 3400,
-      updated_at: new Date().toISOString(),
+      GYDS: valueFor("GYDS/USD"),
+      GYD: valueFor("GYD/USD"),
+      BTC: valueFor("BTC/USD"),
+      ETH: valueFor("ETH/USD"),
+      updated_at: updatedAt.length ? updatedAt[updatedAt.length - 1] : null,
+      source: "admin-configured-oracle-feeds",
     });
   });
 
@@ -5238,12 +5252,94 @@ export function registerRoutes(app: Express) {
     catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.put("/api/admin/oracle/feeds/:feedId", requireAdmin, async (req, res) => {
+  app.post("/api/admin/oracle/feeds", requireAdmin, async (req, res) => {
+    const feedId = normalizeOracleFeedId(req.body?.feedId ?? req.body?.symbol);
+    const provider = typeof req.body?.provider === "string" ? req.body.provider.trim() : "manual";
+    const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
+    const value = normalizeOracleValue(req.body?.value ?? "0");
+    const decimals = normalizeOracleDecimals(req.body?.decimals);
+    const active = req.body?.active ?? true;
+    if (!feedId) return res.status(400).json({ error: "Feed ID must be a symbol or pair such as GYDS/USD." });
+    if (!provider || provider.length > 80) return res.status(400).json({ error: "Provider label must be 1–80 characters." });
+    if (description.length > 240) return res.status(400).json({ error: "Description must be 240 characters or fewer." });
+    if (value === null) return res.status(400).json({ error: "Feed value must be a non-negative decimal number." });
+    if (decimals === null) {
+      return res.status(400).json({ error: "Feed decimals must be a whole number from 0 to 18." });
+    }
+    if (typeof active !== "boolean") return res.status(400).json({ error: "Feed active state must be a boolean." });
     try {
-      const { value } = req.body;
-      if (value === undefined) return res.status(400).json({ error: "value required" });
-      res.json(await (storage as any).updateOracleFeed(req.params.feedId, parseFloat(value)));
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+      const feed = await (storage as any).createOracleFeed({
+        feedId,
+        description: description || null,
+        value,
+        decimals,
+        provider,
+        active,
+      });
+      res.status(201).json(feed);
+    } catch (error: any) {
+      if (error?.code === "23505") return res.status(409).json({ error: "That oracle feed ID already exists." });
+      res.status(500).json({ error: error?.message ?? "Could not create oracle feed." });
+    }
+  });
+
+  const updateOracleFeedFromBody = async (feedIdInput: unknown, body: any, res: any) => {
+    const feedId = normalizeOracleFeedId(feedIdInput);
+    if (!feedId) return res.status(400).json({ error: "A valid feed ID is required." });
+    const patch: Record<string, unknown> = {};
+    if (body?.value !== undefined) {
+      const value = normalizeOracleValue(body.value);
+      if (value === null) return res.status(400).json({ error: "Feed value must be a non-negative decimal number." });
+      patch.value = value;
+    }
+    if (body?.description !== undefined) {
+      if (body.description !== null && typeof body.description !== "string") {
+        return res.status(400).json({ error: "Description must be text or null." });
+      }
+      const description = typeof body.description === "string" ? body.description.trim() : "";
+      if (description.length > 240) return res.status(400).json({ error: "Description must be 240 characters or fewer." });
+      patch.description = description || null;
+    }
+    if (body?.provider !== undefined) {
+      if (typeof body.provider !== "string" || !body.provider.trim() || body.provider.trim().length > 80) {
+        return res.status(400).json({ error: "Provider label must be 1–80 characters." });
+      }
+      patch.provider = body.provider.trim();
+    }
+    if (body?.decimals !== undefined) {
+      const decimals = normalizeOracleDecimals(body.decimals);
+      if (decimals === null) {
+        return res.status(400).json({ error: "Feed decimals must be a whole number from 0 to 18." });
+      }
+      patch.decimals = decimals;
+    }
+    if (body?.active !== undefined) {
+      if (typeof body.active !== "boolean") return res.status(400).json({ error: "Feed active state must be a boolean." });
+      patch.active = body.active;
+    }
+    if (!Object.keys(patch).length) return res.status(400).json({ error: "Provide at least one feed setting to update." });
+    try {
+      const feed = await (storage as any).updateOracleFeed(feedId, patch);
+      if (!feed) return res.status(404).json({ error: "Oracle feed not found." });
+      return res.json(feed);
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message ?? "Could not update oracle feed." });
+    }
+  };
+
+  app.patch("/api/admin/oracle/feeds", requireAdmin, async (req, res) => {
+    await updateOracleFeedFromBody(req.body?.feedId, req.body, res);
+  });
+
+  app.get("/api/admin/oracle/submissions", requireAdmin, async (req, res) => {
+    const feedId = normalizeOracleFeedId(req.query.feedId);
+    if (!feedId) return res.status(400).json({ error: "A valid feedId query parameter is required." });
+    try { res.json(await (storage as any).getOracleSubmissions(feedId)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.put("/api/admin/oracle/feeds/:feedId", requireAdmin, async (req, res) => {
+    await updateOracleFeedFromBody(req.params.feedId, req.body, res);
   });
 
   app.get("/api/oracle/feeds/:feedId/submissions", async (req, res) => {

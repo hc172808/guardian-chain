@@ -18,13 +18,11 @@ const reads = new Interface([
   "function decimals() view returns (uint8)",
   "function totalSupply() view returns (uint256)",
   "function balanceOf(address) view returns (uint256)",
-  "function owner() view returns (address)",
-  "function mintingEnabled() view returns (bool)",
 ]);
 
 async function deploymentInput() {
   const factory = new ContractFactory(tokenArtifact.abi, tokenArtifact.bytecode);
-  const tx = await factory.getDeployTransaction("Verified Token", "VFY", 2, creator, supply, false);
+  const tx = await factory.getDeployTransaction("Verified Token", "VFY", 2, supply);
   return {
     name: "Verified Token",
     symbol: "VFY",
@@ -35,7 +33,6 @@ async function deploymentInput() {
     address: contractAddress,
     deploymentTxHash: txHash,
     chainId,
-    mintEnabled: false,
     data: String(tx.data),
   };
 }
@@ -75,8 +72,6 @@ function createRpc(transactionInput: string, options: { chain?: string; supply?:
           decimals: [2],
           totalSupply: [options.supply ?? supply],
           balanceOf: [options.supply ?? supply],
-          owner: [creator],
-          mintingEnabled: [false],
         };
         return {
           result: reads.encodeFunctionResult(fragment, resultByFunction[fragment.name]),
@@ -91,6 +86,23 @@ function createRpc(transactionInput: string, options: { chain?: string; supply?:
 }
 
 describe("server-side GRC-20 deployment verification", () => {
+  it("uses a fixed-supply artifact with no privileged authority functions", async () => {
+    const factory = new ContractFactory(tokenArtifact.abi, tokenArtifact.bytecode);
+    const forbidden = new Set([
+      "owner",
+      "mint",
+      "burn",
+      "pause",
+      "unpause",
+      "freeze",
+      "blacklist",
+      "transferOwnership",
+      "renounceOwnership",
+    ]);
+    expect(factory.interface.fragments.find(fragment => fragment.type === "constructor")?.inputs.length).toBe(4);
+    expect(tokenArtifact.abi.filter(item => item.type === "function").some(item => forbidden.has(item.name))).toBe(false);
+  });
+
   it("requires a configured mainnet RPC before enabling deployment", async () => {
     const readiness = await getTokenDeploymentReadiness(async () => {
       throw new Error("No explicit mainnet RPC");
@@ -99,7 +111,7 @@ describe("server-side GRC-20 deployment verification", () => {
     expect(readiness).toEqual({
       ready: false,
       chainId: null,
-      reason: "A reachable, explicitly configured GYDS mainnet RPC is required for independent deployment verification.",
+      reason: "A reachable, explicitly configured GYDS mainnet RPC is required for independent deployment verification. Local test nodes simulate receipts and do not execute token contracts.",
     });
   });
 
@@ -119,7 +131,6 @@ describe("server-side GRC-20 deployment verification", () => {
       deploymentTxHash: txHash,
       deploymentBlockNumber: "153",
       chainId,
-      mintEnabled: false,
     });
   });
 
@@ -136,7 +147,7 @@ describe("server-side GRC-20 deployment verification", () => {
 
     await expect(
       verifyGrc20Deployment(submitted, createRpc(submitted.data, { supply: 122n })),
-    ).rejects.toThrow("on-chain name, symbol, decimals, supply, creator balance");
+    ).rejects.toThrow("on-chain name, symbol, decimals, supply, or creator balance");
   });
 
   it("rejects a server RPC on any chain other than GYDS mainnet", async () => {

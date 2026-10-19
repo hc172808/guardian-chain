@@ -27,7 +27,6 @@ export interface Grc20DeploymentInput {
   address: unknown;
   deploymentTxHash: unknown;
   chainId: unknown;
-  mintEnabled: unknown;
 }
 
 export interface VerifiedGrc20Deployment {
@@ -42,7 +41,6 @@ export interface VerifiedGrc20Deployment {
   deploymentTxHash: string;
   deploymentBlockNumber: string;
   chainId: number;
-  mintEnabled: boolean;
 }
 
 const tokenReadInterface = new Interface([
@@ -51,8 +49,18 @@ const tokenReadInterface = new Interface([
   "function decimals() view returns (uint8)",
   "function totalSupply() view returns (uint256)",
   "function balanceOf(address) view returns (uint256)",
-  "function owner() view returns (address)",
-  "function mintingEnabled() view returns (bool)",
+]);
+
+const FORBIDDEN_AUTHORITY_FUNCTIONS = new Set([
+  "owner",
+  "mint",
+  "burn",
+  "pause",
+  "unpause",
+  "freeze",
+  "blacklist",
+  "transferOwnership",
+  "renounceOwnership",
 ]);
 
 function fail(message: string): never {
@@ -99,7 +107,6 @@ function validateInput(input: Grc20DeploymentInput) {
   }
   if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) fail("Deployment transaction hash is invalid.");
   if (chainId !== GYDS_MAINNET_CHAIN_ID) fail(`Token deployments must use GYDS mainnet (${GYDS_MAINNET_CHAIN_ID}).`);
-  if (typeof input.mintEnabled !== "boolean") fail("Mint authority setting is required.");
 
   let expectedSupply: bigint;
   try {
@@ -123,7 +130,6 @@ function validateInput(input: Grc20DeploymentInput) {
     creatorWallet: getAddress(creatorWalletInput),
     contractAddress: getAddress(addressInput),
     txHash: txHash.toLowerCase(),
-    mintEnabled: input.mintEnabled,
   };
 }
 
@@ -149,7 +155,7 @@ export async function getTokenDeploymentReadiness(
     return {
       ready: false,
       chainId: null,
-      reason: "A reachable, explicitly configured GYDS mainnet RPC is required for independent deployment verification.",
+      reason: "A reachable, explicitly configured GYDS mainnet RPC is required for independent deployment verification. Local test nodes simulate receipts and do not execute token contracts.",
     };
   }
 }
@@ -158,6 +164,11 @@ export async function verifyGrc20Deployment(
   input: Grc20DeploymentInput,
   rpc: RpcReader = callConfiguredGydsRpc,
 ): Promise<VerifiedGrc20Deployment> {
+  if (tokenArtifact.abi.some((entry: any) =>
+    entry.type === "function" && FORBIDDEN_AUTHORITY_FUNCTIONS.has(entry.name)
+  )) {
+    fail("The configured token contract artifact includes privileged authority functions.");
+  }
   const requested = validateInput(input);
 
   let chain = await rpc("eth_chainId");
@@ -197,9 +208,7 @@ export async function verifyGrc20Deployment(
     requested.name,
     requested.symbol,
     requested.decimals,
-    requested.creatorWallet,
     requested.expectedSupply,
-    requested.mintEnabled,
   );
   const expectedInput = String(expectedDeployment.data ?? "").toLowerCase();
   const transactionInput = String(transaction.input ?? transaction.data ?? "").toLowerCase();
@@ -228,14 +237,12 @@ export async function verifyGrc20Deployment(
     }
   };
 
-  const [name, symbol, decimals, totalSupply, creatorBalance, owner, mintingEnabled] = await Promise.all([
+  const [name, symbol, decimals, totalSupply, creatorBalance] = await Promise.all([
     readContract("name"),
     readContract("symbol"),
     readContract("decimals"),
     readContract("totalSupply"),
     readContract("balanceOf", [requested.creatorWallet]),
-    readContract("owner"),
-    readContract("mintingEnabled"),
   ]);
 
   if (
@@ -243,12 +250,9 @@ export async function verifyGrc20Deployment(
     symbol !== requested.symbol ||
     Number(decimals) !== requested.decimals ||
     BigInt(totalSupply) !== requested.expectedSupply ||
-    BigInt(creatorBalance) !== requested.expectedSupply ||
-    !isAddress(String(owner)) ||
-    getAddress(String(owner)) !== requested.creatorWallet ||
-    Boolean(mintingEnabled) !== requested.mintEnabled
+    BigInt(creatorBalance) !== requested.expectedSupply
   ) {
-    fail("The deployed token's on-chain name, symbol, decimals, supply, creator balance, owner, or mint setting does not match.");
+    fail("The deployed token's on-chain name, symbol, decimals, supply, or creator balance does not match.");
   }
 
   return {
@@ -263,6 +267,5 @@ export async function verifyGrc20Deployment(
     deploymentTxHash: requested.txHash,
     deploymentBlockNumber: blockNumber.toString(),
     chainId: GYDS_MAINNET_CHAIN_ID,
-    mintEnabled: Boolean(mintingEnabled),
   };
 }

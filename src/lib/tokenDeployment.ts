@@ -21,7 +21,6 @@ export interface Grc20TokenInput {
   symbol: string;
   decimals: number;
   initialSupply: string;
-  mintEnabled: boolean;
 }
 
 export interface DeploymentEstimate {
@@ -54,7 +53,6 @@ export interface Grc20DeploymentResult {
   deploymentTxHash: string;
   deploymentBlockNumber: string;
   chainId: number;
-  mintEnabled: boolean;
 }
 
 export type DeploymentStep =
@@ -116,9 +114,7 @@ export async function prepareGrc20Deployment(input: Grc20TokenInput): Promise<Pr
     normalized.name,
     normalized.symbol,
     normalized.decimals,
-    creatorWallet,
     BigInt(initialSupplyBaseUnits),
-    normalized.mintEnabled,
   ];
 
   let estimate: DeploymentEstimate | null = null;
@@ -179,9 +175,7 @@ export async function submitGrc20Deployment(
       prepared.input.name,
       prepared.input.symbol,
       prepared.input.decimals,
-      prepared.creatorWallet,
       BigInt(prepared.initialSupplyBaseUnits),
-      prepared.input.mintEnabled,
     );
     const transaction = contract.deploymentTransaction();
     if (!transaction?.hash) throw new Error("The wallet did not return a deployment transaction hash.");
@@ -258,14 +252,12 @@ async function verifyDeploymentReceipt(
   }
 
   const deployedToken = new Contract(contractAddress, tokenArtifact.abi, prepared.provider);
-  const [name, symbol, decimals, supply, creatorBalance, owner, mintingEnabled] = await Promise.all([
+  const [name, symbol, decimals, supply, creatorBalance] = await Promise.all([
     deployedToken.name(),
     deployedToken.symbol(),
     deployedToken.decimals(),
     deployedToken.totalSupply(),
     deployedToken.balanceOf(prepared.creatorWallet),
-    deployedToken.owner(),
-    deployedToken.mintingEnabled(),
   ]);
   const expectedSupply = BigInt(prepared.initialSupplyBaseUnits);
   if (
@@ -273,11 +265,9 @@ async function verifyDeploymentReceipt(
     symbol !== prepared.input.symbol ||
     Number(decimals) !== prepared.input.decimals ||
     BigInt(supply) !== expectedSupply ||
-    BigInt(creatorBalance) !== expectedSupply ||
-    getAddress(owner) !== prepared.creatorWallet ||
-    Boolean(mintingEnabled) !== prepared.input.mintEnabled
+    BigInt(creatorBalance) !== expectedSupply
   ) {
-    throw new Error("The deployed contract's name, supply, creator balance, owner, or mint setting did not match the confirmed request.");
+    throw new Error("The deployed contract's name, supply, or creator balance did not match the confirmed request.");
   }
 
   return {
@@ -292,42 +282,6 @@ async function verifyDeploymentReceipt(
     deploymentTxHash: transactionHash,
     deploymentBlockNumber: BigInt(receipt.blockNumber).toString(),
     chainId: GYDS_CHAIN_ID,
-    mintEnabled: Boolean(mintingEnabled),
   };
 }
 
-export async function transferGrc20Ownership(
-  contractAddressInput: string,
-  newOwnerInput: string,
-): Promise<{ txHash: string; previousOwner: string; newOwner: string }> {
-  if (!isAddress(contractAddressInput) || !isAddress(newOwnerInput)) {
-    throw new Error("Enter valid token and recipient wallet addresses.");
-  }
-  const contractAddress = getAddress(contractAddressInput);
-  const newOwner = getAddress(newOwnerInput);
-  const eth = getEthereumProvider();
-  if (!eth) throw new Error("No EVM wallet was found.");
-
-  const accounts = await eth.request({ method: "eth_requestAccounts" });
-  if (!Array.isArray(accounts) || !accounts[0]) throw new Error("Connect the current token owner's wallet.");
-  await requireMainnet(eth);
-
-  const provider = new BrowserProvider(eth as any);
-  const signer = await provider.getSigner(getAddress(accounts[0]));
-  const previousOwner = getAddress(await signer.getAddress());
-  const token = new Contract(contractAddress, tokenArtifact.abi, signer);
-  const ownerBefore = getAddress(await token.owner());
-  if (ownerBefore !== previousOwner) {
-    throw new Error("Only the current on-chain owner can transfer this token's authority.");
-  }
-  if (newOwner === previousOwner) throw new Error("Choose a different owner address.");
-
-  const tx = await token.transferOwnership(newOwner);
-  const receipt: TransactionReceipt | null = await tx.wait();
-  if (!receipt || receipt.status !== 1) {
-    throw new Error(`Ownership transfer transaction ${tx.hash} failed on-chain.`);
-  }
-  const ownerAfter = getAddress(await token.owner());
-  if (ownerAfter !== newOwner) throw new Error("The transaction confirmed, but the on-chain owner did not update.");
-  return { txHash: tx.hash, previousOwner, newOwner: ownerAfter };
-}
