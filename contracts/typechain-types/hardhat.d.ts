@@ -42,9 +42,9 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.IERC20__factory>;
     getContractFactory(
-      name: "UserStablecoin",
+      name: "GydsToken",
       signerOrOptions?: ethers.Signer | FactoryOptions
-    ): Promise<Contracts.UserStablecoin__factory>;
+    ): Promise<Contracts.GydsToken__factory>;
 
     getContractAt(
       name: "Ownable",
@@ -82,10 +82,10 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.IERC20>;
     getContractAt(
-      name: "UserStablecoin",
+      name: "GydsToken",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
-    ): Promise<Contracts.UserStablecoin>;
+    ): Promise<Contracts.GydsToken>;
 
     deployContract(
       name: "Ownable",
@@ -116,9 +116,9 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IERC20>;
     deployContract(
-      name: "UserStablecoin",
+      name: "GydsToken",
       signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.UserStablecoin>;
+    ): Promise<Contracts.GydsToken>;
 
     deployContract(
       name: "Ownable",
@@ -156,10 +156,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IERC20>;
     deployContract(
-      name: "UserStablecoin",
+      name: "GydsToken",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.UserStablecoin>;
+    ): Promise<Contracts.GydsToken>;
 
     // default types
     getContractFactory(

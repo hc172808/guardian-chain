@@ -18,6 +18,10 @@ dist-ssr
 /data/blocked-ips.json
 /data/blocked-ips.json.*.tmp
 contracts/cache-stablecoin/
+contracts/cache-token/
+contracts/token-artifacts/
+contracts/artifacts/
+contracts/cache/
 contracts/typechain-types/
 contracts/stablecoin-artifacts/@openzeppelin/
 contracts/stablecoin-artifacts/build-info/

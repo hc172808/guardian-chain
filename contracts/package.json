@@ -1,6 +1,7 @@
 {
   "name": "gydsswap-contracts",
   "version": "1.0.0",
+  "type": "commonjs",
   "description": "GydsSwap AMM smart contracts for GYDSchain (Chain ID 198282)",
   "scripts": {
     "compile": "hardhat compile",
@@ -8,6 +9,9 @@
     "test:gas": "REPORT_GAS=true hardhat test",
     "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
     "deploy:gydschain": "hardhat run scripts/deploy.ts --network gydschain",
+    "compile:token": "hardhat compile --config token.hardhat.config.ts",
+    "test:token": "hardhat test --config token.hardhat.config.ts",
+    "build:token-artifact": "npm run compile:token && node scripts/export-token-artifact.cjs",
     "node": "hardhat node",
     "clean": "hardhat clean"
   },

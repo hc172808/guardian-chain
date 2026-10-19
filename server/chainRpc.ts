@@ -67,6 +67,11 @@ async function rpcCallWithFallback(
   throw new Error(`All RPC endpoints failed:\n${errors.join("\n")}`);
 }
 
+export async function callGydsRpc(method: string, params: any[] = []): Promise<any> {
+  const { result } = await rpcCallWithFallback(method, params);
+  return result;
+}
+
 export async function getChainBlockNumber(): Promise<number | null> {
   try {
     const { result } = await rpcCallWithFallback("eth_blockNumber");

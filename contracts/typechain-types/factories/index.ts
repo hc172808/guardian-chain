@@ -2,4 +2,4 @@
 /* tslint:disable */
 /* eslint-disable */
 export * as openzeppelin from "./@openzeppelin";
-export { UserStablecoin__factory } from "./UserStablecoin__factory";
+export * as tokenSource from "./token-source";

@@ -244,6 +244,15 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       token_standard      TEXT DEFAULT 'GRC-20' NOT NULL,
       is_active           BOOLEAN DEFAULT true NOT NULL,
        network_type        TEXT DEFAULT 'mainnet' NOT NULL,
+      creator_wallet      TEXT,
+      initial_supply_base_units TEXT,
+      deployment_tx_hash  TEXT,
+      deployment_chain_id INTEGER,
+      deployment_status   TEXT DEFAULT 'legacy_unverified' NOT NULL,
+      deployment_block_number TEXT,
+      deployment_confirmed_at TIMESTAMPTZ,
+      verified_initial_balance TEXT,
+      token_owner_address TEXT,
       mainnet_promoted_at TIMESTAMPTZ,
       market_cap_usd      NUMERIC DEFAULT '0' NOT NULL,
       extra_authorities   JSONB DEFAULT '{}' NOT NULL,
@@ -1289,6 +1298,22 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // ── tokens — add token_standard column for GRC-20 / GRC-721 / GRC-1155 ────
   await run("tokens-token_standard", `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS token_standard TEXT DEFAULT 'GRC-20' NOT NULL`);
+  for (const col of [
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS creator_wallet TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS initial_supply_base_units TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_tx_hash TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_chain_id INTEGER`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_status TEXT DEFAULT 'legacy_unverified' NOT NULL`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_block_number TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_confirmed_at TIMESTAMPTZ`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS verified_initial_balance TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS token_owner_address TEXT`,
+  ]) await run("tokens-deployment-cols", col);
+  await run(
+    "tokens-confirmed-address-unique",
+    `CREATE UNIQUE INDEX IF NOT EXISTS tokens_confirmed_address_unique
+       ON tokens (lower(address)) WHERE deployment_status = 'confirmed'`,
+  );
   await run("orders-pair", `ALTER TABLE orders ADD COLUMN IF NOT EXISTS pair TEXT NOT NULL DEFAULT 'GYDS/USDT'`);
 
   const elapsed = Date.now() - start;
