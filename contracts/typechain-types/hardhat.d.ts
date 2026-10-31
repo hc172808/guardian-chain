@@ -42,9 +42,73 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.IERC20__factory>;
     getContractFactory(
+      name: "Math",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.Math__factory>;
+    getContractFactory(
+      name: "GLPToken",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.GLPToken__factory>;
+    getContractFactory(
+      name: "GydsSwapFactory",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.GydsSwapFactory__factory>;
+    getContractFactory(
+      name: "IMarketCapOraclePair",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IMarketCapOraclePair__factory>;
+    getContractFactory(
+      name: "IMarketCapToken",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IMarketCapToken__factory>;
+    getContractFactory(
+      name: "GydsSwapFarm",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.GydsSwapFarm__factory>;
+    getContractFactory(
+      name: "IGydsSwapFactory",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IGydsSwapFactory__factory>;
+    getContractFactory(
+      name: "IGydsSwapPair",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IGydsSwapPair__factory>;
+    getContractFactory(
+      name: "GydsSwapPair",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.GydsSwapPair__factory>;
+    getContractFactory(
+      name: "IGydsSwapCallee",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IGydsSwapCallee__factory>;
+    getContractFactory(
+      name: "IGydsSwapPairFactory",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IGydsSwapPairFactory__factory>;
+    getContractFactory(
+      name: "GydsSwapRouter",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.GydsSwapRouter__factory>;
+    getContractFactory(
+      name: "IWGYDS",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IWGYDS__factory>;
+    getContractFactory(
+      name: "MockERC20",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.MockERC20__factory>;
+    getContractFactory(
       name: "GydsToken",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.GydsToken__factory>;
+    getContractFactory(
+      name: "UserStablecoin",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.UserStablecoin__factory>;
+    getContractFactory(
+      name: "WGYDS",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.WGYDS__factory>;
 
     getContractAt(
       name: "Ownable",
@@ -82,10 +146,90 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.IERC20>;
     getContractAt(
+      name: "Math",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.Math>;
+    getContractAt(
+      name: "GLPToken",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.GLPToken>;
+    getContractAt(
+      name: "GydsSwapFactory",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.GydsSwapFactory>;
+    getContractAt(
+      name: "IMarketCapOraclePair",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IMarketCapOraclePair>;
+    getContractAt(
+      name: "IMarketCapToken",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IMarketCapToken>;
+    getContractAt(
+      name: "GydsSwapFarm",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.GydsSwapFarm>;
+    getContractAt(
+      name: "IGydsSwapFactory",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IGydsSwapFactory>;
+    getContractAt(
+      name: "IGydsSwapPair",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IGydsSwapPair>;
+    getContractAt(
+      name: "GydsSwapPair",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.GydsSwapPair>;
+    getContractAt(
+      name: "IGydsSwapCallee",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IGydsSwapCallee>;
+    getContractAt(
+      name: "IGydsSwapPairFactory",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IGydsSwapPairFactory>;
+    getContractAt(
+      name: "GydsSwapRouter",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.GydsSwapRouter>;
+    getContractAt(
+      name: "IWGYDS",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IWGYDS>;
+    getContractAt(
+      name: "MockERC20",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.MockERC20>;
+    getContractAt(
       name: "GydsToken",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.GydsToken>;
+    getContractAt(
+      name: "UserStablecoin",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.UserStablecoin>;
+    getContractAt(
+      name: "WGYDS",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.WGYDS>;
 
     deployContract(
       name: "Ownable",
@@ -116,9 +260,73 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IERC20>;
     deployContract(
+      name: "Math",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Math>;
+    deployContract(
+      name: "GLPToken",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GLPToken>;
+    deployContract(
+      name: "GydsSwapFactory",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GydsSwapFactory>;
+    deployContract(
+      name: "IMarketCapOraclePair",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IMarketCapOraclePair>;
+    deployContract(
+      name: "IMarketCapToken",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IMarketCapToken>;
+    deployContract(
+      name: "GydsSwapFarm",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GydsSwapFarm>;
+    deployContract(
+      name: "IGydsSwapFactory",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IGydsSwapFactory>;
+    deployContract(
+      name: "IGydsSwapPair",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IGydsSwapPair>;
+    deployContract(
+      name: "GydsSwapPair",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GydsSwapPair>;
+    deployContract(
+      name: "IGydsSwapCallee",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IGydsSwapCallee>;
+    deployContract(
+      name: "IGydsSwapPairFactory",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IGydsSwapPairFactory>;
+    deployContract(
+      name: "GydsSwapRouter",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GydsSwapRouter>;
+    deployContract(
+      name: "IWGYDS",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IWGYDS>;
+    deployContract(
+      name: "MockERC20",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.MockERC20>;
+    deployContract(
       name: "GydsToken",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.GydsToken>;
+    deployContract(
+      name: "UserStablecoin",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.UserStablecoin>;
+    deployContract(
+      name: "WGYDS",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.WGYDS>;
 
     deployContract(
       name: "Ownable",
@@ -156,10 +364,90 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IERC20>;
     deployContract(
+      name: "Math",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Math>;
+    deployContract(
+      name: "GLPToken",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GLPToken>;
+    deployContract(
+      name: "GydsSwapFactory",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GydsSwapFactory>;
+    deployContract(
+      name: "IMarketCapOraclePair",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IMarketCapOraclePair>;
+    deployContract(
+      name: "IMarketCapToken",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IMarketCapToken>;
+    deployContract(
+      name: "GydsSwapFarm",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GydsSwapFarm>;
+    deployContract(
+      name: "IGydsSwapFactory",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IGydsSwapFactory>;
+    deployContract(
+      name: "IGydsSwapPair",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IGydsSwapPair>;
+    deployContract(
+      name: "GydsSwapPair",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GydsSwapPair>;
+    deployContract(
+      name: "IGydsSwapCallee",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IGydsSwapCallee>;
+    deployContract(
+      name: "IGydsSwapPairFactory",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IGydsSwapPairFactory>;
+    deployContract(
+      name: "GydsSwapRouter",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.GydsSwapRouter>;
+    deployContract(
+      name: "IWGYDS",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IWGYDS>;
+    deployContract(
+      name: "MockERC20",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.MockERC20>;
+    deployContract(
       name: "GydsToken",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.GydsToken>;
+    deployContract(
+      name: "UserStablecoin",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.UserStablecoin>;
+    deployContract(
+      name: "WGYDS",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.WGYDS>;
 
     // default types
     getContractFactory(

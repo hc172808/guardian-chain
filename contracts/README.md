@@ -27,12 +27,21 @@ GYDS / USDC  →  GLP-GYDS-USDC
 
 ```
 1. Deploy WGYDS
-2. Deploy GydsSwapFactory(feeToSetter)
+2. Deploy GydsSwapFactory(feeToSetter, WGYDS, USDT)
 3. Deploy GydsSwapRouter(factory, WGYDS)
 4. Deploy GydsSwapFarm(gydsTokenAddress, emissionRate)
-5. Per pair: factory.createPair(tokenA, tokenB, "GYDS", "USDT")
-6. Per farm pool: farm.addPool(glpTokenAddress, allocPoints)
+5. Create and fund the WGYDS/USDT reference pair
+6. Register each launch token with factory.registerLaunchToken(token)
+7. Per cross-coin pair: factory.createPairForLaunch(token, quote, tokenSymbol, quoteSymbol, token)
+8. Per farm pool: farm.addPool(glpTokenAddress, allocPoints)
 ```
+
+Non-WGYDS pairs are gated at the pair contract, including direct pair swaps and
+router swaps. The selected launch token must reach a $10,000 USD market cap,
+computed from its current ERC-20 total supply (burns reduce this supply) and a
+30-minute on-chain TWAP through its WGYDS pool and the WGYDS/USDT reference pool.
+After reaching the threshold, the token remains unlocked. There is no token-age
+requirement. WGYDS pairs remain available for price discovery.
 
 ## GYDS Mainnet deployment
 

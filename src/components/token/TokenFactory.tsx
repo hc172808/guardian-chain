@@ -274,8 +274,8 @@ export const TokenFactory = () => {
       setUserGydsBalance(gydsBalance);
 
       toast({
-        title: `Token Created on Testnet!`,
-        description: `${params.name} (${params.symbol}) is live on mainnet.`,
+        title: 'Mainnet token record created',
+        description: `${params.name} (${params.symbol}) was saved as a mainnet token record.`,
       });
       setDialogOpen(false);
       resetForm();
@@ -604,8 +604,10 @@ export const TokenFactory = () => {
             <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
               <Rocket className="h-4 w-4 text-amber-500 shrink-0" />
               <p className="text-xs text-muted-foreground">
-                Your token launches directly on <span className="font-semibold text-emerald-400">MAINNET</span>.
-                It is available on the GYDS mainnet immediately after creation.
+                New token records are <span className="font-semibold text-emerald-400">MAINNET</span>-only.
+                This form saves token details but does not deploy the contract. Once deployed and registered,
+                swaps against other coins unlock at $10,000 market cap, measured as circulating supply × a
+                30-minute on-chain price average. The WGYDS/USDT reference pool must be funded.
               </p>
             </div>
 

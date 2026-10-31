@@ -16,9 +16,9 @@
     "clean": "hardhat clean"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomicfoundation/hardhat-toolbox": "^6.1.2",
     "@types/node": "^20.0.0",
-    "hardhat": "^2.19.0",
+    "hardhat": "^2.29.1",
     "typescript": "^5.0.0"
   },
   "dependencies": {

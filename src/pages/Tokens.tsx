@@ -205,7 +205,12 @@ const TokensPage = () => {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="font-semibold">{token.name}</h3>
                                 {(() => {
-                                   const net = networkStates.get(token.id)?.network_type ?? 'testnet';
+                                  const net = String(
+                                    networkStates.get(token.id)?.network_type ??
+                                    token.networkType ??
+                                    token.network_type ??
+                                    'mainnet',
+                                  ).toLowerCase();
                                   return net === 'mainnet' ? (
                                     <Badge className="text-xs bg-emerald-500/20 text-emerald-300 border-emerald-500/40" data-testid={`badge-network-${token.id}`}>MAINNET</Badge>
                                   ) : (

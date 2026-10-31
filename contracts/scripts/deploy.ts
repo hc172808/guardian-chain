@@ -58,6 +58,11 @@ async function main() {
   }
 
   const usdtAddress = readOptionalTokenAddress("GYDS_USDT_TOKEN_ADDRESS");
+  if (!usdtAddress) {
+    throw new Error(
+      "GYDS_USDT_TOKEN_ADDRESS is required. The on-chain $10,000 market-cap gate needs a real USDT price reference.",
+    );
+  }
   const gydAddress = readOptionalTokenAddress("GYDS_GYD_TOKEN_ADDRESS");
   await validateTokenContract(usdtAddress, "USDT");
   await validateTokenContract(gydAddress, "GYD");
@@ -72,10 +77,15 @@ async function main() {
   console.log("WGYDS:", wgydsAddress);
 
   const Factory = await ethers.getContractFactory("GydsSwapFactory");
-  const factory = await Factory.deploy(deployer.address);
+  const factory = await Factory.deploy(deployer.address, wgydsAddress, usdtAddress);
   await factory.waitForDeployment();
   const factoryAddress = await factory.getAddress();
   console.log("Factory:", factoryAddress);
+
+  if (gydAddress) {
+    const tx = await factory.setTrustedToken(gydAddress, true);
+    await tx.wait();
+  }
 
   const Router = await ethers.getContractFactory("GydsSwapRouter");
   const router = await Router.deploy(factoryAddress, wgydsAddress);
@@ -83,13 +93,9 @@ async function main() {
   const routerAddress = await router.getAddress();
   console.log("Router:", routerAddress);
 
-  if (usdtAddress) {
-    const tx = await factory.createPair(wgydsAddress, usdtAddress, "WGYDS", "USDT");
-    await tx.wait();
-    console.log("Created WGYDS/USDT pair using configured USDT contract:", usdtAddress);
-  } else {
-    console.log("No USDT pair created. Set GYDS_USDT_TOKEN_ADDRESS to a real ERC-20 before creating the pair.");
-  }
+  const oraclePairTx = await factory.createPair(wgydsAddress, usdtAddress, "WGYDS", "USDT");
+  await oraclePairTx.wait();
+  console.log("Created WGYDS/USDT reference pair using configured USDT contract:", usdtAddress);
 
   if (gydAddress && usdtAddress) {
     const tx = await factory.createPair(gydAddress, usdtAddress, "GYD", "USDT");
