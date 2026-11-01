@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import { storage } from "./storage";
 
 export interface WireGuardServerConfig {
@@ -11,6 +12,8 @@ export interface WireGuardServerConfig {
   sshPort: number;
   sshUser: string;
   sshHostFingerprint: string;
+  interfaceAddresses: string[];
+  serverPrivateKeyConfigured: boolean;
 }
 
 export interface WireGuardPeerInput {
@@ -25,8 +28,114 @@ export interface RemoteCommandResult {
   code: number | null;
 }
 
+export const WIREGUARD_CONFIG_PATH = "/etc/wireguard/wg0.conf";
 const DEFAULT_ALLOWED_IPS = "10.0.0.0/24";
 const DEFAULT_SUBNET = "10.0.0.0/24";
+
+export interface LocalWireGuardPeer {
+  id: string;
+  publicKey: string;
+  allowedIPs: string | null;
+  endpoint: string | null;
+  name: string | null;
+  source: "file";
+}
+
+export interface LocalWireGuardConfig {
+  path: string;
+  interfaceName: string;
+  interfaceAddresses: string[];
+  listenPort: number | null;
+  serverPrivateKeyConfigured: boolean;
+  peers: LocalWireGuardPeer[];
+}
+
+export function parseLocalWireGuardConfig(
+  contents: string,
+  configPath = WIREGUARD_CONFIG_PATH,
+): LocalWireGuardConfig {
+  const interfaceName = configPath.split("/").pop()?.replace(/\.conf$/i, "") || "wg0";
+  const interfaceAddresses: string[] = [];
+  const peers: LocalWireGuardPeer[] = [];
+  let listenPort: number | null = null;
+  let serverPrivateKeyConfigured = false;
+  let section: "interface" | "peer" | null = null;
+  let current: LocalWireGuardPeer | null = null;
+  let pendingComment: string | null = null;
+
+  const finishPeer = () => {
+    if (current?.publicKey) peers.push(current);
+    current = null;
+  };
+
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) {
+      const comment = line.slice(1).trim();
+      pendingComment = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,79}$/.test(comment) ? comment : null;
+      continue;
+    }
+    if (/^\[Interface\]$/i.test(line)) {
+      finishPeer();
+      section = "interface";
+      pendingComment = null;
+      continue;
+    }
+    if (/^\[Peer\]$/i.test(line)) {
+      finishPeer();
+      section = "peer";
+      current = {
+        id: "",
+        publicKey: "",
+        allowedIPs: null,
+        endpoint: null,
+        name: pendingComment,
+        source: "file",
+      };
+      pendingComment = null;
+      continue;
+    }
+
+    const match = line.match(/^([^=]+?)\s*=\s*(.*)$/);
+    if (!match) continue;
+    const key = match[1].trim().toLowerCase();
+    const value = match[2].trim();
+
+    if (section === "interface") {
+      if (key === "privatekey") serverPrivateKeyConfigured = value.length > 0;
+      else if (key === "listenport") {
+        const parsed = Number(value);
+        if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) listenPort = parsed;
+      } else if (key === "address") {
+        interfaceAddresses.push(...value.split(",").map(address => address.trim()).filter(Boolean));
+      }
+    } else if (section === "peer" && current) {
+      if (key === "publickey") current.publicKey = value;
+      else if (key === "allowedips") current.allowedIPs = value;
+      else if (key === "endpoint") current.endpoint = value;
+    }
+  }
+  finishPeer();
+
+  peers.forEach((peer, index) => {
+    peer.id = `wg-file-${index}-${peer.publicKey.slice(0, 12)}`;
+  });
+
+  return {
+    path: configPath,
+    interfaceName,
+    interfaceAddresses,
+    listenPort,
+    serverPrivateKeyConfigured,
+    peers,
+  };
+}
+
+export async function readLocalWireGuardConfig(): Promise<LocalWireGuardConfig> {
+  const contents = await fs.readFile(WIREGUARD_CONFIG_PATH, "utf8");
+  return parseLocalWireGuardConfig(contents);
+}
 
 const envFirst = (...keys: string[]) => {
   for (const key of keys) {
@@ -57,6 +166,12 @@ export async function getWireGuardConfig(): Promise<WireGuardServerConfig> {
   } catch {
     // Environment-only configuration should still work if the config table is unavailable.
   }
+  let localFile: LocalWireGuardConfig | null = null;
+  try {
+    localFile = await readLocalWireGuardConfig();
+  } catch {
+    // Keep development and remote-only deployments usable when the local file is absent.
+  }
 
   const endpoint = envFirst("WG_SERVER_ENDPOINT", "GYDS_WG_SERVER_ENDPOINT")
     || stringValue(stored.endpoint);
@@ -66,14 +181,15 @@ export async function getWireGuardConfig(): Promise<WireGuardServerConfig> {
     endpoint,
     publicKey: envFirst("WG_SERVER_PUBLIC_KEY", "GYDS_WG_SERVER_PUBLIC_KEY")
       || stringValue(stored.public_key),
-    port: numberValue(
+    port: localFile?.listenPort ?? numberValue(
       envFirst("WG_SERVER_PORT", "GYDS_WG_SERVER_PORT") || stored.port,
       51820,
     ),
     allowedIPs: envFirst("WG_SERVER_ALLOWED_IPS", "GYDS_WG_ALLOWED_IPS")
       || stringValue(stored.allowed_ips, DEFAULT_ALLOWED_IPS),
     subnet: stringValue(stored.subnet, DEFAULT_SUBNET),
-    interfaceName: envFirst("WG_INTERFACE", "GYDS_WG_INTERFACE")
+    interfaceName: localFile?.interfaceName
+      || envFirst("WG_INTERFACE", "GYDS_WG_INTERFACE")
       || stringValue(stored.interface_name, "wg0"),
     sshHost: envFirst("WG_SSH_HOST")
       || stringValue(stored.ssh_host, endpointHost),
@@ -85,6 +201,9 @@ export async function getWireGuardConfig(): Promise<WireGuardServerConfig> {
       || stringValue(stored.ssh_user),
     sshHostFingerprint: envFirst("WG_SSH_HOST_FINGERPRINT")
       || stringValue(stored.ssh_host_fingerprint),
+    interfaceAddresses: localFile?.interfaceAddresses ?? [],
+    serverPrivateKeyConfigured: localFile?.serverPrivateKeyConfigured
+      ?? Boolean(envFirst("WG_SERVER_PRIVATE_KEY", "GYDS_WG_PRIVATE_KEY")),
   };
 }
 
@@ -109,6 +228,8 @@ export const getWireGuardPublicConfig = (
   sshUser: config.sshUser,
   sshHostFingerprint: config.sshHostFingerprint,
   sshKeyConfigured: privateKeyConfigured,
+  interfaceAddresses: config.interfaceAddresses,
+  serverPrivateKeyConfigured: config.serverPrivateKeyConfigured,
 });
 
 export const getMissingRemoteSettings = (

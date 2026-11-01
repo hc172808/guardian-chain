@@ -8,8 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
-import { useWalletConnect } from '@/hooks/useWalletConnect';
-import { getUserAddresses, computeUserBalances } from '@/lib/balances';
+import { prepareGrc20Deployment, submitGrc20Deployment } from '@/lib/tokenDeployment';
 import {
   Coins, Plus, Lock, Flame, Shield, AlertTriangle, Loader2, CheckCircle, Upload, ShoppingCart, Rocket, Info
 } from 'lucide-react';
@@ -32,7 +31,6 @@ import {
   DEFAULT_PRICING,
   normalizePricing,
 } from '@/lib/tokenAuthorities';
-import { writeTokenNetworkState, computeMarketCapUsd } from '@/lib/tokenPromotion';
 
 // ── Token standards supported on GYDSchain ───────────────────────────────────
 export const TOKEN_STANDARDS = [
@@ -82,13 +80,11 @@ interface TokenCreationParams {
 export const TokenFactory = () => {
   const { toast } = useToast();
   const { user } = useAuth();
-  const { address } = useWalletConnect();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [pricing, setPricing] = useState<TokenFactoryPricing>(DEFAULT_PRICING);
-  const [userGydsBalance, setUserGydsBalance] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [params, setParams] = useState<TokenCreationParams>({
@@ -104,20 +100,14 @@ export const TokenFactory = () => {
 
   const selectedStandard = TOKEN_STANDARDS.find(s => s.value === params.tokenStandard) ?? TOKEN_STANDARDS[0];
 
-  // Load admin pricing and user GYDS balance
+  // Load the configured factory estimate.
   useEffect(() => {
     const loadData = async () => {
       const row = await api.get('/api/config/token_factory_pricing').catch(() => null);
       setPricing(normalizePricing(row?.configValue));
-
-      if (user) {
-        const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
-        const { gydsBalance } = await computeUserBalances(user.id, myAddresses);
-        setUserGydsBalance(gydsBalance);
-      }
     };
     loadData();
-  }, [user, address]);
+  }, []);
 
   // Authorities the admin currently lets users enable
   const enabledAuthorities = ALL_AUTHORITIES.filter((a) => pricing.authorities[a.key]?.enabled);
@@ -156,8 +146,8 @@ export const TokenFactory = () => {
       toast({ title: 'Token name and symbol are required', variant: 'destructive' });
       return;
     }
-    if (parseFloat(params.gydsLiquidity) < pricing.min_liquidity) {
-      toast({ title: `Minimum ${pricing.min_liquidity} GYDS liquidity required`, variant: 'destructive' });
+    if (params.tokenStandard !== 'GRC-20') {
+      toast({ title: 'Only GRC-20 can be deployed on-chain right now', variant: 'destructive' });
       return;
     }
 
@@ -174,90 +164,42 @@ export const TokenFactory = () => {
       return;
     }
 
-    // Check GYDS balance
-    const totalRequired = calculateTotalGyds();
-    if (userGydsBalance < totalRequired) {
-      toast({
-        title: 'Insufficient GYDS Balance',
-        description: `You need ${totalRequired.toLocaleString()} GYDS but only have ${userGydsBalance.toLocaleString()} GYDS. Ask an admin to mint GYDS to your wallet.`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
     setCreating(true);
+    let deployedContract: Awaited<ReturnType<typeof submitGrc20Deployment>> | null = null;
     try {
-      // Use the data URL from the file picker, or null if no logo selected (optional)
       const logoUrl: string | null = logoPreview ?? null;
-
-      const tokenAddress = '0x' + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-      const walletAddr = address || `user:${user.id}`;
-
-      const newToken = await api.post('/api/tokens', {
-        creator_id: user.id,
+      const prepared = await prepareGrc20Deployment({
         name: params.name,
         symbol: params.symbol,
         decimals: params.decimals,
-        total_supply: parseFloat(params.initialSupply),
-        token_standard: params.tokenStandard,
-        gyds_liquidity: parseFloat(params.gydsLiquidity),
-        logo_url: logoUrl,
-        lp_lock_type: params.lpLockType === 'burn' ? 'burned' : 'timelocked',
-        lp_unlock_time: params.lpLockType === 'timelock'
-          ? new Date(Date.now() + params.timelockDays * 86400000).toISOString()
-          : null,
-        freeze_enabled: !!params.authorities.freeze,
-        update_enabled: !!params.authorities.update,
-        mint_enabled:   !!params.authorities.mint,
+        initialSupply: params.initialSupply,
+        mintEnabled: !!params.authorities.mint,
+      });
+      deployedContract = await submitGrc20Deployment(prepared, () => {});
+      const walletAddr = deployedContract.creatorWallet;
+      const tokenAddress = deployedContract.contractAddress;
+      await api.post('/api/tokens', {
+        creatorId: user.id,
+        name: params.name,
+        symbol: deployedContract.symbol,
+        decimals: deployedContract.decimals,
+        totalSupply: deployedContract.initialSupply,
+        tokenStandard: 'GRC-20',
+        gydsLiquidity: 0,
+        logoUrl,
+        lpLockType: 'not_created',
+        lpUnlockTime: null,
+        freezeEnabled: false,
+        updateEnabled: false,
+        mintEnabled: deployedContract.mintEnabled,
         address: tokenAddress,
-        networkType: 'mainnet',
+        creatorWallet: walletAddr,
+        initialSupplyBaseUnits: deployedContract.initialSupplyBaseUnits,
+        deploymentTxHash: deployedContract.deploymentTxHash,
+        deploymentChainId: deployedContract.chainId,
+        deploymentBlockNumber: deployedContract.deploymentBlockNumber,
+        deploymentStatus: 'confirmed',
       });
-
-      const tokenId = newToken?.id;
-
-      // Persist mainnet network state + extended authorities (single source of truth
-      // until the network_type / extra_authorities columns are migrated upstream).
-      if (tokenId) {
-        const extra: Record<string, boolean | number> = {};
-        for (const a of enabledAuthorities) {
-          if (params.authorities[a.key]) extra[a.key] = true;
-        }
-        if (params.authorities.transfer_fee) {
-          extra.transfer_fee_bps = parseInt(params.transferFeeBps || '0') || 0;
-        }
-        const initialMc = computeMarketCapUsd(
-          { id: tokenId, total_supply: parseFloat(params.initialSupply), gyds_liquidity: parseFloat(params.gydsLiquidity) },
-          pricing.mainnet_promotion.gyds_price_usd,
-        );
-        await writeTokenNetworkState(tokenId, {
-          network_type: 'mainnet',
-          mainnet_promoted_at: new Date().toISOString(),
-          market_cap_usd: initialMc,
-          extra_authorities: extra,
-        }, user.id);
-      }
-
-      // Deduct GYDS fee (record as burn operation)
-      await api.post('/api/token-operations', {
-        operation_type: 'burn',
-        wallet_address: walletAddr.toLowerCase(),
-        amount: totalRequired,
-        tx_hash: '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
-        status: 'confirmed',
-        created_by: user.id,
-        usdt_amount: 0,
-      });
-
-      // Set creator as first holder with full initial supply
-      if (tokenId) {
-        await api.post('/api/config', {
-          key: `token_holders_${tokenId}`,
-          value: {
-            count: 1,
-            holders: [{ address: walletAddr, amount: parseFloat(params.initialSupply), label: 'Creator' }],
-          },
-        });
-      }
 
       // Store purchase limits in admin_config keyed by token address
       await api.post('/api/config', {
@@ -268,19 +210,21 @@ export const TokenFactory = () => {
         },
       });
 
-      // Refresh balance
-      const myAddresses = await getUserAddresses(user.id, address ?? undefined, user.email ?? undefined);
-      const { gydsBalance } = await computeUserBalances(user.id, myAddresses);
-      setUserGydsBalance(gydsBalance);
-
       toast({
-        title: 'Mainnet token record created',
-        description: `${params.name} (${params.symbol}) was saved as a mainnet token record.`,
+        title: 'Token deployed on GYDS mainnet',
+        description: `${deployedContract.symbol} supply was verified from the deployed contract.`,
       });
       setDialogOpen(false);
       resetForm();
-    } catch (error: any) {
-      toast({ title: 'Token creation failed', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error while deploying token.';
+      toast({
+        title: deployedContract ? 'Token deployed; listing save failed' : 'Token deployment failed',
+        description: deployedContract
+          ? `${message} Contract: ${deployedContract.contractAddress}. Transaction: ${deployedContract.deploymentTxHash}`
+          : message,
+        variant: 'destructive',
+      });
     } finally {
       setCreating(false);
     }
@@ -311,7 +255,7 @@ export const TokenFactory = () => {
             </div>
             <div>
               <h2 className="text-xl font-bold">Token Factory</h2>
-              <p className="text-sm text-muted-foreground">Create tokens backed by GYDS with locked liquidity</p>
+              <p className="text-sm text-muted-foreground">Deploy GRC-20 tokens on GYDS mainnet</p>
             </div>
           </div>
           <Button onClick={() => setDialogOpen(true)} className="gap-2">
@@ -321,19 +265,19 @@ export const TokenFactory = () => {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 rounded-lg bg-secondary/30">
-            <Lock className="h-5 w-5 text-primary mb-2" />
-            <h3 className="font-medium">LP Locking</h3>
-            <p className="text-sm text-muted-foreground">Liquidity is permanently locked or time-locked</p>
-          </div>
-          <div className="p-4 rounded-lg bg-secondary/30">
-            <Flame className="h-5 w-5 text-orange-500 mb-2" />
-            <h3 className="font-medium">Burn-to-Lock</h3>
-            <p className="text-sm text-muted-foreground">Supply burned from creator → deposited to LP Bank</p>
+            <Coins className="h-5 w-5 text-primary mb-2" />
+            <h3 className="font-medium">On-chain Supply</h3>
+            <p className="text-sm text-muted-foreground">Wallets read supply directly from the deployed contract</p>
           </div>
           <div className="p-4 rounded-lg bg-secondary/30">
             <Shield className="h-5 w-5 text-primary mb-2" />
-            <h3 className="font-medium">GYDS Backed</h3>
-            <p className="text-sm text-muted-foreground">All tokens require mandatory GYDS liquidity</p>
+            <h3 className="font-medium">Mainnet Deployment</h3>
+            <p className="text-sm text-muted-foreground">Your connected wallet deploys the GRC-20 contract</p>
+          </div>
+          <div className="p-4 rounded-lg bg-secondary/30">
+            <Rocket className="h-5 w-5 text-primary mb-2" />
+            <h3 className="font-medium">Trading Unlock</h3>
+            <p className="text-sm text-muted-foreground">$10,000 market cap measured by a 30-minute on-chain average</p>
           </div>
         </div>
       </GlassCard>
@@ -388,8 +332,10 @@ export const TokenFactory = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {TOKEN_STANDARDS.map(s => (
-                          <SelectItem key={s.value} value={s.value}>
-                            <span className="font-medium">{s.label}</span>
+                          <SelectItem key={s.value} value={s.value} disabled={s.value !== 'GRC-20'}>
+                            <span className="font-medium">
+                              {s.label}{s.value !== 'GRC-20' ? ' — not deployable yet' : ''}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -441,8 +387,11 @@ export const TokenFactory = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Initial Supply</Label>
+                      <Label>Initial Mint Supply</Label>
                       <Input type="number" value={params.initialSupply} onChange={(e) => setParams({ ...params, initialSupply: e.target.value })} />
+                      <p className="text-xs text-muted-foreground">
+                        This sets the initial on-chain mint. Circulating supply is read automatically from the contract.
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label>Decimals</Label>
@@ -515,17 +464,22 @@ export const TokenFactory = () => {
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pt-4">
                   <div className="space-y-2">
-                    <Label>GYDS Liquidity Amount</Label>
+                    <Label>Planned GYDS Liquidity Amount</Label>
                     <Input type="number" min={pricing.min_liquidity} value={params.gydsLiquidity} onChange={(e) => setParams({ ...params, gydsLiquidity: e.target.value })} />
-                    <p className="text-xs text-muted-foreground">Minimum {pricing.min_liquidity} GYDS required.</p>
+                    <p className="text-xs text-muted-foreground">
+                      Informational only: this form does not transfer GYDS or add a liquidity pool.
+                    </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>LP Lock Type</Label>
+                    <Label>Liquidity Pool Lock</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Unavailable until the DEX is deployed. No LP tokens are created or locked by this form.
+                    </p>
                     <div className="flex gap-4">
-                      <Button variant={params.lpLockType === 'burn' ? 'default' : 'outline'} size="sm" onClick={() => setParams({ ...params, lpLockType: 'burn' })} className="gap-2">
+                      <Button disabled variant={params.lpLockType === 'burn' ? 'default' : 'outline'} size="sm" onClick={() => setParams({ ...params, lpLockType: 'burn' })} className="gap-2">
                         <Flame className="h-4 w-4" /> Burn LP (Permanent)
                       </Button>
-                      <Button variant={params.lpLockType === 'timelock' ? 'default' : 'outline'} size="sm" onClick={() => setParams({ ...params, lpLockType: 'timelock' })} className="gap-2">
+                      <Button disabled variant={params.lpLockType === 'timelock' ? 'default' : 'outline'} size="sm" onClick={() => setParams({ ...params, lpLockType: 'timelock' })} className="gap-2">
                         <Lock className="h-4 w-4" /> Time-Lock
                       </Button>
                     </div>
@@ -548,7 +502,7 @@ export const TokenFactory = () => {
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pt-4">
                   <p className="text-sm text-muted-foreground">
-                    Only authorities the admin has enabled can be added. Each one adds a GYDS fee.
+                    Only mint authority is currently supported by the deployed GRC-20 contract. Other authority options are unavailable on-chain.
                   </p>
                   {enabledAuthorities.length === 0 ? (
                     <div className="p-4 rounded-lg bg-secondary/30 text-sm text-muted-foreground text-center">
@@ -578,6 +532,7 @@ export const TokenFactory = () => {
                                 data-testid={`switch-authority-${a.key}`}
                                 checked={isOn}
                                 onCheckedChange={(v) => toggleAuthority(a.key, v)}
+                                disabled={a.key !== 'mint'}
                               />
                             </div>
                             {a.key === 'transfer_fee' && isOn && (
@@ -604,15 +559,15 @@ export const TokenFactory = () => {
             <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
               <Rocket className="h-4 w-4 text-amber-500 shrink-0" />
               <p className="text-xs text-muted-foreground">
-                New token records are <span className="font-semibold text-emerald-400">MAINNET</span>-only.
-                This form saves token details but does not deploy the contract. Once deployed and registered,
-                swaps against other coins unlock at $10,000 market cap, measured as circulating supply × a
-                30-minute on-chain price average. The WGYDS/USDT reference pool must be funded.
+                Tokens are deployed to <span className="font-semibold text-emerald-400">GYDS MAINNET</span>.
+                Circulating supply is read from the token contract automatically; it is not entered manually.
+                Other-coin swaps unlock at $10,000 using circulating supply × a 30-minute on-chain price average.
+                The DEX and WGYDS/USDT reference pool must be deployed and funded first.
               </p>
             </div>
 
             <GlassCard className="p-4">
-              <h4 className="font-medium mb-3">Cost Summary</h4>
+              <h4 className="font-medium mb-3">Configured Amounts</h4>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-muted-foreground">Deployment Fee</span><span>{pricing.deployment_fee} GYDS</span></div>
                 {enabledAuthorities.filter((a) => params.authorities[a.key]).map((a) => (
@@ -622,8 +577,11 @@ export const TokenFactory = () => {
                   </div>
                 ))}
                 <div className="flex justify-between"><span className="text-muted-foreground">LP Liquidity</span><span>{params.gydsLiquidity} GYDS</span></div>
-                <div className="border-t pt-2 flex justify-between font-bold"><span>Total Required</span><span className="text-primary" data-testid="text-total-gyds">{calculateTotalGyds().toLocaleString()} GYDS</span></div>
+                <div className="border-t pt-2 flex justify-between font-bold"><span>Configured Total</span><span className="text-primary" data-testid="text-total-gyds">{calculateTotalGyds().toLocaleString()} GYDS</span></div>
               </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                These are saved settings only. This form does not charge GYDS or seed liquidity; your connected wallet pays mainnet deployment gas.
+              </p>
             </GlassCard>
 
             <Button onClick={handleCreateToken} disabled={creating || !params.name || !params.symbol} className="w-full gap-2">

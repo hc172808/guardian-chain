@@ -116,6 +116,14 @@ export const WireGuardPeerManager = () => {
   const [syncing, setSyncing] = useState(false);
   const [expandedPeer, setExpandedPeer] = useState<string | null>(null);
   const [filePeerCount, setFilePeerCount] = useState(0);
+  const [peerSource, setPeerSource] = useState<'file' | 'remote' | null>(null);
+  const [localConfigInfo, setLocalConfigInfo] = useState<{
+    path: string;
+    name: string;
+    addresses: string[];
+    listenPort: number | null;
+    privateKeyConfigured: boolean;
+  } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
   useEffect(() => { loadPeers(); loadServerConfig(); }, []);
@@ -146,6 +154,14 @@ export const WireGuardPeerManager = () => {
       if (fileRes.ok) {
         const fileData = await fileRes.json();
         setFilePeerCount(Number(fileData.count) || 0);
+        setPeerSource(fileData.source === 'remote' ? 'remote' : 'file');
+        setLocalConfigInfo(fileData.source === 'file' && fileData.interface ? {
+          path: String(fileData.path ?? '/etc/wireguard/wg0.conf'),
+          name: String(fileData.interface.name ?? 'wg0'),
+          addresses: Array.isArray(fileData.interface.addresses) ? fileData.interface.addresses : [],
+          listenPort: Number(fileData.interface.listenPort) > 0 ? Number(fileData.interface.listenPort) : null,
+          privateKeyConfigured: Boolean(fileData.interface.privateKeyConfigured),
+        } : null);
         setFileError(null);
         filePeers = (Array.isArray(fileData.peers) ? fileData.peers : []).map((peer: any) => ({
           id: peer.id,
@@ -163,6 +179,8 @@ export const WireGuardPeerManager = () => {
       } else {
         const error = await fileRes.json().catch(() => ({}));
         setFilePeerCount(0);
+        setPeerSource(null);
+        setLocalConfigInfo(null);
         setFileError(error.error || `Unable to read ${error.path || '/etc/wireguard/wg0.conf'}`);
       }
 
@@ -282,8 +300,16 @@ export const WireGuardPeerManager = () => {
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             {approvedPeers.length} approved nodes · {peersWithKey.length} with WireGuard keys
-           {filePeerCount > 0 && ` · ${filePeerCount} loaded from wg0.conf`}
+           {filePeerCount > 0 && ` · ${filePeerCount} loaded from ${peerSource === 'file' ? 'wg0.conf' : 'remote wg0'}`}
           </p>
+          {localConfigInfo && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Source: <code>{localConfigInfo.path}</code> · {localConfigInfo.name}
+              {localConfigInfo.addresses.length > 0 && ` · ${localConfigInfo.addresses.join(', ')}`}
+              {localConfigInfo.listenPort && ` · UDP ${localConfigInfo.listenPort}`}
+              {` · private key ${localConfigInfo.privateKeyConfigured ? 'present (hidden)' : 'not found'}`}
+            </p>
+          )}
          {fileError && <p className="text-xs text-yellow-400 mt-1">{fileError}</p>}
         </div>
         <Button variant="outline" size="sm" onClick={loadPeers} className="gap-1.5">

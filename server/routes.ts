@@ -33,6 +33,8 @@ import {
   getWireGuardConfig,
   getWireGuardPublicConfig,
   getMissingRemoteSettings,
+  readLocalWireGuardConfig,
+  WIREGUARD_CONFIG_PATH,
   getRemoteWireGuardPeers,
   syncRemoteWireGuardPeers,
   testRemoteWireGuard,
@@ -7800,9 +7802,7 @@ export function registerRoutes(app: Express) {
       res.json({
         config: getWireGuardPublicConfig(config),
         remoteReady: getMissingRemoteSettings(config).length === 0,
-        serverPrivateKeyConfigured: Boolean(
-          process.env.WG_SERVER_PRIVATE_KEY || process.env.GYDS_WG_PRIVATE_KEY,
-        ),
+        serverPrivateKeyConfigured: config.serverPrivateKeyConfigured,
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -7887,15 +7887,21 @@ export function registerRoutes(app: Express) {
 
   // ── Admin: read the live WireGuard server peer list ────────────────────────
   // Keep this server-side so the private key and other interface settings never
-  // leave the host. This intentionally parses only [Peer] fields.
+  // leave the host. The parser returns safe interface metadata and public peer
+  // fields only; private and preshared keys are never returned.
   app.get("/api/admin/wireguard/peers", requireAdmin, async (_req, res) => {
-    const configPath = "/etc/wireguard/wg0.conf";
+    const configPath = WIREGUARD_CONFIG_PATH;
     try {
-      const config = await getWireGuardConfig();
-      const configuredForRemote = Boolean(
-        config.sshUser || process.env.WG_SSH_HOST || process.env.WG_SSH_PRIVATE_KEY,
-      );
-      if (configuredForRemote) {
+      let localFile: Awaited<ReturnType<typeof readLocalWireGuardConfig>>;
+      try {
+        localFile = await readLocalWireGuardConfig();
+      } catch (error: any) {
+        if (error?.code !== "ENOENT") throw error;
+        const config = await getWireGuardConfig();
+        const configuredForRemote = Boolean(
+          config.sshUser || process.env.WG_SSH_HOST || process.env.WG_SSH_PRIVATE_KEY,
+        );
+        if (!configuredForRemote) throw error;
         const peers = await getRemoteWireGuardPeers();
         return res.json({
           path: `ssh://${config.sshHost}/${config.interfaceName}`,
@@ -7905,64 +7911,18 @@ export function registerRoutes(app: Express) {
         });
       }
 
-      const fileConfig = await fs.promises.readFile(configPath, "utf8");
-      const peers: Array<{
-        id: string;
-        publicKey: string;
-        allowedIPs: string | null;
-        endpoint: string | null;
-        name: string | null;
-        source: "file";
-      }> = [];
-      let current: typeof peers[number] | null = null;
-      let pendingComment: string | null = null;
-
-      const finishPeer = () => {
-        if (current?.publicKey) peers.push(current);
-        current = null;
-      };
-
-      for (const rawLine of fileConfig.split(/\r?\n/)) {
-        const line = rawLine.trim();
-        if (!line) continue;
-        if (line.startsWith("#")) {
-          const comment = line.slice(1).trim();
-          if (comment) pendingComment = comment;
-          continue;
-        }
-        if (/^\[Interface\]$/i.test(line)) {
-          finishPeer();
-          pendingComment = null;
-          continue;
-        }
-        if (/^\[Peer\]$/i.test(line)) {
-          finishPeer();
-          current = {
-            id: "",
-            publicKey: "",
-            allowedIPs: null,
-            endpoint: null,
-            name: pendingComment,
-            source: "file",
-          };
-          pendingComment = null;
-          continue;
-        }
-        if (!current) continue;
-        const match = line.match(/^([^=]+?)\s*=\s*(.*)$/);
-        if (!match) continue;
-        const key = match[1].trim().toLowerCase();
-        const value = match[2].trim();
-        if (key === "publickey") current.publicKey = value;
-        else if (key === "allowedips") current.allowedIPs = value;
-        else if (key === "endpoint") current.endpoint = value;
-      }
-      finishPeer();
-
-      peers.forEach((peer, index) => {
-        peer.id = `wg-file-${index}-${peer.publicKey.slice(0, 12)}`;
+      return res.json({
+        path: localFile.path,
+        count: localFile.peers.length,
+        peers: localFile.peers,
+        source: "file",
+        interface: {
+          name: localFile.interfaceName,
+          addresses: localFile.interfaceAddresses,
+          listenPort: localFile.listenPort,
+          privateKeyConfigured: localFile.serverPrivateKeyConfigured,
+        },
       });
-      res.json({ path: configPath, count: peers.length, peers });
     } catch (error: any) {
       const code = error?.code === "ENOENT" ? 404 : 500;
       const reason = error?.code === "ENOENT"

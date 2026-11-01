@@ -107,7 +107,7 @@ export async function prepareGrc20Deployment(input: Grc20TokenInput): Promise<Pr
   }
   await requireMainnet(eth);
 
-  const provider = new BrowserProvider(eth as any);
+  const provider = new BrowserProvider(eth as unknown as ConstructorParameters<typeof BrowserProvider>[0]);
   const signer = await provider.getSigner(getAddress(accounts[0]));
   const creatorWallet = getAddress(await signer.getAddress());
   const initialSupplyBaseUnits = parseUnits(normalized.initialSupply, normalized.decimals).toString();
@@ -255,6 +255,50 @@ export async function submitGrc20Deployment(
   }
 }
 
+export interface Grc20OnchainSupply {
+  totalSupply: string;
+  totalSupplyBaseUnits: string;
+  decimals: number;
+  chainId: number;
+}
+
+const onchainSupplyCache = new Map<string, { value: Grc20OnchainSupply; expiresAt: number }>();
+
+export async function readGrc20OnchainSupply(contractAddressInput: string): Promise<Grc20OnchainSupply> {
+  if (!isAddress(contractAddressInput)) throw new Error("Invalid token contract address.");
+  const contractAddress = getAddress(contractAddressInput);
+  const eth = getEthereumProvider();
+  if (!eth) throw new Error("Connect a mainnet-compatible wallet to read live token supply.");
+  const provider = new BrowserProvider(eth as unknown as ConstructorParameters<typeof BrowserProvider>[0]);
+  const network = await provider.getNetwork();
+  const chainId = Number(network.chainId);
+  if (chainId !== GYDS_CHAIN_ID) {
+    throw new Error(`Live supply is only available from GYDS mainnet (chain ID ${GYDS_CHAIN_ID}).`);
+  }
+
+  const cached = onchainSupplyCache.get(contractAddress.toLowerCase());
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const code = await provider.getCode(contractAddress);
+  if (!code || code === "0x") throw new Error("No token contract is deployed at this address on GYDS mainnet.");
+
+  const token = new Contract(contractAddress, tokenArtifact.abi, provider);
+  const [supply, decimalsValue] = await Promise.all([token.totalSupply(), token.decimals()]);
+  const decimals = Number(decimalsValue);
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) {
+    throw new Error("The token contract returned unsupported decimal precision.");
+  }
+
+  const value = {
+    totalSupply: formatUnits(supply, decimals),
+    totalSupplyBaseUnits: BigInt(supply).toString(),
+    decimals,
+    chainId,
+  };
+  onchainSupplyCache.set(contractAddress.toLowerCase(), { value, expiresAt: Date.now() + 15_000 });
+  return value;
+}
+
 export async function transferGrc20Ownership(
   contractAddressInput: string,
   newOwnerInput: string,
@@ -271,7 +315,7 @@ export async function transferGrc20Ownership(
   if (!Array.isArray(accounts) || !accounts[0]) throw new Error("Connect the current token owner's wallet.");
   await requireMainnet(eth);
 
-  const provider = new BrowserProvider(eth as any);
+  const provider = new BrowserProvider(eth as unknown as ConstructorParameters<typeof BrowserProvider>[0]);
   const signer = await provider.getSigner(getAddress(accounts[0]));
   const previousOwner = getAddress(await signer.getAddress());
   const token = new Contract(contractAddress, tokenArtifact.abi, signer);
