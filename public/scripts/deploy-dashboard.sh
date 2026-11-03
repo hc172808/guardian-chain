@@ -566,7 +566,10 @@ $(
 PM2CFG
 
 if id -u "$NODE_USER" &>/dev/null; then
-    su - "$NODE_USER" -c "pm2 delete gydschain-api 2>/dev/null; pm2 start '$APP_DIR/ecosystem.config.cjs'; pm2 save --force" || true
+    if ! su - "$NODE_USER" -c "pm2 delete gydschain-api >/dev/null 2>&1 || true; pm2 start '$APP_DIR/ecosystem.config.cjs' && pm2 save --force"; then
+        err "PM2 could not start gydschain-api as ${NODE_USER}."
+        exit 1
+    fi
     env PATH="$PATH:/usr/bin:/usr/local/bin" pm2 startup systemd -u "$NODE_USER" --hp "/home/$NODE_USER" 2>/dev/null | tail -1 | bash 2>/dev/null || true
 else
     pm2 delete gydschain-api 2>/dev/null || true
@@ -574,6 +577,30 @@ else
     pm2 save --force
 fi
 log "PM2: gydschain-api → port $PORT_API"
+
+# Confirm the API is alive before configuring the public site.
+API_HEALTH=""
+for attempt in $(seq 1 30); do
+    API_HEALTH=$(curl -fsS --max-time 3 "http://127.0.0.1:${PORT_API}/api/auth/captcha/health" 2>/dev/null || true)
+    if grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<< "$API_HEALTH"; then
+        break
+    fi
+    sleep 2
+done
+if ! grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<< "$API_HEALTH"; then
+    err "Dashboard API did not become healthy on port ${PORT_API}."
+    err "Check: pm2 status && pm2 logs gydschain-api --lines 80"
+    exit 1
+fi
+log "Auth API health check passed"
+
+BOOTSTRAP_USERS=$(psql "$DATABASE_URL" -Atc "SELECT COUNT(DISTINCT username) FROM users WHERE username IN ('founder','admin')" 2>/dev/null || echo "0")
+if [[ "$BOOTSTRAP_USERS" != "2" ]]; then
+    warn "Founder/admin bootstrap accounts were not both found after startup."
+    warn "Check PM2 logs for [seed] errors. Public registration can still be used at ${APP_URL%/}/auth."
+else
+    log "Founder/admin bootstrap accounts are present in the database."
+fi
 
 # ─── Step 6: Nginx ────────────────────────────────────────────────────────────
 step "6/8 — Nginx"
@@ -675,6 +702,14 @@ elif grep -qi "Welcome to nginx" <<< "$NGINX_RESPONSE"; then
 else
     log "Nginx virtual host serves the dashboard for ${FQDN}"
 fi
+
+AUTH_HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 -H "Host: ${FQDN}" http://127.0.0.1/auth 2>/dev/null || true)
+if [[ "$AUTH_HTTP_CODE" != "200" ]]; then
+    err "The login route /auth returned HTTP ${AUTH_HTTP_CODE:-no response} through Nginx."
+    err "The dashboard is not ready for sign-in; inspect the enabled Nginx site and PM2 logs."
+    exit 1
+fi
+log "Login/register route verified: ${APP_URL%/}/auth"
 
 # ─── Step 7: UFW Firewall ──────────────────────────────────────────────────────
 step "7/8 — Firewall"
@@ -856,6 +891,7 @@ echo -e "${GREEN}║  ✅  ChainCore deployed!                                  
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${CYAN}URL:${NC}        http://${FQDN}  (HTTPS via Cloudflare)"
+echo -e "${CYAN}Login:${NC}      ${APP_URL%/}/auth  (Sign In / Register)"
 echo -e "${CYAN}API:${NC}        http://${FQDN}/api/"
 echo -e "${CYAN}Health:${NC}     http://${FQDN}/health"
 echo -e "${CYAN}Server IP:${NC}  ${PUBLIC_IP}"

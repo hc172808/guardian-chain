@@ -252,7 +252,14 @@ case "$MODE" in
 
     info "3/3 — All node types"
     ALL_NODES_SCRIPT=$(find_script "install-all-nodes.sh")
-    [[ -n "$ALL_NODES_SCRIPT" ]] && NONINTERACTIVE=1 bash "$ALL_NODES_SCRIPT" --all || warn "install-all-nodes.sh not found — skipping"
+    if [[ -z "$ALL_NODES_SCRIPT" ]]; then
+      err "install-all-nodes.sh was not found; the dashboard is installed, but node installation did not run."
+      exit 1
+    fi
+    if ! NONINTERACTIVE=1 bash "$ALL_NODES_SCRIPT" --all; then
+      err "Node installation failed. The dashboard was installed first; check the node installer output and logs."
+      exit 1
+    fi
     ;;
 
   # ── 5. Redeploy / update ────────────────────────────────────────────────────

@@ -23,6 +23,9 @@ INSTALL_BOOTNODE=false
 INSTALL_FULLNODE=false
 INSTALL_LITENODE=false
 INSTALL_RPC=false
+INSTALL_ALL_REQUESTED=false
+BOOTNODE_INSTALLED=false
+BOOTNODE_SKIPPED=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -30,7 +33,7 @@ for arg in "$@"; do
     --fullnode) INSTALL_FULLNODE=true ;;
     --litenode) INSTALL_LITENODE=true ;;
     --rpc)      INSTALL_RPC=true ;;
-    --all)      INSTALL_BOOTNODE=true; INSTALL_FULLNODE=true; INSTALL_LITENODE=true ;;
+    --all)      INSTALL_ALL_REQUESTED=true; INSTALL_BOOTNODE=true; INSTALL_FULLNODE=true; INSTALL_LITENODE=true ;;
     -h|--help)  sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "Unknown flag: $arg"; exit 1 ;;
   esac
@@ -79,7 +82,14 @@ run() {
 }
 
 if $INSTALL_BOOTNODE; then
-  run "bootnode" bash "$SCRIPT_DIR/install-bootnode.sh"
+  if $INSTALL_ALL_REQUESTED && [[ ! -d "${SRC_DIR}/cmd/bootnode" ]]; then
+    echo "⚠  Skipping bootnode: ${REPO_URL} does not contain cmd/bootnode yet."
+    echo "   No alternate repository was used. The selected fullnode/lite installs will continue."
+    BOOTNODE_SKIPPED=true
+  else
+    run "bootnode" bash "$SCRIPT_DIR/install-bootnode.sh"
+    BOOTNODE_INSTALLED=true
+  fi
 fi
 
 if $INSTALL_FULLNODE; then
@@ -105,10 +115,11 @@ cat <<EOF
 ║   ✅ Multi-node installation complete                                ║
 ╚═══════════════════════════════════════════════════════════════════════╝
   Active services (systemctl status <name>):
-$($INSTALL_BOOTNODE && echo "    • gyds-bootnode")
+$($BOOTNODE_INSTALLED && echo "    • gyds-bootnode")
 $($INSTALL_FULLNODE && echo "    • gyds-fullnode")
 $($INSTALL_RPC      && echo "    • gyds-fullnode (RPC mode, port 8547)")
 $($INSTALL_LITENODE && echo "    • gyds-litenode (user systemd, run via systemctl --user)")
+$($BOOTNODE_SKIPPED && echo "    • bootnode was skipped (unsupported by the selected source repository)")
 
   Logs:    /var/log/gydschain/   (and ~/.gydschain/logs for litenode)
 EOF
