@@ -58,6 +58,45 @@ for arg in "$@"; do
   esac
 done
 
+# Define helpers before the client-only branch calls them.
+detect_os() {
+  if [[ -f /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    OS_ID="${ID:-unknown}"
+    OS_VERSION="${VERSION_ID:-}"
+    OS_LIKE="${ID_LIKE:-}"
+  elif command -v lsb_release &>/dev/null; then
+    OS_ID=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
+    OS_VERSION=$(lsb_release -sr)
+    OS_LIKE=""
+  else
+    OS_ID="unknown"
+    OS_VERSION=""
+    OS_LIKE=""
+  fi
+  if [[ "$OS_ID" =~ ^(ubuntu|debian|linuxmint|pop)$ ]] || [[ "$OS_LIKE" =~ debian ]]; then
+    PKG_FAMILY="debian"
+  elif [[ "$OS_ID" =~ ^(centos|rhel|rocky|almalinux|ol)$ ]] || [[ "$OS_LIKE" =~ rhel ]]; then
+    PKG_FAMILY="rhel"
+  elif [[ "$OS_ID" == "fedora" ]]; then
+    PKG_FAMILY="fedora"
+  elif [[ "$OS_ID" == "arch" || "$OS_ID" == "manjaro" ]]; then
+    PKG_FAMILY="arch"
+  else
+    err "Unsupported OS: $OS_ID"
+    exit 1
+  fi
+}
+pkg_update() {
+  case "$PKG_FAMILY" in
+    debian) export DEBIAN_FRONTEND=noninteractive; apt-get update -qq ;;
+    rhel) dnf makecache -q 2>/dev/null || yum makecache -q ;;
+    fedora) dnf makecache -q ;;
+    arch) pacman -Sy --noconfirm ;;
+  esac
+}
+
 # ─── PostgreSQL client-only mode ──────────────────────────────────────────────
 # Use when you need psql/pg_dump/pg_restore to connect to a REMOTE database
 # without installing the full PostgreSQL server on this machine.
@@ -96,8 +135,8 @@ https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
   # Test connection if DATABASE_URL is provided
   if [[ -n "${DATABASE_URL:-}" ]]; then
     echo ""
-    info "Testing connection to: ${DATABASE_URL%%@*}@..."
-    if psql "${DATABASE_URL}" -c "SELECT version();" 2>/dev/null; then
+    info "Testing the configured PostgreSQL connection (credentials hidden)"
+    if PGCONNECT_TIMEOUT=10 psql "${DATABASE_URL}" -X -v ON_ERROR_STOP=1 -c "SELECT 1;" >/dev/null 2>&1; then
       log "Connection OK"
     else
       err "Connection failed — check DATABASE_URL"
@@ -126,50 +165,9 @@ GO_VERSION="1.22.5"   # Go toolchain version for blockchain nodes
 PM2_VERSION="latest"  # npm global PM2
 
 # ─── OS detection ─────────────────────────────────────────────────────────────
-detect_os() {
-  if [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    source /etc/os-release
-    OS_ID="${ID:-unknown}"
-    OS_VERSION="${VERSION_ID:-}"
-    OS_LIKE="${ID_LIKE:-}"
-  elif command -v lsb_release &>/dev/null; then
-    OS_ID=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
-    OS_VERSION=$(lsb_release -sr)
-    OS_LIKE=""
-  else
-    OS_ID="unknown"
-    OS_VERSION=""
-    OS_LIKE=""
-  fi
-
-  # Normalise families
-  if [[ "$OS_ID" =~ ^(ubuntu|debian|linuxmint|pop)$ ]] || [[ "$OS_LIKE" =~ debian ]]; then
-    PKG_FAMILY="debian"
-  elif [[ "$OS_ID" =~ ^(centos|rhel|rocky|almalinux|ol)$ ]] || [[ "$OS_LIKE" =~ rhel ]]; then
-    PKG_FAMILY="rhel"
-  elif [[ "$OS_ID" == "fedora" ]]; then
-    PKG_FAMILY="fedora"
-  elif [[ "$OS_ID" == "arch" ]] || [[ "$OS_ID" == "manjaro" ]]; then
-    PKG_FAMILY="arch"
-  else
-    PKG_FAMILY="unknown"
-    warn "Unknown OS ($OS_ID) — proceeding with best-effort Debian-style commands"
-    PKG_FAMILY="debian"
-  fi
-}
 detect_os
 
 # ─── Package manager wrappers ─────────────────────────────────────────────────
-pkg_update() {
-  case "$PKG_FAMILY" in
-    debian) export DEBIAN_FRONTEND=noninteractive; apt-get update -qq ;;
-    rhel)   dnf makecache -q 2>/dev/null || yum makecache -q ;;
-    fedora) dnf makecache -q ;;
-    arch)   pacman -Sy --noconfirm ;;
-  esac
-}
-
 pkg_install() {
   case "$PKG_FAMILY" in
     debian) DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" ;;
@@ -379,10 +377,13 @@ esac
 
 # Basic UFW rules (SSH always allowed so you don't lock yourself out)
 if command -v ufw &>/dev/null; then
-  ufw --force reset  2>>"$INSTALL_LOG" || true
+  # Keep existing CloudPanel/custom rules, particularly nonstandard SSH ports.
   ufw default deny incoming  2>>"$INSTALL_LOG"
   ufw default allow outgoing 2>>"$INSTALL_LOG"
   ufw allow ssh                      # 22
+  if [[ "${SSH_CONNECTION:-}" =~ [[:space:]]([0-9]+)$ ]]; then
+    ufw allow "${BASH_REMATCH[1]}/tcp" comment "Current SSH connection"
+  fi
   ufw allow 80/tcp                   # HTTP
   ufw allow 443/tcp                  # HTTPS
   ufw allow 30303/tcp comment "GYDS P2P"

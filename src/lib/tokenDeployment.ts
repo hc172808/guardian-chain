@@ -170,7 +170,7 @@ export async function submitGrc20Deployment(
     throw new Error("The active wallet account changed after the estimate. Reconnect the intended creator wallet.");
   }
 
-  let contract: Contract;
+  let contract: Awaited<ReturnType<PreparedGrc20Deployment['factory']['deploy']>>;
   let transactionHash: string | undefined;
   try {
     onStep("awaiting_wallet_approval");
