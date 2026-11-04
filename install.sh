@@ -15,7 +15,7 @@
 # ║    sudo bash install.sh --requirements       # system deps only             ║
 # ║    sudo bash install.sh --fullnode           # full blockchain node         ║
 # ║    sudo bash install.sh --all                # everything                   ║
-# ║    NONINTERACTIVE=1 sudo bash install.sh --dashboard  # unattended          ║
+# ║    sudo bash install.sh --dashboard --noninteractive # unattended          ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
@@ -42,25 +42,51 @@ fi
 # ─── Argument parsing ─────────────────────────────────────────────────────────
 MODE=""
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
+REQUIREMENT_ARGS=()
+
+select_mode() {
+  if [[ -n "$MODE" && "$MODE" != "$1" ]]; then
+    err "Choose only one installation mode (received $MODE and $1)."
+    exit 1
+  fi
+  MODE="$1"
+}
 
 for arg in "$@"; do
   case "$arg" in
-    --requirements|-r) MODE="requirements" ;;
-    --dashboard|-d)    MODE="dashboard" ;;
-    --fullnode)        MODE="fullnode" ;;
-    --litenode)        MODE="litenode" ;;
-    --validator)       MODE="validator" ;;
-    --rpc)             MODE="rpc" ;;
-    --bootnode)        MODE="bootnode" ;;
-    --genesis)         MODE="genesis" ;;
-    --all|-a)          MODE="all" ;;
+    --requirements|-r) select_mode requirements ;;
+    --dashboard|-d)    select_mode dashboard ;;
+    --fullnode)        select_mode fullnode ;;
+    --litenode)        select_mode litenode ;;
+    --validator)       select_mode validator ;;
+    --rpc)             select_mode rpc ;;
+    --bootnode)        select_mode bootnode ;;
+    --genesis)         select_mode genesis ;;
+    --all|-a)          select_mode all ;;
+    --redeploy)        select_mode redeploy ;;
+    --minimal|--no-docker|--no-go|--no-wireguard|--certbot|--pg-client-only)
+      REQUIREMENT_ARGS+=("$arg") ;;
     --noninteractive|--non-interactive) NONINTERACTIVE=1 ;;
     -h|--help)
       sed -n '3,18p' "$0" | sed 's/^# //' | sed 's/^#//'
+      echo "  --redeploy                 Update an existing installation"
+      echo "  --noninteractive           Skip prompts (requires a mode)"
+      echo "  --requirements options: --minimal --no-docker --no-go --no-wireguard --certbot --pg-client-only"
       exit 0 ;;
-    *) warn "Unknown flag: $arg" ;;
+    *) err "Unknown flag: $arg. Use --help for supported options."; exit 1 ;;
   esac
 done
+
+[[ "$NONINTERACTIVE" =~ ^[01]$ ]] || { err "NONINTERACTIVE must be 0 or 1."; exit 1; }
+export NONINTERACTIVE
+if [[ "$NONINTERACTIVE" == "1" && -z "$MODE" ]]; then
+  err "No mode selected. Use --help for usage."
+  exit 1
+fi
+if [[ "$NONINTERACTIVE" != "1" && ! -t 0 ]]; then
+  err "No interactive terminal. Supply a mode and --noninteractive."
+  exit 1
+fi
 
 # ─── Root check (help is available without sudo) ───────────────────────────────
 [[ $EUID -eq 0 ]] || { err "Run as root:  sudo bash install.sh $*"; exit 1; }
@@ -133,7 +159,11 @@ if [[ -z "$MODE" && "$NONINTERACTIVE" != "1" ]]; then
   esac
 fi
 
-[[ -z "$MODE" ]] && { err "No mode selected. Use --help for usage."; exit 1; }
+[[ -n "$MODE" ]] || { err "No mode selected. Use --help for usage."; exit 1; }
+if (( ${#REQUIREMENT_ARGS[@]} > 0 )) && [[ "$MODE" != "requirements" ]]; then
+  err "Requirements options can only be used with --requirements."
+  exit 1
+fi
 
 # ─── Helper: resolve script path ──────────────────────────────────────────────
 find_script() {
@@ -148,12 +178,23 @@ find_script() {
     [[ -f "$loc" ]] && { echo "$loc"; return 0; }
   done
   echo ""
+  return 1
+}
+
+require_script() {
+  local path
+  path=$(find_script "$1") || {
+    err "Script not found: $1"
+    err "Expected in: ${SCRIPT_DIR}/public/scripts/ or ${SCRIPT_DIR}/scripts/"
+    return 1
+  }
+  printf '%s\n' "$path"
 }
 
 run_script() {
   local script="$1"; shift
   local path
-  path=$(find_script "$script")
+  path=$(find_script "$script" || true)
   if [[ -z "$path" ]]; then
     err "Script not found: $script"
     err "Expected in: ${SCRIPT_DIR}/public/scripts/ or ${SCRIPT_DIR}/scripts/"
@@ -163,15 +204,40 @@ run_script() {
   bash "$path" "$@"
 }
 
+# Validate every dependency before installing packages or changing services.
+case "$MODE" in
+  requirements) require_script "requirements.sh" >/dev/null ;;
+  dashboard)
+    require_script "requirements.sh" >/dev/null
+    require_script "deploy-dashboard.sh" >/dev/null ;;
+  all)
+    require_script "requirements.sh" >/dev/null
+    require_script "deploy-dashboard.sh" >/dev/null
+    require_script "install-all-nodes.sh" >/dev/null ;;
+  fullnode|litenode|validator|rpc|bootnode|genesis)
+    require_script "requirements.sh" >/dev/null
+    NODE_SCRIPT="install-${MODE}.sh"
+    case "$MODE" in
+      validator) NODE_SCRIPT="install-validatornode.sh" ;;
+      rpc) NODE_SCRIPT="install-rpcnode.sh" ;;
+    esac
+    require_script "$NODE_SCRIPT" >/dev/null ;;
+  redeploy)
+    if ! command -v gyds-redeploy >/dev/null 2>&1; then
+      require_script "redeploy.sh" >/dev/null
+    fi ;;
+esac
+REQ_SCRIPT=$(find_script "requirements.sh" || true)
+# Do not print the failing command: it could contain credentials.
+trap 'status=$?; err "Installation failed during $MODE (line $LINENO, exit $status). Review the preceding error; installation is incomplete."; exit "$status"' ERR
+
 # ─── Execute chosen mode ──────────────────────────────────────────────────────
 case "$MODE" in
 
   # ── 1. Requirements only ───────────────────────────────────────────────────
   requirements)
     step "Installing system requirements"
-    REQ_SCRIPT="${SCRIPT_DIR}/scripts/requirements.sh"
-    [[ -f "$REQ_SCRIPT" ]] || { err "requirements.sh not found at $REQ_SCRIPT"; exit 1; }
-    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" "${@:-}"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" "${REQUIREMENT_ARGS[@]}"
     ;;
 
   # ── 2. Dashboard ───────────────────────────────────────────────────────────
@@ -179,7 +245,6 @@ case "$MODE" in
     step "Installing requirements + ChainCore Dashboard"
 
     # Install requirements first
-    REQ_SCRIPT="${SCRIPT_DIR}/scripts/requirements.sh"
     if [[ -f "$REQ_SCRIPT" ]]; then
       info "Step 1/2 — System requirements"
       NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --minimal
@@ -194,37 +259,37 @@ case "$MODE" in
   # ── 3. Individual node types ───────────────────────────────────────────────
   fullnode)
     step "Installing requirements + Full Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --no-docker
     run_script "install-fullnode.sh"
     ;;
 
   litenode)
     step "Installing requirements + Lite Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker --no-wireguard
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --no-docker --no-wireguard
     run_script "install-litenode.sh"
     ;;
 
   validator)
     step "Installing requirements + Validator Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT"
     run_script "install-validatornode.sh"
     ;;
 
   rpc)
     step "Installing requirements + RPC Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --no-docker
     run_script "install-rpcnode.sh"
     ;;
 
   bootnode)
     step "Installing requirements + Bootnode"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --no-docker
     run_script "install-bootnode.sh"
     ;;
 
   genesis)
     step "Installing requirements + Genesis Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT"
     run_script "install-genesis.sh"
     ;;
 
@@ -239,7 +304,7 @@ case "$MODE" in
     fi
 
     info "1/3 — System requirements"
-    NONINTERACTIVE=1 bash "${SCRIPT_DIR}/scripts/requirements.sh"
+    NONINTERACTIVE=1 bash "$REQ_SCRIPT"
 
     info "2/3 — ChainCore Dashboard"
     DEPLOY_SCRIPT=$(find_script "deploy-dashboard.sh")

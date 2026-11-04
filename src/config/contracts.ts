@@ -46,7 +46,7 @@ export const CONTRACT_ADDRESSES = {
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 export function applyRuntimeContractAddresses(addresses: Record<string, unknown>) {
-  const fields: Array<[keyof typeof CONTRACT_ADDRESSES.mainnet, string]> = [
+  const fields: Array<[Exclude<keyof typeof CONTRACT_ADDRESSES.mainnet, 'Pairs'>, string]> = [
     ['WGYDS', 'WGYDS'],
     ['Factory', 'Factory'],
     ['Router', 'Router'],

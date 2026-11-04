@@ -268,7 +268,6 @@ const TokensPage = () => {
                                   const net = String(
                                     networkStates.get(token.id)?.network_type ??
                                     token.networkType ??
-                                    token.network_type ??
                                     'mainnet',
                                   ).toLowerCase();
                                   return net === 'mainnet' ? (
