@@ -8,29 +8,42 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Plus, Search, Filter, MoreHorizontal, Droplets, Lock, ArrowLeftRight, X, BarChart3, Wallet, Loader2, AlertTriangle, Calculator } from 'lucide-react';
+import { Plus, Search, Filter, MoreHorizontal, Droplets, ArrowLeftRight, BarChart3, Loader2, Calculator } from 'lucide-react';
 import { ImpermanentLossCalc } from './ImpermanentLossCalc';
-import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { CreatePool } from './CreatePool';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { useWalletConnect } from '@/hooks/useWalletConnect';
-import { getPairReserves, getPairInfo } from '@/lib/swapContract';
-import { CONTRACT_ADDRESSES } from '@/config/contracts';
+import {
+  executeAddLiquidity,
+  executeRemoveLiquidityPercent,
+  getPairAddress,
+  getPairInfo,
+  getPairReserves,
+  getTokenDecimals,
+} from '@/lib/swapContract';
+import { api } from '@/lib/api';
+import { ethers } from 'ethers';
+import {
+  applyRuntimeContractAddresses,
+  isConfiguredContractAddress,
+} from '@/config/contracts';
+import { loadDeFiTokenCatalog, NATIVE_GYDS_ADDRESS } from '@/lib/defiTokenCatalog';
 
 interface Pool {
   id: string;
   token_a_symbol: string;
   token_b_symbol: string;
+  token_a_address?: string | null;
+  token_b_address?: string | null;
   fee_tier: number;
   tvl: number;
   volume_24h: number;
   fees_24h: number;
   apr: number;
+  onChainPairAddress?: string | null;
 }
 
 const formatValue = (value: number): string => {
@@ -40,7 +53,7 @@ const formatValue = (value: number): string => {
   return `$${value.toFixed(0)}`;
 };
 
-type PoolOverlay = { type: 'add' | 'remove' | 'lock' | 'analytics' | 'close'; pool: Pool } | null;
+type PoolOverlay = { type: 'add' | 'remove' | 'analytics'; pool: Pool } | null;
 
 export const PoolsList = () => {
   const [view, setView] = useState<'pools' | 'calculator'>('pools');
@@ -53,41 +66,78 @@ export const PoolsList = () => {
 
   const loadPools = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('liquidity_pools')
-      .select('id, token_a_symbol, token_b_symbol, fee_tier, tvl, volume_24h, fees_24h, apr')
-      .eq('is_active', true)
-      .order('tvl', { ascending: false });
-    if (data) setPools(data);
-
-    // Try to enrich with on-chain reserves if contracts are deployed
     try {
-      const pairs = CONTRACT_ADDRESSES.mainnet.Pairs;
-      const enriched = await Promise.all(
-        data?.map(async (pool) => {
-          const key = `${pool.token_a_symbol}-${pool.token_b_symbol}` as keyof typeof pairs;
-          const pairAddr = pairs[key];
-          if (pairAddr && pairAddr !== '0x0000000000000000000000000000000000000000') {
-            const [reserves, info] = await Promise.all([
-              getPairReserves(pairAddr),
-              getPairInfo(pairAddr),
-            ]);
-            if (reserves && info) {
-              // Approximate TVL from reserves (assuming $1 per token for now)
-              const r0 = parseFloat(reserves.reserve0);
-              const r1 = parseFloat(reserves.reserve1);
-              const tvl = (r0 + r1) / 1e18;
-              return { ...pool, tvl: tvl || pool.tvl };
-            }
-          }
-          return pool;
-        }) ?? []
-      );
+      const [{ data, error }, dexConfig] = await Promise.all([
+        supabase
+          .from('liquidity_pools')
+          .select('id, token_a_symbol, token_b_symbol, token_a_address, token_b_address, fee_tier, tvl, volume_24h, fees_24h, apr')
+          .eq('is_active', true)
+          .order('tvl', { ascending: false }),
+        api.get('/api/dex/config'),
+      ]);
+      if (error) throw new Error(error.message);
+      applyRuntimeContractAddresses(dexConfig.addresses ?? {});
+      const rows: Pool[] = Array.isArray(data) ? data.map((pool: Pool) => ({
+        ...pool,
+        fee_tier: Number(pool.fee_tier) || 0.3,
+        tvl: Number(pool.tvl) || 0,
+        volume_24h: Number(pool.volume_24h) || 0,
+        fees_24h: Number(pool.fees_24h) || 0,
+        apr: Number(pool.apr) || 0,
+      })) : [];
+      const catalog = await loadDeFiTokenCatalog(dexConfig).catch(() => []);
+      const resolveAddress = (pool: Pool, side: 'a' | 'b') => {
+        const symbol = side === 'a' ? pool.token_a_symbol : pool.token_b_symbol;
+        if (symbol.toUpperCase() === 'GYDS') return dexConfig.addresses?.WGYDS;
+        const saved = side === 'a' ? pool.token_a_address : pool.token_b_address;
+        return saved || catalog.find(asset => asset.symbol.toUpperCase() === symbol.toUpperCase())?.address;
+      };
+      const enriched = await Promise.all(rows.map(async pool => {
+        const tokenAAddress = resolveAddress(pool, 'a');
+        const tokenBAddress = resolveAddress(pool, 'b');
+        if (!isConfiguredContractAddress(tokenAAddress) || !isConfiguredContractAddress(tokenBAddress)) {
+          return { ...pool, onChainPairAddress: null, tvl: 0 };
+        }
+        const pairAddress = await getPairAddress(tokenAAddress, tokenBAddress);
+        if (!pairAddress) return { ...pool, onChainPairAddress: null, tvl: 0 };
+        const [reserves, info] = await Promise.all([
+          getPairReserves(pairAddress),
+          getPairInfo(pairAddress),
+        ]);
+        if (!reserves || !info) return { ...pool, onChainPairAddress: pairAddress, tvl: 0 };
+        const [decimals0, decimals1] = await Promise.all([
+          getTokenDecimals(info.token0),
+          getTokenDecimals(info.token1),
+        ]);
+        const amount0 = Number(ethers.formatUnits(BigInt(reserves.reserve0), decimals0));
+        const amount1 = Number(ethers.formatUnits(BigInt(reserves.reserve1), decimals1));
+        const symbol0 = info.token0.toLowerCase() === tokenAAddress.toLowerCase()
+          ? pool.token_a_symbol
+          : pool.token_b_symbol;
+        const symbol1 = symbol0 === pool.token_a_symbol ? pool.token_b_symbol : pool.token_a_symbol;
+        const price0 = catalog.find(asset => asset.symbol.toUpperCase() === symbol0.toUpperCase())?.price ?? 0;
+        const price1 = catalog.find(asset => asset.symbol.toUpperCase() === symbol1.toUpperCase())?.price ?? 0;
+        const tvl = amount0 * price0 + amount1 * price1;
+        return {
+          ...pool,
+          token_a_address: tokenAAddress,
+          token_b_address: tokenBAddress,
+          onChainPairAddress: pairAddress,
+          tvl: Number.isFinite(tvl) ? tvl : 0,
+        };
+      }));
       setPools(enriched);
-    } catch {
-      // On-chain enrichment failed (contracts not deployed yet) — keep DB data
+    } catch (error: any) {
+      console.error('[pools] Failed to load pool state:', error);
+      toast({
+        title: 'Could not load pools',
+        description: error?.message ?? 'Pool data is temporarily unavailable.',
+        variant: 'destructive',
+      });
+      setPools([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -96,7 +146,8 @@ export const PoolsList = () => {
       .channel('pools')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'liquidity_pools' }, () => loadPools())
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const refresh = window.setInterval(() => void loadPools(), 30_000);
+    return () => { supabase.removeChannel(channel); window.clearInterval(refresh); };
   }, []);
 
   if (showCreate) return <CreatePool onBack={() => { setShowCreate(false); loadPools(); }} />;
@@ -201,6 +252,7 @@ export const PoolsList = () => {
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">{pool.token_a_symbol} / {pool.token_b_symbol}</span>
                   <Badge variant="secondary" className="text-xs font-mono">{pool.fee_tier}%</Badge>
+                  {!pool.onChainPairAddress && <Badge variant="outline" className="text-xs text-amber-400">Pair not found on-chain</Badge>}
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -215,21 +267,14 @@ export const PoolsList = () => {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-52 bg-card border-border" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem className="gap-2 text-primary" onSelect={() => setOverlay({ type: 'add', pool })}>
+                    <DropdownMenuItem className="gap-2 text-primary" disabled={!pool.onChainPairAddress} onSelect={() => setOverlay({ type: 'add', pool })}>
                       <Plus className="h-4 w-4" /> Add Liquidity
                     </DropdownMenuItem>
-                    <DropdownMenuItem className="gap-2" onSelect={() => setOverlay({ type: 'remove', pool })}>
+                    <DropdownMenuItem className="gap-2" disabled={!pool.onChainPairAddress} onSelect={() => setOverlay({ type: 'remove', pool })}>
                       <ArrowLeftRight className="h-4 w-4" /> Remove Liquidity
-                    </DropdownMenuItem>
-                    <DropdownMenuItem className="gap-2" onSelect={() => setOverlay({ type: 'lock', pool })}>
-                      <Lock className="h-4 w-4" /> Lock Liquidity
                     </DropdownMenuItem>
                     <DropdownMenuItem className="gap-2" onSelect={() => setOverlay({ type: 'analytics', pool })}>
                       <BarChart3 className="h-4 w-4" /> Pool Analytics
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="gap-2 text-destructive" onSelect={() => setOverlay({ type: 'close', pool })}>
-                      <X className="h-4 w-4" /> Close Pool
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -247,32 +292,103 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
   const { pool, type } = overlay;
   const pair = `${pool.token_a_symbol}/${pool.token_b_symbol}`;
   const { user } = useAuth();
-  const { address, isConnected } = useWalletConnect();
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
   const [amountA, setAmountA] = useState('');
   const [amountB, setAmountB] = useState('');
   const [withdrawPercent, setWithdrawPercent] = useState([50]);
-  const [lockDays, setLockDays] = useState('30');
+  const [tokenAAddress, setTokenAAddress] = useState<string | null>(null);
+  const [tokenBAddress, setTokenBAddress] = useState<string | null>(null);
+  const [tokenLoadError, setTokenLoadError] = useState('');
 
-  const submitTx = async (desc: string, amount: number, toAddress: string, closePool = false) => {
-    void desc;
-    void amount;
-    void toAddress;
-    void closePool;
-    toast({
-      title: 'Pool operation unavailable',
-      description: 'This pool has no deployed liquidity contract. No funds or pool state were changed.',
-      variant: 'destructive',
-    });
+  useEffect(() => {
+    let cancelled = false;
+    const loadTokenContracts = async () => {
+      try {
+        const dexConfig = await api.get('/api/dex/config');
+        applyRuntimeContractAddresses(dexConfig.addresses ?? {});
+        const catalog = await loadDeFiTokenCatalog(dexConfig);
+        const resolve = (symbol: string, saved: string | null | undefined) => {
+          if (symbol.toUpperCase() === 'GYDS') return NATIVE_GYDS_ADDRESS;
+          return saved || catalog.find(asset => asset.symbol.toUpperCase() === symbol.toUpperCase())?.address || null;
+        };
+        if (!cancelled) {
+          setTokenAAddress(resolve(pool.token_a_symbol, pool.token_a_address));
+          setTokenBAddress(resolve(pool.token_b_symbol, pool.token_b_address));
+        }
+      } catch (error: any) {
+        if (!cancelled) setTokenLoadError(error?.message ?? 'Could not load token contracts.');
+      }
+    };
+    void loadTokenContracts();
+    return () => { cancelled = true; };
+  }, [pool]);
+
+  const addLiquidity = async () => {
+    if (!user) {
+      toast({ title: 'Login Required', description: 'Sign in before adding liquidity.', variant: 'destructive' });
+      return;
+    }
+    const a = Number(amountA);
+    const b = Number(amountB);
+    if (!tokenAAddress || !tokenBAddress || !Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) {
+      toast({ title: 'Liquidity details unavailable', description: tokenLoadError || 'Enter a positive amount for both tokens.', variant: 'destructive' });
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const decimalsA = pool.token_a_symbol.toUpperCase() === 'GYDS' ? 18 : await getTokenDecimals(tokenAAddress);
+      const decimalsB = pool.token_b_symbol.toUpperCase() === 'GYDS' ? 18 : await getTokenDecimals(tokenBAddress);
+      const rawA = ethers.parseUnits(amountA, decimalsA);
+      const rawB = ethers.parseUnits(amountB, decimalsB);
+      const txHash = await executeAddLiquidity(
+        tokenAAddress,
+        tokenBAddress,
+        rawA.toString(),
+        rawB.toString(),
+        (rawA * 995n / 1000n).toString(),
+        (rawB * 995n / 1000n).toString(),
+        '',
+        Math.floor(Date.now() / 1000) + 600,
+      );
+      toast({ title: 'Liquidity added', description: `Confirmed transaction ${txHash?.slice(0, 14) ?? ''}` });
+      onBack();
+    } catch (error: any) {
+      toast({
+        title: 'Liquidity add failed',
+        description: error?.shortMessage ?? error?.message ?? 'The transaction failed.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const removeLiquidity = async () => {
+    if (!user || !tokenAAddress || !tokenBAddress) {
+      toast({ title: 'Wallet unavailable', description: tokenLoadError || 'Sign in and reload this pool.', variant: 'destructive' });
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const txHash = await executeRemoveLiquidityPercent(tokenAAddress, tokenBAddress, withdrawPercent[0]);
+      toast({ title: 'Liquidity removed', description: `Confirmed transaction ${txHash.slice(0, 14)}` });
+      onBack();
+    } catch (error: any) {
+      toast({
+        title: 'Liquidity removal failed',
+        description: error?.shortMessage ?? error?.message ?? 'The transaction failed.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const titles: Record<string, string> = {
     add: `Add Liquidity — ${pair}`,
     remove: `Remove Liquidity — ${pair}`,
-    lock: `Lock Liquidity — ${pair}`,
     analytics: `Pool Analytics — ${pair}`,
-    close: `Close Pool — ${pair}`,
   };
 
   return (
@@ -291,10 +407,6 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
                 className="border-0 bg-transparent text-2xl font-light p-0 h-auto focus-visible:ring-0" />
               <Badge variant="secondary" className="font-semibold px-3 py-1">{pool.token_a_symbol}</Badge>
             </div>
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>${(parseFloat(amountA || '0') * 86.8).toFixed(2)}</span>
-              <div className="flex items-center gap-1"><Wallet className="h-3 w-3" /><span>0.0000</span></div>
-            </div>
           </GlassCard>
           <GlassCard className="p-4 space-y-3">
             <p className="text-sm text-muted-foreground">Deposit {pool.token_b_symbol}</p>
@@ -305,15 +417,15 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
             </div>
           </GlassCard>
           <GlassCard className="p-3 space-y-1 text-sm">
-            <div className="flex justify-between text-muted-foreground"><span>Pool APR</span><span className="font-mono text-primary">{pool.apr.toFixed(1)}%</span></div>
-            <div className="flex justify-between text-muted-foreground"><span>Fee Tier</span><span className="font-mono">{pool.fee_tier}%</span></div>
-            <div className="flex justify-between text-muted-foreground"><span>Current TVL</span><span className="font-mono">{formatValue(pool.tvl)}</span></div>
+            <p className="text-xs text-muted-foreground">
+              GydsSwap will ask your EVM wallet to approve each ERC-20 token, then confirm the liquidity transaction. Native GYDS is sent as transaction value.
+            </p>
           </GlassCard>
           <Button className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
-            disabled={isProcessing || (!amountA && !amountB) || !isConnected}
-            onClick={() => submitTx(`Added liquidity to ${pair}`, parseFloat(amountA || '0') + parseFloat(amountB || '0'), `pool-${pool.id}`)}>
+            disabled={isProcessing || !amountA || !amountB || !user || !pool.onChainPairAddress}
+            onClick={() => void addLiquidity()}>
             {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Adding...</span>
-              : !isConnected ? 'Connect Wallet' : 'Add Liquidity'}
+              : !user ? 'Sign In' : 'Add Liquidity'}
           </Button>
         </>
       )}
@@ -335,48 +447,13 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
           </GlassCard>
           <GlassCard className="p-4 space-y-2 text-sm">
             <div className="flex justify-between"><span className="text-muted-foreground">Pool TVL</span><span className="font-mono">{formatValue(pool.tvl)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Your Share (est.)</span><span className="font-mono">~0.1%</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Remove Fee</span><span className="font-mono">0.1%</span></div>
+            <p className="text-xs text-muted-foreground">Removal uses the LP tokens held by the wallet you authorize. Minimum outputs include 0.5% slippage protection.</p>
           </GlassCard>
           <Button className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
-            disabled={isProcessing || withdrawPercent[0] === 0 || !isConnected}
-            onClick={() => submitTx(`Removed ${withdrawPercent[0]}% liquidity from ${pair}`, pool.tvl * 0.001 * withdrawPercent[0] / 100, address || 'user-wallet')}>
+            disabled={isProcessing || withdrawPercent[0] === 0 || !user || !pool.onChainPairAddress}
+            onClick={() => void removeLiquidity()}>
             {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Removing...</span>
-              : !isConnected ? 'Connect Wallet' : `Remove ${withdrawPercent[0]}%`}
-          </Button>
-        </>
-      )}
-
-      {type === 'lock' && (
-        <>
-          <GlassCard className="p-4 space-y-4">
-            <p className="text-sm text-muted-foreground">Lock your pool position to earn higher yields.</p>
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Lock Duration (days)</label>
-              <Input type="number" value={lockDays} onChange={e => setLockDays(e.target.value)} className="bg-secondary/30" />
-            </div>
-            <div className="flex gap-2">
-              {['7', '30', '90', '180'].map(d => (
-                <Button key={d} variant={lockDays === d ? 'secondary' : 'ghost'} size="sm" className="flex-1"
-                  onClick={() => setLockDays(d)}>{d}d</Button>
-              ))}
-            </div>
-          </GlassCard>
-          <GlassCard className="p-4 space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Pool</span><span className="font-semibold">{pair}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Lock Duration</span><span className="font-mono">{lockDays} days</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Unlock Date</span><span className="font-mono">{new Date(Date.now() + parseInt(lockDays || '0') * 86400000).toLocaleDateString()}</span></div>
-            <div className="flex justify-between text-primary"><span>APR Boost</span><span className="font-mono font-semibold">+{Math.min(50, parseInt(lockDays || '0') / 3.6).toFixed(1)}%</span></div>
-          </GlassCard>
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-400">
-            <Lock className="h-4 w-4 shrink-0" />
-            <span>Locked liquidity cannot be withdrawn until the lock period ends.</span>
-          </div>
-          <Button className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
-            disabled={isProcessing || !lockDays || parseInt(lockDays) <= 0 || !isConnected}
-            onClick={() => submitTx(`Locked ${pair} liquidity for ${lockDays} days`, pool.tvl * 0.001, 'lock-contract')}>
-            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Locking...</span>
-              : !isConnected ? 'Connect Wallet' : `Lock for ${lockDays} Days`}
+              : !user ? 'Sign In' : `Remove ${withdrawPercent[0]}%`}
           </Button>
         </>
       )}
@@ -405,40 +482,12 @@ const PoolActionPanel = ({ overlay, onBack }: { overlay: NonNullable<PoolOverlay
               <div className="flex justify-between"><span className="text-muted-foreground">24H Volume</span><span className="font-mono">{formatValue(pool.volume_24h)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">24H Fees</span><span className="font-mono">{formatValue(pool.fees_24h)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Fee Tier</span><span className="font-mono">{pool.fee_tier}%</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">7D Volume</span><span className="font-mono">{formatValue(pool.volume_24h * 6.5)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">30D Volume</span><span className="font-mono">{formatValue(pool.volume_24h * 28)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Liquidity Providers</span><span className="font-mono">{Math.floor(pool.tvl / 500)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Utilization Rate</span><span className="font-mono">{(pool.volume_24h / Math.max(1, pool.tvl) * 100).toFixed(1)}%</span></div>
+              <p className="pt-2 text-xs text-muted-foreground">Volume and fee values are recorded app metrics; TVL is estimated from current on-chain reserves and token prices.</p>
             </div>
           </GlassCard>
         </>
       )}
 
-      {type === 'close' && (
-        <>
-          <GlassCard className="p-4 space-y-3">
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-sm text-destructive">
-              <AlertTriangle className="h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-semibold">Close Pool Warning</p>
-                <p>This will remove all your liquidity from {pair} and close the pool position. This action cannot be undone.</p>
-              </div>
-            </div>
-          </GlassCard>
-          <GlassCard className="p-4 space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Pool</span><span className="font-semibold">{pair}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Your TVL</span><span className="font-mono">{formatValue(pool.tvl * 0.001)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Unclaimed Fees</span><span className="font-mono">{formatValue(pool.fees_24h * 0.01)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Exit Fee</span><span className="font-mono">0.1%</span></div>
-          </GlassCard>
-          <Button className="w-full h-14 text-lg font-semibold bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-            disabled={isProcessing || !isConnected}
-            onClick={() => submitTx(`Closed ${pair} pool position`, pool.tvl * 0.001, address || 'user-wallet', true)}>
-            {isProcessing ? <span className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Closing...</span>
-              : !isConnected ? 'Connect Wallet' : 'Confirm Close Pool'}
-          </Button>
-        </>
-      )}
     </div>
   );
 };

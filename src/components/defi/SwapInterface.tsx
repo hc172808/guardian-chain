@@ -16,6 +16,8 @@ import {
   executeSwapExactTokensForTokens,
   executeSwapExactGYDSForTokens,
   executeSwapExactTokensForGYDS,
+  getAuthorizedWalletAddress,
+  getConnectedSigner,
 } from '@/lib/swapContract';
 import {
   applyRuntimeContractAddresses,
@@ -208,6 +210,8 @@ export const SwapInterface = () => {
       setSwapContractsConfigured(coreContractsReady);
 
       try {
+        const browserWalletAddress = await getAuthorizedWalletAddress();
+        const balanceAddress = browserWalletAddress || effectiveAddress;
         const [logoResponses, priceResponse, catalog] = await Promise.all([
           Promise.all([
             fetch('/api/config/gyds_logo', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
@@ -228,8 +232,8 @@ export const SwapInterface = () => {
         const merged: Token[] = await Promise.all(catalog.map(async asset => ({
           symbol: asset.symbol,
           name: asset.name,
-          balance: effectiveAddress
-            ? Number(await getTokenBalance(asset.address, effectiveAddress)) || 0
+          balance: balanceAddress
+            ? Number(await getTokenBalance(asset.address, balanceAddress)) || 0
             : 0,
           price: asset.symbol.toUpperCase() === 'GYDS' ? gydsPrice : asset.price,
           address: asset.address,
@@ -362,13 +366,16 @@ export const SwapInterface = () => {
     setIsSwapping(true);
 
     try {
+      const signer = await getConnectedSigner();
+      if (!signer) throw new Error('Connect an EVM wallet before swapping.');
+      const signerAddress = await signer.getAddress();
       const quote = await getSwapQuoteExactIn(payAmount, payToken.address, receiveToken.address);
       if (!quote) {
         throw new Error('There is no on-chain liquidity for this pair yet. Create the pair and add real liquidity before trading.');
       }
       const receiveAmt = Number(quote.amountOut);
 
-      const chainBalance = Number(await getTokenBalance(payToken.address, effectiveAddress));
+      const chainBalance = Number(await getTokenBalance(payToken.address, signerAddress));
       if (!Number.isFinite(chainBalance) || amount > chainBalance + 1e-12) {
         throw new Error(`Insufficient on-chain ${payToken.symbol} balance. Available: ${Number.isFinite(chainBalance) ? chainBalance.toFixed(6) : '0.000000'}.`);
       }
@@ -442,11 +449,11 @@ export const SwapInterface = () => {
         const minOut = (BigInt(quote.amountOutRaw) * BigInt(10000 - slippageBps) / 10000n).toString();
         const deadline = Math.floor(Date.now() / 1000) + 300;
         if (payToken.address === ZERO_ADDRESS) {
-          txHash = await executeSwapExactGYDSForTokens(quote.amountInRaw, minOut, quote.path, effectiveAddress, deadline);
+          txHash = await executeSwapExactGYDSForTokens(quote.amountInRaw, minOut, quote.path, signerAddress, deadline);
         } else if (receiveToken.address === ZERO_ADDRESS) {
-          txHash = await executeSwapExactTokensForGYDS(quote.amountInRaw, minOut, quote.path, effectiveAddress, deadline);
+          txHash = await executeSwapExactTokensForGYDS(quote.amountInRaw, minOut, quote.path, signerAddress, deadline);
         } else {
-          txHash = await executeSwapExactTokensForTokens(quote.amountInRaw, minOut, quote.path, effectiveAddress, deadline);
+          txHash = await executeSwapExactTokensForTokens(quote.amountInRaw, minOut, quote.path, signerAddress, deadline);
         }
       }
 
@@ -478,7 +485,7 @@ export const SwapInterface = () => {
     (receiveToken.address === ZERO_ADDRESS || isConfiguredContractAddress(receiveToken.address)) &&
     payToken.address.toLowerCase() !== receiveToken.address.toLowerCase();
   const canSwap = swapContractsConfigured && selectedTokensConfigured &&
-    !!user && !!effectiveAddress && !!payAmount && !!receiveAmount &&
+    !!user && !!payAmount && !!receiveAmount &&
     !quoteUnavailable && parseFloat(payAmount) > 0 && !isSwapping;
 
   return (

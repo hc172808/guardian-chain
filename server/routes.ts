@@ -1407,6 +1407,7 @@ export function registerRoutes(app: Express) {
       await client.query(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, [user.id]);
 
       let creationTransaction: any = null;
+       let feePayerAddress: string | null = null;
       if (!isAdminOrFounder && creationFee > 0) {
         const addresses = await getUserWalletAddresses(client, user.id);
         if (!addresses.length) {
@@ -1414,34 +1415,20 @@ export function registerRoutes(app: Express) {
           transactionOpen = false;
           return res.status(400).json({ error: 'Link a wallet before creating a stablecoin.' });
         }
-        const available = await getUserTokenBalance(client, addresses, "GYDS");
-        if (creationFee > available + 1e-12) {
+         let available = 0;
+         for (const address of addresses) {
+           const walletBalance = await getUserTokenBalance(client, [address], "GYDS");
+           available += walletBalance;
+           if (walletBalance + 1e-12 >= creationFee) {
+             feePayerAddress = address;
+             break;
+           }
+         }
+         if (!feePayerAddress) {
           await client.query('ROLLBACK');
           transactionOpen = false;
           return res.status(400).json({ error: `Insufficient GYDS balance. Creation requires ${creationFee.toFixed(4)} GYDS; available: ${available.toFixed(4)} GYDS.` });
         }
-        const feeTransfer = await broadcastTransfer({
-          fromAddress: addresses[0],
-          toAddress: getStablecoinFeeAddress(),
-          amountEther: creationFee,
-          token: "GYDS",
-          chainId: Number(process.env.GYDS_CHAIN_ID ?? 198282),
-        });
-        if (!feeTransfer.onChain) {
-          throw new Error(feeTransfer.error ?? "The stablecoin creation fee transfer was rejected by the chain.");
-        }
-        const { rows: [feeTx] } = await client.query(
-          `INSERT INTO transactions
-             (from_address, to_address, amount, fee, tx_hash, status, user_id,
-              token_symbol, block_height, confirmed_at, network)
-           VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYDS',$6,NOW(),$7)
-           RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
-          [
-            addresses[0], getStablecoinFeeAddress(), creationFee, feeTransfer.txHash,
-            user.id, feeTransfer.blockNumber ?? null, process.env.GYDS_NETWORK ?? 'mainnet',
-          ],
-        );
-        creationTransaction = feeTx;
       }
 
       const { rows: [newSc] } = await client.query(`
@@ -1465,6 +1452,31 @@ export function registerRoutes(app: Express) {
         ]
       );
       await notifyStablecoinReviewers(client, newSc, reviewerIds);
+       if (feePayerAddress) {
+         const feeAddress = getStablecoinFeeAddress();
+         const feeTransfer = await broadcastTransfer({
+           fromAddress: feePayerAddress,
+           toAddress: feeAddress,
+           amountEther: creationFee,
+           token: "GYDS",
+           chainId: Number(process.env.GYDS_CHAIN_ID ?? 198282),
+         });
+         if (!feeTransfer.onChain) {
+           throw new Error(feeTransfer.error ?? "The stablecoin creation fee transfer was rejected by the chain.");
+         }
+         const { rows: [feeTx] } = await client.query(
+           `INSERT INTO transactions
+              (from_address, to_address, amount, fee, tx_hash, status, user_id,
+               token_symbol, block_height, confirmed_at, network)
+            VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYDS',$6,NOW(),$7)
+            RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
+           [
+             feePayerAddress, feeAddress, creationFee, feeTransfer.txHash,
+             user.id, feeTransfer.blockNumber ?? null, process.env.GYDS_NETWORK ?? 'mainnet',
+           ],
+         );
+         creationTransaction = feeTx;
+       }
       await client.query('COMMIT');
       transactionOpen = false;
       res.status(201).json({
@@ -7096,11 +7108,10 @@ export function registerRoutes(app: Express) {
       const apr = await getConfiguredStakingApr(client);
       const unstakeFeeBps = await getConfiguredStakingUnstakeFeeBps(client);
       const pendingRewards = position ? positionRewards(position, apr) : 0;
-      const addresses = await getUserWalletAddresses(client, user.id);
       const stats = await getStakingStats(client);
       res.json({
         walletAddress: address,
-        balance: Number((await getUserGydBalance(client, addresses)).toFixed(12)),
+         balance: Number((await getUserGydBalance(client, [address])).toFixed(12)),
         unstakeFeeBps,
         position: position ? {
           id: position.id,
@@ -7138,8 +7149,7 @@ export function registerRoutes(app: Express) {
       // stake requests cannot spend the same confirmed GYD balance.
       await client.query(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, [user.id]);
       const address = await resolveStakingAddress(client, user.id, req.body?.walletAddress);
-      const addresses = await getUserWalletAddresses(client, user.id);
-      const available = await getUserGydBalance(client, addresses);
+       const available = await getUserGydBalance(client, [address]);
       if (amount > available + 1e-12) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: `Insufficient GYD balance. Available: ${available.toFixed(12)} GYD.` });
@@ -7286,8 +7296,7 @@ export function registerRoutes(app: Express) {
          RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
         [poolAddress, address, amountReturned, chainTransfer.txHash, user.id, chainTransfer.blockNumber ?? null, process.env.GYDS_NETWORK ?? 'mainnet'],
       );
-      const addresses = await getUserWalletAddresses(client, user.id);
-      const balance = await getUserGydBalance(client, addresses);
+       const balance = await getUserGydBalance(client, [address]);
       await client.query('COMMIT');
       res.status(201).json({
         ok: true,
