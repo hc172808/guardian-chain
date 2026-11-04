@@ -157,6 +157,23 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn("fake-secret", result.stdout + result.stderr)
         self.assertNotIn("command not found", result.stderr)
 
+    def test_fullnode_nginx_rate_limit_zone_is_not_inside_server_block(self):
+        fullnode = (ROOT / "public/scripts/install-fullnode.sh").read_text()
+        deploy = (ROOT / "public/scripts/deploy-dashboard.sh").read_text()
+
+        self.assertIn("/etc/nginx/conf.d/gyds-fullnode-ratelimit.conf", fullnode)
+        self.assertIn("zone=gyds_fullnode_rpc_limit", fullnode)
+        self.assertIn("limit_req zone=gyds_fullnode_rpc_limit", fullnode)
+
+        site_marker = 'cat > "$NGINX_SITE" <<EOF'
+        self.assertIn(site_marker, fullnode)
+        site_template = fullnode.split(site_marker, 1)[1].split("\nEOF", 1)[0]
+        self.assertNotIn("limit_req_zone", site_template)
+        self.assertIn("server_name ${RPC_DOMAIN};", site_template)
+
+        self.assertIn('GYDS_RPC_DOMAIN="${GYDS_RPC_DOMAIN:-rpc.${DOMAIN}}"', deploy)
+        self.assertIn('echo "GYDS_RPC_DOMAIN=${GYDS_RPC_DOMAIN}"', deploy)
+
 
 if __name__ == "__main__":
     unittest.main()

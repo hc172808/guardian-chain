@@ -26,6 +26,7 @@ step()   { echo ""; echo -e "${BOLD}${GREEN}━━━ $* ━━━${NC}"; }
 # ─── Configuration ────────────────────────────────────────────────────────────
 SUBDOMAIN="${SUBDOMAIN:-}"                          # e.g. "app" → app.netlifegy.com (empty = use DOMAIN directly)
 DOMAIN="${DOMAIN:-netlifegy.com}"
+GYDS_RPC_DOMAIN="${GYDS_RPC_DOMAIN:-rpc.${DOMAIN}}"
 FQDN="${SUBDOMAIN:+${SUBDOMAIN}.}${DOMAIN}"        # app.netlifegy.com or netlifegy.com
 USE_CERTBOT="${USE_CERTBOT:-0}"                     # set to 1 for direct SSL (non-Cloudflare)
 SSL_EMAIL="${GYDS_SSL_EMAIL:-${EMAIL:-}}"
@@ -141,6 +142,7 @@ fi
 
 info "Deployment configuration:"
 echo "  Domain (FQDN):  $FQDN"
+echo "  RPC domain:     $GYDS_RPC_DOMAIN"
 echo "  Subdomain:      ${SUBDOMAIN:-<root domain>}"
 echo "  App dir:        $APP_DIR"
 echo "  Repo:           $REPO_URL"
@@ -410,6 +412,7 @@ id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" 
   echo "GYDS_CHAIN_ID=198282"
   echo "DOMAIN=${DOMAIN}"
   echo "FQDN=${FQDN}"
+  echo "GYDS_RPC_DOMAIN=${GYDS_RPC_DOMAIN}"
   [[ -n "$ADMIN_WALLET"         ]] && echo "GYDS_ADMIN_WALLET=${ADMIN_WALLET}"
   [[ -n "$FOUNDER_WALLET"       ]] && echo "GYDS_FOUNDER_WALLET=${FOUNDER_WALLET}"
   [[ -n "$REWARD_ADDRESS"       ]] && echo "GYDS_REWARD_ADDRESS=${REWARD_ADDRESS}"

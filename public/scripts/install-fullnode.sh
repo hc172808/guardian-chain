@@ -12,6 +12,8 @@ set -euo pipefail
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
 [[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
+GYDS_SHARED_CONFIG_LOADED=0
+[[ -f "$GYDS_CONF" ]] && GYDS_SHARED_CONFIG_LOADED=1
 
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
@@ -30,6 +32,14 @@ P2P_PORT="${GYDS_P2P_PORT:-30303}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
 DOMAIN="${DOMAIN:-}"
+RPC_DOMAIN="${GYDS_RPC_DOMAIN:-}"
+if [[ -z "$RPC_DOMAIN" && -n "$DOMAIN" ]]; then
+  if [[ "$GYDS_SHARED_CONFIG_LOADED" == "1" ]]; then
+    RPC_DOMAIN="rpc.${DOMAIN}"
+  else
+    RPC_DOMAIN="$DOMAIN"
+  fi
+fi
 
 REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 BRANCH="main"
@@ -57,7 +67,7 @@ while [[ $# -gt 0 ]]; do
     --ws-port)         WS_PORT="$2";     shift 2 ;;
     --p2p-port)        P2P_PORT="$2";    shift 2 ;;
     --data-dir)        DATA_DIR="$2";    shift 2 ;;
-    --domain)          DOMAIN="$2";      shift 2 ;;
+    --domain)          DOMAIN="$2"; RPC_DOMAIN="$2"; shift 2 ;;
     --log-level)       LOG_LEVEL="$2";   shift 2 ;;
     --bootstrap-nodes) BOOTSTRAP="$2";   shift 2 ;;
     *) warn "Unknown flag: $1"; shift ;;
@@ -243,17 +253,32 @@ ReadWritePaths=${DATA_DIR} ${LOG_DIR}
 WantedBy=multi-user.target
 EOF
 
-# Nginx reverse proxy (optional domain)
-if [[ -n "$DOMAIN" ]]; then
-  cat > /etc/nginx/sites-available/gyds-fullnode <<EOF
-limit_req_zone \$binary_remote_addr zone=rpc_limit:10m rate=100r/s;
+# Nginx reverse proxy (optional RPC domain)
+if [[ -n "$RPC_DOMAIN" ]]; then
+  mkdir -p /etc/nginx/conf.d
+
+  # limit_req_zone is only valid in nginx's http context, not inside a server
+  # vhost. conf.d/*.conf is included from http{} by the standard distro configs.
+  cat > /etc/nginx/conf.d/gyds-fullnode-ratelimit.conf <<'EOF'
+limit_req_zone $binary_remote_addr zone=gyds_fullnode_rpc_limit:10m rate=100r/s;
+EOF
+
+  # Ubuntu/Debian enable sites-enabled; RHEL/Fedora use conf.d directly.
+  if grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\*;' /etc/nginx/nginx.conf 2>/dev/null; then
+    mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+    NGINX_SITE="/etc/nginx/sites-available/gyds-fullnode"
+  else
+    NGINX_SITE="/etc/nginx/conf.d/gyds-fullnode.conf"
+  fi
+
+  cat > "$NGINX_SITE" <<EOF
 
 server {
     listen 80;
-    server_name ${DOMAIN};
+    server_name ${RPC_DOMAIN};
 
     location / {
-        limit_req zone=rpc_limit burst=200 nodelay;
+        limit_req zone=gyds_fullnode_rpc_limit burst=200 nodelay;
         proxy_pass         http://127.0.0.1:${RPC_PORT};
         proxy_http_version 1.1;
         proxy_set_header   Upgrade \$http_upgrade;
@@ -280,13 +305,15 @@ server {
     }
 }
 EOF
-  rm -f /etc/nginx/sites-enabled/default
-  ln -sf /etc/nginx/sites-available/gyds-fullnode /etc/nginx/sites-enabled/
+  if [[ "$NGINX_SITE" == /etc/nginx/sites-available/* ]]; then
+    rm -f /etc/nginx/sites-enabled/default
+    ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/gyds-fullnode
+  fi
   nginx -t && systemctl enable nginx && systemctl restart nginx
 
   # TLS via certbot
-  if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@${DOMAIN}" 2>/dev/null; then
-    log "    TLS certificate issued for ${DOMAIN}"
+  if certbot --nginx -d "$RPC_DOMAIN" --non-interactive --agree-tos -m "admin@${RPC_DOMAIN}" 2>/dev/null; then
+    log "    TLS certificate issued for ${RPC_DOMAIN}"
   else
     warn "    Certbot failed — HTTP only for now. Re-run after DNS is configured."
   fi
@@ -392,9 +419,9 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  ENDPOINTS"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-if [[ -n "$DOMAIN" ]]; then
-  echo "  RPC (HTTPS) : https://${DOMAIN}"
-  echo "  WS  (WSS)   : wss://${DOMAIN}/ws"
+if [[ -n "$RPC_DOMAIN" ]]; then
+  echo "  RPC (HTTPS) : https://${RPC_DOMAIN}"
+  echo "  WS  (WSS)   : wss://${RPC_DOMAIN}/ws"
 else
   echo "  RPC (HTTP)  : http://${SERVER_IP}:${RPC_PORT}"
   echo "  WS  (WS)    : ws://${SERVER_IP}:${WS_PORT}"
@@ -420,6 +447,6 @@ echo "  ADD TO METAMASK / WALLET"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Network Name : GYDS Chain"
 echo "  Chain ID     : ${CHAIN_ID}"
-[[ -n "$DOMAIN" ]] && echo "  RPC URL      : https://${DOMAIN}" || echo "  RPC URL      : http://${SERVER_IP}:${RPC_PORT}"
+[[ -n "$RPC_DOMAIN" ]] && echo "  RPC URL      : https://${RPC_DOMAIN}" || echo "  RPC URL      : http://${SERVER_IP}:${RPC_PORT}"
 echo "  Currency     : GYDS"
 echo ""
