@@ -253,3 +253,13 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 - Founder — username `founder`, password from `FOUNDER_PASSWORD` env (default `password`)
 - Admin — username `admin`, password from `ADMIN_PASSWORD` env (default `password`)
 - Change these immediately by setting `FOUNDER_PASSWORD` / `ADMIN_PASSWORD` in `.env` and restarting.
+
+---
+
+## 2026-11-04 — Master installer debugging
+
+- [x] Reject unknown/conflicting modes, support `--redeploy`, forward requirements options separately, and propagate unattended mode to child installers.
+- [x] Preflight child scripts before any package installation; report failures without printing commands or credentials.
+- [x] Fix PostgreSQL client-only helper ordering and hide connection credentials during its read-only check.
+- [x] Preserve existing firewall rules and allow the current SSH connection's port instead of resetting UFW.
+- [ ] Run isolated execution regressions and the existing shell-script suite; installation on the target server is not performed here.

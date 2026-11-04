@@ -216,6 +216,15 @@ fi
 echo ""
 echo -e "${BOLD}[ 7 ] Installer regression checks${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
+if command -v python3 >/dev/null 2>&1; then
+  if python3 "$SCRIPT_DIR/test-install.py"; then
+    pass "Master installer isolated execution regressions"
+  else
+    fail "Master installer isolated execution regressions"
+  fi
+else
+  warn "Python 3 unavailable; skipping isolated installer execution checks"
+fi
 check_contains "$REPO_ROOT/install.sh" "does not deploy the dashboard" "requirements-only warning"
 check_contains "$REPO_ROOT/install.sh" "dashboard has NOT been deployed" "requirements-only completion notice"
 check_contains "$REPO_ROOT/install.sh" "cannot complete the dashboard installation" "dashboard install failure is not masked"
