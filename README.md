@@ -13,6 +13,17 @@ A full-stack blockchain ecosystem dashboard for the GYDS Network (Chain ID 19828
 | State | TanStack React Query + React Context |
 | Auth | Username/password + Web3 wallet signature (EIP-6963) |
 
+## Token Standards
+
+GYDSchain is EVM-compatible, so its GRC token standards use interfaces compatible with the corresponding Ethereum ERC standards:
+
+- **GRC-20 / ERC-20** — fungible tokens, including GYDS, GYD, GUSD, stablecoins, and utility tokens.
+- **GRC-721 / ERC-721** — non-fungible tokens (NFTs), where each token is unique.
+- **GRC-1155 / ERC-1155** — multi-token contracts that can manage fungible and non-fungible token types.
+- **Native GYDS** — the chain’s native coin; it is not an ERC-20 token.
+
+Token Factory currently supports on-chain deployment of GRC-20 tokens only. GRC-721 and GRC-1155 are documented standards but are not yet deployable there.
+
 ## Quick Start
 
 ```bash

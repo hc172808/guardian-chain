@@ -309,9 +309,11 @@ export const TokenFactory = () => {
                           </TooltipTrigger>
                           <TooltipContent className="max-w-xs text-xs">
                             <p className="font-semibold mb-1">GYDSchain Token Standards</p>
-                            <p><strong>GRC-20</strong> — Fungible (currencies, utility, meme)</p>
-                            <p><strong>GRC-721</strong> — Non-fungible / NFT (art, collectibles)</p>
-                            <p><strong>GRC-1155</strong> — Multi-token (gaming, bundles)</p>
+                            <p><strong>GRC-20 / ERC-20</strong> — Fungible tokens such as GYDS, GYD, GUSD, stablecoins, and utility tokens.</p>
+                            <p><strong>GRC-721 / ERC-721</strong> — NFTs and other unique, non-fungible assets.</p>
+                            <p><strong>GRC-1155 / ERC-1155</strong> — Contracts that manage multiple fungible and non-fungible token types.</p>
+                            <p className="mt-1">GYDSchain is EVM-compatible, so GRC standards follow their corresponding ERC interfaces. Native GYDS is the chain’s coin, not an ERC-20 token.</p>
+                            <p className="mt-1 text-muted-foreground">Currently, only GRC-20 deployment is enabled in Token Factory.</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
