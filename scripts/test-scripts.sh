@@ -222,6 +222,25 @@ check_contains "$REPO_ROOT/install.sh" "cannot complete the dashboard installati
 check_contains "$REPO_ROOT/install.sh" "Node installation failed" "node installer failure is reported accurately"
 check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "Skipping bootnode" "unsupported bootnode skipped during all-nodes install"
 check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "BOOTNODE_INSTALLED" "only report bootnode service when installed"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" 'GO_VERSION="${GO_VERSION:-1.25.0}"' "bootnode Go version matches canonical source"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "require_mainnet_genesis_hash" "bootnode mainnet hash preflight"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "GYDS_GENESIS_HASH" "bootnode hash comes from explicit config"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "--config=\${CONFIG_FILE}" "bootnode systemd uses its generated config"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "--genesis-hash=\${GENESIS_HASH}" "bootnode passes the genesis hash"
+if output="$(CHAIN_ID=198282 GYDS_GENESIS_HASH= GYDS_CONF=/dev/null bash "$REPO_ROOT/public/scripts/install-bootnode.sh" 2>&1)"; then
+  fail "Bootnode installer accepted a missing mainnet genesis hash"
+elif [[ "$output" == *"verified mainnet genesis hash is required"* ]]; then
+  pass "Bootnode installer rejects missing mainnet genesis hash before setup"
+else
+  fail "Bootnode missing-hash rejection was unclear: $output"
+fi
+if output="$(CHAIN_ID=198282 GYDS_GENESIS_HASH=0x123 GYDS_CONF=/dev/null bash "$REPO_ROOT/public/scripts/install-bootnode.sh" 2>&1)"; then
+  fail "Bootnode installer accepted a malformed mainnet genesis hash"
+elif [[ "$output" == *"must be a non-zero 0x-prefixed 32-byte hash"* ]]; then
+  pass "Bootnode installer rejects malformed genesis hash before setup"
+else
+  fail "Bootnode malformed-hash rejection was unclear: $output"
+fi
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Non-interactive mode" "non-interactive deploy path"
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "ALLOW_EXISTING_DB_MIGRATIONS" "existing DB migration approval"
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Welcome to nginx" "default Nginx page verification"
