@@ -11,8 +11,8 @@
 # ║      SUBDOMAIN=app DOMAIN=netlifegy.com \                              ║
 # ║      CF_TUNNEL_TOKEN=<token> bash deploy-dashboard.sh                  ║
 # ║                                                                         ║
-# ║    Main domain + certbot SSL (no Cloudflare):                          ║
-# ║      DOMAIN=netlifegy.com USE_CERTBOT=1 bash deploy-dashboard.sh       ║
+# ║    Root domain + certbot SSL (no Cloudflare):                          ║
+# ║      SUBDOMAIN="" DOMAIN=netlifegy.com USE_CERTBOT=1 bash deploy-dashboard.sh ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
@@ -24,7 +24,7 @@ info()   { echo -e "${CYAN}[→]${NC} $*"; }
 step()   { echo ""; echo -e "${BOLD}${GREEN}━━━ $* ━━━${NC}"; }
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-SUBDOMAIN="${SUBDOMAIN:-}"                          # e.g. "app" → app.netlifegy.com (empty = use DOMAIN directly)
+SUBDOMAIN="${SUBDOMAIN-app}"                        # defaults to "app"; set empty explicitly to use DOMAIN directly
 DOMAIN="${DOMAIN:-netlifegy.com}"
 GYDS_RPC_DOMAIN="${GYDS_RPC_DOMAIN:-rpc.${DOMAIN}}"
 FQDN="${SUBDOMAIN:+${SUBDOMAIN}.}${DOMAIN}"        # app.netlifegy.com or netlifegy.com

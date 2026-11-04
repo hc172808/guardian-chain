@@ -171,6 +171,7 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn("limit_req_zone", site_template)
         self.assertIn("server_name ${RPC_DOMAIN};", site_template)
 
+        self.assertIn('SUBDOMAIN="${SUBDOMAIN-app}"', deploy)
         self.assertIn('GYDS_RPC_DOMAIN="${GYDS_RPC_DOMAIN:-rpc.${DOMAIN}}"', deploy)
         self.assertIn('echo "GYDS_RPC_DOMAIN=${GYDS_RPC_DOMAIN}"', deploy)
 
