@@ -9,38 +9,18 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { TrendingUp, TrendingDown, AlertTriangle, RefreshCw, Info, Timer, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { normalizePerpMarkets, normalizePerpPositions, type PerpMarket, type PerpPosition } from '@/lib/perpsMarkets';
 
 type Side = 'long' | 'short';
-type Market = { 
-  pair: string; 
-  price: number; 
-  change: number; 
-  funding: number; 
-  oi: number;
-  maxLeverage: number;
-  minSize: number;
-};
-
-interface Position {
-  id: string;
-  market: string;
-  side: Side;
-  size: number;
-  leverage: number;
-  entry_price: number;
-  liquidation_price: number;
-  margin: number;
-  pnl: number;
-  created_at: string;
-}
 
 export const Perpetuals = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   
-  const [markets, setMarkets] = useState<Market[]>([]);
-  const [market, setMarket] = useState<Market | null>(null);
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [markets, setMarkets] = useState<PerpMarket[]>([]);
+  const [market, setMarket] = useState<PerpMarket | null>(null);
+  const [positions, setPositions] = useState<PerpPosition[]>([]);
+  const [marketError, setMarketError] = useState('');
   
   const [side, setSide] = useState<Side>('long');
   const [size, setSize] = useState('');
@@ -54,13 +34,20 @@ export const Perpetuals = () => {
 
   const fetchMarkets = useCallback(async () => {
     setLoadingMarkets(true);
+    setMarketError('');
     try {
       const res = await fetch('/api/perps/markets');
-      if (res.ok) {
-        const data = await res.json();
-        setMarkets(data);
-        if (data.length > 0) setMarket(data[0]);
+      if (!res.ok) throw new Error(`Market request failed (${res.status})`);
+      const liveMarkets = normalizePerpMarkets(await res.json());
+      setMarkets(liveMarkets);
+      setMarket(liveMarkets[0] ?? null);
+      if (liveMarkets.length === 0) {
+        setMarketError('Live prices are unavailable. Trading is disabled until a valid price feed returns.');
       }
+    } catch {
+      setMarkets([]);
+      setMarket(null);
+      setMarketError('Could not load live market prices. Please try again.');
     } finally {
       setLoadingMarkets(false);
     }
@@ -71,7 +58,7 @@ export const Perpetuals = () => {
     setLoadingPositions(true);
     try {
       const res = await fetch('/api/perps/positions', { credentials: 'include' });
-      if (res.ok) setPositions(await res.json());
+      if (res.ok) setPositions(normalizePerpPositions(await res.json()));
     } finally {
       setLoadingPositions(false);
     }
@@ -155,7 +142,9 @@ export const Perpetuals = () => {
     }
   };
 
-  const fmtPx = (p: number) => {
+  const fmtPx = (value: unknown) => {
+    const p = Number(value);
+    if (!Number.isFinite(p) || p <= 0) return '—';
     if (p < 0.000001) return p.toExponential(3);
     return p.toFixed(7);
   };
@@ -175,7 +164,7 @@ export const Perpetuals = () => {
       <GlassCard className="p-4 space-y-3">
         <h2 className="font-semibold flex items-center gap-2 text-sm">📊 Perpetual Markets</h2>
         <div className="space-y-2">
-          {markets.map(m => (
+          {markets.length > 0 ? markets.map(m => (
             <button key={m.pair} onClick={() => { setMarket(m); setLeverage(prev => Math.min(prev, m.maxLeverage)); }}
               className={cn('w-full flex items-center justify-between p-3 rounded-xl text-left transition-all border',
                 market?.pair === m.pair ? 'border-primary/60 bg-primary/10' : 'border-border/30 bg-muted/10 hover:bg-muted/20')}>
@@ -190,7 +179,15 @@ export const Perpetuals = () => {
                 <p className="text-xs text-muted-foreground">OI: ${(m.oi / 1000).toFixed(0)}K</p>
               </div>
             </button>
-          ))}
+          )) : (
+            <div className="rounded-xl border border-border/30 bg-muted/10 p-4 text-center">
+              <p className="text-sm text-muted-foreground">{marketError || 'No live market prices are available.'}</p>
+              <Button variant="outline" size="sm" onClick={fetchMarkets} disabled={loadingMarkets} className="mt-3">
+                <RefreshCw className={cn('mr-2 h-3.5 w-3.5', loadingMarkets && 'animate-spin')} />
+                Retry
+              </Button>
+            </div>
+          )}
         </div>
       </GlassCard>
 
@@ -301,8 +298,10 @@ export const Perpetuals = () => {
           <div className="space-y-3">
             {positions.map(pos => {
               const currentMarket = markets.find(m => m.pair === pos.market);
-              const curPrice = currentMarket?.price || pos.entry_price;
-              const priceDiff = Math.abs(curPrice - pos.liquidation_price) / curPrice;
+              const curPrice = currentMarket?.price ?? pos.entry_price;
+              const priceDiff = curPrice > 0
+                ? Math.abs(curPrice - pos.liquidation_price) / curPrice
+                : Number.POSITIVE_INFINITY;
               const isNearLiq = priceDiff < 0.1;
 
               return (
