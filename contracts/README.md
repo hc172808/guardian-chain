@@ -49,21 +49,29 @@ The repository starts with zero contract addresses. A real swap cannot execute
 until the contracts are deployed to chain ID `198282`, the token contracts are
 real contracts on that chain, the pair is created, and liquidity is funded.
 
-1. Configure `GYDS_LOCAL_RPC_URL` (preferred for this server) or `GYDS_RPC_URL`
-   to a real RPC for chain `198282`; the deployment config uses the local RPC
-   first. Set `DEPLOYER_PRIVATE_KEY` as a server secret (never commit or paste
-   the key).
+1. Configure `GYDS_LOCAL_RPC_URL` (preferred) or `GYDS_RPC_URL` to a reachable
+   RPC for chain `198282`; without either, the script checks the local node at
+   `http://127.0.0.1:8545`. The first run is read-only and does not need a
+   deployer key.
 2. For USDT trading, set `GYDS_USDT_TOKEN_ADDRESS` to the actual USDT ERC-20
    contract on GYDS mainnet. For GYD/USDT trading, also set
    `GYDS_GYD_TOKEN_ADDRESS` to the actual GYD ERC-20 contract. The deployment
    script checks the chain, contract code, and token symbols before creating
    pairs; it does not create fake or placeholder tokens.
-3. Run `npm run compile` and then `npm run deploy:gydschain` from this directory.
-   The script deploys WGYDS, the factory, and router, creates only the pairs
-   whose real token addresses were supplied, and saves public contract
-   addresses to the repository-root `.env`.
-4. Configure and fund the required pools with real assets before enabling
-   trading. A deployed router without pair liquidity is not a working market.
+3. From this directory, run `npm run setup:gydschain`. It compiles the
+   contracts, checks the chain and token contracts, then exits after a read-only
+   dry run unless explicitly confirmed.
+4. To submit transactions, add `DEPLOYER_PRIVATE_KEY` through Replit Secrets
+   (never paste it in chat or commit it) and set
+   `CONFIRM_GYDS_MAINNET_DEPLOYMENT=true` in the deployment environment. Run
+   `npm run setup:gydschain` again only after confirming the target chain and
+   deployer address. The script deploys WGYDS, Factory, Router, and Farm,
+   creates the WGYDS/USDT reference pair, adds its LP token to the farm, and
+   saves public contract addresses to the repository-root `.env`.
+5. The farm starts with zero rewards. Fund and configure emissions separately
+   after deciding the reward budget. The script creates empty pairs; add real
+   liquidity before enabling trading. It does not deploy user-created
+   stablecoins: those remain subject to the app's explicit approval flow.
 
 ## Security Notes
 

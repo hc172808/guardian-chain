@@ -1,7 +1,6 @@
 import { ethers } from "hardhat";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const EXPECTED_CHAIN_ID = 198282n;
@@ -16,7 +15,7 @@ function readOptionalTokenAddress(key: string): string | null {
 }
 
 function saveAddressesToRootEnv(values: Record<string, string>) {
-  const envPath = fileURLToPath(new URL("../../.env", import.meta.url));
+  const envPath = path.resolve(__dirname, "../../.env");
   let content = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
   for (const [key, value] of Object.entries(values)) {
     const line = `${key}=${value}`;
@@ -46,10 +45,6 @@ async function validateTokenContract(address: string | null, expectedSymbol: "US
 }
 
 async function main() {
-  if (!process.env.DEPLOYER_PRIVATE_KEY) {
-    throw new Error("DEPLOYER_PRIVATE_KEY is not configured. Add it as a server secret; do not paste it into chat or commit it.");
-  }
-  const [deployer] = await ethers.getSigners();
   const chainId = (await ethers.provider.getNetwork()).chainId;
   if (chainId !== EXPECTED_CHAIN_ID) {
     throw new Error(
@@ -66,21 +61,41 @@ async function main() {
   const gydAddress = readOptionalTokenAddress("GYDS_GYD_TOKEN_ADDRESS");
   await validateTokenContract(usdtAddress, "USDT");
   await validateTokenContract(gydAddress, "GYD");
+
+  if (process.env.CONFIRM_GYDS_MAINNET_DEPLOYMENT !== "true") {
+    console.log("DRY RUN PASSED — no transactions were submitted.");
+    console.log(`Connected chain: ${chainId}`);
+    console.log("Validated token contracts:", { USDT: usdtAddress, GYD: gydAddress ?? "not configured" });
+    console.log("To deploy, add DEPLOYER_PRIVATE_KEY as a secret and set");
+    console.log("CONFIRM_GYDS_MAINNET_DEPLOYMENT=true, then run this script again.");
+    return;
+  }
+
+  if (!process.env.DEPLOYER_PRIVATE_KEY) {
+    throw new Error("DEPLOYER_PRIVATE_KEY is not configured. Add it as a server secret; do not paste it into chat or commit it.");
+  }
+  const [deployer] = await ethers.getSigners();
+  if (!deployer) throw new Error("No deployment signer is configured.");
+
   console.log("Deploying GydsSwap core to GYDS mainnet (198282)");
   console.log("Deployer:", deployer.address);
-  console.log("Balance:", ethers.formatEther(await ethers.provider.getBalance(deployer.address)), "GYDS");
+  const balance = await ethers.provider.getBalance(deployer.address);
+  console.log("Balance:", ethers.formatEther(balance), "GYDS");
+  if (balance === 0n) throw new Error("Deployer has no GYDS for gas. No deployment transactions were submitted.");
 
   const WGYDS = await ethers.getContractFactory("WGYDS");
   const wgyds = await WGYDS.deploy();
   await wgyds.waitForDeployment();
   const wgydsAddress = await wgyds.getAddress();
   console.log("WGYDS:", wgydsAddress);
+  saveAddressesToRootEnv({ GYDS_SWAP_WGYDS_ADDRESS: wgydsAddress });
 
   const Factory = await ethers.getContractFactory("GydsSwapFactory");
   const factory = await Factory.deploy(deployer.address, wgydsAddress, usdtAddress);
   await factory.waitForDeployment();
   const factoryAddress = await factory.getAddress();
   console.log("Factory:", factoryAddress);
+  saveAddressesToRootEnv({ GYDS_SWAP_FACTORY_ADDRESS: factoryAddress });
 
   if (gydAddress) {
     const tx = await factory.setTrustedToken(gydAddress, true);
@@ -92,10 +107,30 @@ async function main() {
   await router.waitForDeployment();
   const routerAddress = await router.getAddress();
   console.log("Router:", routerAddress);
+  saveAddressesToRootEnv({ GYDS_SWAP_ROUTER_ADDRESS: routerAddress });
+
+  const Farm = await ethers.getContractFactory("GydsSwapFarm");
+  const farm = await Farm.deploy(wgydsAddress, 0n);
+  await farm.waitForDeployment();
+  const farmAddress = await farm.getAddress();
+  console.log("Farm:", farmAddress);
+  console.log("Farm rewards start disabled (zero emission) until funded and configured.");
+  saveAddressesToRootEnv({ GYDS_SWAP_FARM_ADDRESS: farmAddress });
 
   const oraclePairTx = await factory.createPair(wgydsAddress, usdtAddress, "WGYDS", "USDT");
   await oraclePairTx.wait();
   console.log("Created WGYDS/USDT reference pair using configured USDT contract:", usdtAddress);
+  const oraclePairAddress = await factory.getPair(wgydsAddress, usdtAddress);
+  if (!oraclePairAddress || oraclePairAddress === ZERO_ADDRESS) {
+    throw new Error("The WGYDS/USDT pair was not registered after creation.");
+  }
+  const pair = new ethers.Contract(oraclePairAddress, [
+    "function lpToken() view returns (address)",
+  ], deployer);
+  const lpTokenAddress = await pair.lpToken();
+  const farmPoolTx = await farm.addPool(lpTokenAddress, 100n);
+  await farmPoolTx.wait();
+  console.log("Added the WGYDS/USDT LP token to the farm with zero reward emission.");
 
   if (gydAddress && usdtAddress) {
     const tx = await factory.createPair(gydAddress, usdtAddress, "GYD", "USDT");
@@ -109,6 +144,7 @@ async function main() {
     GYDS_SWAP_WGYDS_ADDRESS: wgydsAddress,
     GYDS_SWAP_FACTORY_ADDRESS: factoryAddress,
     GYDS_SWAP_ROUTER_ADDRESS: routerAddress,
+    GYDS_SWAP_FARM_ADDRESS: farmAddress,
     ...(usdtAddress ? { GYDS_USDT_TOKEN_ADDRESS: usdtAddress } : {}),
     ...(gydAddress ? { GYDS_GYD_TOKEN_ADDRESS: gydAddress } : {}),
   });

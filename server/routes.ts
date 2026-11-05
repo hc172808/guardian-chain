@@ -1,8 +1,9 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, RequestHandler } from "express";
+import type { ParamsFlatDictionary } from "express-serve-static-core";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS, ALL_NETWORKS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
+import { testNodeManager, getGenesisEnode, getChainBlockHeight, NETWORK_CFGS, ALL_NETWORKS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
@@ -21,7 +22,7 @@ import fs from "fs";
 import os from "os";
 import bcrypt from "bcryptjs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
-import { broadcastTransfer, pollForConfirmation, checkRpcHealth, testEndpoints } from "./chainRpc";
+import { broadcastTransfer, pollForConfirmation, checkRpcHealth, getChainBalance, testEndpoints } from "./chainRpc";
 import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasuryBalance, sendTreasuryTransfer } from "./treasury";
 import {
   deployOrResumeStablecoin,
@@ -88,6 +89,10 @@ function parsePositiveAmount(value: unknown): number {
 
 function isWalletAddress(value: unknown): value is string {
   return typeof value === "string" && /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+}
+
+async function readJsonBody<T = unknown>(response: globalThis.Response): Promise<T> {
+  return response.json() as Promise<T>;
 }
 
 async function getUserWalletAddresses(client: any, userId: string): Promise<string[]> {
@@ -305,7 +310,21 @@ async function enrichUserWithRoles(req: Request, _res: Response, next: any) {
   next();
 }
 
-export function registerRoutes(app: Express) {
+type RouteRegistrar = {
+  use: Express["use"];
+  get: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  post: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  put: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  patch: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  delete: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  all: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+};
+
+export function registerRoutes(expressApp: Express) {
+  // Express 5's broad PathParams overload can infer params as string | string[]
+  // even for literal string routes. Keep this registrar string-route-only so
+  // route handlers receive the correct string parameter types.
+  const app = expressApp as unknown as RouteRegistrar;
   app.use(enrichUserWithRoles);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -2085,9 +2104,9 @@ export function registerRoutes(app: Express) {
         return res.status(400).json({ error: "redirectUrl must start with http://, https://, or /" });
       }
       const value = { enabled, durationsSec, redirectUrl };
-      await storage.setAdminConfig("lockout_settings", value);
-      invalidateLockoutSettingsCache();
       const actor = req.user as any;
+      await storage.upsertConfig("lockout_settings", value, actor.id);
+      invalidateLockoutSettingsCache();
       await storage.insertAuditLog({
         userId: actor.id, userEmail: actor.email ?? null,
         action: "update_lockout_settings", category: "admin",
@@ -2279,7 +2298,7 @@ export function registerRoutes(app: Express) {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: `response=${encodeURIComponent(hcaptcha_token)}&secret=${encodeURIComponent(process.env.HCAPTCHA_SECRET_KEY)}`,
         });
-        const verifyData = await verifyRes.json();
+        const verifyData = await verifyRes.json() as { success?: boolean };
         if (!verifyData.success) return res.status(400).json({ ok: false, error: "CAPTCHA verification failed" });
       } catch {
         return res.status(500).json({ ok: false, error: "CAPTCHA service unavailable" });
@@ -2377,12 +2396,12 @@ export function registerRoutes(app: Express) {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
           signal: AbortSignal.timeout(3000),
-        }).then(r => r.json()).catch(() => null),
+        }).then(r => r.json() as Promise<any>).catch(() => null),
         fetch(rpcUrl, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "net_peerCount", params: [] }),
           signal: AbortSignal.timeout(3000),
-        }).then(r => r.json()).catch(() => null),
+        }).then(r => r.json() as Promise<any>).catch(() => null),
       ]);
       if (blockRes?.result) {
         const h = parseInt(blockRes.result, 16);
@@ -2400,7 +2419,7 @@ export function registerRoutes(app: Express) {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ jsonrpc: "2.0", id: 10 + i, method: "eth_getBlockByNumber", params: [bn, false] }),
               signal: AbortSignal.timeout(3000),
-            }).then(r => r.json()).then(d => (d?.result?.transactions?.length ?? 0)).catch(() => 0);
+            }).then(r => r.json() as Promise<any>).then(d => (d?.result?.transactions?.length ?? 0)).catch(() => 0);
           })
         );
         const avgTxPerBlock = counts.reduce((a, b) => a + b, 0) / counts.length;
@@ -3019,7 +3038,7 @@ export function registerRoutes(app: Express) {
       // Alert Discord + all admin Telegram chats
       discordNodeDown(type, network).catch(() => {});
       pgPool.query(`SELECT telegram_chat_id FROM users WHERE (roles @> '{admin}' OR roles @> '{founder}') AND telegram_chat_id IS NOT NULL`)
-        .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'system', {
+        .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'custom', {
           title: `🔴 Node Offline`,
           body: `<b>${type}</b> on <b>${network}</b> was stopped.`,
         }).catch(() => {})))
@@ -3677,7 +3696,7 @@ export function registerRoutes(app: Express) {
       `).catch(() => {});
 
       // Combine token_operations (historical) with mining_payouts (explicit payout records)
-      const { rows } = await pgPool.query(`
+      const rows = await pgPool.query(`
         SELECT
           wallet_address,
           SUM(amount)   AS total_earned,
@@ -3695,10 +3714,10 @@ export function registerRoutes(app: Express) {
           MAX(paid_at)  AS last_seen
         FROM mining_payouts
         GROUP BY wallet_address
-      `).then(async (res) => {
+      `).then(async (queryResult) => {
         // Merge by wallet_address
         const merged: Record<string, { total: number; shares: number; last: string }> = {};
-        for (const r of res.rows) {
+        for (const r of queryResult.rows) {
           const k = r.wallet_address;
           if (!merged[k]) merged[k] = { total: 0, shares: 0, last: r.last_seen };
           merged[k].total += Number(r.total_earned);
@@ -4092,7 +4111,7 @@ export function registerRoutes(app: Express) {
               body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [addr, "latest"], id: 1 }),
               signal: AbortSignal.timeout(4000),
             });
-            const j = await r.json();
+            const j = await readJsonBody<any>(r);
             const wei = j?.result ? BigInt(j.result) : BigInt(0);
             const ether = Number(wei) / 1e18;
             perAddress[addr] = ether.toFixed(6);
@@ -4115,7 +4134,7 @@ export function registerRoutes(app: Express) {
             body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [addr, "latest"], id: 1 }),
             signal: AbortSignal.timeout(4000),
           });
-          const j = await r.json();
+          const j = await readJsonBody<any>(r);
           const wei = j?.result ? BigInt(j.result) : BigInt(0);
           const ether = Number(wei) / 1e18;
           perAddress[addr] = ether.toString();
@@ -4253,7 +4272,7 @@ export function registerRoutes(app: Express) {
           body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
           signal: AbortSignal.timeout(5000),
         });
-        const j = await r.json();
+        const j = await readJsonBody<any>(r);
         if (j.error) throw new Error(j.error.message);
         return j.result;
       };
@@ -4322,7 +4341,7 @@ export function registerRoutes(app: Express) {
           body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
         });
         clearTimeout(timer);
-        const rpcData = await rpcRes.json().catch(() => ({}));
+        const rpcData = await rpcRes.json().catch(() => ({})) as any;
         const blockHex = rpcData?.result;
         const blockHeight = blockHex ? parseInt(blockHex, 16) : undefined;
         const updates: Record<string, any> = { isOnline: true, lastHeartbeat: new Date() };
@@ -4701,7 +4720,7 @@ export function registerRoutes(app: Express) {
       if (amountNumber >= LARGE_THRESHOLD) {
         discordLargeBridgeTransfer(String(amount), fromChain, toChain, fromToken ?? 'GYDS').catch(() => {});
         pgPool.query(`SELECT telegram_chat_id FROM users WHERE (roles @> '{admin}' OR roles @> '{founder}') AND telegram_chat_id IS NOT NULL`)
-          .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'system', {
+        .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'custom', {
             title: `🌉 Large Bridge Transfer`,
             body: `<b>${amount} ${fromToken ?? 'GYDS'}</b>\n${fromChain} → ${toChain}`,
           }).catch(() => {})))
@@ -4963,7 +4982,7 @@ export function registerRoutes(app: Express) {
 
   app.get("/v1/tokens", async (_req, res) => {
     try {
-      const tokens = await storage.getAllTokens?.() ?? [];
+      const tokens = await storage.getActiveTokens();
       res.json(tokens);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -5000,9 +5019,10 @@ export function registerRoutes(app: Express) {
   app.get("/v1/address/:address/balance", async (req, res) => {
     try {
       const { address } = req.params;
-      const wallet = await storage.getWalletByAddress?.(address);
-      if (!wallet) return res.status(404).json({ error: "address not found" });
-      res.json({ address, balance: wallet.balance, coin: "GYDS" });
+      if (!isWalletAddress(address)) return res.status(400).json({ error: "invalid wallet address" });
+      const balance = await getChainBalance(address);
+      if (balance === null) return res.status(503).json({ error: "chain RPC unavailable" });
+      res.json({ address, balance, coin: "GYDS" });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -5235,7 +5255,7 @@ export function registerRoutes(app: Express) {
 
   app.get("/v1/pools", async (_req, res) => {
     try {
-      const pools = await storage.getLiquidityPools?.() ?? [];
+      const pools = await storage.getActivePools();
       res.json(pools);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -5673,10 +5693,10 @@ export function registerRoutes(app: Express) {
         const [bnRes, peerRes] = await Promise.all([
           fetch(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
-            signal: AbortSignal.timeout(4000) }).then(r => r.json()).catch(() => null),
+            signal: AbortSignal.timeout(4000) }).then(r => readJsonBody<any>(r)).catch(() => null),
           fetch(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'net_peerCount', params: [] }),
-            signal: AbortSignal.timeout(4000) }).then(r => r.json()).catch(() => null),
+            signal: AbortSignal.timeout(4000) }).then(r => readJsonBody<any>(r)).catch(() => null),
         ]);
         if (bnRes?.result) blockHeight = parseInt(bnRes.result, 16);
         if (peerRes?.result) peerCount = parseInt(peerRes.result, 16);
@@ -5688,7 +5708,7 @@ export function registerRoutes(app: Express) {
               const bn = '0x' + (blockHeight - i).toString(16);
               return fetch(rpcUrl!, { method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ jsonrpc: '2.0', id: 10 + i, method: 'eth_getBlockByNumber', params: [bn, false] }),
-                signal: AbortSignal.timeout(3000) }).then(r => r.json()).then(d => d?.result?.transactions?.length ?? 0).catch(() => 0);
+                signal: AbortSignal.timeout(3000) }).then(r => readJsonBody<any>(r)).then(d => d?.result?.transactions?.length ?? 0).catch(() => 0);
             })
           );
           tps = Math.max(0, Math.round(counts.reduce((a, b) => a + b, 0) / counts.length / 5));
@@ -5748,7 +5768,7 @@ export function registerRoutes(app: Express) {
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
           signal: AbortSignal.timeout(3000),
         });
-        const j = await r.json();
+        const j = await readJsonBody<any>(r);
         if (j?.result) {
           rpcOnline = true;
           const blockHeight = parseInt(j.result, 16);
@@ -5803,7 +5823,7 @@ export function registerRoutes(app: Express) {
           });
           const ms = Date.now() - start;
           if (isJsonRpc) {
-            const j = await r.json().catch(() => ({}));
+            const j = await r.json().catch(() => ({})) as any;
             const block = j?.result ? parseInt(j.result, 16) : null;
             results.push(`${url}: block=${block ?? 'err'} (${ms}ms)`);
           } else {
@@ -5849,7 +5869,7 @@ export function registerRoutes(app: Express) {
             body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
           });
           clearTimeout(timer);
-          const rpcData = await rpcRes.json().catch(() => ({}));
+          const rpcData = await rpcRes.json().catch(() => ({})) as any;
           const bh = rpcData?.result ? parseInt(rpcData.result, 16) : undefined;
           blockHeight = bh;
           nowOnline = true;
