@@ -162,9 +162,10 @@ fi
 step "1/8 — System packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-PKGS="git curl wget build-essential nginx postgresql postgresql-contrib ufw fail2ban jq"
+PKGS="git curl wget build-essential nginx postgresql postgresql-contrib ufw fail2ban jq cron"
 [[ "$USE_CERTBOT" == "1" ]] && PKGS="$PKGS certbot python3-certbot-nginx"
 apt-get install -y -qq $PKGS
+systemctl enable --now cron
 
 if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
     info "Installing Node.js 22 LTS..."
@@ -580,6 +581,17 @@ else
     pm2 save --force
 fi
 log "PM2: gydschain-api → port $PORT_API"
+
+# Install an independent API/database watchdog. PM2 restarts crashed processes;
+# this also catches a hung API or lost database connection.
+install -m 755 "$APP_DIR/public/scripts/gyds-watchdog.sh" /usr/local/bin/gyds-watchdog
+cat > /etc/cron.d/gyds-watchdog <<CRON
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root APP_PORT=${PORT_API} PM2_APP=gydschain-api PM2_USER=${NODE_USER} LOG_FILE=/var/log/gydschain/watchdog.log /usr/bin/flock -n /run/gyds-watchdog.lock /usr/local/bin/gyds-watchdog
+CRON
+chmod 644 /etc/cron.d/gyds-watchdog
+log "API/database watchdog installed (minute checks; 5-minute restart cooldown)"
 
 # Confirm the API is alive before configuring the public site.
 API_HEALTH=""

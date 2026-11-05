@@ -38,6 +38,7 @@ ruler() { echo -e "${DIM}──────────────────�
 # ── Defaults ─────────────────────────────────────────────────────────────────
 APP_DIR="${APP_DIR:-/var/www/gydschain}"
 PM2_APP="${PM2_APP:-gydschain-api}"
+APP_PORT="${APP_PORT:-${PORT:-5001}}"
 DO_BUILD=1
 DO_DB=1
 FORCE=0
@@ -82,6 +83,31 @@ if [[ -f "$ENV_FILE" ]]; then
     source "$ENV_FILE"
     set +a
 fi
+
+APP_USER="${PM2_USER:-$(stat -c '%U' "$APP_DIR" 2>/dev/null || echo root)}"
+
+install_watchdog() {
+    local watchdog_source="${APP_DIR}/public/scripts/gyds-watchdog.sh"
+    [[ -f "$watchdog_source" ]] || return 0
+    if [[ "$EUID" -ne 0 ]]; then
+        warn "Watchdog update skipped (run as root to install /etc/cron.d/gyds-watchdog)"
+        return 0
+    fi
+
+    if ! command -v cron >/dev/null 2>&1; then
+        command -v apt-get >/dev/null 2>&1 || { warn "Cron is missing and apt-get is unavailable; watchdog not installed"; return 0; }
+        apt-get install -y -qq cron
+    fi
+    systemctl enable --now cron
+    install -m 755 "$watchdog_source" /usr/local/bin/gyds-watchdog
+    cat > /etc/cron.d/gyds-watchdog <<CRON
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root APP_PORT=${APP_PORT} PM2_APP=${PM2_APP} PM2_USER=${APP_USER} LOG_FILE=/var/log/gydschain/watchdog.log /usr/bin/flock -n /run/gyds-watchdog.lock /usr/local/bin/gyds-watchdog
+CRON
+    chmod 644 /etc/cron.d/gyds-watchdog
+    ok "Installed API/database watchdog (every minute; restart cooldown 5 minutes)"
+}
 
 # Resolve branch
 if [[ -z "$BRANCH" ]]; then
@@ -160,6 +186,7 @@ if [[ "$CURRENT" == "$REMOTE" ]] && [[ "$FORCE" -eq 0 ]]; then
         }
         _do_migrate
     fi
+    install_watchdog
     exit 0
 fi
 
@@ -178,6 +205,7 @@ fi
 git -C "$APP_DIR" pull --ff-only origin "$BRANCH" 2>&1 | tee_log
 
 [[ $STASHED -eq 1 ]] && { git -C "$APP_DIR" stash pop >> "$LOG_FILE" 2>&1 || warn "Could not restore stash — check git stash list"; }
+install_watchdog
 
 NEW_COMMIT=$(git -C "$APP_DIR" log -1 --format='%h %s')
 ok "Pulled: $NEW_COMMIT"

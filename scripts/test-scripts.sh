@@ -255,6 +255,13 @@ check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "ALLOW_EXISTING_D
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Welcome to nginx" "default Nginx page verification"
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "/api/auth/captcha/health" "dashboard auth API health check"
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Login/register route verified" "dashboard login route verification"
+check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "/api/auth/captcha" "watchdog checks the API process"
+check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "/api/health/db" "watchdog checks database connectivity"
+check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "RESTART_COOLDOWN_SECONDS" "watchdog prevents restart loops"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "install_watchdog" "git updater installs/refreshes the watchdog"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "gyds-watchdog" "dashboard deploy installs the watchdog"
+check_contains "$REPO_ROOT/public/scripts/setup-server.sh" "cron" "fresh server setup installs cron"
+check_contains "$REPO_ROOT/server/routes.ts" 'app.get("/api/health/db"' "dedicated database health endpoint"
 
 echo ""
 echo -e "${BOLD}[ 7a ] Canonical node source and mode checks${NC}"

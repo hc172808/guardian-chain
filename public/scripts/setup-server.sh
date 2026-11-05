@@ -105,8 +105,9 @@ apt-get install -y -qq \
     git curl wget build-essential \
     nginx \
     postgresql postgresql-contrib \
-    ufw fail2ban \
+    ufw fail2ban cron \
     jq unzip logrotate
+systemctl enable --now cron
 
 # Node.js LTS (via NodeSource)
 if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
@@ -363,6 +364,19 @@ else
     pm2 save --force
 fi
 log "PM2 running: gydschain-api → port $PORT_API"
+
+# Install an independent API/database watchdog. PM2 restarts crashed processes;
+# this also catches a hung API or database connectivity loss.
+if [[ -f "$APP_DIR/public/scripts/gyds-watchdog.sh" ]]; then
+    install -m 755 "$APP_DIR/public/scripts/gyds-watchdog.sh" /usr/local/bin/gyds-watchdog
+    cat > /etc/cron.d/gyds-watchdog <<CRON
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root APP_PORT=${PORT_API} PM2_APP=gydschain-api PM2_USER=${NODE_USER} LOG_FILE=/var/log/gydschain/watchdog.log /usr/bin/flock -n /run/gyds-watchdog.lock /usr/local/bin/gyds-watchdog
+CRON
+    chmod 644 /etc/cron.d/gyds-watchdog
+    log "API/database watchdog installed (minute checks; 5-minute restart cooldown)"
+fi
 
 # ─── Step 6: Nginx (Cloudflare proxy — no SSL cert needed) ────────────────────
 step "6/9 — Nginx (Cloudflare-aware)"

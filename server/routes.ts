@@ -4255,20 +4255,22 @@ export function registerRoutes(expressApp: Express) {
 
   // ── Live Explorer: fetch real blocks from a running test node ────────────
   app.get("/api/explorer/live-blocks", async (req, res) => {
-    const count = Math.min(parseInt((req.query.count as string) || "20", 10), 50);
+    const requestedCount = parseInt(String(req.query.count ?? "20"), 10);
+    const count = Number.isFinite(requestedCount) ? Math.max(1, Math.min(requestedCount, 50)) : 20;
+    const requestedNetwork = String(req.query.network ?? "mainnet").toLowerCase();
+    if (requestedNetwork !== "mainnet" && requestedNetwork !== "testnet") {
+      return res.status(400).json({ ok: false, error: "network must be mainnet or testnet" });
+    }
     const all = testNodeManager.status() as any;
-    // Try each network for any running node
+    // Use only the selected network so the mobile explorer never mixes chain data.
     let targetPort: number | null = null;
-    const networksToTry = ["mainnet", "testnet", "devnet"];
     const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"] as const;
-    outer: for (const net of networksToTry) {
-      const netStatus = all[net] ?? {};
-      for (const t of prioritized) {
-        if (netStatus[t]?.running) { targetPort = netStatus[t].port; break outer; }
-      }
+    const netStatus = all[requestedNetwork] ?? {};
+    for (const t of prioritized) {
+      if (netStatus[t]?.running) { targetPort = netStatus[t].port; break; }
     }
     if (!targetPort) {
-      return res.json({ ok: false, error: "No test nodes running", blocks: [], blockHeight: 0, online: false });
+      return res.json({ ok: false, error: `No ${requestedNetwork} test nodes running`, blocks: [], blockHeight: 0, online: false, network: requestedNetwork });
     }
     try {
       const rpcBase = `http://localhost:${targetPort}`;
@@ -4318,9 +4320,9 @@ export function registerRoutes(expressApp: Express) {
           extraData: b.extraData,
         }));
 
-      res.json({ ok: true, online: true, blockHeight: latest, blocks, rpcPort: targetPort });
+      res.json({ ok: true, online: true, network: requestedNetwork, blockHeight: latest, blocks, rpcPort: targetPort });
     } catch (e: any) {
-      res.json({ ok: false, error: e.message, blocks: [], blockHeight: 0, online: false });
+      res.json({ ok: false, error: e.message, blocks: [], blockHeight: 0, online: false, network: requestedNetwork });
     }
   });
 
@@ -5267,6 +5269,35 @@ export function registerRoutes(expressApp: Express) {
   });
 
   // ── Health Check ───────────────────────────────────────────────────────────
+  // Lightweight database probe for local monitoring and the VPS watchdog.
+  app.get("/api/health/db", async (_req, res) => {
+    const started = Date.now();
+    try {
+      const result = await pgPool.query<{ connected: number }>("SELECT 1 AS connected");
+      if (Number(result.rows[0]?.connected) !== 1) {
+        return res.status(503).json({
+          status: "unhealthy",
+          database: false,
+          latencyMs: Date.now() - started,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      res.json({
+        status: "healthy",
+        database: true,
+        latencyMs: Date.now() - started,
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      res.status(503).json({
+        status: "unhealthy",
+        database: false,
+        latencyMs: Date.now() - started,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   // ── Admin Monitoring (Validator + Explorer + System) ──────────────────────
   app.get("/api/admin/monitoring", requireAdmin, async (_req, res) => {
     try {

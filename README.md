@@ -169,6 +169,13 @@ than deleting it. Do not do this if a node service still uses that directory.
 The PostgreSQL connection test can succeed independently of this repository-root
 problem.
 
+The separately maintained miner app lives at
+[`hc172808/replit-project-migration`](https://github.com/hc172808/replit-project-migration).
+Before cloning or linking it, review [`MINER_REPOSITORY.md`](MINER_REPOSITORY.md):
+the upstream currently tracks a `.env` file, so do not copy it into this project
+or add it as a submodule until that file is safely removed and any exposed
+credentials are rotated.
+
 ## Network Config
 
 | Parameter | Value |

@@ -6,12 +6,26 @@ This is a separate TanStack Start application, not a drop-in package for this Vi
 
 ## Security before cloning or linking
 
-The upstream repository currently tracks a `.env` file. Its contents were not inspected. Treat it as potentially sensitive: audit it, remove it from the repository history, and rotate any credentials that may have been committed. Do not add this repository as a submodule or copy its files until that cleanup is complete. Review setup scripts before running them.
+The upstream repository currently tracks a `.env` file (confirmed from the repository tree; its contents were not fetched or inspected). Treat it as potentially sensitive: audit it, remove it from the repository history, and rotate any credentials that may have been committed. Do not add this repository as a submodule or copy its files until that cleanup is complete. Review setup scripts before running them.
 
-After cleanup, developers can clone the source separately:
+## Developer workflow
+
+After the `.env` cleanup, keep a separate checkout next to (not inside) this dashboard:
 
 ```sh
-git clone https://github.com/hc172808/replit-project-migration.git
+git clone https://github.com/hc172808/replit-project-migration.git ../gyds-miner
+cd ../gyds-miner
+git switch -c fix/short-description
+# inspect the app's own README/package scripts before running setup
+npm install
+npm run
 ```
 
-Keep miner-specific fixes in that checkout and push them to the upstream repository. Changes to this dashboard's mining access controls and wallet integration remain in this repository.
+For an existing checkout, check local changes before updating, then fast-forward:
+
+```sh
+git -C ../gyds-miner status --short
+git -C ../gyds-miner pull --ff-only origin main
+```
+
+Commit and push miner fixes to the miner repository, not this dashboard. Dashboard mining access controls, wallet binding, and the integration that launches or links to the miner stay in this repository. The dashboard's separate downloadable miner bundle is in `public/miner-download/`; do not assume it is the source of the external miner app.

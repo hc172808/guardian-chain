@@ -609,12 +609,34 @@ const ExplorerTab = () => {
   const activeNetwork = networkForData(selectedNetwork);
   const [query, setQuery] = useState('');
   const [netStats, setNetStats] = useState<any>(null);
+  const [latestBlocks, setLatestBlocks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/network-stats?network=${activeNetwork}`).then(r => r.json()).then(d => {
-      if (d?.stats) setNetStats(d.stats);
-    }).catch(() => {}).finally(() => setLoading(false));
+    const controller = new AbortController();
+    setLoading(true);
+    const network = encodeURIComponent(activeNetwork);
+    Promise.all([
+      fetch(`/api/network-stats?network=${network}`, { signal: controller.signal })
+        .then(r => r.ok ? r.json() : null),
+      fetch(`/api/explorer/live-blocks?network=${network}&count=4`, { signal: controller.signal })
+        .then(r => r.ok ? r.json() : null),
+    ]).then(([statsData, blockData]) => {
+      setNetStats(statsData?.stats ?? null);
+      setLatestBlocks(
+        blockData?.ok === true && Array.isArray(blockData.blocks)
+          ? blockData.blocks.filter((block: any) => Number.isFinite(Number(block.height)))
+          : [],
+      );
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setNetStats(null);
+        setLatestBlocks([]);
+      }
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
   }, [activeNetwork]);
 
   const handleSearch = () => {
@@ -623,17 +645,15 @@ const ExplorerTab = () => {
     go(`/explorer?q=${encodeURIComponent(q)}`);
   };
 
-  const baseHeight = netStats?.blockHeight ? Number(netStats.blockHeight) : 1234567;
-  // Use deterministic tx counts derived from block height so they don't flicker on re-render
-  const latestBlocks = loading
-    ? []
-    : [0, 1, 2, 3].map((offset) => {
-        const h = baseHeight - offset;
-        const txs = ((h + offset * 7) % 18) + 4; // deterministic 4–21 range
-        const times = ['just now', '14s ago', '28s ago', '42s ago'];
-        const miners = ['0xabcd…ef12', '0x3456…7890', '0xcdef…0123', '0x8899…aabb'];
-        return { height: h, txs, time: times[offset], miner: miners[offset] };
-      });
+  const relativeTime = (timestamp: unknown) => {
+    const time = Number(timestamp);
+    if (!Number.isFinite(time) || time <= 0) return 'time unavailable';
+    const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
+    if (seconds < 60) return seconds <= 5 ? 'just now' : `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  };
 
   const items = [
     { label: 'Blocks',        icon: Blocks,     path: '/explorer',      color: 'text-primary',    bg: 'bg-primary/10' },
@@ -690,6 +710,12 @@ const ExplorerTab = () => {
         <div className="space-y-1.5">
           {loading ? (
             [0,1,2].map(i => <div key={i} className="h-14 rounded-2xl bg-muted/40 animate-pulse" />)
+          ) : latestBlocks.length === 0 ? (
+            <div className="p-4 rounded-2xl bg-card border border-border/60 text-center">
+              <p className="text-xs text-muted-foreground">
+                No live blocks are available for {NETWORK_BY_KIND[activeNetwork].chainName} right now.
+              </p>
+            </div>
           ) : latestBlocks.map(b => (
             <button key={b.height} onClick={() => go(`/explorer?q=${b.height}`)}
               className="w-full flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-[0.98] transition-all text-left"
@@ -699,11 +725,15 @@ const ExplorerTab = () => {
               </div>
               <div className="flex-1">
                 <p className="text-sm font-semibold">#{b.height.toLocaleString()}</p>
-                <p className="text-[10px] text-muted-foreground font-mono">{b.miner}</p>
+                <p className="text-[10px] text-muted-foreground font-mono">
+                  {typeof b.miner === 'string' && b.miner
+                    ? `${b.miner.slice(0, 6)}…${b.miner.slice(-4)}`
+                    : 'Miner unavailable'}
+                </p>
               </div>
               <div className="text-right">
-                <p className="text-xs font-medium text-primary">{b.txs} txs</p>
-                <p className="text-[10px] text-muted-foreground">{b.time}</p>
+                <p className="text-xs font-medium text-primary">{Number(b.txCount ?? 0)} txs</p>
+                <p className="text-[10px] text-muted-foreground">{relativeTime(b.timestamp)}</p>
               </div>
             </button>
           ))}
