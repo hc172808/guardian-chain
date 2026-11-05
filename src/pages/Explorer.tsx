@@ -10,6 +10,7 @@ import { useBlockchainWebSocket } from '@/hooks/useBlockchainWebSocket';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { LocalRpcIndicator } from '@/components/LocalRpcIndicator';
+import { useNetwork } from '@/contexts/NetworkContext';
 
 interface NetworkStats {
   activeValidators: number;
@@ -30,8 +31,14 @@ const Explorer = () => {
   const [dbTransactions, setDbTransactions] = useState<Transaction[]>([]);
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [dbLoading, setDbLoading] = useState(false);
+  const [apiBlocks, setApiBlocks] = useState<Block[]>([]);
+  const [apiBlocksOnline, setApiBlocksOnline] = useState(false);
+  const [apiBlockHeight, setApiBlockHeight] = useState<number | null>(null);
 
   const { isConnected, latestBlock, latestTransactions, pendingTransactions, error, gaveUp } = useBlockchainWebSocket();
+  const { selectedNetwork } = useNetwork();
+  const activeNetwork = selectedNetwork === 'mainnet' ? 'mainnet' : 'testnet';
+  const websocketLive = isConnected && !gaveUp;
 
   useEffect(() => {
     if (latestBlock) {
@@ -42,6 +49,83 @@ const Explorer = () => {
     }
   }, [latestBlock]);
 
+  // Use the app's own network-aware RPC proxy for initial blocks and polling.
+  // The public WebSocket is optional and may not be available in every deployment.
+  useEffect(() => {
+    let cancelled = false;
+    let controller: AbortController | null = null;
+
+    const loadBlocks = async () => {
+      controller?.abort();
+      const nextController = new AbortController();
+      controller = nextController;
+      try {
+        const response = await fetch(
+          `/api/explorer/live-blocks?network=${activeNetwork}&count=50`,
+          { signal: nextController.signal },
+        );
+        const payload = await response.json();
+        if (!response.ok || !payload?.ok || !Array.isArray(payload.blocks)) {
+          throw new Error(payload?.error || 'Live block feed is unavailable');
+        }
+        const toMillis = (value: unknown) => {
+          const timestamp = Number(value);
+          if (!Number.isFinite(timestamp)) return Date.now();
+          return timestamp > 1e12 ? timestamp : timestamp * 1000;
+        };
+        const mapped: Block[] = payload.blocks.flatMap((block: any) => {
+          const height = Number(block.height);
+          if (!Number.isSafeInteger(height) || typeof block.hash !== 'string') return [];
+          const blockTimestamp = toMillis(block.timestamp);
+          const transactions: Transaction[] = (Array.isArray(block.transactions) ? block.transactions : [])
+            .map((tx: any) => ({
+              id: String(tx.id ?? tx.hash ?? ''),
+              from: String(tx.from ?? tx.from_address ?? ''),
+              to: String(tx.to ?? tx.to_address ?? ''),
+              amount: Number(tx.amount ?? 0) || 0,
+              fee: Number(tx.fee ?? 0) || 0,
+              nonce: Number(tx.nonce ?? 0) || 0,
+              timestamp: toMillis(tx.timestamp ?? block.timestamp),
+              status: tx.status === 'failed' ? 'failed' : tx.status === 'pending' ? 'pending' : 'confirmed',
+            }))
+            .filter(tx => tx.id.length > 0);
+          return [{
+            height,
+            hash: block.hash,
+            previousHash: String(block.previousHash ?? ''),
+            timestamp: blockTimestamp,
+            transactions,
+            validator: String(block.validator ?? ''),
+            validatorStake: block.validatorStake == null ? null : Number(block.validatorStake),
+            miningRewards: Array.isArray(block.miningRewards) ? block.miningRewards : [],
+            signature: String(block.signature ?? ''),
+            finalized: Boolean(block.finalized),
+          }];
+        });
+        if (!cancelled) {
+          setApiBlocks(mapped);
+          setApiBlockHeight(Number.isFinite(Number(payload.blockHeight)) ? Number(payload.blockHeight) : null);
+          setApiBlocksOnline(Boolean(payload.online));
+        }
+      } catch (loadError: any) {
+        if (loadError?.name === 'AbortError') return;
+        if (!cancelled) {
+          setApiBlocks([]);
+          setApiBlockHeight(null);
+          setApiBlocksOnline(false);
+        }
+      }
+    };
+
+    loadBlocks();
+    const interval = window.setInterval(loadBlocks, 15_000);
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      window.clearInterval(interval);
+    };
+  }, [activeNetwork]);
+
   // Load tokens
   useEffect(() => {
     fetch('/api/tokens?limit=20')
@@ -50,10 +134,10 @@ const Explorer = () => {
       .catch(() => {});
   }, []);
 
-  // Load network stats on mount and refresh every 30s
+  // Load network stats for the selected chain and refresh every 30s.
   useEffect(() => {
     const load = () => {
-      fetch('/api/network-stats')
+      fetch(`/api/network-stats?network=${activeNetwork}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => { if (data?.stats) setNetworkStats(data.stats); })
         .catch(() => {});
@@ -61,11 +145,11 @@ const Explorer = () => {
     load();
     const id = setInterval(load, 30_000);
     return () => clearInterval(id);
-  }, []);
+  }, [activeNetwork]);
 
-  // When WebSocket is offline / gave up, load confirmed transactions from DB
+  // Keep a DB transaction fallback available when the WebSocket has no transaction feed.
   useEffect(() => {
-    if (!isConnected || gaveUp) {
+    if (!websocketLive) {
       setDbLoading(true);
       fetch('/api/transactions?limit=50')
         .then(r => r.ok ? r.json() : [])
@@ -88,16 +172,26 @@ const Explorer = () => {
         })
         .catch(() => {})
         .finally(() => setDbLoading(false));
+    } else {
+      setDbLoading(false);
     }
-  }, [isConnected, gaveUp]);
+  }, [websocketLive, apiBlocksOnline]);
 
-  const confirmedTxs = isConnected && !gaveUp ? latestTransactions : dbTransactions;
-  const confirmedSource = isConnected && !gaveUp ? 'live' : 'db';
+  const apiTransactions = apiBlocks.flatMap(block => block.transactions);
+  const confirmedTxs = websocketLive && latestTransactions.length
+    ? latestTransactions
+    : apiTransactions.length ? apiTransactions : dbTransactions;
+  const confirmedSource = (websocketLive && latestTransactions.length > 0) || apiTransactions.length > 0 ? 'live' : 'db';
+  const explorerOnline = websocketLive || apiBlocksOnline;
+  const visibleBlocks = apiBlocksOnline ? apiBlocks : blocks;
+  const displayedLatestBlock = apiBlocksOnline
+    ? apiBlocks[0]
+    : latestBlock ?? blocks[0];
 
-  const filteredBlocks = blocks.filter(block =>
+  const filteredBlocks = visibleBlocks.filter(block =>
     block.hash.includes(searchQuery) ||
     block.height.toString().includes(searchQuery) ||
-    block.validator.includes(searchQuery)
+    (block.validator || '').includes(searchQuery)
   );
 
   const filteredTransactions = confirmedTxs.filter(tx =>
@@ -125,7 +219,11 @@ const Explorer = () => {
           </div>
           <div className="flex items-center gap-2">
             <LocalRpcIndicator />
-            <ConnectionStatus isConnected={isConnected} error={error} gaveUp={gaveUp} />
+            <ConnectionStatus
+              isConnected={explorerOnline}
+              error={apiBlocksOnline ? null : error}
+              gaveUp={apiBlocksOnline ? false : gaveUp}
+            />
             <a href="https://netlifegy.com" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 hidden sm:flex">
               netlifegy.com <ExternalLink className="h-3 w-3" />
             </a>
@@ -169,18 +267,18 @@ const Explorer = () => {
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <LiveStatCard label="Latest Block" value={`#${(latestBlock?.height || blocks[0]?.height || 0).toLocaleString()}`} icon={<Blocks className="w-4 h-4" />} pulse={!!latestBlock} />
+          <LiveStatCard label="Latest Block" value={`#${(displayedLatestBlock?.height ?? apiBlockHeight ?? 0).toLocaleString()}`} icon={<Blocks className="w-4 h-4" />} pulse={explorerOnline} />
           <LiveStatCard label="Validators" value={(networkStats?.activeValidators ?? '—').toString()} icon={<Users className="w-4 h-4" />} />
           <LiveStatCard label="Total Txs" value={totalTxCount} icon={<CheckCircle className="w-4 h-4" />} />
           <LiveStatCard label="Tokens" value={(networkStats?.totalTokens ?? tokens.length).toString()} icon={<Coins className="w-4 h-4" />} />
-          <LiveStatCard label="Status" value={isConnected ? 'Live' : (networkStats?.liveNodes ?? 0) > 0 ? 'Nodes Active' : gaveUp ? 'DB Mode' : 'Offline'} icon={isConnected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />} highlight={isConnected ? 'emerald' : (networkStats?.liveNodes ?? 0) > 0 ? 'emerald' : gaveUp ? 'amber' : 'destructive'} />
+          <LiveStatCard label="Status" value={explorerOnline ? 'Live' : (networkStats?.liveNodes ?? 0) > 0 ? 'Nodes Active' : gaveUp ? 'DB Mode' : 'Offline'} icon={explorerOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />} highlight={explorerOnline ? 'emerald' : (networkStats?.liveNodes ?? 0) > 0 ? 'emerald' : gaveUp ? 'amber' : 'destructive'} />
         </div>
 
         {/* DB mode banner */}
-        {!isConnected && gaveUp && (
+        {!explorerOnline && gaveUp && (
           <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neon-amber/10 border border-neon-amber/30 text-neon-amber text-sm">
             <Database className="w-4 h-4 flex-shrink-0" />
-            <span>WebSocket offline — showing confirmed transactions from database. Live blocks will appear once the node reconnects.</span>
+            <span>No live feed is available for {activeNetwork}; showing confirmed transactions from the database until a node is available.</span>
           </div>
         )}
 
@@ -206,15 +304,15 @@ const Explorer = () => {
                 <GlassCard className="p-0 overflow-hidden">
                   <div className="p-4 border-b border-border/50 flex items-center justify-between">
                     <h3 className="font-semibold">Recent Blocks</h3>
-                    {latestBlock && <span className="text-xs text-muted-foreground animate-pulse">Live updates</span>}
-                    {!isConnected && <span className="text-xs text-neon-amber">Waiting for node…</span>}
+                    {explorerOnline && <span className="text-xs text-muted-foreground animate-pulse">Live updates · {activeNetwork}</span>}
+                    {!explorerOnline && <span className="text-xs text-neon-amber">Waiting for {activeNetwork} node…</span>}
                   </div>
                   <div className="divide-y divide-border/30 max-h-[600px] overflow-y-auto">
                     <AnimatePresence mode="popLayout">
                       {filteredBlocks.length > 0 ? filteredBlocks.map((block, index) => (
                         <motion.div key={block.hash} initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: index * 0.02 }}
                           onClick={() => setSelectedBlock(block)}
-                          className={cn('p-4 hover:bg-secondary/30 cursor-pointer transition-colors flex items-center gap-4', selectedBlock?.hash === block.hash && 'bg-secondary/50', index === 0 && latestBlock?.hash === block.hash && 'ring-1 ring-primary/50')}>
+                          className={cn('p-4 hover:bg-secondary/30 cursor-pointer transition-colors flex items-center gap-4', selectedBlock?.hash === block.hash && 'bg-secondary/50', index === 0 && displayedLatestBlock?.hash === block.hash && 'ring-1 ring-primary/50')}>
                           <div className="flex-shrink-0">
                             {block.finalized ? (
                               <div className="p-2 rounded-lg bg-neon-emerald/10"><CheckCircle className="w-4 h-4 text-neon-emerald" /></div>
@@ -232,7 +330,7 @@ const Explorer = () => {
                             <p className="text-xs text-muted-foreground font-mono mt-1 truncate">{block.hash}</p>
                           </div>
                           <div className="text-right flex-shrink-0">
-                            <p className="text-sm font-medium">{block.transactions.length} txs</p>
+                          <p className="text-sm font-medium">{block.transactions.length} txs</p>
                             <p className="text-xs text-muted-foreground">{new Date(block.timestamp).toLocaleTimeString()}</p>
                           </div>
                           <ChevronRight className="w-4 h-4 text-muted-foreground" />
@@ -240,7 +338,7 @@ const Explorer = () => {
                       )) : (
                         <div className="p-12 text-center text-muted-foreground">
                           <Blocks className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                          <p className="text-sm">No blocks yet — waiting for the node to connect</p>
+                          <p className="text-sm">{apiBlocksOnline ? 'The node has not returned any blocks yet' : `No ${activeNetwork} blocks available — waiting for a node`}</p>
                         </div>
                       )}
                     </AnimatePresence>
@@ -256,8 +354,8 @@ const Explorer = () => {
                       <DetailRow label="Height" value={`#${selectedBlock.height.toLocaleString()}`} />
                       <DetailRow label="Hash" value={selectedBlock.hash} mono truncate />
                       <DetailRow label="Previous Hash" value={selectedBlock.previousHash} mono truncate />
-                      <DetailRow label="Validator" value={selectedBlock.validator} mono truncate />
-                      <DetailRow label="Validator Stake" value={`${selectedBlock.validatorStake.toLocaleString()} GYDS`} />
+                      <DetailRow label="Validator" value={selectedBlock.validator || 'Not reported by RPC'} mono truncate />
+                      <DetailRow label="Validator Stake" value={selectedBlock.validatorStake == null ? 'Not reported by RPC' : `${selectedBlock.validatorStake.toLocaleString()} GYDS`} />
                       <DetailRow label="Transactions" value={selectedBlock.transactions.length.toString()} />
                       <DetailRow label="Status" value={selectedBlock.finalized ? 'Finalized' : 'Pending'} highlight={selectedBlock.finalized ? 'emerald' : 'amber'} />
                       <DetailRow label="Timestamp" value={new Date(selectedBlock.timestamp).toLocaleString()} />
@@ -392,7 +490,7 @@ const Explorer = () => {
 
           {/* Validators Tab */}
           <TabsContent value="validators" className="mt-4">
-            <ValidatorsTab networkStats={networkStats} searchQuery={searchQuery} />
+            <ValidatorsTab network={activeNetwork} searchQuery={searchQuery} />
           </TabsContent>
 
           {/* NFT Explorer Tab */}
@@ -419,7 +517,7 @@ const Explorer = () => {
 
         {/* Footer */}
         <footer className="border-t border-border/50 pt-6 pb-8 text-center text-xs text-muted-foreground">
-          <p>GYDS Network Explorer • Chain ID: 198282 • <a href="https://netlifegy.com" className="text-primary hover:underline">netlifegy.com</a></p>
+          <p>GYDS Network Explorer • Chain ID: {activeNetwork === 'mainnet' ? 198282 : 198281} • <a href="https://netlifegy.com" className="text-primary hover:underline">netlifegy.com</a></p>
         </footer>
       </main>
     </div>
@@ -484,23 +582,77 @@ const DetailRow = ({ label, value, mono, truncate, highlight }: { label: string;
 );
 
 // ── Validator Tab ────────────────────────────────────────────────────────────
-const DEMO_VALIDATORS = [
-  { address: '0xA1b2C3d4E5f6789012345678901234567890ABCD', stake: 500_000, commission: 5, uptime: 99.98, status: 'active', blocks: 14_892 },
-  { address: '0xB2C3D4E5F6789012345678901234567890ABCDE', stake: 420_000, commission: 3, uptime: 99.95, status: 'active', blocks: 13_104 },
-  { address: '0xC3D4E5F6789012345678901234567890ABCDEF0', stake: 380_000, commission: 7, uptime: 99.91, status: 'active', blocks: 12_651 },
-  { address: '0xD4E5F6789012345678901234567890ABCDEF01', stake: 310_000, commission: 4, uptime: 99.87, status: 'active', blocks: 11_033 },
-  { address: '0xE5F6789012345678901234567890ABCDEF012', stake: 250_000, commission: 6, uptime: 98.20, status: 'jailed', blocks: 8_912 },
-  { address: '0xF6789012345678901234567890ABCDEF0123', stake: 210_000, commission: 5, uptime: 99.72, status: 'active', blocks: 7_461 },
-];
+interface ExplorerValidator {
+  address: string;
+  stake: number;
+  commission: number;
+  uptime: number;
+  status: 'active' | 'inactive' | 'jailed';
+  blocks: number;
+}
 
-const ValidatorsTab = ({ networkStats, searchQuery }: { networkStats: NetworkStats | null; searchQuery: string }) => {
-  const [validators, setValidators] = useState(DEMO_VALIDATORS);
+const ValidatorsTab = ({ network, searchQuery }: { network: 'mainnet' | 'testnet'; searchQuery: string }) => {
+  const [validators, setValidators] = useState<ExplorerValidator[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [liveNodeOnline, setLiveNodeOnline] = useState(false);
+
   useEffect(() => {
-    fetch('/api/validators?limit=50')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (Array.isArray(data) && data.length > 0) setValidators(data.map((v: any) => ({ address: v.address, stake: Number(v.stake_amount || 0), commission: Number(v.commission_rate || 5), uptime: Number(v.uptime || 99), status: v.status || 'active', blocks: Number(v.blocks_validated || 0) }))); })
-      .catch(() => {});
-  }, []);
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [liveResponse, registeredResponse] = await Promise.all([
+          fetch(`/api/validators/live?network=${network}`).catch(() => null),
+          fetch('/api/validators?limit=50').catch(() => null),
+        ]);
+        const livePayload = liveResponse?.ok ? await liveResponse.json() : null;
+        const registeredPayload = registeredResponse?.ok ? await registeredResponse.json() : [];
+        const liveRows = livePayload?.online && Array.isArray(livePayload.validators) ? livePayload.validators : [];
+        const registeredRows = Array.isArray(registeredPayload) ? registeredPayload : [];
+        const rows = new Map<string, ExplorerValidator>();
+        for (const row of registeredRows) {
+          const address = String(row.address ?? '');
+          if (!address) continue;
+          rows.set(address.toLowerCase(), {
+            address,
+            stake: Number(row.stake ?? row.stake_amount ?? 0),
+            commission: Number(row.commission ?? row.commission_rate ?? 0),
+            uptime: Number(row.uptime ?? 0),
+            status: row.is_jailed || row.isJailed ? 'jailed' : (row.is_active ?? row.isActive) === false ? 'inactive' : 'active',
+            blocks: Number(row.blocks_proposed ?? row.blocksProposed ?? row.blocks_validated ?? 0),
+          });
+        }
+        for (const row of liveRows) {
+          const address = String(row.address ?? '');
+          if (!address) continue;
+          rows.set(address.toLowerCase(), {
+            address,
+            stake: Number(row.stake ?? row.staked ?? 0),
+            commission: Number(row.commission ?? 0),
+            uptime: Number(row.uptime ?? 0),
+            status: row.is_jailed ? 'jailed' : row.is_active === false ? 'inactive' : 'active',
+            blocks: Number(row.blocks_proposed ?? row.blocksProposed ?? 0),
+          });
+        }
+        if (!cancelled) {
+          setValidators([...rows.values()].sort((a, b) => b.stake - a.stake));
+          setLiveNodeOnline(Boolean(livePayload?.online));
+        }
+      } catch {
+        if (!cancelled) {
+          setValidators([]);
+          setLiveNodeOnline(false);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    const interval = window.setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [network]);
 
   const filtered = validators.filter(v => !searchQuery || v.address.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -508,7 +660,12 @@ const ValidatorsTab = ({ networkStats, searchQuery }: { networkStats: NetworkSta
     <GlassCard className="p-0 overflow-hidden">
       <div className="p-4 border-b border-border/50 flex items-center justify-between">
         <h3 className="font-semibold flex items-center gap-2"><Shield className="w-4 h-4 text-primary" /> Active Validators</h3>
-        <Badge variant="outline" className="text-xs">{filtered.length} validators</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-xs">{filtered.length} validators</Badge>
+          <Badge variant="outline" className={cn('text-xs', liveNodeOnline ? 'text-neon-emerald' : 'text-muted-foreground')}>
+            {liveNodeOnline ? `${network} live` : 'registered data'}
+          </Badge>
+        </div>
       </div>
       <div className="divide-y divide-border/30">
         {filtered.map((v, i) => (
@@ -519,8 +676,10 @@ const ValidatorsTab = ({ networkStats, searchQuery }: { networkStats: NetworkSta
             <div className="flex-1 min-w-0">
               <p className="text-xs font-mono text-muted-foreground truncate">{v.address}</p>
               <div className="flex items-center gap-3 mt-1 text-xs">
-                <Badge variant="outline" className={cn('text-xs', v.status === 'active' ? 'border-neon-emerald/30 text-neon-emerald' : 'border-destructive/30 text-destructive')}>
-                  {v.status === 'active' ? '● Active' : '⚠ Jailed'}
+                <Badge variant="outline" className={cn('text-xs',
+                  v.status === 'active' ? 'border-neon-emerald/30 text-neon-emerald' :
+                  v.status === 'jailed' ? 'border-destructive/30 text-destructive' : 'border-yellow-500/30 text-yellow-500')}>
+                  {v.status === 'active' ? 'Active' : v.status === 'jailed' ? 'Jailed' : 'Inactive'}
                 </Badge>
                 <span className="text-muted-foreground">{v.blocks.toLocaleString()} blocks</span>
               </div>
@@ -531,7 +690,7 @@ const ValidatorsTab = ({ networkStats, searchQuery }: { networkStats: NetworkSta
                 <p className="text-xs text-muted-foreground">Stake</p>
               </div>
               <div className="text-center">
-                <p className="font-bold text-neon-emerald">{v.uptime}%</p>
+                <p className="font-bold text-neon-emerald">{v.uptime.toFixed(2)}%</p>
                 <p className="text-xs text-muted-foreground">Uptime</p>
               </div>
               <div className="text-center">
@@ -544,7 +703,7 @@ const ValidatorsTab = ({ networkStats, searchQuery }: { networkStats: NetworkSta
         {filtered.length === 0 && (
           <div className="p-12 text-center text-muted-foreground">
             <Shield className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p>No validators found</p>
+            <p>{loading ? 'Loading validators…' : 'No validators are reported for this network'}</p>
           </div>
         )}
       </div>

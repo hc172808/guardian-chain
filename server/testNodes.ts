@@ -15,6 +15,7 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse, Server } from "http";
+import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { pool as pgPool } from "./db";
@@ -375,16 +376,24 @@ export function getGenesisEnode(network: Network): string {
   return `enode://${GENESIS_ENODE_KEYS[network]}@127.0.0.1:${cfg.ports.genesis}`;
 }
 
-function blockObject(s: NodeState, cfg: NetworkCfg, extraTxCount = 0) {
+function stableBlockHash(chainId: number, height: number): string {
+  return createHash("sha256").update(`${chainId}:${height}`).digest("hex");
+}
+
+function blockObject(s: NodeState, cfg: NetworkCfg, height = s.blockHeight, extraTxCount = 0) {
+  const blockHeight = Math.max(0, Math.min(s.blockHeight, Math.floor(height)));
+  const timestamp = Math.floor(Date.now() / 1000) - Math.max(0, s.blockHeight - blockHeight) * 12;
   return {
-    number: "0x" + s.blockHeight.toString(16),
-    hash:   "0x" + randHex(64),
-    parentHash: "0x" + randHex(64),
-    timestamp: "0x" + Math.floor(Date.now() / 1000).toString(16),
+    number: "0x" + blockHeight.toString(16),
+    hash:   "0x" + stableBlockHash(cfg.chainId, blockHeight),
+    parentHash: "0x" + stableBlockHash(cfg.chainId, Math.max(0, blockHeight - 1)),
+    timestamp: "0x" + timestamp.toString(16),
     gasUsed: "0x" + (21_000 * extraTxCount || 0x5208).toString(16),
     gasLimit: "0x1000000",
     miner: "0x" + "a".repeat(40),
-    transactions: Array.from({ length: extraTxCount }, () => "0x" + randHex(64)),
+    transactions: Array.from({ length: extraTxCount }, (_, i) =>
+      "0x" + createHash("sha256").update(`${cfg.chainId}:${blockHeight}:tx:${i}`).digest("hex")
+    ),
     difficulty: "0x1",
     totalDifficulty: "0x" + s.blockHeight.toString(16),
     size: "0x1a3",
@@ -490,8 +499,17 @@ function jsonRpcDispatch(rpc: any, s: NodeState, cfg: NetworkCfg, opts: { booste
     }
     case "eth_getTransactionCount":   return "0x" + Math.floor(Math.random() * 100).toString(16);
     case "eth_estimateGas":           return "0x" + (21_000).toString(16);
-    case "eth_getBlockByNumber":      return blockObject(s, cfg, Math.floor(Math.random() * (opts.boosted ? 30 : 5)));
-    case "eth_getBlockByHash":        return blockObject(s, cfg, 0);
+    case "eth_getBlockByNumber": {
+      const tag = String(rpc.params?.[0] ?? "latest").toLowerCase();
+      let height: number;
+      if (["latest", "pending", "safe", "finalized"].includes(tag)) height = s.blockHeight;
+      else if (tag === "earliest") height = 0;
+      else if (/^0x[0-9a-f]+$/.test(tag)) height = Number.parseInt(tag.slice(2), 16);
+      else return null;
+      if (!Number.isSafeInteger(height) || height < 0 || height > s.blockHeight) return null;
+      return blockObject(s, cfg, height);
+    }
+    case "eth_getBlockByHash":        return blockObject(s, cfg);
     case "eth_call":                  return "0x";
     case "eth_getCode":               return "0x";
     case "eth_getStorageAt":          return "0x" + "0".repeat(64);
