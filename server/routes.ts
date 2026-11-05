@@ -535,6 +535,12 @@ export function registerRoutes(expressApp: Express) {
   });
 
   // ── Wallets ────────────────────────────────────────────────────────────────
+  app.get("/api/wallets/addresses", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const wallets = await storage.getUserWallets(user.id);
+    res.json(wallets.map((wallet: any) => wallet.address).filter((address: unknown) => typeof address === "string"));
+  });
+
   app.get("/api/wallets", requireAuth, async (req, res) => {
     const user = req.user as any;
     const data = await storage.getUserWallets(user.id);

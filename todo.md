@@ -130,6 +130,7 @@
 - [x] **WireGuard VPN provisioning (deferred server connection)** — the app generates peer/client configuration and QR data; connect it to the user's existing WireGuard server during server setup when details are available, otherwise skip and leave it for later.
 - [ ] **Validator registration on-chain** — current validator dashboard is mock data. Deploy a Solidity `ValidatorRegistry` contract on chain 198282 and wire `validator_register` RPC method.
 - [ ] **Block explorer real data** — Explorer reads from `network_snapshots` seeded by a cron (`server/chainSync.ts`). Ensure `rpc.netlifegy.com` is live so the cron populates real data.
+- [ ] **External miner project** — see `MINER_REPOSITORY.md`; audit/remove the upstream tracked `.env` and rotate any exposed secrets before adding it as a submodule or copying code.
 
 ### Medium Priority
 
