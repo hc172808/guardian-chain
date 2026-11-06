@@ -11,6 +11,14 @@ The local test-node manager supports seven node types: rpc, lite, fullnode, boos
 
 **How to apply:** Keep network unions, API allowlists, node status shapes, wallet configuration, and admin selectors aligned across mainnet/testnet/devnet. Never fall back from testnet or devnet RPC requests to mainnet.
 
+## Persist node network tags
+
+Every `node_installations` write for a managed node must store its actual network, and heartbeat reconciliation must refresh that field too. Do not rely on the database's `mainnet` default.
+
+**Why:** Missing network tags caused testnet nodes to be counted as mainnet nodes in network stats.
+
+**How to apply:** Keep the Drizzle schema, migration, insert/update payloads, and network-filtered metrics in sync.
+
 ## Guest network selection
 
 Visitors must be able to choose Mainnet, Testnet, or Devnet before signing in.

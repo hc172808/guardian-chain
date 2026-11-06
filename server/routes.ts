@@ -2472,6 +2472,16 @@ export function registerRoutes(expressApp: Express) {
     const allRunningNodes = testNodeManager.getRunningNodes();
     const netNodes = allRunningNodes.filter(n => n.network === netParam);
     const rpcNode  = netNodes.find(n => ["rpc", "fullnode", "lite", "validator"].includes(n.type));
+    const registeredNodesResult = await pgPool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM node_installations
+       WHERE COALESCE(network, 'mainnet') = $1
+         AND is_approved = true
+         AND is_online = true`,
+      [netParam],
+    ).catch(() => ({ rows: [{ count: 0 }] }));
+    const registeredRunningNodes = Number(registeredNodesResult.rows[0]?.count ?? 0);
+    const runningNodes = Math.max(netNodes.length, registeredRunningNodes);
 
     // Helper: probe one RPC URL for block/peer/TPS
     async function probeRpc(rpcUrl: string): Promise<void> {
@@ -2571,7 +2581,9 @@ export function registerRoutes(expressApp: Express) {
       rpcEndpoint: usedRpcEndpoint,
       stats: {
         ...dbStats,
+        activeMiners: runningNodes,
         activeValidators: liveValidatorCount ?? dbStats.activeValidators,
+        liveNodes: runningNodes,
         network:       netParam,
         chainId,
         blockHeight,
@@ -2581,7 +2593,9 @@ export function registerRoutes(expressApp: Express) {
         avgBlockTime:   onchainBlockHeight !== null ? 5 : null,
         peerCount,
         validatorCount: liveValidatorCount ?? dbStats.activeValidators,
-        runningNodes:   netNodes.length,
+        // Local test nodes may also be mirrored into node_installations; use max
+        // to include installed services without counting those mirrors twice.
+        runningNodes,
         posFinality,
         onchain:        onchainBlockHeight !== null,
       },
@@ -3029,7 +3043,7 @@ export function registerRoutes(expressApp: Express) {
         } catch {}
       }
       if (id) {
-        storage.updateNode(id, { lastHeartbeat: new Date(), isOnline: true }).catch(() => {});
+        storage.updateNode(id, { network, lastHeartbeat: new Date(), isOnline: true }).catch(() => {});
       }
     }
   }
@@ -3044,6 +3058,7 @@ export function registerRoutes(expressApp: Express) {
     const nodeType = TEST_NODE_TYPE_MAP[type] ?? type;
     const localKey = `LOCAL:${statObj.port ?? 0}:${network}`;
     const base = {
+      network,
       isOnline: true, isApproved: true, lastHeartbeat: new Date(),
       peerCount: statObj.peers ?? 0, lastBlockHeight: statObj.blockHeight ?? 0,
       syncProgress: 100, isSynced: true, wireguardPublicKey: localKey,

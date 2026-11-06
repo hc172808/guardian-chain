@@ -61,6 +61,7 @@ export const nodeInstallations = pgTable("node_installations", {
   ipAddress: text("ip_address"),
   hostname: text("hostname"),
   rpcPort: integer("rpc_port").default(8545),
+  network: text("network").default("mainnet"),
   wireguardPublicKey: text("wireguard_public_key"),
   wireguardPrivateKey: text("wireguard_private_key"),
   isSynced: boolean("is_synced").default(false),

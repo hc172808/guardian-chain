@@ -214,8 +214,18 @@ GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
 GYDS_WS_API=eth,net,web3,txpool,admin
 EOF
 
-  systemctl --user daemon-reload 2>/dev/null || true
-  systemctl --user enable gyds-litenode 2>/dev/null || true
+  if systemctl --user daemon-reload 2>/dev/null; then
+    systemctl --user enable gyds-litenode 2>/dev/null || true
+    if systemctl --user start gyds-litenode 2>/dev/null; then
+      echo "✓ Lite node service started."
+    else
+      echo "⚠ Lite node is installed but the user systemd manager is unavailable."
+      echo "  Start it from a logged-in session with: systemctl --user start gyds-litenode"
+    fi
+  else
+    echo "⚠ Lite node is installed; user systemd is unavailable in this session."
+    echo "  Start it from a logged-in session with: systemctl --user start gyds-litenode"
+  fi
 fi
 
 # ── Summary & Web Setup Wizard ────────────────────────────────────────────────

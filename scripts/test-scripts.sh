@@ -71,7 +71,7 @@ check_contains() {
   local file="$1"
   local pattern="$2"
   local label="$3"
-  if grep -q "$pattern" "$file" 2>/dev/null; then
+  if grep -q -- "$pattern" "$file" 2>/dev/null; then
     [[ "$VERBOSE" == "true" ]] && pass "$label: $(basename "$file")"
     return 0
   else
@@ -84,7 +84,7 @@ check_no_pattern() {
   local file="$1"
   local pattern="$2"
   local label="$3"
-  if grep -q "$pattern" "$file" 2>/dev/null; then
+  if grep -q -- "$pattern" "$file" 2>/dev/null; then
     fail "Found dangerous pattern '$label' in $(basename "$file")"
     grep -n "$pattern" "$file" | head -3 | sed 's/^/    /'
     return 1
@@ -222,8 +222,13 @@ if command -v python3 >/dev/null 2>&1; then
   else
     fail "Master installer isolated execution regressions"
   fi
+  if python3 "$SCRIPT_DIR/test-node-registration.py"; then
+    pass "Local node registration isolation regression"
+  else
+    fail "Local node registration isolation regression"
+  fi
 else
-  warn "Python 3 unavailable; skipping isolated installer execution checks"
+  warn "Python 3 unavailable; skipping isolated installer and node-registration checks"
 fi
 check_contains "$REPO_ROOT/install.sh" "does not deploy the dashboard" "requirements-only warning"
 check_contains "$REPO_ROOT/install.sh" "dashboard has NOT been deployed" "requirements-only completion notice"
@@ -231,6 +236,11 @@ check_contains "$REPO_ROOT/install.sh" "cannot complete the dashboard installati
 check_contains "$REPO_ROOT/install.sh" "Node installation failed" "node installer failure is reported accurately"
 check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "Skipping bootnode" "unsupported bootnode skipped during all-nodes install"
 check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "BOOTNODE_INSTALLED" "only report bootnode service when installed"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "GYDS_RPC_PORT=8547" "lite/RPC nodes use a non-conflicting port"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "register-local-nodes.sh" "all-nodes installation registers local services"
+check_contains "$REPO_ROOT/public/scripts/install-litenode.sh" "systemctl --user start gyds-litenode" "lite-node installer starts its service"
+check_contains "$REPO_ROOT/public/scripts/register-local-nodes.sh" "INSERT INTO node_installations" "local node registration writes dashboard rows"
+check_contains "$REPO_ROOT/server/routes.ts" "Math.max(netNodes.length, registeredRunningNodes)" "network stats include registered services"
 check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" 'GO_VERSION="${GO_VERSION:-1.25.0}"' "bootnode Go version matches canonical source"
 check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "require_mainnet_genesis_hash" "bootnode mainnet hash preflight"
 check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "GYDS_GENESIS_HASH" "bootnode hash comes from explicit config"

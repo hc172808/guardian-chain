@@ -97,16 +97,29 @@ if $INSTALL_FULLNODE; then
 fi
 
 if $INSTALL_RPC; then
-  RPC_PORT=8547 P2P_PORT=30304 ENABLE_MINING=false \
+  GYDS_RPC_PORT=8547 GYDS_WS_PORT=8548 GYDS_P2P_PORT=30304 ENABLE_MINING=false \
     run "rpc node" bash "$SCRIPT_DIR/install-fullnode.sh"
 fi
 
 if $INSTALL_LITENODE; then
   # Lite node runs as a regular user (not root), so install for the SUDO_USER
   TARGET_USER="${SUDO_USER:-$USER}"
+  if [[ "$TARGET_USER" == "root" ]] && getent passwd ubuntu >/dev/null; then
+    TARGET_USER="ubuntu"
+  fi
+  id -u "$TARGET_USER" >/dev/null 2>&1 || {
+    echo "Could not identify a non-root account for the lite node. Set SUDO_USER or NODE_USER."
+    exit 1
+  }
   TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
   echo -e "${GREEN}━━━ Installing litenode for user ${TARGET_USER} (HOME=${TARGET_HOME}) ━━━${NC}"
-  sudo -u "$TARGET_USER" -H bash -c "SRC_DIR='$SRC_DIR' bash '$SCRIPT_DIR/install-litenode.sh'"
+  sudo -u "$TARGET_USER" -H bash -c \
+    "SRC_DIR='$SRC_DIR' GYDS_RPC_PORT=8547 GYDS_WS_PORT=8548 GYDS_P2P_PORT=30304 bash '$SCRIPT_DIR/install-litenode.sh'"
+fi
+
+# Start/register local services after their units have been installed.
+if [[ -f "$SCRIPT_DIR/register-local-nodes.sh" ]]; then
+  APP_DIR="${APP_DIR:-/var/www/gydschain}" bash "$SCRIPT_DIR/register-local-nodes.sh"
 fi
 
 cat <<EOF
@@ -114,11 +127,11 @@ cat <<EOF
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║   ✅ Multi-node installation complete                                ║
 ╚═══════════════════════════════════════════════════════════════════════╝
-  Active services (systemctl status <name>):
+  Installed services:
 $($BOOTNODE_INSTALLED && echo "    • gyds-bootnode")
 $($INSTALL_FULLNODE && echo "    • gyds-fullnode")
 $($INSTALL_RPC      && echo "    • gyds-fullnode (RPC mode, port 8547)")
-$($INSTALL_LITENODE && echo "    • gyds-litenode (user systemd, run via systemctl --user)")
+$($INSTALL_LITENODE && echo "    • gyds-litenode (user systemd, RPC port 8547)")
 $($BOOTNODE_SKIPPED && echo "    • bootnode was skipped (unsupported by the selected source repository)")
 
   Logs:    /var/log/gydschain/   (and ~/.gydschain/logs for litenode)

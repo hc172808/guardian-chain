@@ -266,7 +266,7 @@ case "$MODE" in
   litenode)
     step "Installing requirements + Lite Node"
     NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --no-docker --no-wireguard
-    run_script "install-litenode.sh"
+    run_script "install-all-nodes.sh" --litenode
     ;;
 
   validator)
@@ -344,6 +344,16 @@ case "$MODE" in
     exit 1
     ;;
 esac
+
+# Register services installed on this host in the dashboard database.
+# The all/lite installers perform this after installing their user/system units.
+if [[ "$MODE" != "requirements" && "$MODE" != "all" && "$MODE" != "litenode" ]]; then
+  REGISTER_SCRIPT=$(find_script "register-local-nodes.sh" || true)
+  if [[ -n "$REGISTER_SCRIPT" ]]; then
+    APP_DIR="${APP_DIR:-/var/www/gydschain}" bash "$REGISTER_SCRIPT" || \
+      warn "Local node registration did not complete; the dashboard may still show zero nodes."
+  fi
+fi
 
 echo ""
 if [[ "$MODE" == "requirements" ]]; then

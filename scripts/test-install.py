@@ -16,14 +16,19 @@ class InstallerTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.events = self.root / "events"
-        shutil.copy(ROOT / "install.sh", self.root / "install.sh")
+        installer = (ROOT / "install.sh").read_text()
+        installer = installer.replace(
+            '[[ $EUID -eq 0 ]] || { err "Run as root:  sudo bash install.sh $*"; exit 1; }',
+            "# root check omitted from the isolated test copy only",
+        )
+        (self.root / "install.sh").write_text(installer)
         (self.root / "scripts").mkdir()
         (self.root / "public/scripts").mkdir(parents=True)
         self.env = {**os.environ, "NONINTERACTIVE": "1", "EVENTS": str(self.events)}
         # Prevent an installed command from bypassing our redeploy fixture.
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        for name in ("bash", "dirname", "date", "sed", "uname"):
+        for name in ("bash", "cat", "dirname", "date", "sed", "uname"):
             source = shutil.which(name)
             if source:
                 (self.bin / name).symlink_to(source)
@@ -147,8 +152,15 @@ class InstallerTests(unittest.TestCase):
         (self.bin / "psql").write_text('#!/usr/bin/env bash\nexit 0\n')
         (self.bin / "apt-get").chmod(0o700)
         (self.bin / "psql").chmod(0o700)
+        requirements = self.root / "requirements.sh"
+        requirements_source = (ROOT / "scripts/requirements.sh").read_text()
+        requirements_source = requirements_source.replace(
+            '[[ $EUID -eq 0 ]] || { err "Run as root:  sudo bash $0 $*"; exit 1; }',
+            "# root check omitted from the isolated test copy only",
+        )
+        requirements.write_text(requirements_source)
         result = subprocess.run(
-            [shutil.which("bash"), str(ROOT / "scripts/requirements.sh"), "--pg-client-only"],
+            [shutil.which("bash"), str(requirements), "--pg-client-only"],
             env={**self.env, "DATABASE_URL": "postgresql://fixture:fake-secret@localhost/test"},
             capture_output=True, text=True, timeout=10,
         )
