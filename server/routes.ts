@@ -3,6 +3,7 @@ import type { ParamsFlatDictionary } from "express-serve-static-core";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { storage } from "./storage";
+import { readDashboardUpdate, startDashboardUpdate } from "./dashboardUpdate";
 import { testNodeManager, getGenesisEnode, getChainBlockHeight, NETWORK_CFGS, ALL_NETWORKS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
@@ -2839,19 +2840,26 @@ export function registerRoutes(expressApp: Express) {
     res.json({ ok: true, sessionsRevoked: true });
   });
 
-  // ── Git sync (admin — trigger a git pull on the deployed server) ────────────
+  // Fixed server-side update worker; no client-provided commands or repository paths.
+  app.get("/api/admin/git-pull/status", requireAdmin, (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try { res.json(readDashboardUpdate()); }
+    catch { res.status(503).json({ error: "Server updates are not configured or status is unavailable." }); }
+  });
   app.post("/api/admin/git-pull", requireAdmin, async (req, res) => {
     const user = req.user as any;
-    const { spawn } = await import("child_process");
-    const cwd = process.cwd();
-    const proc = spawn("git", ["pull", "--ff-only"], { cwd });
-    let stdout = "", stderr = "";
-    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-    proc.on("close", async (code: number) => {
-      await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "git_pull", category: "admin", targetType: "system", targetId: "dashboard", details: { exit_code: code, stdout: stdout.slice(0, 500), stderr: stderr.slice(0, 500) }, ipAddress: req.ip ?? null });
-      res.json({ ok: code === 0, exit_code: code, stdout, stderr });
-    });
+    // Same-origin protection for this cookie-authenticated, high-impact operation.
+    const origin = req.get("origin");
+    if (origin && origin !== `${req.protocol}://${req.get("host")}`) {
+      return res.status(403).json({ error: "Update requests must come from this application." });
+    }
+    try {
+      await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "dashboard_update_requested", category: "admin", targetType: "system", targetId: "dashboard", details: { pipeline: "pull_build_restart_verify_rollback" }, ipAddress: req.ip ?? null });
+      const result = startDashboardUpdate();
+      res.status(result.alreadyRunning ? 409 : 202).json(result);
+    } catch {
+      res.status(503).json({ error: "Automatic updates are unavailable. Configure server updates on your deployed server." });
+    }
   });
 
   app.post("/api/admin/restart", requireAdmin, async (req, res) => {
@@ -5465,6 +5473,13 @@ export function registerRoutes(expressApp: Express) {
         alerts,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/deployment-health", async (_req, res) => {
+    try {
+      await pgPool.query("SELECT 1");
+      res.json({ ok: true });
+    } catch { res.status(503).json({ ok: false }); }
   });
 
   app.get("/api/health", async (_req, res) => {
