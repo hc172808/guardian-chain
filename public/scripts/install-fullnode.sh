@@ -171,7 +171,8 @@ chmod 700 "${DATA_DIR}/keystore"
 log "[6/7] Configuring firewall..."
 if is_debian && command -v ufw &>/dev/null; then
   # Preserve CloudPanel rules and the active SSH port.
-  SSH_PORT="${GYDS_SSH_PORT:-${SSH_CONNECTION##* }}"
+  SSH_PORT="${GYDS_SSH_PORT:-${SSH_CONNECTION:-}}"
+  SSH_PORT="${SSH_PORT##* }"
   [[ "$SSH_PORT" =~ ^[0-9]+$ ]] && ufw allow "${SSH_PORT}/tcp" >/dev/null
   ufw default deny incoming >/dev/null
   ufw default allow outgoing >/dev/null
@@ -286,9 +287,9 @@ EOF
   # Ubuntu/Debian enable sites-enabled; RHEL/Fedora use conf.d directly.
   if grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\*;' /etc/nginx/nginx.conf 2>/dev/null; then
     mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-    NGINX_SITE="/etc/nginx/sites-available/gyds-fullnode"
+    NGINX_SITE="/etc/nginx/sites-available/${SERVICE_NAME}"
   else
-    NGINX_SITE="/etc/nginx/conf.d/gyds-fullnode.conf"
+    NGINX_SITE="/etc/nginx/conf.d/${SERVICE_NAME}.conf"
   fi
 
   cat > "$NGINX_SITE" <<EOF
@@ -321,13 +322,13 @@ server {
     }
     location /health {
         access_log off;
-        proxy_pass http://127.0.0.1:${RPC_PORT}/health;
+        proxy_pass http://127.0.0.1:${RPC_PORT}/api/health;
     }
 }
 EOF
   if [[ "$NGINX_SITE" == /etc/nginx/sites-available/* ]]; then
     rm -f /etc/nginx/sites-enabled/default
-    ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/gyds-fullnode
+    ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/${SERVICE_NAME}
   fi
   nginx -t && systemctl enable nginx && systemctl restart nginx
 
@@ -342,68 +343,10 @@ fi
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 
-# ── Web Setup Wizard — run BEFORE starting the service ────────────────────────
-SETUP_PORT="${GYDS_SETUP_PORT:-8888}"
-LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "YOUR_SERVER_IP")
-
-echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║         GYDSchain FULL NODE — INSTALLED ✓                   ║"
-echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║                                                              ║"
-echo "║  Binary  : ${GYDS_BIN}/${BINARY}"
-echo "║  Service : gyds-fullnode.service"
-echo "║  Data    : ${DATA_DIR}"
-echo "║  Logs    : ${LOG_DIR}/fullnode.log"
-echo "║                                                              ║"
-echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║   🌐  WEB SETUP WIZARD                                       ║"
-echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║                                                              ║"
-echo "║  A browser-based setup wizard is available.                 ║"
-echo "║  It will help you configure your node via a simple UI.      ║"
-echo "║                                                              ║"
-echo "║  ➜  http://localhost:${SETUP_PORT}                                 ║"
-echo "║  ➜  http://${LOCAL_IP}:${SETUP_PORT}  (from another machine)       ║"
-echo "║                                                              ║"
-echo "║  The wizard will help you configure:                        ║"
-echo "║    • RPC / WS / P2P ports                                   ║"
-echo "║    • Bootstrap peer addresses                               ║"
-echo "║    • Data directory, logging, domain/SSL                    ║"
-echo "║    • Generate node.env and start commands                   ║"
-echo "║                                                              ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
-echo ""
-
-# ── Ask user if they want the web setup wizard ────────────────────────────────
-LAUNCH_WIZARD="n"
-if echo "${@}" | grep -q "\-\-no-wizard"; then
-  LAUNCH_WIZARD="n"
-fi
-if [[ -z "$LAUNCH_WIZARD" && "${NONINTERACTIVE:-0}" != "1" && -t 0 ]]; then
-  read -r -p "  Launch web setup wizard now? [Y/n]: " WIZARD_REPLY
-  case "${WIZARD_REPLY,,}" in
-    n|no) LAUNCH_WIZARD="n" ;;
-    *)    LAUNCH_WIZARD="y" ;;
-  esac
-fi
-
-if [[ "$LAUNCH_WIZARD" != "n" && "$LAUNCH_WIZARD" != "1" ]]; then
-  log "Starting web setup wizard on port ${SETUP_PORT}..."
-  echo "  Open → http://localhost:${SETUP_PORT}"
-  echo "  Press Ctrl+C when finished to continue and start the service."
-  echo ""
-  die "Use setup-node.sh --output before installation; the binary has no setup command"
-  log "Wizard completed — applying configuration and starting node..."
-fi
-
-# Load generated config if it exists, then start the service
-GENERATED_ENV="${DATA_DIR}/config/node.env"
-if [[ -f "$GENERATED_ENV" ]]; then
-  log "Loading wizard-generated config from ${GENERATED_ENV}..."
-  # Merge wizard env into the systemd env file
-  cp "$GENERATED_ENV" "/etc/gyds-fullnode.env" 2>/dev/null || true
-fi
+# setup-node.sh is a terminal-only profile generator, not a binary command.
+echo "Installed ${SERVICE_NAME}. Profile: ${PROFILE_FILE}"
+echo "To reconfigure: run upstream setup-node.sh --output, then set GYDS_NODE_ENV and rerun."
+GENERATED_ENV="${PROFILE_FILE}"
 
 # Start the systemd service
 systemctl restart "$SERVICE_NAME"
