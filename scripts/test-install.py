@@ -158,6 +158,11 @@ class InstallerTests(unittest.TestCase):
             '[[ $EUID -eq 0 ]] || { err "Run as root:  sudo bash $0 $*"; exit 1; }',
             "# root check omitted from the isolated test copy only",
         )
+        # Sandbox may be Nix rather than a supported deployment OS. Keep this
+        # fixture independent of the host while exercising the real helper order.
+        os_release = self.root / "os-release"
+        os_release.write_text('ID=ubuntu\nVERSION_ID="22.04"\n')
+        requirements_source = requirements_source.replace('/etc/os-release', str(os_release))
         requirements.write_text(requirements_source)
         result = subprocess.run(
             [shutil.which("bash"), str(requirements), "--pg-client-only"],

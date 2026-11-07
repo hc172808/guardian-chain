@@ -14,13 +14,19 @@ GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 [[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
 GYDS_SHARED_CONFIG_LOADED=0
 [[ -f "$GYDS_CONF" ]] && GYDS_SHARED_CONFIG_LOADED=1
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/node-profile.sh"
+load_node_profile
 
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
-BINARY="gyds-fullnode"
+NODE_ROLE="${NODE_ROLE:-full}"
+case "$NODE_ROLE" in full|rpc) ;; *) echo "Unsupported node role" >&2; exit 1;; esac
+SERVICE_NAME="gyds-${NODE_ROLE}node"
+BINARY="$SERVICE_NAME"
 APP_USER="${APP_USER:-gyds}"
-APP_DIR="${APP_DIR:-/opt/gyds-fullnode}"
-DATA_DIR="${DATA_DIR:-/var/lib/gyds-fullnode}"
+APP_DIR="${NODE_SOURCE_DIR:-/opt/${SERVICE_NAME}}"
+DATA_DIR="${GYDS_DATA_DIR:-/var/lib/${SERVICE_NAME}}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
 GO_VERSION="${GO_VERSION:-1.25.0}"
@@ -70,9 +76,16 @@ while [[ $# -gt 0 ]]; do
     --domain)          DOMAIN="$2"; RPC_DOMAIN="$2"; shift 2 ;;
     --log-level)       LOG_LEVEL="$2";   shift 2 ;;
     --bootstrap-nodes) BOOTSTRAP="$2";   shift 2 ;;
+    --no-wizard)       shift ;;
     *) warn "Unknown flag: $1"; shift ;;
   esac
 done
+
+[[ -z "${GYDS_NODE_MODE:-}" || "$GYDS_NODE_MODE" == "$NODE_ROLE" ]] || die "Profile role does not match $NODE_ROLE"
+for port in "$RPC_PORT" "$WS_PORT" "$P2P_PORT"; do
+  [[ "$port" =~ ^[0-9]{1,5}$ ]] && (( 10#$port >= 1 && 10#$port <= 65535 )) || die "Invalid node port"
+done
+[[ "$RPC_PORT" != "$P2P_PORT" ]] || die "RPC and P2P ports must differ"
 
 # ── OS detection ──────────────────────────────────────────────────────────────
 . /etc/os-release 2>/dev/null || die "Cannot read /etc/os-release"
@@ -130,7 +143,7 @@ log "[3/7] Fetching source from ${REPO_URL}..."
 if [[ -d "$APP_DIR/.git" ]]; then
   log "    Existing install found — pulling latest..."
   git -C "$APP_DIR" fetch origin "$BRANCH"
-  git -C "$APP_DIR" reset --hard "origin/$BRANCH"
+  git -C "$APP_DIR" merge --ff-only "origin/$BRANCH"
 else
   git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
 fi
@@ -150,14 +163,16 @@ id "$APP_USER" &>/dev/null || \
   useradd --system --no-create-home --shell /usr/sbin/nologin "$APP_USER" 2>/dev/null || \
   adduser --system --no-create-home --shell /usr/sbin/nologin "$APP_USER"
 
-mkdir -p "${DATA_DIR}"/{state.db,keystore,logs} "${LOG_DIR}"
+mkdir -p "${DATA_DIR}"/{keystore,logs} "${LOG_DIR}"
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${LOG_DIR}"
 chmod 700 "${DATA_DIR}/keystore"
 
 # ── Firewall ──────────────────────────────────────────────────────────────────
 log "[6/7] Configuring firewall..."
 if is_debian && command -v ufw &>/dev/null; then
-  ufw --force reset >/dev/null
+  # Preserve CloudPanel rules and the active SSH port.
+  SSH_PORT="${GYDS_SSH_PORT:-${SSH_CONNECTION##* }}"
+  [[ "$SSH_PORT" =~ ^[0-9]+$ ]] && ufw allow "${SSH_PORT}/tcp" >/dev/null
   ufw default deny incoming >/dev/null
   ufw default allow outgoing >/dev/null
   ufw limit 22/tcp    comment "SSH (rate-limited)" >/dev/null
@@ -211,9 +226,10 @@ log "[7/7] Installing systemd service..."
 
 # Build environment block
 ENV_BLOCK="Environment=GYDS_CHAIN_ID=${CHAIN_ID}
-Environment=GYDS_NODE_MODE=full
+Environment=GYDS_NODE_MODE=${NODE_ROLE}
 Environment=GYDS_RPC_PORT=${RPC_PORT}
-Environment=GYDS_RPC_HOST=0.0.0.0
+Environment=GYDS_RPC_HOST=${GYDS_RPC_HOST:-127.0.0.1}
+Environment=GYDS_DASHBOARD_ENABLED=false
 Environment=GYDS_P2P_PORT=${P2P_PORT}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
@@ -221,7 +237,10 @@ Environment=GYDS_LOG_FORMAT=json"
 [[ -n "$BOOTSTRAP" ]] && ENV_BLOCK+="
 Environment=GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}"
 
-cat > /etc/systemd/system/gyds-fullnode.service <<EOF
+PROFILE_FILE="/etc/${SERVICE_NAME}.env"
+write_node_profile "$PROFILE_FILE"
+
+cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
 Description=GYDSchain Full Node v${GYDS_VERSION}
 After=network-online.target
@@ -233,6 +252,7 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${DATA_DIR}
 ${ENV_BLOCK}
+EnvironmentFile=${PROFILE_FILE}
 Environment=GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
 Environment=GYDS_WS_API=eth,net,web3,txpool,admin
 ExecStart=${GYDS_BIN}/${BINARY} start
@@ -293,7 +313,7 @@ server {
         if (\$request_method = OPTIONS) { return 204; }
     }
     location /ws {
-        proxy_pass         http://127.0.0.1:${WS_PORT};
+        proxy_pass         http://127.0.0.1:${RPC_PORT}/api/ws;
         proxy_http_version 1.1;
         proxy_set_header   Upgrade \$http_upgrade;
         proxy_set_header   Connection "Upgrade";
@@ -320,7 +340,7 @@ EOF
 fi
 
 systemctl daemon-reload
-systemctl enable gyds-fullnode
+systemctl enable "$SERVICE_NAME"
 
 # ── Web Setup Wizard — run BEFORE starting the service ────────────────────────
 SETUP_PORT="${GYDS_SETUP_PORT:-8888}"
@@ -356,11 +376,11 @@ echo "╚═══════════════════════�
 echo ""
 
 # ── Ask user if they want the web setup wizard ────────────────────────────────
-LAUNCH_WIZARD="${GYDS_SKIP_WIZARD:-}"
+LAUNCH_WIZARD="n"
 if echo "${@}" | grep -q "\-\-no-wizard"; then
   LAUNCH_WIZARD="n"
 fi
-if [[ -z "$LAUNCH_WIZARD" ]]; then
+if [[ -z "$LAUNCH_WIZARD" && "${NONINTERACTIVE:-0}" != "1" && -t 0 ]]; then
   read -r -p "  Launch web setup wizard now? [Y/n]: " WIZARD_REPLY
   case "${WIZARD_REPLY,,}" in
     n|no) LAUNCH_WIZARD="n" ;;
@@ -373,7 +393,7 @@ if [[ "$LAUNCH_WIZARD" != "n" && "$LAUNCH_WIZARD" != "1" ]]; then
   echo "  Open → http://localhost:${SETUP_PORT}"
   echo "  Press Ctrl+C when finished to continue and start the service."
   echo ""
-  "${GYDS_BIN}/${BINARY}" setup --port "${SETUP_PORT}" 2>&1 || true
+  die "Use setup-node.sh --output before installation; the binary has no setup command"
   log "Wizard completed — applying configuration and starting node..."
 fi
 
@@ -386,7 +406,7 @@ if [[ -f "$GENERATED_ENV" ]]; then
 fi
 
 # Start the systemd service
-systemctl restart gyds-fullnode
+systemctl restart "$SERVICE_NAME"
 sleep 3
 
 # ── Health check ──────────────────────────────────────────────────────────────
@@ -398,7 +418,7 @@ fi
 
 NODE_OK=false
 for i in 1 2 3 4 5; do
-  RESP=$(curl -sf --max-time 4 "http://localhost:${RPC_PORT}/health" 2>/dev/null || true)
+  RESP=$(curl -sf --max-time 4 "http://localhost:${RPC_PORT}/api/health" 2>/dev/null || true)
   if [[ -n "$RESP" ]]; then NODE_OK=true; break; fi
   warn "    Attempt $i/5: waiting for node... (5s)"
   sleep 5
@@ -424,7 +444,7 @@ if [[ -n "$RPC_DOMAIN" ]]; then
   echo "  WS  (WSS)   : wss://${RPC_DOMAIN}/ws"
 else
   echo "  RPC (HTTP)  : http://${SERVER_IP}:${RPC_PORT}"
-  echo "  WS  (WS)    : ws://${SERVER_IP}:${WS_PORT}"
+  echo "  WS  (WS)    : ws://${SERVER_IP}:${RPC_PORT}/api/ws"
 fi
 echo "  P2P         : tcp://${SERVER_IP}:${P2P_PORT}"
 echo "  Chain ID    : ${CHAIN_ID}"
@@ -432,9 +452,9 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  MANAGEMENT"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Reconfigure    : ${GYDS_BIN}/${BINARY} setup"
-echo "  Service status : systemctl status gyds-fullnode"
-echo "  Live logs      : journalctl -u gyds-fullnode -f"
+echo "  Reconfigure    : run setup-node.sh --output, then set GYDS_NODE_ENV and rerun installer"
+echo "  Service status : systemctl status ${SERVICE_NAME}"
+echo "  Live logs      : journalctl -u ${SERVICE_NAME} -f"
 echo "  Log file       : tail -f ${LOG_DIR}/fullnode.log"
 echo ""
 echo "  RPC test:"
