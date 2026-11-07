@@ -17,10 +17,13 @@ interface WgPeer {
   is_approved: boolean;
   is_synced: boolean;
   created_at: string;
-  source?: 'database' | 'file';
+  source?: 'database' | 'file' | 'remote';
   allowedIPs?: string | null;
   endpoint?: string | null;
   name?: string | null;
+  connected?: boolean;
+  latestHandshake?: number;
+  lastHandshakeAt?: string | null;
   // assigned WireGuard tunnel IP
   wgIp?: string;
 }
@@ -30,6 +33,24 @@ const WG_SUBNET = '10.0.0.0/24';
 const WG_SERVER_IP = '10.0.0.1';
 const WG_ALLOWED_IP_OPTIONS = ['10.0.0.0/24', '10.0.0.0/32'] as const;
 const assignWgIp = (index: number) => `10.0.0.${index + 2}`;
+const isLocalPeer = (peer: WgPeer) => peer.wireguard_public_key?.startsWith('LOCAL:') ?? false;
+
+const assignPeerTunnelIps = (peers: WgPeer[]) => {
+  const used = new Set<string>();
+  let nextIndex = 0;
+  return peers.map(peer => {
+    const savedIp = String(peer.ip_address ?? '').split('/')[0];
+    let wgIp = /^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(savedIp) && !used.has(savedIp)
+      ? savedIp
+      : '';
+    while (!wgIp && nextIndex < 252) {
+      const candidate = assignWgIp(nextIndex++);
+      if (!used.has(candidate)) wgIp = candidate;
+    }
+    if (wgIp) used.add(wgIp);
+    return { ...peer, wgIp };
+  });
+};
 
 // Generate peer config block
 const peerBlock = (peer: WgPeer, index: number): string => {
@@ -38,7 +59,7 @@ const peerBlock = (peer: WgPeer, index: number): string => {
     `# Peer: ${peer.hostname} (${peer.node_type})`,
     `[Peer]`,
     `PublicKey = ${peer.wireguard_public_key}`,
-    `AllowedIPs = ${assignWgIp(index)}/32`,
+    `AllowedIPs = ${peer.wgIp || assignWgIp(index)}/32`,
     `PersistentKeepalive = 25`,
     ``,
   ].join('\n');
@@ -73,7 +94,7 @@ const generatePeerConfig = (peer: WgPeer, index: number, serverPubKey: string, s
     `# Generated: ${new Date().toISOString()}`,
     '',
     '[Interface]',
-    `Address = ${assignWgIp(index)}/24`,
+    `Address = ${peer.wgIp || assignWgIp(index)}/24`,
     `PrivateKey = <REPLACE_WITH_THIS_NODE_PRIVATE_KEY>`,
     `DNS = 1.1.1.1, 8.8.8.8`,
     '',
@@ -102,6 +123,10 @@ const downloadFile = (content: string, filename: string) => {
 export const WireGuardPeerManager = () => {
   const { toast } = useToast();
   const [peers, setPeers] = useState<WgPeer[]>([]);
+  const [detectedPeers, setDetectedPeers] = useState<WgPeer[]>([]);
+  const [localNodeCount, setLocalNodeCount] = useState(0);
+  const [registeringPeerKey, setRegisteringPeerKey] = useState<string | null>(null);
+  const [discoverySettings, setDiscoverySettings] = useState<Record<string, { nodeType: string; rpcPort: string }>>({});
   const [loading, setLoading] = useState(true);
   const [serverPubKey, setServerPubKey] = useState('');
   const [serverEndpoint, setServerEndpoint] = useState('');
@@ -126,17 +151,23 @@ export const WireGuardPeerManager = () => {
   } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
-  useEffect(() => { loadPeers(); loadServerConfig(); }, []);
+  useEffect(() => {
+    loadPeers();
+    loadServerConfig();
+    const poll = window.setInterval(() => { loadPeers(true); }, 30_000);
+    return () => window.clearInterval(poll);
+  }, []);
 
-  const loadPeers = async () => {
-    setLoading(true);
+  const loadPeers = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [nodesRes, fileRes] = await Promise.all([
-        fetch('/api/nodes?approved=true', { credentials: 'include' }),
+        fetch('/api/nodes', { credentials: 'include' }),
         fetch('/api/admin/wireguard/peers', { credentials: 'include' }),
       ]);
-      const databaseNodes = nodesRes.ok ? await nodesRes.json() : [];
-      const dbPeers: WgPeer[] = (Array.isArray(databaseNodes) ? databaseNodes : [])
+      if (!nodesRes.ok) throw new Error(`Unable to load registered nodes (HTTP ${nodesRes.status})`);
+      const databaseNodes = await nodesRes.json();
+      const allDbPeers: WgPeer[] = (Array.isArray(databaseNodes) ? databaseNodes : [])
         .map((node: any) => ({
           ...node,
           hostname: node.hostname ?? null,
@@ -147,8 +178,17 @@ export const WireGuardPeerManager = () => {
           is_synced: node.is_synced ?? node.isSynced ?? false,
           created_at: node.created_at ?? node.createdAt ?? '',
           source: 'database' as const,
-        }))
-        .filter((node: WgPeer) => node.is_approved);
+        }));
+      setLocalNodeCount(allDbPeers.filter(isLocalPeer).length);
+      const registeredKeys = new Set(
+        allDbPeers.map(peer => peer.wireguard_public_key).filter((key): key is string => Boolean(key)),
+      );
+      const dbPeers = allDbPeers
+        .filter((node: WgPeer) => node.is_approved && !isLocalPeer(node))
+        .sort((a, b) => {
+          const byDate = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          return byDate || a.id.localeCompare(b.id);
+        });
 
       let filePeers: WgPeer[] = [];
       if (fileRes.ok) {
@@ -172,15 +212,24 @@ export const WireGuardPeerManager = () => {
           is_approved: true,
           is_synced: true,
           created_at: '',
-          source: 'file' as const,
+          source: fileData.source === 'remote' ? 'remote' as const : 'file' as const,
           allowedIPs: peer.allowedIPs,
           endpoint: peer.endpoint,
+          connected: Boolean(peer.connected),
+          latestHandshake: Number(peer.latestHandshake) || 0,
+          lastHandshakeAt: peer.lastHandshakeAt ?? null,
         }));
+        setDetectedPeers(fileData.source === 'remote'
+          ? filePeers.filter(peer => peer.connected
+            && peer.wireguard_public_key
+            && !registeredKeys.has(peer.wireguard_public_key))
+          : []);
       } else {
         const error = await fileRes.json().catch(() => ({}));
         setFilePeerCount(0);
         setPeerSource(null);
         setLocalConfigInfo(null);
+        setDetectedPeers([]);
         setFileError(error.error || `Unable to read ${error.path || '/etc/wireguard/wg0.conf'}`);
       }
 
@@ -191,13 +240,55 @@ export const WireGuardPeerManager = () => {
       filePeers.forEach(filePeer => {
         const key = filePeer.wireguard_public_key!;
         const existing = merged.get(key);
-        merged.set(key, existing ? { ...existing, allowedIPs: filePeer.allowedIPs, endpoint: filePeer.endpoint } : filePeer);
+        if (existing) {
+          merged.set(key, {
+            ...existing,
+            allowedIPs: filePeer.allowedIPs,
+            endpoint: filePeer.endpoint,
+            connected: filePeer.connected,
+            latestHandshake: filePeer.latestHandshake,
+            lastHandshakeAt: filePeer.lastHandshakeAt,
+            source: filePeer.source,
+          });
+        }
       });
       setPeers(Array.from(merged.values()));
     } catch (error: any) {
       setFileError(error.message || 'Unable to load WireGuard peers');
+      setDetectedPeers([]);
+      setPeers([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+    }
+  };
+
+  const registerDetectedPeer = async (peer: WgPeer) => {
+    const publicKey = peer.wireguard_public_key;
+    if (!publicKey) return;
+    const settings = discoverySettings[publicKey] ?? { nodeType: 'rpcnode', rpcPort: '8545' };
+    setRegisteringPeerKey(publicKey);
+    try {
+      const res = await fetch('/api/admin/wireguard/discovered-peers', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          publicKey,
+          nodeType: settings.nodeType,
+          rpcPort: Number(settings.rpcPort),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      toast({
+        title: 'Node added for approval',
+        description: `${data.node?.hostname ?? peer.hostname ?? 'Detected peer'} is pending in the Nodes tab.`,
+      });
+      await loadPeers();
+    } catch (error: any) {
+      toast({ title: 'Could not add detected peer', description: error.message, variant: 'destructive' });
+    } finally {
+      setRegisteringPeerKey(null);
     }
   };
 
@@ -287,7 +378,7 @@ export const WireGuardPeerManager = () => {
     }
   };
 
-  const approvedPeers = peers.filter(p => p.is_approved);
+  const approvedPeers = assignPeerTunnelIps(peers.filter(p => p.is_approved && !isLocalPeer(p)));
   const peersWithKey = approvedPeers.filter(p => p.wireguard_public_key);
 
   return (
@@ -299,7 +390,8 @@ export const WireGuardPeerManager = () => {
             <Network className="h-5 w-5 text-primary" /> WireGuard Peer Manager
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {approvedPeers.length} approved nodes · {peersWithKey.length} with WireGuard keys
+            {approvedPeers.length} approved VPN nodes · {peersWithKey.length} with WireGuard keys
+            {localNodeCount > 0 && ` · ${localNodeCount} localhost nodes excluded from VPN`}
            {filePeerCount > 0 && ` · ${filePeerCount} loaded from ${peerSource === 'file' ? 'wg0.conf' : 'remote wg0'}`}
           </p>
           {localConfigInfo && (
@@ -316,6 +408,76 @@ export const WireGuardPeerManager = () => {
           <RefreshCw className="h-3.5 w-3.5" /> Refresh
         </Button>
       </div>
+
+      {peerSource === 'remote' && (
+        <GlassCard className="p-4 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Wifi className="h-4 w-4 text-primary" /> Detected VPN peers
+              </h4>
+              <p className="text-xs text-muted-foreground mt-1">
+                Recently connected peers are not registered or approved automatically. Add one here to create a pending node, then approve it in the Nodes tab.
+              </p>
+            </div>
+            <Badge variant="outline" className="text-xs shrink-0">{detectedPeers.length} new</Badge>
+          </div>
+          {detectedPeers.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-2">
+              No new peers have connected recently. This list refreshes every 30 seconds.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {detectedPeers.map(peer => {
+                const key = peer.wireguard_public_key!;
+                const settings = discoverySettings[key] ?? { nodeType: 'rpcnode', rpcPort: '8545' };
+                return (
+                  <div key={key} className="flex flex-wrap items-center gap-2 rounded-lg border border-border/40 bg-muted/20 p-3">
+                    <div className="min-w-[180px] flex-1">
+                      <p className="text-xs font-mono font-medium">{key.slice(0, 14)}…</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Tunnel: {peer.allowedIPs || 'not assigned'}
+                        {peer.endpoint ? ` · Endpoint: ${peer.endpoint}` : ''}
+                      </p>
+                      <p className="text-[11px] text-emerald-400">
+                        Handshake {peer.lastHandshakeAt ? new Date(peer.lastHandshakeAt).toLocaleString() : 'recent'}
+                      </p>
+                    </div>
+                    <select
+                      aria-label="Detected node type"
+                      value={settings.nodeType}
+                      onChange={e => setDiscoverySettings(prev => ({
+                        ...prev,
+                        [key]: { ...settings, nodeType: e.target.value },
+                      }))}
+                      className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+                    >
+                      {['rpcnode', 'litenode', 'fullnode', 'boostnode', 'validatornode', 'bootnode'].map(type => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                    <input
+                      aria-label="Detected node RPC port"
+                      type="number"
+                      min="1"
+                      max="65535"
+                      value={settings.rpcPort}
+                      onChange={e => setDiscoverySettings(prev => ({
+                        ...prev,
+                        [key]: { ...settings, rpcPort: e.target.value },
+                      }))}
+                      className="h-8 w-24 rounded-md border border-border bg-background px-2 text-xs"
+                    />
+                    <Button size="sm" onClick={() => registerDetectedPeer(peer)} disabled={registeringPeerKey === key}>
+                      {registeringPeerKey === key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Add pending'}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </GlassCard>
+      )}
 
       {/* Server config */}
       <GlassCard className="p-4 space-y-3">
@@ -424,7 +586,7 @@ export const WireGuardPeerManager = () => {
       ) : (
         <div className="space-y-2">
           {approvedPeers.map((peer, index) => {
-            const tunnelIp = assignWgIp(index);
+            const tunnelIp = peer.wgIp || assignWgIp(index);
             const hasKey = !!peer.wireguard_public_key;
             const isExpanded = expandedPeer === peer.id;
             const peerCfg = generatePeerConfig(peer, index, serverPubKey, serverEndpoint, serverPort, allowedIPs);
@@ -440,8 +602,12 @@ export const WireGuardPeerManager = () => {
                     <div>
                       <p className="text-sm font-medium">{peer.hostname || peer.ip_address}</p>
                       <p className="text-xs text-muted-foreground font-mono">{peer.ip_address} → tunnel {tunnelIp}</p>
-                       {peer.source === 'file' && (
-                         <p className="text-[10px] text-blue-400">Live wg0.conf peer{peer.endpoint ? ` · ${peer.endpoint}` : ''}</p>
+                        {(peer.source === 'file' || peer.source === 'remote') && (
+                          <p className="text-[10px] text-blue-400">
+                            Live {peer.source === 'remote' ? 'remote' : 'wg0.conf'} peer
+                            {peer.connected ? ' · connected' : ''}
+                            {peer.endpoint ? ` · ${peer.endpoint}` : ''}
+                          </p>
                        )}
                     </div>
                   </div>

@@ -92,6 +92,48 @@ function isWalletAddress(value: unknown): value is string {
   return typeof value === "string" && /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 }
 
+function ipv4ToNumber(value: string): number | null {
+  const parts = value.split(".");
+  if (parts.length !== 4 || parts.some(part => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return null;
+  return parts.reduce((result, part) => result * 256 + Number(part), 0);
+}
+
+function isIpv4InCidr(address: string, cidr: string): boolean {
+  const [network, prefixText] = cidr.split("/");
+  const addressNumber = ipv4ToNumber(address);
+  const networkNumber = ipv4ToNumber(network);
+  const prefix = prefixText === undefined ? 32 : Number(prefixText);
+  if (addressNumber === null || networkNumber === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+  const blockSize = 2 ** (32 - prefix);
+  return Math.floor(addressNumber / blockSize) === Math.floor(networkNumber / blockSize);
+}
+
+function getWireGuardTunnelIp(allowedIPs: string | null, subnet: string): string | null {
+  if (!allowedIPs) return null;
+  const [subnetAddress, prefixText] = subnet.split("/");
+  const subnetPrefix = Number(prefixText);
+  const subnetNumber = ipv4ToNumber(subnetAddress);
+  if (subnetNumber === null || !Number.isInteger(subnetPrefix) || subnetPrefix < 0 || subnetPrefix > 30) return null;
+  const blockSize = 2 ** (32 - subnetPrefix);
+  for (const entry of allowedIPs.split(",")) {
+    const [address, prefix] = entry.trim().split("/");
+    if (
+      prefix !== "32"
+      || !/^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(address)
+    ) continue;
+    const addressNumber = ipv4ToNumber(address);
+    if (
+      address === "10.0.0.1"
+      || addressNumber === null
+      || !isIpv4InCidr(address, subnet)
+      || addressNumber % blockSize === 0
+      || addressNumber % blockSize === blockSize - 1
+    ) continue;
+    return address;
+  }
+  return null;
+}
+
 async function readJsonBody<T = unknown>(response: globalThis.Response): Promise<T> {
   return response.json() as Promise<T>;
 }
@@ -5122,15 +5164,29 @@ export function registerRoutes(expressApp: Express) {
   });
 
   app.get("/v1/oracle/prices", async (_req, res) => {
-    const ph = await storage.getPriceHistory("GYDS", 1).catch(() => []);
-    const latest = ph[ph.length - 1];
-    res.json({
-      GYDS: latest?.close ?? 0.0000001,
-      GYD: 1.0,
-      BTC: 65000,
-      ETH: 3400,
-      updated_at: new Date().toISOString(),
-    });
+    try {
+      const feeds = await storage.getOracleFeeds();
+      const activeFeeds = feeds.filter((feed: any) => feed.active !== false);
+      if (!activeFeeds.length) {
+        return res.status(503).json({ error: "No active oracle price feeds are configured." });
+      }
+      const prices: Record<string, number | string> = {};
+      for (const feed of activeFeeds as any[]) {
+        const symbol = String(feed.feed_id ?? "").split("/")[0].trim().toUpperCase();
+        const value = Number(feed.value);
+        if (symbol && Number.isFinite(value)) prices[symbol] = value;
+      }
+      const latestTimestamp = activeFeeds
+        .map((feed: any) => new Date(feed.last_updated ?? 0).getTime())
+        .filter(Number.isFinite)
+        .sort((a: number, b: number) => b - a)[0];
+      return res.json({
+        ...prices,
+        updated_at: latestTimestamp ? new Date(latestTimestamp).toISOString() : null,
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
   });
 
   // ── Trade History ──────────────────────────────────────────────────────────
@@ -5285,11 +5341,33 @@ export function registerRoutes(expressApp: Express) {
     catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  app.post("/api/admin/oracle/feeds", requireAdmin, async (req, res) => {
+    const symbol = String(req.body?.symbol ?? "").trim().toUpperCase();
+    const provider = String(req.body?.provider ?? req.body?.source ?? "internal").trim();
+    if (!/^[A-Z0-9][A-Z0-9._-]{0,19}$/.test(symbol)) {
+      return res.status(400).json({ error: "Symbol must contain 1–20 letters, numbers, dots, underscores, or hyphens." });
+    }
+    if (!provider || provider.length > 80) {
+      return res.status(400).json({ error: "Provider must be between 1 and 80 characters." });
+    }
+    try {
+      const feed = await storage.createOracleFeed(`${symbol}/USD`, `${symbol} price in USD`, provider);
+      return res.status(201).json(feed);
+    } catch (e: any) {
+      if (String(e.message).includes("already exists")) return res.status(409).json({ error: e.message });
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   app.put("/api/admin/oracle/feeds/:feedId", requireAdmin, async (req, res) => {
     try {
-      const { value } = req.body;
-      if (value === undefined) return res.status(400).json({ error: "value required" });
-      res.json(await (storage as any).updateOracleFeed(req.params.feedId, parseFloat(value)));
+      const value = Number(req.body?.value);
+      if (!Number.isFinite(value) || value < 0) {
+        return res.status(400).json({ error: "value must be a finite number greater than or equal to zero" });
+      }
+      const feed = await storage.updateOracleFeed(req.params.feedId, value);
+      if (!feed) return res.status(404).json({ error: "Oracle feed not found" });
+      return res.json(feed);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -8081,22 +8159,109 @@ export function registerRoutes(expressApp: Express) {
   app.post("/api/admin/wireguard/sync", requireAdmin, async (_req, res) => {
     try {
       const { rows } = await pgPool.query(
-        `SELECT id, hostname, node_type, wireguard_public_key
+        `SELECT id, hostname, node_type, ip_address, wireguard_public_key
          FROM node_installations
          WHERE is_approved=true
            AND wireguard_public_key IS NOT NULL
            AND wireguard_public_key NOT LIKE 'LOCAL:%'
          ORDER BY created_at ASC, id ASC`,
       );
-      const peers = rows.map((row: any, index: number) => ({
-        publicKey: row.wireguard_public_key,
-        tunnelIp: `10.0.0.${index + 2}`,
-        name: row.hostname || row.node_type || String(row.id),
-      }));
+      const usedIps = new Set<string>();
+      let nextOctet = 2;
+      const peers = rows.map((row: any) => {
+        const savedIp = String(row.ip_address ?? "").trim();
+        let tunnelIp = /^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(savedIp)
+          && !usedIps.has(savedIp)
+          ? savedIp
+          : "";
+        while (!tunnelIp && nextOctet <= 253) {
+          const candidate = `10.0.0.${nextOctet++}`;
+          if (!usedIps.has(candidate)) tunnelIp = candidate;
+        }
+        if (!tunnelIp) throw new Error("No unused WireGuard tunnel IP remains in the 10.0.0.0/24 subnet.");
+        usedIps.add(tunnelIp);
+        return {
+          publicKey: row.wireguard_public_key,
+          tunnelIp,
+          name: row.hostname || row.node_type || String(row.id),
+        };
+      });
       const result = await syncRemoteWireGuardPeers(peers);
       res.json({ ok: true, ...result });
     } catch (e: any) {
       res.status(502).json({ ok: false, error: e.message });
+    }
+  });
+
+  // A live VPN handshake is only a discovery signal. Registering a detected
+  // peer creates a pending node; it never approves or syncs the peer.
+  app.post("/api/admin/wireguard/discovered-peers", requireAdmin, async (req, res) => {
+    try {
+      const publicKey = String(req.body?.publicKey ?? "").trim();
+      const nodeType = String(req.body?.nodeType ?? "rpcnode").trim().toLowerCase();
+      const rpcPort = Number(req.body?.rpcPort ?? 8545);
+      const allowedNodeTypes = new Set([
+        "rpcnode", "litenode", "fullnode", "boostnode", "validatornode", "bootnode", "genesisnode",
+      ]);
+      if (!/^[A-Za-z0-9+/=]{30,100}$/.test(publicKey)) {
+        return res.status(400).json({ error: "A valid WireGuard public key is required." });
+      }
+      if (!allowedNodeTypes.has(nodeType)) {
+        return res.status(400).json({ error: "Unsupported node type." });
+      }
+      if (!Number.isInteger(rpcPort) || rpcPort < 1 || rpcPort > 65535) {
+        return res.status(400).json({ error: "RPC port must be between 1 and 65535." });
+      }
+
+      const livePeer = (await getRemoteWireGuardPeers()).find(peer => peer.publicKey === publicKey);
+      if (!livePeer?.connected) {
+        return res.status(409).json({ error: "This peer has no recent VPN handshake. Refresh after it connects." });
+      }
+      const config = await getWireGuardConfig();
+      const tunnelIp = getWireGuardTunnelIp(livePeer.allowedIPs, config.subnet);
+      if (!tunnelIp) {
+        return res.status(400).json({ error: "The connected peer has no single-host address inside the configured VPN subnet." });
+      }
+      const existing = await pgPool.query(
+        `SELECT id, is_approved FROM node_installations WHERE wireguard_public_key=$1 LIMIT 1`,
+        [publicKey],
+      );
+      if (existing.rows[0]) {
+        return res.status(409).json({
+          error: existing.rows[0].is_approved ? "This peer is already registered and approved." : "This peer is already registered and awaiting approval.",
+          nodeId: existing.rows[0].id,
+        });
+      }
+      const tunnelIpOwner = await pgPool.query(
+        `SELECT id FROM node_installations
+         WHERE ip_address=$1
+           AND wireguard_public_key IS NOT NULL
+           AND wireguard_public_key NOT LIKE 'LOCAL:%'
+         LIMIT 1`,
+        [tunnelIp],
+      );
+      if (tunnelIpOwner.rows[0]) {
+        return res.status(409).json({ error: `Tunnel IP ${tunnelIp} is already assigned to another registered node.` });
+      }
+
+      const userId = String((req.user as any)?.id ?? "");
+      if (!userId) return res.status(401).json({ error: "Admin user is unavailable." });
+      const node = await storage.insertNode({
+        nodeType,
+        hostname: `${nodeType}-${tunnelIp.split(".").at(-1)}`,
+        ipAddress: tunnelIp,
+        rpcPort,
+        wireguardPublicKey: publicKey,
+        userId,
+        isApproved: false,
+        approvedBy: null,
+        approvedAt: null,
+        isOnline: false,
+        isSynced: false,
+      });
+      return res.status(201).json({ ok: true, node });
+    } catch (e: any) {
+      return res.status(502).json({ error: e.message || "Unable to register detected WireGuard peer." });
     }
   });
 
@@ -8106,25 +8271,24 @@ export function registerRoutes(expressApp: Express) {
   // fields only; private and preshared keys are never returned.
   app.get("/api/admin/wireguard/peers", requireAdmin, async (_req, res) => {
     const configPath = WIREGUARD_CONFIG_PATH;
+    let activePath = configPath;
     try {
-      let localFile: Awaited<ReturnType<typeof readLocalWireGuardConfig>>;
-      try {
-        localFile = await readLocalWireGuardConfig();
-      } catch (error: any) {
-        if (error?.code !== "ENOENT") throw error;
-        const config = await getWireGuardConfig();
-        const configuredForRemote = Boolean(
-          config.sshUser || process.env.WG_SSH_HOST || process.env.WG_SSH_PRIVATE_KEY,
-        );
-        if (!configuredForRemote) throw error;
+      const config = await getWireGuardConfig();
+      const configuredForRemote = Boolean(
+        config.sshUser || process.env.WG_SSH_HOST || process.env.WG_SSH_PRIVATE_KEY,
+      );
+      if (configuredForRemote) {
+        activePath = `ssh://${config.sshHost}/${config.interfaceName}`;
         const peers = await getRemoteWireGuardPeers();
         return res.json({
-          path: `ssh://${config.sshHost}/${config.interfaceName}`,
+          path: activePath,
           count: peers.length,
           peers,
           source: "remote",
         });
       }
+
+      const localFile = await readLocalWireGuardConfig();
 
       return res.json({
         path: localFile.path,
@@ -8139,11 +8303,15 @@ export function registerRoutes(expressApp: Express) {
         },
       });
     } catch (error: any) {
-      const code = error?.code === "ENOENT" ? 404 : 500;
-      const reason = error?.code === "ENOENT"
+      const localConfigMissing = error?.code === "ENOENT";
+      const isRemote = activePath.startsWith("ssh://");
+      const code = localConfigMissing ? 404 : isRemote ? 502 : 500;
+      const reason = localConfigMissing
         ? "WireGuard config file was not found"
-        : "WireGuard config file could not be read";
-      res.status(code).json({ error: reason, path: configPath, detail: error?.message });
+        : isRemote
+          ? "Remote WireGuard peers could not be read"
+          : "Local WireGuard config file could not be read";
+      res.status(code).json({ error: reason, path: activePath, detail: error?.message });
     }
   });
 

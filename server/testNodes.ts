@@ -952,13 +952,13 @@ export const testNodeManager = {
         }
       });
 
-      srv.listen(s.port, "0.0.0.0", () => {
+      srv.listen(s.port, "127.0.0.1", () => {
         s.running = true;
         s.startedAt = new Date().toISOString();
         addLog(network, type, `${NODE_LABELS[type]} started on port ${s.port}`);
 
         addLog(network, type, `Network: ${cfg.name} | Chain ID: ${cfg.chainId} | Symbol: ${cfg.symbol}`);
-        addLog(network, type, `Endpoint: http://0.0.0.0:${s.port}`);
+        addLog(network, type, `Endpoint: http://127.0.0.1:${s.port} (localhost only)`);
         if (type === "boostnode") addLog(network, type, "MEV bundle endpoint: POST /boost/bundle");
         if (type === "fullnode")  addLog(network, type, "Full-state RPC + txpool_status + debug_traceTransaction enabled");
         if (type === "validator") addLog(network, type, "PoS consensus started | validator_info, validator_set, validator_getRewards, validator_register");

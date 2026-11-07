@@ -49,57 +49,18 @@ externalPort = 3000
 localPort = 5002
 externalPort = 3001
 
-[[ports]]
-localPort = 8545
-externalPort = 8000
 
-[[ports]]
-localPort = 8555
-externalPort = 8008
 
-[[ports]]
-localPort = 8565
-externalPort = 8080
 
-[[ports]]
-localPort = 8575
-externalPort = 8099
 
-[[ports]]
-localPort = 8585
-externalPort = 8081
 
-[[ports]]
-localPort = 8590
-externalPort = 9000
 
-[[ports]]
-localPort = 8600
-externalPort = 6000
 
-[[ports]]
-localPort = 8601
-externalPort = 5173
 
-[[ports]]
-localPort = 8602
-externalPort = 6800
 
-[[ports]]
-localPort = 8603
-externalPort = 3002
 
-[[ports]]
-localPort = 8604
-externalPort = 3003
 
-[[ports]]
-localPort = 8605
-externalPort = 4200
 
-[[ports]]
-localPort = 8606
-externalPort = 5000
 
 [userenv]
 

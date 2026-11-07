@@ -67,7 +67,7 @@
 - [Public API + rate limiting](public-api-rate-limit.md) — /api/public/chain|tokens|stats require X-API-Key (SHA-256 hash lookup); publicApiLimiter 60 req/min; validate:{ip:false} needed to silence IPv6 keyGenerator warning from express-rate-limit.
 - [Network snapshots API](network-snapshots-api.md) — GET /api/network-snapshots?hours=N added; used by Validators.tsx real chart and Analytics.tsx; data written by DB pruner cron hourly from RPC stats.
 - [Live RPC wiring](live-rpc-wiring.md) — GYDS_RPC_URL=http://localhost:8545 in .env + gyds-config.env; chainRpc.ts falls back through all mainnet local ports (8545,8565,8555,8575,8585); mainnet test nodes enabled in test_node_state DB table; mock TPS/price fallbacks removed.
-- [WireGuard registration](wireguard-registration.md) — Server public key config and node peer registration are separate; every node needs its own public key before approval.
+- [WireGuard registration](wireguard-registration.md) — Local nodes stay loopback-only; detected remote peers require manual registration and approval before VPN sync.
 - [Admin node approval](admin-node-approval.md) — Approval/revocation uses a dedicated JSON action endpoint, separate from general node PATCH mutations.
 - [Admin user tools](admin-user-tools.md) — User edits, password resets, and session revocation are audited; console commands stay bounded and server-validated.
 - [Staking chain settlement](staking-chain-settlement.md) — Settle GYD through the chain transfer RPC before committing positions; production needs a real STAKING_POOL_ADDRESS.

@@ -2158,6 +2158,18 @@ export const storage = {
     return res.rows;
   },
 
+  async createOracleFeed(feedId: string, description: string, provider: string) {
+    const res = await pgPool.query(
+      `INSERT INTO oracle_feeds (feed_id, description, value, decimals, provider, active)
+       VALUES ($1, $2, 0, 8, $3, true)
+       ON CONFLICT (feed_id) DO NOTHING
+       RETURNING *`,
+      [feedId, description, provider],
+    );
+    if (!res.rows[0]) throw new Error(`Oracle feed ${feedId} already exists.`);
+    return res.rows[0];
+  },
+
   async updateOracleFeed(feedId: string, value: number) {
     const res = await pgPool.query(
       `UPDATE oracle_feeds SET value=$1, last_updated=NOW() WHERE feed_id=$2 RETURNING *`,

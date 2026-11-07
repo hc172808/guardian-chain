@@ -349,37 +349,72 @@ function OracleAdmin({ toast }: { toast: any }) {
   const [newSource, setNewSource] = useState('');
   const [adding, setAdding] = useState(false);
   const [selectedFeed, setSelectedFeed] = useState<string | null>(null);
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
+  const [updatingFeed, setUpdatingFeed] = useState<string | null>(null);
 
   const fetchFeeds = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/oracle/feeds', { credentials: 'include' });
-      if (res.ok) setFeeds(await res.json());
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      setFeeds(await res.json());
+    } catch (e: any) {
+      toast({ title: 'Failed to load oracle feeds', description: e.message, variant: 'destructive' });
     } finally { setLoading(false); }
   };
 
   const fetchSubmissions = async (feedId: string) => {
     setSelectedFeed(feedId);
-    const res = await fetch(`/api/admin/oracle/feeds/${feedId}`, { credentials: 'include' });
-    if (res.ok) setSubmissions(await res.json());
+    try {
+      const res = await fetch(`/api/oracle/feeds/${encodeURIComponent(feedId)}/submissions`, { credentials: 'include' });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      setSubmissions(await res.json());
+    } catch (e: any) {
+      toast({ title: 'Failed to load submission history', description: e.message, variant: 'destructive' });
+    }
   };
 
   const addFeed = async () => {
     if (!newSymbol.trim()) return;
     setAdding(true);
     try {
-      const res = await fetch('/api/oracle/feeds', {
+      const res = await fetch('/api/admin/oracle/feeds', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: newSymbol.trim().toUpperCase(), source: newSource.trim() || 'manual', heartbeat_seconds: 300 }),
+        body: JSON.stringify({ symbol: newSymbol.trim().toUpperCase(), provider: newSource.trim() || 'internal' }),
       });
-      if (!res.ok) throw new Error((await res.json()).error);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
       toast({ title: `Oracle feed ${newSymbol.toUpperCase()} created` });
       setNewSymbol(''); setNewSource('');
-      fetchFeeds();
+      await fetchFeeds();
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally { setAdding(false); }
+  };
+
+  const updateFeed = async (feedId: string, currentValue: unknown) => {
+    const draft = priceDrafts[feedId] ?? String(currentValue ?? '');
+    const value = Number(draft);
+    if (!draft.trim() || !Number.isFinite(value) || value < 0) {
+      toast({ title: 'Invalid price', description: 'Enter a finite value greater than or equal to zero.', variant: 'destructive' });
+      return;
+    }
+    setUpdatingFeed(feedId);
+    try {
+      const res = await fetch(`/api/admin/oracle/feeds/${encodeURIComponent(feedId)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      toast({ title: `${feedId} price updated` });
+      await fetchFeeds();
+    } catch (e: any) {
+      toast({ title: 'Failed to update feed', description: e.message, variant: 'destructive' });
+    } finally {
+      setUpdatingFeed(null);
+    }
   };
 
   useEffect(() => { fetchFeeds(); }, []);
@@ -407,20 +442,31 @@ function OracleAdmin({ toast }: { toast: any }) {
         ) : (
           <div className="space-y-2">
             {feeds.map((f: any) => (
-              <div key={f.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-xl text-sm">
+              <div key={f.id} className="flex flex-wrap items-center justify-between gap-3 p-3 bg-muted/20 rounded-xl text-sm">
                 <div>
-                  <span className="font-mono font-bold text-primary">{f.symbol}</span>
+                  <span className="font-mono font-bold text-primary">{f.feed_id}</span>
                   <span className="text-muted-foreground ml-2">·</span>
-                  <span className="text-muted-foreground ml-2">source: {f.source}</span>
+                  <span className="text-muted-foreground ml-2">source: {f.provider}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  {f.latest_price && (
-                    <span className="font-mono text-emerald-400">${Number(f.latest_price).toFixed(6)}</span>
-                  )}
-                  <Badge variant={f.is_active ? 'default' : 'secondary'} className="text-xs">
-                    {f.is_active ? 'Active' : 'Inactive'}
+                  <input
+                    aria-label={`${f.feed_id} price`}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={priceDrafts[f.feed_id] ?? String(f.value ?? 0)}
+                    onChange={e => setPriceDrafts(prev => ({ ...prev, [f.feed_id]: e.target.value }))}
+                    className="w-28 bg-background border border-border/50 rounded-md px-2 py-1 text-xs font-mono"
+                  />
+                  <Button size="sm" variant="outline" className="h-7 text-xs"
+                    disabled={updatingFeed === f.feed_id}
+                    onClick={() => updateFeed(f.feed_id, f.value)}>
+                    {updatingFeed === f.feed_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : 'Save'}
+                  </Button>
+                  <Badge variant={f.active ? 'default' : 'secondary'} className="text-xs">
+                    {f.active ? 'Active' : 'Inactive'}
                   </Badge>
-                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fetchSubmissions(f.id)}>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fetchSubmissions(f.feed_id)}>
                     History
                   </Button>
                 </div>
@@ -442,8 +488,8 @@ function OracleAdmin({ toast }: { toast: any }) {
             <div className="space-y-1 max-h-64 overflow-y-auto">
               {submissions.map((s: any, i: number) => (
                 <div key={i} className="flex items-center justify-between text-xs p-2 bg-muted/20 rounded-lg">
-                  <span className="font-mono text-primary">${Number(s.price).toFixed(6)}</span>
-                  <span className="text-muted-foreground">{s.submitter_address?.slice(0, 12) || 'system'}…</span>
+                  <span className="font-mono text-primary">${Number(s.value).toFixed(6)}</span>
+                  <span className="text-muted-foreground">{s.submitter || 'system'}</span>
                   <span className="text-muted-foreground">{s.submitted_at ? new Date(s.submitted_at).toLocaleString() : '—'}</span>
                 </div>
               ))}
@@ -1371,14 +1417,21 @@ const AdminContent = () => {
             nodes.map((node, nodeIndex) => {
               const isLocalNode = node.wireguardPublicKey?.startsWith('LOCAL:');
               const localPort = isLocalNode ? node.wireguardPublicKey!.split(':')[1] : null;
-              const localRpcUrl = localPort ? `http://${window.location.hostname}:${localPort}` : null;
+              const localRpcUrl = localPort ? `http://127.0.0.1:${localPort}` : null;
               const isMain = node.id === mainNodeId;
               const isPinging = pingingNodes.has(node.id);
-              // VPN tunnel IP assigned in order (matches WireGuardPeerManager: 10.0.0.2, .3, …)
-              const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
+              // Keep detected peers on their actual VPN address; use the ordered
+              // assignment only for older registrations without a tunnel IP.
+              const approvedNonLocal = nodes
+                .filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'))
+                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id.localeCompare(b.id));
               const vpnIndex = approvedNonLocal.findIndex(n => n.id === node.id);
+              const savedTunnelIp = typeof node.ipAddress === 'string'
+                && /^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(node.ipAddress)
+                ? node.ipAddress
+                : null;
               const vpnTunnelIp = !isLocalNode && node.isApproved && vpnIndex >= 0
-                ? `10.0.0.${vpnIndex + 2}`
+                ? savedTunnelIp || `10.0.0.${vpnIndex + 2}`
                 : null;
               const displayHost = node.ipAddress || node.hostname;
               const rpcPort = node.rpcPort || 8545;
@@ -1602,9 +1655,16 @@ const AdminContent = () => {
           <NodeDetailsDrawer
             nodeId={selectedNodeId}
             vpnTunnelIp={(() => {
-              const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
+              const approvedNonLocal = nodes
+                .filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'))
+                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id.localeCompare(b.id));
               const idx = approvedNonLocal.findIndex(n => n.id === selectedNodeId);
-              return idx >= 0 ? `10.0.0.${idx + 2}` : null;
+              const node = approvedNonLocal[idx];
+              const savedIp = typeof node?.ipAddress === 'string'
+                && /^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(node.ipAddress)
+                ? node.ipAddress
+                : null;
+              return idx >= 0 ? savedIp || `10.0.0.${idx + 2}` : null;
             })()}
             isMain={selectedNodeId === mainNodeId}
             onClose={() => setSelectedNodeId(null)}

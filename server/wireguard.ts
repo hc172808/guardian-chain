@@ -351,10 +351,17 @@ export async function syncRemoteWireGuardPeers(peers: WireGuardPeerInput[]) {
   return { applied: peers.length, output: result.stdout.trim().slice(0, 4000) };
 }
 
-export function parseWireGuardDump(dump: string) {
+export function parseWireGuardDump(
+  dump: string,
+  nowSeconds = Math.floor(Date.now() / 1000),
+) {
   const lines = dump.split(/\r?\n/).filter(Boolean);
   return lines.slice(1).map((line, index) => {
     const fields = line.split("\t");
+    const parsedHandshake = Number(fields[4] ?? 0);
+    const latestHandshake = Number.isFinite(parsedHandshake) && parsedHandshake > 0
+      ? Math.floor(parsedHandshake)
+      : 0;
     return {
       id: `wg-remote-${index}-${fields[0]?.slice(0, 12) ?? index}`,
       publicKey: fields[0] ?? "",
@@ -362,6 +369,11 @@ export function parseWireGuardDump(dump: string) {
       endpoint: fields[2] && fields[2] !== "(none)" ? fields[2] : null,
       name: null,
       source: "remote" as const,
+      latestHandshake,
+      lastHandshakeAt: latestHandshake ? new Date(latestHandshake * 1000).toISOString() : null,
+      connected: latestHandshake > 0
+        && nowSeconds >= latestHandshake
+        && nowSeconds - latestHandshake <= 300,
     };
   }).filter((peer) => peer.publicKey);
 }
