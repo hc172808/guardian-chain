@@ -5,21 +5,8 @@ import crypto from "crypto";
 // resolved (ES module import hoisting), so a top-level const here would have
 // baked in stale/missing env values and silently ignored any admin-configured
 // RPC override.
-// All local node ports in priority order (rpc → fullnode → lite → boost → validator → genesis → bootnode)
-// mainnet ports: 8545,8565,8555,8575,8585,8590,8595
-// testnet ports: 8600,8602,8601,8603,8604,8605,8606
-const LOCAL_FALLBACK_PORTS = [8545, 8565, 8555, 8575, 8585, 8590, 8595];
-
 function getRpcEndpoints(): string[] {
-  const localPrimary = process.env.GYDS_LOCAL_RPC_URL?.trim() || "http://127.0.0.1:8545";
-  const configuredEndpoints = getConfiguredRpcEndpoints();
-  // Deduplicate while preserving order
-  const seen = new Set<string>();
-  return [localPrimary, ...LOCAL_FALLBACK_PORTS.map(p => `http://127.0.0.1:${p}`), ...configuredEndpoints].filter(u => {
-    if (!u || seen.has(u)) return false;
-    seen.add(u);
-    return true;
-  });
+  return getConfiguredGydsRpcEndpoints();
 }
 
 function getConfiguredRpcEndpoints(): string[] {
@@ -30,7 +17,26 @@ function getConfiguredRpcEndpoints(): string[] {
   return [...new Set([primary, ...backups].filter((url): url is string => Boolean(url)))];
 }
 
+export function getConfiguredGydsRpcEndpoints(): string[] {
+  const local = process.env.GYDS_LOCAL_RPC_URL?.trim();
+  return [...new Set([local, ...getConfiguredRpcEndpoints()].filter((url): url is string => Boolean(url)))];
+}
+
 const TIMEOUT_MS = 8000;
+const LOCAL_HEALTH_CACHE_MS = 5000;
+const localRpcHealth = new Map<string, { checkedAt: number; healthy: boolean }>();
+
+export function isLoopbackRpcEndpoint(endpoint: string): boolean {
+  try {
+    const hostname = new URL(endpoint).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname.startsWith("127.") ||
+      hostname === "::1";
+  } catch {
+    return false;
+  }
+}
 
 interface JsonRpcResponse {
   result?: any;
@@ -55,18 +61,91 @@ async function rpcCall(url: string, method: string, params: any[] = []): Promise
   }
 }
 
+export async function callGydsRpcAtEndpoint(endpoint: string, method: string, params: any[] = []): Promise<any> {
+  return rpcCall(endpoint, method, params);
+}
+
+function parseRpcQuantity(value: unknown): bigint | null {
+  if (typeof value !== "string" || !/^0x[0-9a-f]+$/i.test(value)) return null;
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+function isKnownSimulatedClientVersion(value: unknown): boolean {
+  if (typeof value !== "string") return true;
+  return /^GYDSchain\/(?:mainnet|testnet|devnet)\//i.test(value) ||
+    /^GYDS-(?:RPC|Fullnode)\/1\.0\.0$/i.test(value);
+}
+
+function getConfiguredChainId(): number {
+  if (process.env.GYDS_NETWORK?.toLowerCase() === "testnet") return 198281;
+  return 198282;
+}
+
+export async function assertHealthyLocalGydsRpc(
+  endpoint: string,
+  expectedChainId = 198282,
+): Promise<void> {
+  const [chainIdResult, clientVersion, syncing, peerCountResult, blockNumberResult] = await Promise.all([
+    rpcCall(endpoint, "eth_chainId"),
+    rpcCall(endpoint, "web3_clientVersion"),
+    rpcCall(endpoint, "eth_syncing"),
+    rpcCall(endpoint, "net_peerCount"),
+    rpcCall(endpoint, "eth_blockNumber"),
+  ]);
+  if (Number.parseInt(String(chainIdResult), 16) !== expectedChainId) {
+    throw new Error("The local RPC reports the wrong GYDS chain ID.");
+  }
+  if (isKnownSimulatedClientVersion(clientVersion)) {
+    throw new Error("The local RPC identifies as a simulated development node.");
+  }
+  if (syncing !== false) {
+    throw new Error("The local GYDS node is still syncing or did not report sync status.");
+  }
+  const peerCount = parseRpcQuantity(peerCountResult);
+  if (peerCount === null || peerCount < 1n) {
+    throw new Error("The local GYDS node has no connected peers.");
+  }
+  const blockNumber = parseRpcQuantity(blockNumberResult);
+  if (blockNumber === null || blockNumber < 1n) {
+    throw new Error("The local GYDS node did not return a valid chain head.");
+  }
+}
+
+async function ensureHealthyLocalGydsRpc(endpoint: string): Promise<void> {
+  const expectedChainId = getConfiguredChainId();
+  const cacheKey = `${endpoint}|${expectedChainId}`;
+  const cached = localRpcHealth.get(cacheKey);
+  if (cached && Date.now() - cached.checkedAt < LOCAL_HEALTH_CACHE_MS) {
+    if (!cached.healthy) throw new Error("The configured local RPC is not a healthy GYDS node.");
+    return;
+  }
+  try {
+    await assertHealthyLocalGydsRpc(endpoint, expectedChainId);
+    localRpcHealth.set(cacheKey, { checkedAt: Date.now(), healthy: true });
+  } catch (error) {
+    localRpcHealth.set(cacheKey, { checkedAt: Date.now(), healthy: false });
+    throw error;
+  }
+}
+
 async function rpcCallWithFallback(
   method: string,
   params: any[] = [],
   pinnedEndpoint?: string,
 ): Promise<{ result: any; endpoint: string }> {
   if (pinnedEndpoint) {
+    if (isLoopbackRpcEndpoint(pinnedEndpoint)) await ensureHealthyLocalGydsRpc(pinnedEndpoint);
     const result = await rpcCall(pinnedEndpoint, method, params);
     return { result, endpoint: pinnedEndpoint };
   }
   const errors: string[] = [];
   for (const url of getRpcEndpoints()) {
     try {
+      if (isLoopbackRpcEndpoint(url)) await ensureHealthyLocalGydsRpc(url);
       const result = await rpcCall(url, method, params);
       return { result, endpoint: url };
     } catch (err: any) {
@@ -82,16 +161,16 @@ export async function callGydsRpc(method: string, params: any[] = []): Promise<a
 }
 
 /**
- * Read from explicitly configured public/mainnet RPC endpoints only. Token
- * deployment verification must never silently fall back to the local test
- * nodes, which can return synthetic receipts or empty contract data.
+ * Read from explicitly configured GYDS RPC endpoints only. A configured local
+ * full node is tried first, followed by the primary and backup RPCs. The
+ * deployment caller is responsible for rejecting known simulated local nodes.
  */
 export async function callConfiguredGydsRpc(
   method: string,
   params: any[] = [],
   pinnedEndpoint?: string,
 ): Promise<{ result: any; endpoint: string }> {
-  const endpoints = getConfiguredRpcEndpoints();
+  const endpoints = getConfiguredGydsRpcEndpoints();
   if (!endpoints.length) {
     throw new Error("No explicit GYDS mainnet RPC is configured.");
   }

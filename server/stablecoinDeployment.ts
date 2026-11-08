@@ -4,8 +4,11 @@ import path from "node:path";
 import { pool } from "./db";
 import {
   broadcastRawTransaction,
-  callConfiguredGydsRpc,
+  callGydsRpcAtEndpoint,
   estimateTransactionGas,
+  getConfiguredGydsRpcEndpoints,
+  assertHealthyLocalGydsRpc,
+  isLoopbackRpcEndpoint,
   getContractCode,
   getGasPrice,
   getTransactionCount,
@@ -94,61 +97,35 @@ function getDeploymentWallet(): ethers.Wallet {
   }
 }
 
-function hasExplicitGydsRpcConfig(): boolean {
-  const backups = process.env.GYDS_RPC_BACKUP_URLS
-    ?.split(",")
-    .some((endpoint) => endpoint.trim().length > 0);
-  return Boolean(process.env.GYDS_RPC_URL?.trim() || backups);
-}
-
-function isLoopbackRpc(endpoint: string): boolean {
-  try {
-    const hostname = new URL(endpoint).hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    return hostname === "localhost" ||
-      hostname.endsWith(".localhost") ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1";
-  } catch {
-    return true;
-  }
-}
-
 async function getVerifiedMainnetRpc(): Promise<{ chainId: number; endpoint: string }> {
   if (process.env.GYDS_NETWORK && process.env.GYDS_NETWORK.toLowerCase() !== "mainnet") {
     throw new StablecoinDeploymentError("Stablecoin contract deployment is restricted to GYDS mainnet.", 409);
   }
-  let response: { result: any; endpoint: string };
-  try {
-    response = await callConfiguredGydsRpc("eth_chainId");
-  } catch {
-    if (!hasExplicitGydsRpcConfig()) {
-      throw new StablecoinDeploymentError(
-        "A trusted GYDS mainnet RPC is not configured. Set GYDS_RPC_URL to a reachable non-local mainnet node before approving.",
-        503,
-      );
+  const endpoints = getConfiguredGydsRpcEndpoints();
+  if (!endpoints.length) {
+    throw new StablecoinDeploymentError(
+      "Configure GYDS_LOCAL_RPC_URL for a real local GYDS node, or GYDS_RPC_URL for a trusted remote node before approving.",
+      503,
+    );
+  }
+
+  for (const endpoint of endpoints) {
+    try {
+      const chainId = Number.parseInt(String(await callGydsRpcAtEndpoint(endpoint, "eth_chainId")), 16);
+      if (!Number.isSafeInteger(chainId) || chainId !== GYDS_MAINNET_CHAIN_ID) continue;
+      if (isLoopbackRpcEndpoint(endpoint)) {
+        await assertHealthyLocalGydsRpc(endpoint, GYDS_MAINNET_CHAIN_ID);
+      }
+      return { chainId, endpoint };
+    } catch {
+      // Try the next explicitly configured local or remote endpoint.
     }
-    throw new StablecoinDeploymentError(
-      "The configured GYDS mainnet RPC could not be reached. Check its URL and availability before approving.",
-      503,
-    );
   }
-  if (isLoopbackRpc(response.endpoint)) {
-    throw new StablecoinDeploymentError(
-      "The configured RPC points to localhost, which is reserved for simulated development nodes. Configure a trusted remote GYDS mainnet RPC before approving.",
-      503,
-    );
-  }
-  const chainId = Number.parseInt(String(response.result), 16);
-  if (!Number.isSafeInteger(chainId)) {
-    throw new StablecoinDeploymentError("The configured GYDS RPC returned an invalid chain ID.", 503);
-  }
-  if (chainId !== GYDS_MAINNET_CHAIN_ID) {
-    throw new StablecoinDeploymentError(
-      `The configured RPC is not GYDS mainnet (expected chain ID ${GYDS_MAINNET_CHAIN_ID}; got ${chainId}).`,
-      409,
-    );
-  }
-  return { chainId, endpoint: response.endpoint };
+
+  throw new StablecoinDeploymentError(
+    "No configured GYDS mainnet RPC is healthy. Local nodes must be real, synced, and peered; remote endpoints must report chain ID 198282.",
+    503,
+  );
 }
 
 export async function getStablecoinDeploymentReadiness(): Promise<{
@@ -207,6 +184,10 @@ export async function reconcileStablecoinDeployment(
 
   const receipt = await getTransactionReceipt(txHash, context.endpoint);
   if (!receipt || receipt.status === undefined || receipt.status === null) return null;
+  if (
+    typeof receipt.transactionHash !== "string" ||
+    receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()
+  ) return null;
 
   if (transactionSucceeded(receipt)) {
     const contractAddress = typeof receipt.contractAddress === "string" ? receipt.contractAddress : "";
