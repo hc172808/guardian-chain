@@ -28,12 +28,20 @@ interface StablecoinReviewItem {
   created_at: string;
 }
 
+interface DeploymentReadiness {
+  ready: boolean;
+  canReconcile: boolean;
+  chainId: number | null;
+  blockers: string[];
+}
+
 export function StablecoinReviewQueue() {
   const { toast } = useToast();
   const [items, setItems] = useState<StablecoinReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<DeploymentReadiness | null>(null);
 
   const loadQueue = useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true);
@@ -55,13 +63,31 @@ export function StablecoinReviewQueue() {
     }
   }, [toast]);
 
+  const loadReadiness = useCallback(async () => {
+    try {
+      setReadiness(await api.get('/api/admin/stablecoins/deployment-readiness'));
+    } catch (error: any) {
+      setReadiness({
+        ready: false,
+        canReconcile: false,
+        chainId: null,
+        blockers: [error?.message || 'Could not check stablecoin deployment configuration.'],
+      });
+    }
+  }, []);
+
   useEffect(() => {
     void loadQueue();
-    const interval = window.setInterval(() => void loadQueue(true), 30000);
+    void loadReadiness();
+    const interval = window.setInterval(() => {
+      void loadQueue(true);
+      void loadReadiness();
+    }, 30000);
     return () => window.clearInterval(interval);
-  }, [loadQueue]);
+  }, [loadQueue, loadReadiness]);
 
   const deploy = async (item: StablecoinReviewItem) => {
+    if (!readiness || (!readiness.ready && !(item.status === 'deployment_pending' && readiness.canReconcile))) return;
     setWorkingId(item.id);
     try {
       const updated = await api.post(`/api/admin/stablecoins/${item.id}/approve`, {});
@@ -99,11 +125,35 @@ export function StablecoinReviewQueue() {
           <div role="alert" data-testid="stablecoin-deployment-warning" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-200">
             The current contract is a basic ERC-20: its creator can mint without a supply cap. Peg, collateral, reserve, and fee settings are stored as metadata and are not enforced on-chain. Review the backing and minting plan before approving.
           </div>
+          {!readiness ? (
+            <p role="status" className="mt-3 text-xs text-muted-foreground">
+              Checking deployment signer, contract artifact, and mainnet RPC…
+            </p>
+          ) : readiness.ready ? (
+            <p role="status" className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-emerald-200">
+              Deployment is ready on GYDS mainnet (chain ID {readiness.chainId}).
+            </p>
+          ) : (
+            <div role="alert" data-testid="stablecoin-deployment-readiness" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-200">
+              <p className="font-medium">New stablecoin deployments are blocked until configuration is complete.</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {readiness.blockers.map((blocker, index) => <li key={`${index}-${blocker}`}>{blocker}</li>)}
+              </ul>
+              {readiness.canReconcile && (
+                <p className="mt-2 text-muted-foreground">
+                  A previously submitted deployment can still be checked while new approvals are blocked.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void loadQueue(true)}
+          onClick={() => {
+            void loadQueue(true);
+            void loadReadiness();
+          }}
           disabled={refreshing}
           aria-label="Refresh stablecoin review queue"
         >
@@ -172,7 +222,12 @@ export function StablecoinReviewQueue() {
                   <Button
                     size="sm"
                     onClick={() => void deploy(item)}
-                    disabled={workingId !== null || (!deploying && !item.creator_wallet)}
+                    disabled={
+                      workingId !== null ||
+                      !readiness ||
+                      (deploying ? !readiness.canReconcile : !readiness.ready) ||
+                      (!deploying && !item.creator_wallet)
+                    }
                     className="shrink-0"
                     data-testid={`approve-stablecoin-${item.id}`}
                   >

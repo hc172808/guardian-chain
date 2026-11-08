@@ -7,4 +7,4 @@ Every stablecoin submission—including one created by an admin or founder—mus
 
 **Why:** the user asked that admins/founders receive a notification, open the approval page, and click an approval button for each created stablecoin.
 
-**How to apply:** preserve the review gate for all creator roles; never auto-deploy a privileged creator's submission or treat notification delivery as optional.
+**How to apply:** preserve the review gate for all creator roles; never auto-deploy a privileged creator's submission or treat notification delivery as optional. Deployment and receipt reconciliation must use an explicitly configured trusted mainnet RPC, never localhost simulated nodes.

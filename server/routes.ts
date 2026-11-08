@@ -39,6 +39,7 @@ import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasury
 import {
   deployOrResumeStablecoin,
   ensureStablecoinDeploymentSchema,
+  getStablecoinDeploymentReadiness,
   reconcileStablecoinDeployment,
   StablecoinDeploymentError,
 } from "./stablecoinDeployment";
@@ -1747,6 +1748,19 @@ export function registerRoutes(expressApp: Express) {
       res.json(withCreatorWallet);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/admin/stablecoins/deployment-readiness", requireAdmin, async (_req, res) => {
+    try {
+      res.json(await getStablecoinDeploymentReadiness());
+    } catch {
+      res.status(500).json({
+        ready: false,
+        canReconcile: false,
+        chainId: null,
+        blockers: ["Could not check stablecoin deployment configuration."],
+      });
     }
   });
 
