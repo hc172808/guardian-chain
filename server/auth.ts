@@ -514,7 +514,7 @@ export async function setupAuth(app: Express): Promise<void> {
       }
       const purpose = requestedPurpose as "login" | "password-reset" | "wallet-link";
       const nonce = crypto.randomBytes(24).toString("hex") + Date.now().toString(36);
-      await storage.setUserNonce(address, nonce, { createPlaceholder: purpose === "login" });
+      await storage.setUserNonce(address, nonce);
       issueNonce(address, nonce);
       res.json({ nonce, message: CHALLENGE_MESSAGE(nonce, purpose) });
     } catch (err: any) {
@@ -528,7 +528,7 @@ export async function setupAuth(app: Express): Promise<void> {
       const { verifyWalletChallenge } = await import("./walletChallenge");
       const { address, signature } = req.body ?? {};
       const result = await verifyWalletChallenge(address, signature, storage, "login");
-      if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+      if (result.ok === false) return res.status(result.status).json({ error: result.error, code: result.code });
       const addr = result.address;
 
       // Get or create user for this wallet
@@ -611,7 +611,7 @@ export async function setupAuth(app: Express): Promise<void> {
     const user = req.user as any;
     const { verifyWalletChallenge } = await import("./walletChallenge");
     const result = await verifyWalletChallenge(address, signature, storage, "wallet-link");
-    if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+    if (result.ok === false) return res.status(result.status).json({ error: result.error, code: result.code });
 
     const client = await pgPool.connect();
     try {
@@ -758,7 +758,7 @@ export async function setupAuth(app: Express): Promise<void> {
       if (u?.totp_enabled && u?.totp_secret) {
         if (!totpCode) return res.status(403).json({ error: "This account has 2FA enabled. Provide your authenticator code to continue.", requires2fa: true });
         // Try TOTP code first
-        const valid = totp.verify(u.totp_secret, String(totpCode));
+        const valid = totp.verify({ secret: u.totp_secret, token: String(totpCode) });
         if (!valid) {
           // Try backup codes
           let codes: string[] = [];
@@ -787,7 +787,7 @@ export async function setupAuth(app: Express): Promise<void> {
       const { verifyWalletChallenge } = await import("./walletChallenge");
       const { address, signature } = req.body ?? {};
       const result = await verifyWalletChallenge(address, signature, storage, "password-reset");
-      if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+      if (result.ok === false) return res.status(result.status).json({ error: result.error, code: result.code });
       const addr = result.address;
 
       // Find account linked to this wallet
@@ -839,6 +839,10 @@ export async function setupAuth(app: Express): Promise<void> {
         `If you did not request this, ignore this message.`,
       ].join("\n");
 
+      const safeReply = {
+        ok: true,
+        message: "If the account has a linked WhatsApp number, a reset code has been sent.",
+      };
       const result = await sendWhatsAppMessage(phone, text);
       if (!result.ok) {
         console.warn("[WA reset] send failed:", result.error);

@@ -231,7 +231,7 @@ const ReceiveModal = ({ address, onClose }: { address: string; onClose: () => vo
 
 // ── Home Tab ──────────────────────────────────────────────────────────────────
 const HomeTab = () => {
-  const { user } = useAuth();
+  const { user, isAdmin, isFounder } = useAuth();
   const { selectedNetwork } = useNetwork();
   const activeNetwork = networkForData(selectedNetwork);
   const go = useMobileNavigate();
@@ -241,109 +241,158 @@ const HomeTab = () => {
   const { copied, copy } = useCopy();
 
   const [walletAddr, setWalletAddr] = useState<string>(user?.walletAddress ?? '');
-  const [walletBalance, setWalletBalance] = useState<string>('');
+  const [walletAddresses, setWalletAddresses] = useState<string[]>([]);
+  const [walletBalance, setWalletBalance] = useState<string>('0.00');
+  const [gydBalance, setGydBalance] = useState<string>('0.00');
+  const [balanceLoaded, setBalanceLoaded] = useState(false);
   const [recentTxReal, setRecentTxReal] = useState<any[]>([]);
   const [netStats, setNetStats] = useState<any>(null);
   const [stakingStats, setStakingStats] = useState<{ apr: number; exchangeRate: number } | null>(null);
   const [stakedAmount, setStakedAmount] = useState<number>(0);
   const [faucetInfo, setFaucetInfo] = useState<{ canClaim: boolean; lastClaim?: string }>({ canClaim: false });
-  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
-    // Always fetch wallet address + live balance
-    fetch('/api/wallets').then(r => r.json()).then((ws: any[]) => {
-      if (ws?.[0]?.address) setWalletAddr(ws[0].address);
-    }).catch(() => {});
-    // Fetch the selected network's balance when signed in; the faucet itself remains testnet-only.
+    const controller = new AbortController();
+    const { signal } = controller;
+    const userWalletAddress = user?.walletAddress ?? '';
+    setWalletAddr(userWalletAddress);
+    setWalletAddresses(userWalletAddress ? [userWalletAddress] : []);
+    setWalletBalance('0.00');
+    setGydBalance('0.00');
+    setBalanceLoaded(false);
+    setRecentTxReal([]);
+    setStakedAmount(0);
+    setFaucetInfo({ canClaim: false });
+    setNetStats(null);
+    setStakingStats(null);
+
+    fetch(`/api/network-stats?network=${activeNetwork}`, { signal })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setNetStats(d?.stats ?? { onchain: false }))
+      .catch(() => {
+        if (!signal.aborted) setNetStats({ onchain: false });
+      });
+    fetch('/api/staking/stats', { signal })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.apr !== undefined) setStakingStats({ apr: Number(d.apr), exchangeRate: Number(d.exchangeRate ?? 1) });
+      })
+      .catch(() => {});
+
     if (user) {
       const balanceQuery = selectedNetwork === 'all' ? '' : `?network=${activeNetwork}`;
-      fetch(`/api/user/balance${balanceQuery}`).then(r => r.json()).then((b: any) => {
-        if (b && (b.gyds !== undefined || b.gyd !== undefined)) {
+      fetch('/api/wallets/addresses', { signal })
+        .then(r => r.ok ? r.json() : [])
+        .then((addresses: unknown[]) => {
+          const valid = Array.isArray(addresses)
+            ? addresses.filter((address): address is string => typeof address === 'string' && /^0x[a-fA-F0-9]{40}$/.test(address))
+            : [];
+          setWalletAddresses([...new Set([userWalletAddress, ...valid].filter(Boolean))]);
+          if (!userWalletAddress && valid[0]) setWalletAddr(valid[0]);
+        })
+        .catch(() => {});
+      fetch(`/api/user/balance${balanceQuery}`, { signal })
+        .then(r => r.ok ? r.json() : null)
+        .then((b: any) => {
+          if (!b || (b.gyds === undefined && b.gyd === undefined)) return;
           const gyds = Number(b.gyds ?? 0);
-          setWalletBalance(gyds > 0 ? gyds.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0.00');
-        }
-      }).catch(() => {});
+          const gyd = Number(b.gyd ?? 0);
+          if (!Number.isFinite(gyds) || !Number.isFinite(gyd)) return;
+          setWalletBalance(gyds.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }));
+          setGydBalance(gyd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }));
+          setBalanceLoaded(true);
+        })
+        .catch(() => {});
+      fetch('/api/transactions?limit=4', { signal })
+        .then(r => r.ok ? r.json() : null)
+        .then((data: any) => {
+          const transactions = Array.isArray(data) ? data : data?.transactions;
+          setRecentTxReal(Array.isArray(transactions) ? transactions.slice(0, 4) : []);
+        })
+        .catch(() => {});
+      fetch('/api/validator-delegations', { signal })
+        .then(r => r.ok ? r.json() : [])
+        .then((d: any[]) => {
+          if (Array.isArray(d)) setStakedAmount(d.reduce((s, x) => s + Number(x.amount ?? 0), 0));
+        })
+        .catch(() => {});
+      fetch('/api/faucet/claims', { signal })
+        .then(r => r.ok ? r.json() : null)
+        .then((claims: any[] | null) => {
+          if (!Array.isArray(claims)) return;
+          if (claims.length === 0) {
+            setFaucetInfo({ canClaim: true });
+            return;
+          }
+          const lastClaim = claims[0].created_at ?? claims[0].createdAt ?? claims[0].claimed_at;
+          setFaucetInfo({ canClaim: false, lastClaim });
+        })
+        .catch(() => {});
     }
-    if (user?.walletAddress) setWalletAddr(user.walletAddress);
-    fetch('/api/transactions').then(r => r.json()).then((txs: any[]) => {
-      if (Array.isArray(txs)) setRecentTxReal(txs.slice(0, 4));
-    }).catch(() => {});
-    fetch(`/api/network-stats?network=${activeNetwork}`).then(r => r.json()).then(d => {
-      if (d?.stats) setNetStats(d.stats);
-    }).catch(() => {});
-    fetch('/api/staking/stats').then(r => r.json()).then(d => {
-      if (d?.apr !== undefined) setStakingStats({ apr: d.apr, exchangeRate: d.exchangeRate ?? 1 });
-    }).catch(() => {});
-    fetch('/api/validator-delegations').then(r => r.json()).then((d: any[]) => {
-      if (Array.isArray(d)) setStakedAmount(d.reduce((s, x) => s + Number(x.amount ?? 0), 0));
-    }).catch(() => {});
-    fetch('/api/faucet/claims').then(r => r.json()).then((claims: any[]) => {
-      if (!Array.isArray(claims) || claims.length === 0) { setFaucetInfo({ canClaim: true }); return; }
-      const last = claims[0];
-      const lastAt = new Date(last.createdAt ?? last.claimed_at ?? 0).getTime();
-      const cooldown = 24 * 60 * 60 * 1000;
-      setFaucetInfo({ canClaim: Date.now() - lastAt > cooldown, lastClaim: last.createdAt ?? last.claimed_at });
-    }).catch(() => setFaucetInfo({ canClaim: true }));
+    return () => controller.abort();
   }, [user, selectedNetwork, activeNetwork]);
 
   const address = walletAddr || '—';
   const shortAddr = address.length > 10 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address;
 
-  const gydsBalance = walletBalance || '0.00';
-  const totalUsd = walletBalance && parseFloat(walletBalance.replace(/,/g, '')) > 0
-    ? `$${(parseFloat(walletBalance.replace(/,/g, '')) * 0.0847).toFixed(2)}`
-    : '$0.00';
+  const gydsBalance = balanceLoaded ? walletBalance : '…';
+  const tokenPrice = Number(netStats?.tokenPrice ?? 0);
+  const balanceAmount = Number(walletBalance.replace(/,/g, '')) || 0;
+  const totalBalanceValue = balanceAmount * tokenPrice;
+  const tokenPriceLabel = tokenPrice > 0
+    ? `$${tokenPrice < 0.0001 ? tokenPrice.toPrecision(3) : tokenPrice.toFixed(4)}`
+    : '—';
+  const totalUsd = !balanceLoaded
+    ? '…'
+    : tokenPrice > 0
+      ? balanceAmount > 0 && totalBalanceValue < 0.005 ? '<$0.01' : `$${totalBalanceValue.toFixed(2)}`
+      : `${gydsBalance} GYDS`;
 
   const tokens = [
     { symbol: 'GYDS', name: 'GYDSchain', balance: gydsBalance, change: '', up: null },
-    { symbol: 'GYD',  name: 'GYD Stable', balance: '0.00',  change: '', up: null },
+    { symbol: 'GYD',  name: 'GYD Stable', balance: balanceLoaded ? gydBalance : '…', change: '', up: null },
   ];
 
   const quickActions = [
-    { icon: Send,           label: 'Send',    path: '/wallet',  state: undefined,           color: 'text-primary',    bg: 'bg-primary/10',    onPress: undefined as (() => void) | undefined },
-    { icon: Download,       label: 'Receive', path: '',         state: undefined,           color: 'text-green-400',  bg: 'bg-green-400/10',  onPress: () => setShowReceive(true) },
+    { icon: Send,           label: 'Send',    path: user ? '/wallet' : '/auth', state: undefined, color: 'text-primary', bg: 'bg-primary/10', onPress: undefined as (() => void) | undefined },
+    { icon: Download,       label: 'Receive', path: '',         state: undefined,           color: 'text-green-400',  bg: 'bg-green-400/10',  onPress: () => user ? setShowReceive(true) : go('/auth') },
     { icon: ArrowLeftRight, label: 'Swap',    path: '/defi',    state: { tab: 'swap' },     color: 'text-purple-400', bg: 'bg-purple-400/10', onPress: undefined },
     { icon: Globe,          label: 'Bridge',  path: '/defi',    state: { tab: 'bridge' },   color: 'text-amber-400',  bg: 'bg-amber-400/10',  onPress: undefined },
     { icon: TrendingUp,     label: 'Stake',   path: '/defi',    state: { tab: 'stake' },    color: 'text-cyan-400',   bg: 'bg-cyan-400/10',   onPress: undefined },
     { icon: Droplets,       label: 'Faucet',  path: '/faucet',  state: undefined,           color: 'text-pink-400',   bg: 'bg-pink-400/10',   onPress: undefined },
-    { icon: Pickaxe,        label: 'Mine',    path: '/mining',  state: undefined,           color: 'text-orange-400', bg: 'bg-orange-400/10', onPress: undefined },
-    { icon: QrCode,         label: 'QR Pay',  path: '',         state: undefined,           color: 'text-indigo-400', bg: 'bg-indigo-400/10', onPress: () => setShowQRScanner(true) },
+    ...(isAdmin || isFounder ? [{ icon: Pickaxe, label: 'Mine', path: '/mining', state: undefined, color: 'text-orange-400', bg: 'bg-orange-400/10', onPress: undefined as (() => void) | undefined }] : []),
+    { icon: QrCode,         label: 'QR Pay',  path: '',         state: undefined,           color: 'text-indigo-400', bg: 'bg-indigo-400/10', onPress: () => user ? setShowQRScanner(true) : go('/auth') },
   ];
 
+  const priceChange24h = Number(netStats?.priceChange24h);
+  const hasPriceChange = Number.isFinite(priceChange24h) && priceChange24h !== 0;
   const liveNetworkStats = [
-    { label: 'Block Height', value: netStats?.blockHeight ? `#${Number(netStats.blockHeight).toLocaleString()}` : '…', sub: 'latest', icon: Blocks, color: 'text-primary' },
-    { label: 'GYDS Price',   value: netStats?.tokenPrice  ? `$${Number(netStats.tokenPrice).toFixed(4)}` : '$0.0847', sub: netStats?.priceChange24h ? `${netStats.priceChange24h > 0 ? '+' : ''}${netStats.priceChange24h}% 24h` : '+4.2% 24h', icon: TrendingUp, color: 'text-green-400' },
-    { label: 'TPS',          value: netStats?.tps          ? String(netStats.tps) : '1,250',    sub: 'avg/min',  icon: Zap,    color: 'text-amber-400' },
-    { label: 'Validators',   value: netStats?.validatorCount ? String(netStats.validatorCount) : '42', sub: 'active', icon: Shield, color: 'text-cyan-400' },
+    { label: 'Block Height', value: Number(netStats?.blockHeight) > 0 ? `#${Number(netStats.blockHeight).toLocaleString()}` : '—', sub: 'latest', icon: Blocks, color: 'text-primary' },
+    { label: 'GYDS Price',   value: tokenPriceLabel, sub: hasPriceChange ? `${priceChange24h > 0 ? '+' : ''}${priceChange24h}% 24h` : 'price feed unavailable', icon: TrendingUp, color: 'text-green-400' },
+    { label: 'TPS',          value: netStats?.tps != null ? Number(netStats.tps).toLocaleString() : '—', sub: 'transactions per second', icon: Zap, color: 'text-amber-400' },
+    { label: 'Validators',   value: netStats?.validatorCount != null ? Number(netStats.validatorCount).toLocaleString() : '—', sub: 'active', icon: Shield, color: 'text-cyan-400' },
   ];
 
-  const dummyTx = [
-    { type: 'send',    label: 'Sent GYDS',      amount: '-250 GYDS',   usd: '-$21.18', time: '2m ago',  hash: '0xab12…ef34' },
-    { type: 'receive', label: 'Received GYDS',  amount: '+1,000 GYDS', usd: '+$84.70', time: '1h ago',  hash: '0xcd56…gh78' },
-    { type: 'swap',    label: 'Swapped → GYD',  amount: '500 GYDS',    usd: '$42.35',  time: '3h ago',  hash: '0xij90…kl12' },
-    { type: 'stake',   label: 'Staked GYDS',    amount: '5,000 GYDS',  usd: '$423.50', time: '1d ago',  hash: '0xmn34…op56' },
-  ];
-
-  const recentTx = recentTxReal.length > 0
-    ? recentTxReal.map((tx: any) => ({
-        type: tx.transactionType ?? tx.type ?? 'send',
-        label: tx.description ?? tx.transactionType ?? 'Transaction',
-        amount: `${tx.amount ?? ''} ${tx.tokenSymbol ?? 'GYDS'}`,
-        usd: tx.usdValue ? `$${tx.usdValue}` : '',
-        time: tx.createdAt ? new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-        hash: tx.txHash ? `${tx.txHash.slice(0, 6)}…${tx.txHash.slice(-4)}` : '—',
-      }))
-    : dummyTx;
-
-  const claimFaucet = async () => {
-    if (!faucetInfo.canClaim || claiming) return;
-    setClaiming(true);
-    try {
-      const r = await fetch('/api/faucet/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tokenSymbol: 'GYDS' }) });
-      if (r.ok) setFaucetInfo({ canClaim: false, lastClaim: new Date().toISOString() });
-    } catch {}
-    setClaiming(false);
-  };
+  const recentTx = recentTxReal.map((tx: any) => {
+    const fromAddress = String(tx.fromAddress ?? tx.from ?? '').toLowerCase();
+    const toAddress = String(tx.toAddress ?? tx.to ?? '').toLowerCase();
+    const isOutgoing = walletAddresses.some(address => address.toLowerCase() === fromAddress);
+    const isIncoming = walletAddresses.some(address => address.toLowerCase() === toAddress);
+    const type = tx.transactionType ?? tx.type ?? (isOutgoing ? 'send' : isIncoming ? 'receive' : 'transaction');
+    const amount = Number(tx.amount ?? 0);
+    const signedAmount = type === 'send' ? `−${amount.toLocaleString()}` : type === 'receive' ? `+${amount.toLocaleString()}` : amount.toLocaleString();
+    const hash = tx.txHash ?? tx.hash ?? '';
+    return {
+      type,
+      label: tx.description ?? (type === 'send' ? 'Sent GYDS' : type === 'receive' ? 'Received GYDS' : 'Transaction'),
+      amount: `${signedAmount} ${tx.tokenSymbol ?? 'GYDS'}`,
+      usd: tx.usdValue ? `$${tx.usdValue}` : '',
+      time: tx.createdAt ? new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      hash: hash ? `${hash.slice(0, 6)}…${hash.slice(-4)}` : '—',
+    };
+  });
+  const networkIsLive = netStats?.onchain === true;
+  const networkStatus = netStats === null ? 'Checking' : networkIsLive ? 'Live' : 'Offline';
 
   return (
     <div className="space-y-4 pb-2">
@@ -375,27 +424,25 @@ const HomeTab = () => {
           <div className="relative">
             <div className="flex items-center justify-between mb-1">
               <p className="text-xs font-medium text-white/70 uppercase tracking-wider">GYDSchain Balance</p>
-              <button onClick={() => setBalanceHidden(v => !v)} className="text-white/60 hover:text-white transition-colors">
+              <button data-testid="button-toggle-mobile-balance" onClick={() => setBalanceHidden(v => !v)} className="text-white/60 hover:text-white transition-colors">
                 {balanceHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <p className="text-4xl font-bold text-white mb-1 tracking-tight">
+            <p data-testid="mobile-home-balance" className="text-4xl font-bold text-white mb-1 tracking-tight">
               {balanceHidden ? '••••••' : totalUsd}
             </p>
             <p className="text-xs text-white/60 flex items-center gap-1">
-              {netStats?.priceChange24h !== undefined && netStats.priceChange24h !== 0 ? (
+              {hasPriceChange ? (
                 <>
-                  {netStats.priceChange24h >= 0
+                  {priceChange24h >= 0
                     ? <ArrowUp className="h-3 w-3 text-green-300" />
                     : <ArrowDown className="h-3 w-3 text-red-300" />}
-                  <span className={netStats.priceChange24h >= 0 ? 'text-green-300 font-medium' : 'text-red-300 font-medium'}>
-                    {netStats.priceChange24h >= 0 ? '+' : ''}{netStats.priceChange24h}%
+                  <span className={priceChange24h >= 0 ? 'text-green-300 font-medium' : 'text-red-300 font-medium'}>
+                    {priceChange24h >= 0 ? '+' : ''}{priceChange24h}%
                   </span>
                 </>
-              ) : (
-                <ArrowUp className="h-3 w-3 text-green-300" />
-              )}
-              <span className="ml-0.5">today</span>
+              ) : <span>24h change unavailable</span>}
+              {hasPriceChange && <span className="ml-0.5">today</span>}
             </p>
             <button
               onClick={() => copy(address)}
@@ -442,7 +489,7 @@ const HomeTab = () => {
       {/* Quick actions */}
       <div className="grid grid-cols-4 gap-2">
         {quickActions.map(a => (
-          <button key={a.label}
+          <button key={a.label} data-testid={`mobile-action-${a.label.toLowerCase().replace(/\s+/g, '-')}`}
             onClick={() => a.onPress ? a.onPress() : go(a.path, a.state ? { state: a.state } : undefined)}
             className="flex flex-col items-center gap-1.5 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-95 transition-all"
           >
@@ -457,8 +504,8 @@ const HomeTab = () => {
       {/* Faucet banner — logged in only */}
       {user && (
         <button
-          onClick={faucetInfo.canClaim ? claimFaucet : () => go('/faucet')}
-          disabled={claiming}
+          data-testid="button-open-mobile-faucet"
+          onClick={() => go('/faucet')}
           className={cn(
             'w-full flex items-center gap-3 p-3 rounded-2xl border transition-all active:scale-[0.98]',
             faucetInfo.canClaim
@@ -470,16 +517,20 @@ const HomeTab = () => {
             <Gift className={cn('h-4 w-4', faucetInfo.canClaim ? 'text-pink-400' : 'text-muted-foreground')} />
           </div>
           <div className="flex-1 text-left">
-            <p className="text-xs font-semibold">{faucetInfo.canClaim ? 'Daily Faucet Ready!' : 'Faucet Claimed'}</p>
+            <p className="text-xs font-semibold">
+              {faucetInfo.canClaim ? 'Daily Faucet Ready!' : faucetInfo.lastClaim ? 'Faucet Claimed' : 'Open Faucet'}
+            </p>
             <p className="text-[10px] text-muted-foreground">
-              {faucetInfo.canClaim ? 'Tap to claim free GYDS tokens' : faucetInfo.lastClaim ? `Next claim: ${new Date(new Date(faucetInfo.lastClaim).getTime() + 86400000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Check back tomorrow'}
+              {faucetInfo.canClaim
+                ? 'View eligibility and claim test tokens'
+                : faucetInfo.lastClaim
+                  ? `Next claim: ${new Date(new Date(faucetInfo.lastClaim).getTime() + 86400000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                  : 'View claim status and requirements'}
             </p>
           </div>
-          {faucetInfo.canClaim && (
-            <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-pink-500/20 text-pink-400">
-              {claiming ? '…' : 'Claim'}
-            </span>
-          )}
+          <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-pink-500/20 text-pink-400">
+            {faucetInfo.canClaim ? 'Open' : 'View'}
+          </span>
         </button>
       )}
 
@@ -487,9 +538,9 @@ const HomeTab = () => {
       <div>
         <div className="flex items-center justify-between mb-2.5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Network</p>
-          <div className="flex items-center gap-1 text-[10px] text-green-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
-            Live
+          <div className={cn('flex items-center gap-1 text-[10px]', networkIsLive ? 'text-green-400' : 'text-muted-foreground')}>
+            <span className={cn('w-1.5 h-1.5 rounded-full inline-block', networkIsLive ? 'bg-green-400 animate-pulse' : 'bg-muted-foreground')} />
+            {networkStatus}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -553,16 +604,39 @@ const HomeTab = () => {
 // ── Explorer Tab ──────────────────────────────────────────────────────────────
 const ExplorerTab = () => {
   const go = useMobileNavigate();
+  const { isAdmin, isFounder } = useAuth();
   const { selectedNetwork } = useNetwork();
   const activeNetwork = networkForData(selectedNetwork);
   const [query, setQuery] = useState('');
   const [netStats, setNetStats] = useState<any>(null);
+  const [latestBlocks, setLatestBlocks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/network-stats?network=${activeNetwork}`).then(r => r.json()).then(d => {
-      if (d?.stats) setNetStats(d.stats);
-    }).catch(() => {}).finally(() => setLoading(false));
+    const controller = new AbortController();
+    setLoading(true);
+    const network = encodeURIComponent(activeNetwork);
+    Promise.all([
+      fetch(`/api/network-stats?network=${network}`, { signal: controller.signal })
+        .then(r => r.ok ? r.json() : null),
+      fetch(`/api/explorer/live-blocks?network=${network}&count=4`, { signal: controller.signal })
+        .then(r => r.ok ? r.json() : null),
+    ]).then(([statsData, blockData]) => {
+      setNetStats(statsData?.stats ?? null);
+      setLatestBlocks(
+        blockData?.ok === true && Array.isArray(blockData.blocks)
+          ? blockData.blocks.filter((block: any) => Number.isFinite(Number(block.height)))
+          : [],
+      );
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setNetStats(null);
+        setLatestBlocks([]);
+      }
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
   }, [activeNetwork]);
 
   const handleSearch = () => {
@@ -571,23 +645,21 @@ const ExplorerTab = () => {
     go(`/explorer?q=${encodeURIComponent(q)}`);
   };
 
-  const baseHeight = netStats?.blockHeight ? Number(netStats.blockHeight) : 1234567;
-  // Use deterministic tx counts derived from block height so they don't flicker on re-render
-  const latestBlocks = loading
-    ? []
-    : [0, 1, 2, 3].map((offset) => {
-        const h = baseHeight - offset;
-        const txs = ((h + offset * 7) % 18) + 4; // deterministic 4–21 range
-        const times = ['just now', '14s ago', '28s ago', '42s ago'];
-        const miners = ['0xabcd…ef12', '0x3456…7890', '0xcdef…0123', '0x8899…aabb'];
-        return { height: h, txs, time: times[offset], miner: miners[offset] };
-      });
+  const relativeTime = (timestamp: unknown) => {
+    const time = Number(timestamp);
+    if (!Number.isFinite(time) || time <= 0) return 'time unavailable';
+    const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
+    if (seconds < 60) return seconds <= 5 ? 'just now' : `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  };
 
   const items = [
     { label: 'Blocks',        icon: Blocks,     path: '/explorer',      color: 'text-primary',    bg: 'bg-primary/10' },
     { label: 'Transactions',  icon: Activity,   path: '/transactions',  color: 'text-blue-400',   bg: 'bg-blue-400/10' },
     { label: 'Validators',    icon: Shield,     path: '/validators',    color: 'text-green-400',  bg: 'bg-green-400/10' },
-    { label: 'Mining',        icon: Pickaxe,    path: '/mining',        color: 'text-amber-400',  bg: 'bg-amber-400/10' },
+    ...(isAdmin || isFounder ? [{ label: 'Mining', icon: Pickaxe, path: '/mining', color: 'text-amber-400', bg: 'bg-amber-400/10' }] : []),
     { label: 'Token Factory', icon: Coins,      path: '/tokens',        color: 'text-purple-400', bg: 'bg-purple-400/10' },
     { label: 'Analytics',     icon: BarChart3,  path: '/analytics',     color: 'text-cyan-400',   bg: 'bg-cyan-400/10' },
   ];
@@ -638,6 +710,12 @@ const ExplorerTab = () => {
         <div className="space-y-1.5">
           {loading ? (
             [0,1,2].map(i => <div key={i} className="h-14 rounded-2xl bg-muted/40 animate-pulse" />)
+          ) : latestBlocks.length === 0 ? (
+            <div className="p-4 rounded-2xl bg-card border border-border/60 text-center">
+              <p className="text-xs text-muted-foreground">
+                No live blocks are available for {NETWORK_BY_KIND[activeNetwork].chainName} right now.
+              </p>
+            </div>
           ) : latestBlocks.map(b => (
             <button key={b.height} onClick={() => go(`/explorer?q=${b.height}`)}
               className="w-full flex items-center gap-3 p-3 rounded-2xl bg-card border border-border/60 hover:border-primary/40 active:scale-[0.98] transition-all text-left"
@@ -647,11 +725,15 @@ const ExplorerTab = () => {
               </div>
               <div className="flex-1">
                 <p className="text-sm font-semibold">#{b.height.toLocaleString()}</p>
-                <p className="text-[10px] text-muted-foreground font-mono">{b.miner}</p>
+                <p className="text-[10px] text-muted-foreground font-mono">
+                  {typeof b.miner === 'string' && b.miner
+                    ? `${b.miner.slice(0, 6)}…${b.miner.slice(-4)}`
+                    : 'Miner unavailable'}
+                </p>
               </div>
               <div className="text-right">
-                <p className="text-xs font-medium text-primary">{b.txs} txs</p>
-                <p className="text-[10px] text-muted-foreground">{b.time}</p>
+                <p className="text-xs font-medium text-primary">{Number(b.txCount ?? 0)} txs</p>
+                <p className="text-[10px] text-muted-foreground">{relativeTime(b.timestamp)}</p>
               </div>
             </button>
           ))}
@@ -1489,10 +1571,6 @@ const MobilePage = () => {
         </div>
         <div className="flex items-center gap-2">
           <CompactNetworkSelector className="w-[112px] px-1.5" />
-          <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-400/10 border border-green-400/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-[10px] text-green-400 font-medium">Live</span>
-          </div>
           {user && (
             <button onClick={() => go('/profile')} className="relative p-1.5 rounded-xl bg-card border border-border/60">
               <Bell className="h-4 w-4 text-muted-foreground" />

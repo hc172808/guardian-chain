@@ -31,6 +31,19 @@ contract GydsSwapPair {
     uint256 public price1CumulativeLast;
     uint256 public kLast; // reserve0 * reserve1 at last mint/burn event (used for protocol fee)
 
+    uint32 public constant ORACLE_SAMPLE_INTERVAL = 1 minutes;
+    uint8 private constant OBSERVATION_CAPACITY = 32;
+
+    struct Observation {
+        uint32 timestamp;
+        uint256 price0Cumulative;
+        uint256 price1Cumulative;
+    }
+
+    Observation[32] private _observations;
+    uint8 public observationCount;
+    uint8 public nextObservationIndex;
+
     // ─── Reentrancy guard ────────────────────────────────────────────────────
 
     uint256 private _status = 1;
@@ -90,6 +103,75 @@ contract GydsSwapPair {
 
     function lpBalanceOf(address account) external view returns (uint256) {
         return GLPToken(lpToken).balanceOf(account);
+    }
+
+    /// @notice Current cumulative prices, including the elapsed time since the last reserve update.
+    function currentCumulativePrices()
+        public view
+        returns (uint256 cumulative0, uint256 cumulative1, uint32 timestamp)
+    {
+        cumulative0 = price0CumulativeLast;
+        cumulative1 = price1CumulativeLast;
+        timestamp = uint32(block.timestamp % 2**32);
+
+        uint32 elapsed;
+        unchecked {
+            elapsed = timestamp - blockTimestampLast;
+        }
+        if (elapsed > 0 && reserve0 != 0 && reserve1 != 0) {
+            uint256 price0 = (uint256(reserve1) << 112) / uint256(reserve0);
+            uint256 price1 = (uint256(reserve0) << 112) / uint256(reserve1);
+            unchecked {
+                cumulative0 += price0 * elapsed;
+                cumulative1 += price1 * elapsed;
+            }
+        }
+    }
+
+    /// @notice Read the most recent conservative TWAP spanning at least `minWindow`.
+    /// @dev One-minute observations make the realized window 30–31 minutes under normal activity.
+    function getTwapPrice(address baseToken, uint32 minWindow)
+        external view
+        returns (uint256 priceX112, bool ready)
+    {
+        if (
+            minWindow == 0 ||
+            observationCount == 0 ||
+            reserve0 == 0 ||
+            reserve1 == 0 ||
+            (baseToken != token0 && baseToken != token1)
+        ) {
+            return (0, false);
+        }
+
+        (uint256 cumulative0, uint256 cumulative1, uint32 timestamp) = currentCumulativePrices();
+        uint32 selectedElapsed;
+        uint256 selectedCumulative;
+        uint256 currentCumulative = baseToken == token0 ? cumulative0 : cumulative1;
+        uint8 oldestIndex = observationCount == OBSERVATION_CAPACITY ? nextObservationIndex : 0;
+
+        for (uint256 i; i < observationCount; i++) {
+            uint8 index = uint8((uint256(oldestIndex) + i) % OBSERVATION_CAPACITY);
+            Observation storage observation = _observations[index];
+            uint32 elapsed;
+            unchecked {
+                elapsed = timestamp - observation.timestamp;
+            }
+            if (elapsed >= minWindow && (!ready || elapsed < selectedElapsed)) {
+                selectedElapsed = elapsed;
+                selectedCumulative = baseToken == token0
+                    ? observation.price0Cumulative
+                    : observation.price1Cumulative;
+                ready = true;
+            }
+        }
+
+        if (!ready) return (0, false);
+        uint256 cumulativeDelta;
+        unchecked {
+            cumulativeDelta = currentCumulative - selectedCumulative;
+        }
+        priceX112 = cumulativeDelta / selectedElapsed;
     }
 
     // ─── Mint (add liquidity) ─────────────────────────────────────────────────
@@ -176,6 +258,7 @@ contract GydsSwapPair {
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();
         require(amount0Out < _reserve0 && amount1Out < _reserve1, "GydsSwap: INSUFFICIENT_LIQUIDITY");
         require(to != token0 && to != token1, "GydsSwap: INVALID_TO");
+        _enforceTradeAllowed();
 
         if (amount0Out > 0) _safeTransfer(token0, to, amount0Out);
         if (amount1Out > 0) _safeTransfer(token1, to, amount1Out);
@@ -185,6 +268,16 @@ contract GydsSwapPair {
             IGydsSwapCallee(to).gydsSwapCall(msg.sender, amount0Out, amount1Out, data);
         }
 
+        _settleSwap(amount0Out, amount1Out, to, _reserve0, _reserve1);
+    }
+
+    function _settleSwap(
+        uint256 amount0Out,
+        uint256 amount1Out,
+        address to,
+        uint112 _reserve0,
+        uint112 _reserve1
+    ) private {
         uint256 balance0 = _balanceOf(token0);
         uint256 balance1 = _balanceOf(token1);
 
@@ -223,23 +316,59 @@ contract GydsSwapPair {
     ) private {
         require(balance0 <= type(uint112).max && balance1 <= type(uint112).max, "GydsSwap: OVERFLOW");
         uint32 blockTimestamp = uint32(block.timestamp % 2**32);
-        uint32 timeElapsed    = blockTimestamp - blockTimestampLast;
+        uint32 timeElapsed;
+        unchecked {
+            timeElapsed = blockTimestamp - blockTimestampLast;
+        }
 
         if (timeElapsed > 0 && _reserve0 != 0 && _reserve1 != 0) {
             // TWAP price accumulators (UQ112x112 format)
-            price0CumulativeLast += uint256(uint224((uint256(_reserve1) << 112) / uint256(_reserve0))) * timeElapsed;
-            price1CumulativeLast += uint256(uint224((uint256(_reserve0) << 112) / uint256(_reserve1))) * timeElapsed;
+            uint256 price0 = (uint256(_reserve1) << 112) / uint256(_reserve0);
+            uint256 price1 = (uint256(_reserve0) << 112) / uint256(_reserve1);
+            unchecked {
+                price0CumulativeLast += price0 * timeElapsed;
+                price1CumulativeLast += price1 * timeElapsed;
+            }
         }
 
+        _recordObservation(blockTimestamp);
         reserve0 = uint112(balance0);
         reserve1 = uint112(balance1);
         blockTimestampLast = blockTimestamp;
         emit Sync(reserve0, reserve1);
     }
 
+    function _recordObservation(uint32 timestamp) private {
+        if (observationCount > 0) {
+            uint8 latestIndex = nextObservationIndex == 0
+                ? OBSERVATION_CAPACITY - 1
+                : nextObservationIndex - 1;
+            uint32 elapsed;
+            unchecked {
+                elapsed = timestamp - _observations[latestIndex].timestamp;
+            }
+            if (elapsed < ORACLE_SAMPLE_INTERVAL) return;
+        }
+
+        _observations[nextObservationIndex] = Observation({
+            timestamp: timestamp,
+            price0Cumulative: price0CumulativeLast,
+            price1Cumulative: price1CumulativeLast
+        });
+        nextObservationIndex = uint8((uint256(nextObservationIndex) + 1) % OBSERVATION_CAPACITY);
+        if (observationCount < OBSERVATION_CAPACITY) observationCount += 1;
+    }
+
+    function _enforceTradeAllowed() private {
+        require(
+            IGydsSwapPairFactory(factory).enforcePairTrade(token0, token1),
+            "GydsSwap: MARKET_CAP_BELOW_10K"
+        );
+    }
+
     /// @dev Collect 0.05% protocol fee (if feeTo is set) by minting LP tokens
     function _mintFee(uint112 _reserve0, uint112 _reserve1) private returns (bool feeOn) {
-        address feeTo = IGydsSwapFactory(factory).feeTo();
+        address feeTo = IGydsSwapPairFactory(factory).feeTo();
         feeOn = feeTo != address(0);
         uint256 _kLast = kLast;
         if (feeOn) {
@@ -277,9 +406,10 @@ contract GydsSwapPair {
 
 // ─── Interfaces used by the pair ─────────────────────────────────────────────
 
-interface IGydsSwapFactory {
+interface IGydsSwapPairFactory {
     function feeTo() external view returns (address);
     function getPair(address tokenA, address tokenB) external view returns (address pair);
+    function enforcePairTrade(address tokenA, address tokenB) external returns (bool);
 }
 
 interface IGydsSwapCallee {

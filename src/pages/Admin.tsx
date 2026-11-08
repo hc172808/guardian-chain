@@ -87,19 +87,42 @@ import { Download } from 'lucide-react';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; stdout: string; stderr: string } | null>(null);
+  const [phase, setPhase] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const completed = ['succeeded', 'rolled_back', 'failed', 'rollback_failed'];
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch('/api/admin/git-pull/status', { credentials: 'same-origin', cache: 'no-store' });
+        if (!res.ok || !res.headers.get('content-type')?.includes('application/json')) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setPhase(data.phase);
+        setPulling(Boolean(data.phase && !completed.includes(data.phase)));
+        setError(null);
+      } catch { /* The serving process is briefly unavailable during restart. */ }
+    };
+    void check();
+    const timer = window.setInterval(check, 3000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
 
   const doPull = async () => {
     setPulling(true);
-    setResult(null);
+    setError(null);
     try {
-      const res = await fetch('/api/admin/git-pull', { method: 'POST' });
+      const res = await fetch('/api/admin/git-pull', { method: 'POST', credentials: 'same-origin' });
+      if (!res.headers.get('content-type')?.includes('application/json')) throw new Error('The server is unavailable. Please try again shortly.');
       const data = await res.json();
-      setResult(data);
-      toast({ title: data.ok ? 'Git pull succeeded' : 'Git pull failed', description: data.stdout?.slice(0, 100) || data.stderr?.slice(0, 100), variant: data.ok ? 'default' : 'destructive' });
-    } catch (e: any) {
-      toast({ title: 'Git pull error', description: e.message, variant: 'destructive' });
-    } finally {
+      if (!res.ok && res.status !== 409) throw new Error(data.error || 'The update could not start.');
+      setPhase(data.phase);
+      toast({ title: res.status === 409 ? 'Update already running' : 'Server update started' });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'The update could not start.';
+      setError(message);
+      toast({ title: 'Update unavailable', description: message, variant: 'destructive' });
       setPulling(false);
     }
   };
@@ -112,26 +135,18 @@ function GitSyncPanel({ toast }: { toast: any }) {
         </div>
         <div>
           <h3 className="font-semibold text-lg">GitHub Sync</h3>
-          <p className="text-sm text-muted-foreground">Pull latest code from GitHub and restart services</p>
+          <p className="text-sm text-muted-foreground">Dashboard deployment</p>
         </div>
       </div>
       <div className="space-y-4">
         <div className="p-4 rounded-lg bg-secondary/30 space-y-3">
-          <h4 className="font-medium">Pull from GitHub</h4>
-          <p className="text-sm text-muted-foreground">
-            Runs <code className="bg-black/30 px-1 rounded">git pull --ff-only</code> in the dashboard directory.
-            After pulling, rebuild and restart:
-            <code className="block bg-black/30 px-2 py-1 rounded mt-1 text-xs">npm run build && pm2 restart gydschain-api && nginx -s reload</code>
-          </p>
+          <h4 className="font-medium">GitHub update</h4>
           <Button variant="outline" className="gap-2" onClick={doPull} disabled={pulling}>
             <RefreshCw className={`h-4 w-4 ${pulling ? 'animate-spin' : ''}`} />
-            {pulling ? 'Pulling…' : 'Git Pull'}
+            {pulling ? 'Updating…' : 'Pull, rebuild & restart'}
           </Button>
-          {result && (
-            <div className={`p-3 rounded text-xs font-mono whitespace-pre-wrap ${result.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-              {result.stdout || result.stderr || (result.ok ? 'Already up to date.' : 'Unknown error')}
-            </div>
-          )}
+          {phase && <p role="status" className="text-sm text-foreground">{({ queued: 'Update queued', checking: 'Checking deployment', backing_up: 'Saving previous version', pulling: 'Pulling GitHub changes', installing: 'Installing dependencies', building: 'Rebuilding application', restarting: 'Restarting application', verifying: 'Checking application health', rolling_back: 'Restoring previous version', succeeded: 'Update completed', rolled_back: 'Update failed; previous version restored', failed: 'Update failed before deployment', rollback_failed: 'Recovery needs attention; contact your server administrator' } as Record<string, string>)[phase] || 'Update status unavailable'}</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </div>
         <div className="p-4 rounded-lg bg-secondary/30 space-y-2">
           <h4 className="font-medium">All Repositories</h4>
@@ -344,7 +359,7 @@ function OracleAdmin({ toast }: { toast: any }) {
     setLoading(true);
     try {
       const res = await fetch('/api/oracle/feeds', { credentials: 'include' });
-      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
       const data = await res.json();
       setFeeds(Array.isArray(data) ? data : []);
     } catch (e: any) {
@@ -356,7 +371,7 @@ function OracleAdmin({ toast }: { toast: any }) {
     setSelectedFeed(feedId);
     try {
       const res = await fetch(`/api/admin/oracle/submissions?feedId=${encodeURIComponent(feedId)}`, { credentials: 'include' });
-      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
       setSubmissions(await res.json());
     } catch (e: any) {
       toast({ title: 'Could not load feed history', description: e.message, variant: 'destructive' });
@@ -379,7 +394,7 @@ function OracleAdmin({ toast }: { toast: any }) {
           active: true,
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
       toast({ title: `Oracle feed ${newFeedId.toUpperCase()} created` });
       setNewFeedId('');
       setNewProvider('manual');
@@ -1434,14 +1449,21 @@ const AdminContent = () => {
             nodes.map((node, nodeIndex) => {
               const isLocalNode = node.wireguardPublicKey?.startsWith('LOCAL:');
               const localPort = isLocalNode ? node.wireguardPublicKey!.split(':')[1] : null;
-              const localRpcUrl = localPort ? `http://${window.location.hostname}:${localPort}` : null;
+              const localRpcUrl = localPort ? `http://127.0.0.1:${localPort}` : null;
               const isMain = node.id === mainNodeId;
               const isPinging = pingingNodes.has(node.id);
-              // VPN tunnel IP assigned in order (matches WireGuardPeerManager: 10.0.0.2, .3, …)
-              const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
+              // Keep detected peers on their actual VPN address; use the ordered
+              // assignment only for older registrations without a tunnel IP.
+              const approvedNonLocal = nodes
+                .filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'))
+                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id.localeCompare(b.id));
               const vpnIndex = approvedNonLocal.findIndex(n => n.id === node.id);
+              const savedTunnelIp = typeof node.ipAddress === 'string'
+                && /^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(node.ipAddress)
+                ? node.ipAddress
+                : null;
               const vpnTunnelIp = !isLocalNode && node.isApproved && vpnIndex >= 0
-                ? `10.0.0.${vpnIndex + 2}`
+                ? savedTunnelIp || `10.0.0.${vpnIndex + 2}`
                 : null;
               const displayHost = node.ipAddress || node.hostname;
               const rpcPort = node.rpcPort || 8545;
@@ -1665,9 +1687,16 @@ const AdminContent = () => {
           <NodeDetailsDrawer
             nodeId={selectedNodeId}
             vpnTunnelIp={(() => {
-              const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
+              const approvedNonLocal = nodes
+                .filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'))
+                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id.localeCompare(b.id));
               const idx = approvedNonLocal.findIndex(n => n.id === selectedNodeId);
-              return idx >= 0 ? `10.0.0.${idx + 2}` : null;
+              const node = approvedNonLocal[idx];
+              const savedIp = typeof node?.ipAddress === 'string'
+                && /^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(node.ipAddress)
+                ? node.ipAddress
+                : null;
+              return idx >= 0 ? savedIp || `10.0.0.${idx + 2}` : null;
             })()}
             isMain={selectedNodeId === mainNodeId}
             onClose={() => setSelectedNodeId(null)}

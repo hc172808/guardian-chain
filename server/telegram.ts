@@ -9,6 +9,12 @@
 
 const TELEGRAM_API = "https://api.telegram.org";
 
+interface TelegramApiResponse {
+  ok: boolean;
+  description?: string;
+  result?: { username?: string };
+}
+
 export function getTelegramBotToken(): string | undefined {
   return process.env.TELEGRAM_BOT_TOKEN;
 }
@@ -41,7 +47,7 @@ export async function sendTelegramMessage(
         disable_web_page_preview: true,
       }),
     });
-    const data = await res.json();
+    const data = await res.json() as TelegramApiResponse;
     if (!data.ok) {
       console.warn("[Telegram] sendMessage failed:", data.description);
       return { ok: false, error: data.description };
@@ -153,7 +159,7 @@ export async function testTelegramConnection(
   try {
     // Get bot info
     const meRes = await fetch(`${TELEGRAM_API}/bot${token}/getMe`);
-    const meData = await meRes.json();
+    const meData = await meRes.json() as TelegramApiResponse;
     if (!meData.ok) return { ok: false, error: meData.description };
 
     const botName = meData.result?.username ?? "unknown";

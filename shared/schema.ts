@@ -61,6 +61,7 @@ export const nodeInstallations = pgTable("node_installations", {
   ipAddress: text("ip_address"),
   hostname: text("hostname"),
   rpcPort: integer("rpc_port").default(8545),
+  network: text("network").default("mainnet"),
   wireguardPublicKey: text("wireguard_public_key"),
   wireguardPrivateKey: text("wireguard_private_key"),
   isSynced: boolean("is_synced").default(false),
@@ -671,11 +672,15 @@ export const rwaHoldings = pgTable("rwa_holdings", {
 
 export const networkSnapshots = pgTable("network_snapshots", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  network: text("network").notNull().default("mainnet"),
+  blockHeight: bigint("block_height", { mode: "number" }),
   activeValidators: integer("active_validators").notNull().default(0),
   activeNodes: integer("active_nodes").notNull().default(0),
   totalTransactions: bigint("total_transactions", { mode: "number" }).notNull().default(0),
   totalTokens: integer("total_tokens").notNull().default(0),
   tps: numeric("tps").notNull().default("0"),
+  totalStake: numeric("total_stake").notNull().default("0"),
+  timestamp: timestamp("timestamp").defaultNow(),
   capturedAt: timestamp("captured_at").defaultNow(),
 });
 

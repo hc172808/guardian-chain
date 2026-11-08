@@ -643,14 +643,22 @@ export async function startupMigrate(pool: Pool): Promise<void> {
   await run("network_snapshots", `
     CREATE TABLE IF NOT EXISTS network_snapshots (
       id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      network       TEXT NOT NULL DEFAULT 'mainnet',
       block_height  BIGINT,
       tx_count      INTEGER DEFAULT 0,
       active_wallets INTEGER DEFAULT 0,
       token_count   INTEGER DEFAULT 0,
       validator_count INTEGER DEFAULT 0,
       tps           NUMERIC DEFAULT '0',
+      total_stake   NUMERIC DEFAULT '0',
+      timestamp     TIMESTAMPTZ DEFAULT NOW(),
+      active_validators INTEGER DEFAULT 0,
+      active_nodes  INTEGER DEFAULT 0,
+      total_transactions BIGINT DEFAULT 0,
+      total_tokens  INTEGER DEFAULT 0,
       snapshot_data JSONB DEFAULT '{}',
-      created_at    TIMESTAMPTZ DEFAULT NOW()
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      captured_at   TIMESTAMPTZ DEFAULT NOW()
     )
   `);
 
@@ -1256,10 +1264,14 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // network_snapshots — code uses active_validators, active_nodes, total_transactions, captured_at
   for (const col of [
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS network              TEXT NOT NULL DEFAULT 'mainnet'`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS block_height         BIGINT`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS active_validators  INTEGER DEFAULT 0`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS active_nodes       INTEGER DEFAULT 0`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS total_transactions BIGINT  DEFAULT 0`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS total_tokens       INTEGER DEFAULT 0`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS total_stake         NUMERIC DEFAULT 0`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS timestamp           TIMESTAMPTZ DEFAULT NOW()`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS captured_at        TIMESTAMPTZ DEFAULT NOW()`,
   ]) await run("network_snapshots-cols", col);
   await run("network_snapshots-idx", `CREATE INDEX IF NOT EXISTS network_snapshots_captured_idx ON network_snapshots(captured_at DESC)`);

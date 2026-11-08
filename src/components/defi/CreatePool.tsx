@@ -15,6 +15,16 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { loadDeFiTokenCatalog, NATIVE_GYDS_ADDRESS, type DeFiTokenAsset } from '@/lib/defiTokenCatalog';
+import {
+  applyRuntimeContractAddresses,
+  isConfiguredContractAddress,
+} from '@/config/contracts';
+import {
+  executeAddLiquidity,
+  executeCreatePair,
+  getTokenDecimals,
+} from '@/lib/swapContract';
+import { ethers } from 'ethers';
 
 interface CreatePoolProps {
   onBack: () => void;
@@ -31,11 +41,11 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
     price: 0.0000001,
     source: 'native',
   }]);
+  const [dexConfig, setDexConfig] = useState<{ chainId: number; addresses: Record<string, string> } | null>(null);
   const [walletTokens, setWalletTokens] = useState<string[]>([]);
   const [form, setForm] = useState({
     tokenA: 'GYDS',
     tokenB: '',
-    feeTier: '0.3',
     initialLiquidityA: '',
     initialLiquidityB: '',
   });
@@ -46,6 +56,11 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
         const dexConfig = await api.get('/api/dex/config').catch((error) => {
           console.error('[create-pool] Could not load DEX contract config:', error);
           return { chainId: 0, addresses: {} };
+        });
+        applyRuntimeContractAddresses(dexConfig.addresses ?? {});
+        setDexConfig({
+          chainId: Number(dexConfig.chainId),
+          addresses: dexConfig.addresses ?? {},
         });
         const catalog = await loadDeFiTokenCatalog(dexConfig);
         setAvailableTokens(catalog);
@@ -65,6 +80,9 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
   }, [user, toast]);
 
   const allTokens = availableTokens.map(token => token.symbol);
+  const contractsReady = Number(dexConfig?.chainId) === 198282 &&
+    isConfiguredContractAddress(dexConfig?.addresses?.Factory) &&
+    isConfiguredContractAddress(dexConfig?.addresses?.WGYDS);
 
   const handleSubmit = async () => {
     if (!user) {
@@ -75,23 +93,106 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
       toast({ title: 'Invalid pair', description: 'Select two different tokens.', variant: 'destructive' });
       return;
     }
+    if (!contractsReady) {
+      toast({
+        title: 'GydsSwap is not configured',
+        description: 'Configure the mainnet Factory and WGYDS contract addresses in Admin → Server Config → DeFi Contracts first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const amountA = Number(form.initialLiquidityA || 0);
+    const amountB = Number(form.initialLiquidityB || 0);
+    if (!Number.isFinite(amountA) || !Number.isFinite(amountB) || amountA < 0 || amountB < 0 ||
+        ((amountA > 0) !== (amountB > 0))) {
+      toast({
+        title: 'Invalid initial liquidity',
+        description: 'Leave both amounts empty to create the pair only, or enter a positive amount for both tokens.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (amountA > 0 && !isConfiguredContractAddress(dexConfig?.addresses?.Router)) {
+      toast({
+        title: 'GydsSwap Router is not configured',
+        description: 'Configure the mainnet Router address before adding initial liquidity.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setLoading(true);
     try {
       const tokenAMeta = availableTokens.find(t => t.symbol === form.tokenA);
       const tokenBMeta = availableTokens.find(t => t.symbol === form.tokenB);
+      if (!tokenAMeta || !tokenBMeta) throw new Error('Token details are missing. Reload the token list and try again.');
+      const contractAddress = (token: DeFiTokenAsset) =>
+        token.source === 'native' ? dexConfig!.addresses.WGYDS : token.address;
+      const tokenAAddress = contractAddress(tokenAMeta);
+      const tokenBAddress = contractAddress(tokenBMeta);
+      if (!isConfiguredContractAddress(tokenAAddress) || !isConfiguredContractAddress(tokenBAddress)) {
+        throw new Error('Both tokens need deployed contract addresses before a pool can be created.');
+      }
 
-      await api.post('/api/liquidity-pools', {
-        creator_id: user.id,
-        token_a_symbol: form.tokenA,
-        token_b_symbol: form.tokenB,
-        token_a_address: tokenAMeta?.source === 'native' ? null : tokenAMeta?.address || null,
-        token_b_address: tokenBMeta?.source === 'native' ? null : tokenBMeta?.address || null,
-        fee_tier: parseFloat(form.feeTier),
-        tvl: (parseFloat(form.initialLiquidityA) || 0) + (parseFloat(form.initialLiquidityB) || 0),
-      });
+      const pair = await executeCreatePair(
+        tokenAAddress,
+        tokenBAddress,
+        tokenAMeta.source === 'native' ? 'GYDS' : tokenAMeta.symbol,
+        tokenBMeta.source === 'native' ? 'GYDS' : tokenBMeta.symbol,
+      );
+      let liquidityTxHash: string | null = null;
+      let liquidityError = '';
+      if (amountA > 0 && amountB > 0) {
+        try {
+          const decimalsA = tokenAMeta.source === 'native' ? 18 : await getTokenDecimals(tokenAAddress);
+          const decimalsB = tokenBMeta.source === 'native' ? 18 : await getTokenDecimals(tokenBAddress);
+          const amountARaw = ethers.parseUnits(form.initialLiquidityA, decimalsA);
+          const amountBRaw = ethers.parseUnits(form.initialLiquidityB, decimalsB);
+          const amountAMin = amountARaw * 995n / 1000n;
+          const amountBMin = amountBRaw * 995n / 1000n;
+          liquidityTxHash = await executeAddLiquidity(
+            tokenAMeta.source === 'native' ? NATIVE_GYDS_ADDRESS : tokenAAddress,
+            tokenBMeta.source === 'native' ? NATIVE_GYDS_ADDRESS : tokenBAddress,
+            amountARaw.toString(),
+            amountBRaw.toString(),
+            amountAMin.toString(),
+            amountBMin.toString(),
+            '',
+            Math.floor(Date.now() / 1000) + 600,
+          );
+        } catch (error: any) {
+          liquidityError = error?.shortMessage ?? error?.message ?? 'Liquidity transaction failed.';
+        }
+      }
 
-      toast({ title: 'Pool Created!', description: `${form.tokenA} / ${form.tokenB} pool is now live.` });
+      const estimatedTvl = amountA * tokenAMeta.price + amountB * tokenBMeta.price;
+      try {
+        await api.post('/api/liquidity-pools', {
+          token_a_symbol: form.tokenA,
+          token_b_symbol: form.tokenB,
+          token_a_address: tokenAAddress,
+          token_b_address: tokenBAddress,
+          fee_tier: 0.3,
+          tvl: liquidityTxHash ? estimatedTvl : 0,
+        });
+      } catch (error: any) {
+        throw new Error(`The pair exists on-chain at ${pair.pairAddress}, but could not be added to the pool list: ${error.message}`);
+      }
+
+      if (liquidityError) {
+        toast({
+          title: 'Pair created; liquidity was not added',
+          description: `${form.tokenA} / ${form.tokenB} exists on-chain. Add liquidity from the pool page. ${liquidityError}`,
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: pair.txHash ? 'Pool created on-chain' : 'Pool already exists',
+          description: liquidityTxHash
+            ? `${form.tokenA} / ${form.tokenB} liquidity confirmed (${liquidityTxHash.slice(0, 12)}…).`
+            : `${form.tokenA} / ${form.tokenB} pair is ready. Add liquidity before swapping.`,
+        });
+      }
       onBack();
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -149,28 +250,17 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
       </GlassCard>
 
       <GlassCard className="p-4 space-y-4">
-        <h2 className="font-semibold">Fee Tier</h2>
-        <div className="grid grid-cols-3 gap-2">
-          {['0.04', '0.3', '1.0'].map(fee => (
-            <Button
-              key={fee}
-              variant={form.feeTier === fee ? 'default' : 'secondary'}
-              className={form.feeTier === fee ? 'bg-primary' : ''}
-              onClick={() => setForm(p => ({ ...p, feeTier: fee }))}
-            >
-              {fee}%
-            </Button>
-          ))}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {form.feeTier === '0.04' && 'Best for stable pairs (e.g. GYDS/GYD)'}
-          {form.feeTier === '0.3' && 'Best for most pairs'}
-          {form.feeTier === '1.0' && 'Best for exotic or volatile pairs'}
+        <h2 className="font-semibold">Swap Fee</h2>
+        <p className="text-sm text-muted-foreground">
+          GydsSwap currently uses a fixed 0.3% swap fee for every pool.
         </p>
       </GlassCard>
 
       <GlassCard className="p-4 space-y-4">
         <h2 className="font-semibold">Initial Liquidity</h2>
+        <p className="text-xs text-muted-foreground">
+          Optional. Enter both amounts to create the pair and add liquidity in separate confirmed transactions. Leave both blank to create an empty pair.
+        </p>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs">{form.tokenA} Amount</Label>
@@ -183,12 +273,18 @@ export const CreatePool = ({ onBack }: CreatePoolProps) => {
         </div>
       </GlassCard>
 
+      {!contractsReady && (
+        <GlassCard className="border-amber-500/30 p-4 text-sm text-amber-300">
+          Mainnet GydsSwap Factory and WGYDS addresses are required. No pool will be recorded as live until its on-chain pair is created.
+        </GlassCard>
+      )}
+
       <Button
         className="w-full h-14 text-lg font-semibold bg-amber-600/80 hover:bg-amber-600 text-foreground"
         onClick={handleSubmit}
-        disabled={loading || !form.tokenA || !form.tokenB}
+        disabled={loading || !contractsReady || !form.tokenA || !form.tokenB}
       >
-        {loading ? 'Creating...' : 'Create Pool'}
+        {loading ? 'Confirming on-chain...' : Number(form.initialLiquidityA) > 0 && Number(form.initialLiquidityB) > 0 ? 'Create Pair & Add Liquidity' : 'Create Pair'}
       </Button>
     </div>
   );

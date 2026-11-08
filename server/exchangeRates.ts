@@ -31,14 +31,14 @@ export async function getExchangeRates(): Promise<RateCache> {
     async () => {
       const res = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(7000) });
       if (!res.ok) throw new Error(`er-api HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as { result?: string; rates?: Record<string, number> };
       if (data?.result !== "success" || !data?.rates) throw new Error("er-api bad response");
       return data.rates as Record<string, number>;
     },
     async () => {
       const res = await fetch("https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,CAD,AUD", { signal: AbortSignal.timeout(7000) });
       if (!res.ok) throw new Error(`frankfurter HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as { rates?: Record<string, number> };
       if (!data?.rates) throw new Error("frankfurter bad response");
       // Frankfurter doesn't have GYD/JMD — supplement with fallback for those
       return { USD: 1, ...data.rates, GYD: FALLBACK_RATES.GYD, JMD: FALLBACK_RATES.JMD } as Record<string, number>;

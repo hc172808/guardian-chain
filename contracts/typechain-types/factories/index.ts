@@ -2,4 +2,13 @@
 /* tslint:disable */
 /* eslint-disable */
 export * as openzeppelin from "./@openzeppelin";
+export * as gydsSwapFactorySol from "./GydsSwapFactory.sol";
+export * as gydsSwapLibrarySol from "./GydsSwapLibrary.sol";
+export * as gydsSwapPairSol from "./GydsSwapPair.sol";
+export * as gydsSwapRouterSol from "./GydsSwapRouter.sol";
+export * as test from "./test";
 export * as tokenSource from "./token-source";
+export { GLPToken__factory } from "./GLPToken__factory";
+export { GydsSwapFarm__factory } from "./GydsSwapFarm__factory";
+export { UserStablecoin__factory } from "./UserStablecoin__factory";
+export { WGYDS__factory } from "./WGYDS__factory";

@@ -11,8 +11,8 @@
 # ║      SUBDOMAIN=app DOMAIN=netlifegy.com \                              ║
 # ║      CF_TUNNEL_TOKEN=<token> bash deploy-dashboard.sh                  ║
 # ║                                                                         ║
-# ║    Main domain + certbot SSL (no Cloudflare):                          ║
-# ║      DOMAIN=netlifegy.com USE_CERTBOT=1 bash deploy-dashboard.sh       ║
+# ║    Root domain + certbot SSL (no Cloudflare):                          ║
+# ║      SUBDOMAIN="" DOMAIN=netlifegy.com USE_CERTBOT=1 bash deploy-dashboard.sh ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
@@ -24,8 +24,9 @@ info()   { echo -e "${CYAN}[→]${NC} $*"; }
 step()   { echo ""; echo -e "${BOLD}${GREEN}━━━ $* ━━━${NC}"; }
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-SUBDOMAIN="${SUBDOMAIN:-}"                          # e.g. "app" → app.netlifegy.com (empty = use DOMAIN directly)
+SUBDOMAIN="${SUBDOMAIN-app}"                        # defaults to "app"; set empty explicitly to use DOMAIN directly
 DOMAIN="${DOMAIN:-netlifegy.com}"
+GYDS_RPC_DOMAIN="${GYDS_RPC_DOMAIN:-rpc.${DOMAIN}}"
 FQDN="${SUBDOMAIN:+${SUBDOMAIN}.}${DOMAIN}"        # app.netlifegy.com or netlifegy.com
 USE_CERTBOT="${USE_CERTBOT:-0}"                     # set to 1 for direct SSL (non-Cloudflare)
 SSL_EMAIL="${GYDS_SSL_EMAIL:-${EMAIL:-}}"
@@ -141,6 +142,7 @@ fi
 
 info "Deployment configuration:"
 echo "  Domain (FQDN):  $FQDN"
+echo "  RPC domain:     $GYDS_RPC_DOMAIN"
 echo "  Subdomain:      ${SUBDOMAIN:-<root domain>}"
 echo "  App dir:        $APP_DIR"
 echo "  Repo:           $REPO_URL"
@@ -160,9 +162,10 @@ fi
 step "1/8 — System packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-PKGS="git curl wget build-essential nginx postgresql postgresql-contrib ufw fail2ban jq"
+PKGS="git curl wget build-essential nginx postgresql postgresql-contrib ufw fail2ban jq cron"
 [[ "$USE_CERTBOT" == "1" ]] && PKGS="$PKGS certbot python3-certbot-nginx"
 apt-get install -y -qq $PKGS
+systemctl enable --now cron
 
 if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
     info "Installing Node.js 22 LTS..."
@@ -410,6 +413,7 @@ id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" 
   echo "GYDS_CHAIN_ID=198282"
   echo "DOMAIN=${DOMAIN}"
   echo "FQDN=${FQDN}"
+  echo "GYDS_RPC_DOMAIN=${GYDS_RPC_DOMAIN}"
   [[ -n "$ADMIN_WALLET"         ]] && echo "GYDS_ADMIN_WALLET=${ADMIN_WALLET}"
   [[ -n "$FOUNDER_WALLET"       ]] && echo "GYDS_FOUNDER_WALLET=${FOUNDER_WALLET}"
   [[ -n "$REWARD_ADDRESS"       ]] && echo "GYDS_REWARD_ADDRESS=${REWARD_ADDRESS}"
@@ -566,7 +570,10 @@ $(
 PM2CFG
 
 if id -u "$NODE_USER" &>/dev/null; then
-    su - "$NODE_USER" -c "pm2 delete gydschain-api 2>/dev/null; pm2 start '$APP_DIR/ecosystem.config.cjs'; pm2 save --force" || true
+    if ! su - "$NODE_USER" -c "pm2 delete gydschain-api >/dev/null 2>&1 || true; pm2 start '$APP_DIR/ecosystem.config.cjs' && pm2 save --force"; then
+        err "PM2 could not start gydschain-api as ${NODE_USER}."
+        exit 1
+    fi
     env PATH="$PATH:/usr/bin:/usr/local/bin" pm2 startup systemd -u "$NODE_USER" --hp "/home/$NODE_USER" 2>/dev/null | tail -1 | bash 2>/dev/null || true
 else
     pm2 delete gydschain-api 2>/dev/null || true
@@ -574,6 +581,41 @@ else
     pm2 save --force
 fi
 log "PM2: gydschain-api → port $PORT_API"
+
+# Install an independent API/database watchdog. PM2 restarts crashed processes;
+# this also catches a hung API or lost database connection.
+install -m 755 "$APP_DIR/public/scripts/gyds-watchdog.sh" /usr/local/bin/gyds-watchdog
+cat > /etc/cron.d/gyds-watchdog <<CRON
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root APP_PORT=${PORT_API} PM2_APP=gydschain-api PM2_USER=${NODE_USER} LOG_FILE=/var/log/gydschain/watchdog.log /usr/bin/flock -n /run/gyds-watchdog.lock /usr/local/bin/gyds-watchdog
+CRON
+chmod 644 /etc/cron.d/gyds-watchdog
+log "API/database watchdog installed (minute checks; 5-minute restart cooldown)"
+
+# Confirm the API is alive before configuring the public site.
+API_HEALTH=""
+for attempt in $(seq 1 30); do
+    API_HEALTH=$(curl -fsS --max-time 3 "http://127.0.0.1:${PORT_API}/api/auth/captcha/health" 2>/dev/null || true)
+    if grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<< "$API_HEALTH"; then
+        break
+    fi
+    sleep 2
+done
+if ! grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<< "$API_HEALTH"; then
+    err "Dashboard API did not become healthy on port ${PORT_API}."
+    err "Check: pm2 status && pm2 logs gydschain-api --lines 80"
+    exit 1
+fi
+log "Auth API health check passed"
+
+BOOTSTRAP_USERS=$(psql "$DATABASE_URL" -Atc "SELECT COUNT(DISTINCT username) FROM users WHERE username IN ('founder','admin')" 2>/dev/null || echo "0")
+if [[ "$BOOTSTRAP_USERS" != "2" ]]; then
+    warn "Founder/admin bootstrap accounts were not both found after startup."
+    warn "Check PM2 logs for [seed] errors. Public registration can still be used at ${APP_URL%/}/auth."
+else
+    log "Founder/admin bootstrap accounts are present in the database."
+fi
 
 # ─── Step 6: Nginx ────────────────────────────────────────────────────────────
 step "6/8 — Nginx"
@@ -675,6 +717,14 @@ elif grep -qi "Welcome to nginx" <<< "$NGINX_RESPONSE"; then
 else
     log "Nginx virtual host serves the dashboard for ${FQDN}"
 fi
+
+AUTH_HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 -H "Host: ${FQDN}" http://127.0.0.1/auth 2>/dev/null || true)
+if [[ "$AUTH_HTTP_CODE" != "200" ]]; then
+    err "The login route /auth returned HTTP ${AUTH_HTTP_CODE:-no response} through Nginx."
+    err "The dashboard is not ready for sign-in; inspect the enabled Nginx site and PM2 logs."
+    exit 1
+fi
+log "Login/register route verified: ${APP_URL%/}/auth"
 
 # ─── Step 7: UFW Firewall ──────────────────────────────────────────────────────
 step "7/8 — Firewall"
@@ -856,6 +906,7 @@ echo -e "${GREEN}║  ✅  ChainCore deployed!                                  
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${CYAN}URL:${NC}        http://${FQDN}  (HTTPS via Cloudflare)"
+echo -e "${CYAN}Login:${NC}      ${APP_URL%/}/auth  (Sign In / Register)"
 echo -e "${CYAN}API:${NC}        http://${FQDN}/api/"
 echo -e "${CYAN}Health:${NC}     http://${FQDN}/health"
 echo -e "${CYAN}Server IP:${NC}  ${PUBLIC_IP}"

@@ -17,6 +17,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ── Load shared config (written by deploy-dashboard.sh — all values skippable) ─
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
@@ -36,13 +38,14 @@ P2P_PORT="${P2P_PORT:-30303}"
 MAX_PEERS="${MAX_PEERS:-100}"
 PUBLIC_ADDR="${PUBLIC_ADDR:-}"           # e.g. bootnode1.netlifegy.com:30303
 BOOTSTRAP_PEERS="${BOOTSTRAP_PEERS:-}"   # comma-separated host:port list
+GENESIS_HASH="${GYDS_GENESIS_HASH:-}"
 
 # Source location: all supported node modes are built from the canonical repo.
 REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
 REPO_DIR="${REPO_DIR:-/opt/gyds-fullnode}"
 SRC_DIR="${SRC_DIR:-}"
 
-GO_VERSION="${GO_VERSION:-1.22.0}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 # ---------------------- Helpers ----------------------
 log()  { echo -e "\033[1;32m[+]\033[0m $*"; }
@@ -56,6 +59,23 @@ require_root() {
   fi
 }
 
+require_mainnet_genesis_hash() {
+  if [[ -n "${GENESIS_HASH}" ]] &&
+    { [[ ! "${GENESIS_HASH}" =~ ^0x[[:xdigit:]]{64}$ ]] ||
+      [[ "${GENESIS_HASH,,}" =~ ^0x0{64}$ ]]; }; then
+    err "GYDS_GENESIS_HASH must be a non-zero 0x-prefixed 32-byte hash."
+    return 1
+  fi
+
+  if [[ "${CHAIN_ID}" == "198282" && -z "${GENESIS_HASH}" ]]; then
+    err "A verified mainnet genesis hash is required for chain ID 198282."
+    err "Set GYDS_GENESIS_HASH to the exact hash from a trusted production node or approved deployment record."
+    err "The installer will not derive a mainnet hash from the bundled source."
+    return 1
+  fi
+}
+
+require_mainnet_genesis_hash || exit 1
 require_root
 
 # ---------------------- 1. System packages ----------------------
@@ -144,6 +164,7 @@ p2p_port    = ${P2P_PORT}
 max_peers   = ${MAX_PEERS}
 data_dir    = "${BOOTNODE_DIR}"
 node_key    = "${KEY_FILE}"
+genesis_hash = "${GENESIS_HASH}"
 public_addr = "${PUBLIC_ADDR}"
 bootstrap   = "${BOOTSTRAP_PEERS}"
 EOF
@@ -171,11 +192,13 @@ Type=simple
 User=${GYDS_USER}
 Group=${GYDS_USER}
 ExecStart=${BIN_PATH} \\
+  --config=${CONFIG_FILE} \\
   --datadir=${BOOTNODE_DIR} \\
   --p2pport=${P2P_PORT} \\
   --maxpeers=${MAX_PEERS} \\
   --node-key=${KEY_FILE} \\
   --chain-id=${CHAIN_ID} \\
+  --genesis-hash=${GENESIS_HASH} \\
   ${PUBLIC_FLAG} ${BOOTSTRAP_FLAG}
 Restart=always
 RestartSec=10

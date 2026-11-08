@@ -1,0 +1,5 @@
+# Project rules
+
+- Validate all master-installer dependencies before running child setup scripts; this prevents partially modifying hosts when deployment files are missing.
+- Test installer execution using temporary repositories and stub commands, never by installing services in the development sandbox.
+- Dashboard updates use a production-only detached worker with external private status, exclusive locking and file/dependency rollback; workers survive PM2 restarts and never expose deployment logs to clients.

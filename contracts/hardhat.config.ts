@@ -24,6 +24,7 @@ const config: HardhatUserConfig = {
     version: "0.8.20",
     settings: {
       optimizer: { enabled: true, runs: 200 },
+      viaIR: true,
       evmVersion: "paris",
     },
   },
@@ -36,7 +37,7 @@ const config: HardhatUserConfig = {
       chainId: 198282,
     },
     gydschain: {
-      url: process.env.GYDS_LOCAL_RPC_URL || process.env.GYDS_RPC_URL || "https://rpc.netlifegy.com",
+      url: process.env.GYDS_LOCAL_RPC_URL || process.env.GYDS_RPC_URL || "http://127.0.0.1:8545",
       chainId: 198282,
       accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
     },

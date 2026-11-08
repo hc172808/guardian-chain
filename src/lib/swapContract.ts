@@ -14,6 +14,9 @@ import {
   SWAP_FEE_NUMERATOR,
   SWAP_FEE_DENOMINATOR,
 } from '@/config/contracts';
+import { getEthereumProvider, NETWORK_CONFIG } from '@/config/network';
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 // ── Provider / Signer helpers ───────────────────────────────────────────────
 
@@ -37,13 +40,26 @@ export function getSigner(): ethers.Signer | null {
 }
 
 export async function getConnectedSigner(): Promise<ethers.Signer | null> {
-  const eth = (window as any).ethereum;
+  const eth = getEthereumProvider();
+  if (!eth) throw new Error('No EVM wallet is connected. Open this page in your wallet browser or install a supported wallet.');
+  const accounts = await eth.request({ method: 'eth_requestAccounts' });
+  if (!Array.isArray(accounts) || accounts.length === 0) {
+    throw new Error('No wallet account was authorized.');
+  }
+  const provider = new ethers.BrowserProvider(eth as any);
+  const network = await provider.getNetwork();
+  if (Number(network.chainId) !== NETWORK_CONFIG.chainId) {
+    throw new Error(`Switch your wallet to ${NETWORK_CONFIG.chainName} (chain ${NETWORK_CONFIG.chainId}) before continuing.`);
+  }
+  return provider.getSigner(accounts[0]);
+}
+
+export async function getAuthorizedWalletAddress(): Promise<string | null> {
+  const eth = getEthereumProvider();
   if (!eth) return null;
   try {
-    const provider = new ethers.BrowserProvider(eth);
-    const accounts = await eth.request({ method: 'eth_requestAccounts' });
-    if (!accounts || accounts.length === 0) return null;
-    return provider.getSigner();
+    const accounts = await eth.request({ method: 'eth_accounts' });
+    return Array.isArray(accounts) && ethers.isAddress(accounts[0]) ? accounts[0] : null;
   } catch {
     return null;
   }
@@ -65,6 +81,17 @@ function getFactory() {
   const addr = CONTRACT_ADDRESSES.mainnet.Factory;
   if (addr === '0x0000000000000000000000000000000000000000') return null;
   return new ethers.Contract(addr, FACTORY_ABI, provider);
+}
+
+export async function getPairAddress(tokenA: string, tokenB: string): Promise<string | null> {
+  const factory = getFactory();
+  if (!factory || !ethers.isAddress(tokenA) || !ethers.isAddress(tokenB)) return null;
+  try {
+    const pair = await factory.getPair(tokenA, tokenB);
+    return ethers.isAddress(pair) && pair.toLowerCase() !== ZERO_ADDRESS ? pair : null;
+  } catch {
+    return null;
+  }
 }
 
 function getPair(tokenA: string, tokenB: string) {
@@ -395,6 +422,38 @@ export async function checkAllowance(tokenAddress: string, owner: string, spende
   }
 }
 
+function getRouterAddress(): string {
+  const routerAddress = CONTRACT_ADDRESSES.mainnet.Router;
+  if (!ethers.isAddress(routerAddress) || routerAddress.toLowerCase() === ZERO_ADDRESS) {
+    throw new Error('GydsSwap Router is not configured for mainnet.');
+  }
+  return routerAddress;
+}
+
+async function waitForTransaction(tx: any): Promise<string> {
+  const receipt = await tx.wait();
+  if (!receipt || Number(receipt.status) !== 1) {
+    throw new Error('The transaction was not confirmed successfully.');
+  }
+  return receipt.hash ?? tx.hash;
+}
+
+async function ensureRouterAllowance(
+  signer: ethers.Signer,
+  tokenAddress: string,
+  amount: bigint,
+  routerAddress = getRouterAddress(),
+): Promise<void> {
+  if (amount <= 0n) throw new Error('Token amount must be greater than zero.');
+  const owner = await signer.getAddress();
+  const token = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
+  const allowance = BigInt((await token.allowance(owner, routerAddress)).toString());
+  if (allowance < amount) {
+    const approval = await token.approve(routerAddress, amount);
+    await waitForTransaction(approval);
+  }
+}
+
 /**
  * Execute a swapExactTokensForTokens on-chain.
  * Returns the transaction hash, or null if the user rejected or it failed.
@@ -407,30 +466,21 @@ export async function executeSwapExactTokensForTokens(
   deadline: number
 ): Promise<string | null> {
   const signer = await getConnectedSigner();
-  if (!signer) return null;
-  const routerAddr = CONTRACT_ADDRESSES.mainnet.Router;
-  if (routerAddr === '0x0000000000000000000000000000000000000000') return null;
-  try {
-    const owner = await signer.getAddress();
-    const inputToken = new ethers.Contract(path[0], ERC20_ABI, signer);
-    const allowance = BigInt((await inputToken.allowance(owner, routerAddr)).toString());
-    if (allowance < BigInt(amountIn)) {
-      const approval = await inputToken.approve(routerAddr, amountIn);
-      await approval.wait();
-    }
-    const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
-    const tx = await router.swapExactTokensForTokens(
-      amountIn,
-      amountOutMin,
-      path,
-      to,
-      deadline
-    );
-    const receipt = await tx.wait();
-    return receipt?.hash ?? tx.hash;
-  } catch {
-    return null;
-  }
+  if (!signer) throw new Error('Connect an EVM wallet to swap.');
+  if (path.length < 2) throw new Error('A valid token route is required.');
+  const routerAddr = getRouterAddress();
+  await ensureRouterAllowance(signer, path[0], BigInt(amountIn), routerAddr);
+  const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
+  const recipient = await signer.getAddress();
+  void to;
+  const tx = await router.swapExactTokensForTokens(
+    amountIn,
+    amountOutMin,
+    path,
+    recipient,
+    deadline
+  );
+  return waitForTransaction(tx);
 }
 
 /**
@@ -444,30 +494,22 @@ export async function executeSwapExactGYDSForTokens(
   deadline: number
 ): Promise<string | null> {
   const signer = await getConnectedSigner();
-  if (!signer) return null;
-  const routerAddr = CONTRACT_ADDRESSES.mainnet.Router;
-  if (routerAddr === '0x0000000000000000000000000000000000000000') return null;
-  try {
-    const owner = await signer.getAddress();
-    const inputToken = new ethers.Contract(path[0], ERC20_ABI, signer);
-    const allowance = BigInt((await inputToken.allowance(owner, routerAddr)).toString());
-    if (allowance < BigInt(amountIn)) {
-      const approval = await inputToken.approve(routerAddr, amountIn);
-      await approval.wait();
-    }
-    const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
-    const tx = await router.swapExactGYDSForTokens(
-      amountOutMin,
-      path,
-      to,
-      deadline,
-      { value: amountIn }
-    );
-    const receipt = await tx.wait();
-    return receipt?.hash ?? tx.hash;
-  } catch {
-    return null;
+  if (!signer) throw new Error('Connect an EVM wallet to swap.');
+  if (path.length < 2 || path[0].toLowerCase() !== CONTRACT_ADDRESSES.mainnet.WGYDS.toLowerCase()) {
+    throw new Error('The native GYDS route must start with the configured WGYDS contract.');
   }
+  const routerAddr = getRouterAddress();
+  const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
+  const recipient = await signer.getAddress();
+  void to;
+  const tx = await router.swapExactGYDSForTokens(
+    amountOutMin,
+    path,
+    recipient,
+    deadline,
+    { value: amountIn }
+  );
+  return waitForTransaction(tx);
 }
 
 /**
@@ -481,23 +523,53 @@ export async function executeSwapExactTokensForGYDS(
   deadline: number,
 ): Promise<string | null> {
   const signer = await getConnectedSigner();
-  if (!signer) return null;
-  const routerAddr = CONTRACT_ADDRESSES.mainnet.Router;
-  if (routerAddr === '0x0000000000000000000000000000000000000000') return null;
-  try {
-    const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
-    const tx = await router.swapExactTokensForGYDS(
-      amountIn,
-      amountOutMin,
-      path,
-      to,
-      deadline,
-    );
-    const receipt = await tx.wait();
-    return receipt?.hash ?? tx.hash;
-  } catch {
-    return null;
+  if (!signer) throw new Error('Connect an EVM wallet to swap.');
+  if (path.length < 2 || path[path.length - 1].toLowerCase() !== CONTRACT_ADDRESSES.mainnet.WGYDS.toLowerCase()) {
+    throw new Error('The native GYDS route must end with the configured WGYDS contract.');
   }
+  const routerAddr = getRouterAddress();
+  await ensureRouterAllowance(signer, path[0], BigInt(amountIn), routerAddr);
+  const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
+  const recipient = await signer.getAddress();
+  void to;
+  const tx = await router.swapExactTokensForGYDS(
+    amountIn,
+    amountOutMin,
+    path,
+    recipient,
+    deadline,
+  );
+  return waitForTransaction(tx);
+}
+
+export async function executeCreatePair(
+  tokenA: string,
+  tokenB: string,
+  symbolA: string,
+  symbolB: string,
+): Promise<{ pairAddress: string; txHash: string | null }> {
+  const signer = await getConnectedSigner();
+  if (!signer) throw new Error('Connect an EVM wallet to create a pool.');
+  if (!ethers.isAddress(tokenA) || !ethers.isAddress(tokenB) ||
+      tokenA.toLowerCase() === tokenB.toLowerCase()) {
+    throw new Error('Choose two different deployed token contracts.');
+  }
+  const factoryAddress = CONTRACT_ADDRESSES.mainnet.Factory;
+  if (!ethers.isAddress(factoryAddress) || factoryAddress.toLowerCase() === ZERO_ADDRESS) {
+    throw new Error('GydsSwap Factory is not configured for mainnet.');
+  }
+  const factory = new ethers.Contract(factoryAddress, FACTORY_ABI, signer);
+  const existing = await factory.getPair(tokenA, tokenB);
+  if (ethers.isAddress(existing) && existing.toLowerCase() !== ZERO_ADDRESS) {
+    return { pairAddress: existing, txHash: null };
+  }
+  const tx = await factory.createPair(tokenA, tokenB, symbolA, symbolB);
+  const txHash = await waitForTransaction(tx);
+  const pairAddress = await factory.getPair(tokenA, tokenB);
+  if (!ethers.isAddress(pairAddress) || pairAddress.toLowerCase() === ZERO_ADDRESS) {
+    throw new Error('The pair transaction confirmed, but the factory did not return a pair address.');
+  }
+  return { pairAddress, txHash };
 }
 
 /**
@@ -514,22 +586,48 @@ export async function executeAddLiquidity(
   deadline: number
 ): Promise<string | null> {
   const signer = await getConnectedSigner();
-  if (!signer) return null;
-  const routerAddr = CONTRACT_ADDRESSES.mainnet.Router;
-  if (routerAddr === '0x0000000000000000000000000000000000000000') return null;
-  try {
-    const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
-    const tx = await router.addLiquidity(
-      tokenA, tokenB,
-      amountADesired, amountBDesired,
-      amountAMin, amountBMin,
-      to, deadline
+  if (!signer) throw new Error('Connect an EVM wallet to add liquidity.');
+  const routerAddr = getRouterAddress();
+  const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
+  const recipient = await signer.getAddress();
+  void to;
+
+  if (tokenA.toLowerCase() === ZERO_ADDRESS) {
+    await ensureRouterAllowance(signer, tokenB, BigInt(amountBDesired), routerAddr);
+    const tx = await router.addLiquidityGYDS(
+      tokenB,
+      amountBDesired,
+      amountBMin,
+      amountAMin,
+      recipient,
+      deadline,
+      { value: amountADesired },
     );
-    const receipt = await tx.wait();
-    return receipt?.hash ?? tx.hash;
-  } catch {
-    return null;
+    return waitForTransaction(tx);
   }
+  if (tokenB.toLowerCase() === ZERO_ADDRESS) {
+    await ensureRouterAllowance(signer, tokenA, BigInt(amountADesired), routerAddr);
+    const tx = await router.addLiquidityGYDS(
+      tokenA,
+      amountADesired,
+      amountAMin,
+      amountBMin,
+      recipient,
+      deadline,
+      { value: amountBDesired },
+    );
+    return waitForTransaction(tx);
+  }
+
+  await ensureRouterAllowance(signer, tokenA, BigInt(amountADesired), routerAddr);
+  await ensureRouterAllowance(signer, tokenB, BigInt(amountBDesired), routerAddr);
+  const tx = await router.addLiquidity(
+    tokenA, tokenB,
+    amountADesired, amountBDesired,
+    amountAMin, amountBMin,
+    recipient, deadline
+  );
+  return waitForTransaction(tx);
 }
 
 /**
@@ -542,25 +640,96 @@ export async function executeRemoveLiquidity(
   amountAMin: string,
   amountBMin: string,
   to: string,
-  deadline: number
+  deadline: number,
+  connectedSigner?: ethers.Signer,
 ): Promise<string | null> {
-  const signer = await getConnectedSigner();
-  if (!signer) return null;
-  const routerAddr = CONTRACT_ADDRESSES.mainnet.Router;
-  if (routerAddr === '0x0000000000000000000000000000000000000000') return null;
-  try {
-    const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
-    const tx = await router.removeLiquidity(
-      tokenA, tokenB,
+  const signer = connectedSigner ?? await getConnectedSigner();
+  if (!signer) throw new Error('Connect an EVM wallet to remove liquidity.');
+  const routerAddr = getRouterAddress();
+  const wrapped = CONTRACT_ADDRESSES.mainnet.WGYDS;
+  const nativeA = tokenA.toLowerCase() === ZERO_ADDRESS;
+  const nativeB = tokenB.toLowerCase() === ZERO_ADDRESS;
+  const contractA = nativeA ? wrapped : tokenA;
+  const contractB = nativeB ? wrapped : tokenB;
+  const pairAddress = await getPairAddress(contractA, contractB);
+  if (!pairAddress) throw new Error('No on-chain pair exists for these tokens.');
+  const pairInfo = await getPairInfo(pairAddress);
+  if (!pairInfo?.lpToken) throw new Error('Could not read the pool LP token.');
+  await ensureRouterAllowance(signer, pairInfo.lpToken, BigInt(liquidity), routerAddr);
+  const router = new ethers.Contract(routerAddr, ROUTER_ABI, signer);
+  const recipient = await signer.getAddress();
+  void to;
+
+  if (nativeA || nativeB) {
+    const token = nativeA ? tokenB : tokenA;
+    const amountTokenMin = nativeA ? amountBMin : amountAMin;
+    const amountGYDSMin = nativeA ? amountAMin : amountBMin;
+    const tx = await router.removeLiquidityGYDS(
+      token,
       liquidity,
-      amountAMin, amountBMin,
-      to, deadline
+      amountTokenMin,
+      amountGYDSMin,
+      recipient,
+      deadline,
     );
-    const receipt = await tx.wait();
-    return receipt?.hash ?? tx.hash;
-  } catch {
-    return null;
+    return waitForTransaction(tx);
   }
+
+  const tx = await router.removeLiquidity(
+    tokenA, tokenB,
+    liquidity,
+    amountAMin, amountBMin,
+    recipient, deadline
+  );
+  return waitForTransaction(tx);
+}
+
+export async function executeRemoveLiquidityPercent(
+  tokenA: string,
+  tokenB: string,
+  percent: number,
+): Promise<string> {
+  if (!Number.isInteger(percent) || percent < 1 || percent > 100) {
+    throw new Error('Choose a removal amount from 1% to 100%.');
+  }
+  const signer = await getConnectedSigner();
+  if (!signer) throw new Error('Connect an EVM wallet to remove liquidity.');
+  const contractA = tokenA.toLowerCase() === ZERO_ADDRESS ? CONTRACT_ADDRESSES.mainnet.WGYDS : tokenA;
+  const contractB = tokenB.toLowerCase() === ZERO_ADDRESS ? CONTRACT_ADDRESSES.mainnet.WGYDS : tokenB;
+  const pairAddress = await getPairAddress(contractA, contractB);
+  if (!pairAddress) throw new Error('No on-chain pair exists for these tokens.');
+  const pairInfo = await getPairInfo(pairAddress);
+  const reserves = await getPairReserves(pairAddress);
+  if (!pairInfo?.lpToken || !reserves) throw new Error('Could not read the pool reserves or LP token.');
+  const lpToken = new ethers.Contract(pairInfo.lpToken, ERC20_ABI, signer);
+  const owner = await signer.getAddress();
+  const [balanceRaw, supplyRaw] = await Promise.all([
+    lpToken.balanceOf(owner),
+    lpToken.totalSupply(),
+  ]);
+  const balance = BigInt(balanceRaw.toString());
+  const supply = BigInt(supplyRaw.toString());
+  const liquidity = balance * BigInt(percent) / 100n;
+  if (liquidity <= 0n || supply <= 0n) {
+    throw new Error('This wallet has no LP tokens to remove from the selected pool.');
+  }
+
+  const reserve0 = BigInt(reserves.reserve0);
+  const reserve1 = BigInt(reserves.reserve1);
+  const tokenAReserve = pairInfo.token0.toLowerCase() === contractA.toLowerCase() ? reserve0 : reserve1;
+  const tokenBReserve = pairInfo.token0.toLowerCase() === contractB.toLowerCase() ? reserve0 : reserve1;
+  const amountAMin = tokenAReserve * liquidity / supply * 995n / 1000n;
+  const amountBMin = tokenBReserve * liquidity / supply * 995n / 1000n;
+  return (await executeRemoveLiquidity(
+    tokenA,
+    tokenB,
+    liquidity.toString(),
+    amountAMin.toString(),
+    amountBMin.toString(),
+    owner,
+    Math.floor(Date.now() / 1000) + 600,
+    signer,
+  )) ?? '';
 }
 
 /**

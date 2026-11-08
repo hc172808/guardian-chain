@@ -91,6 +91,10 @@ library GydsSwapLibrary {
         amounts[0] = amountIn;
         for (uint i; i < path.length - 1; i++) {
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i], path[i + 1]);
+            require(
+                IGydsSwapFactory(factory).isPairTradeAllowed(path[i], path[i + 1]),
+                "GydsSwap: MARKET_CAP_BELOW_10K"
+            );
             amounts[i + 1] = getAmountOut(amounts[i], reserveIn, reserveOut);
         }
     }
@@ -104,6 +108,10 @@ library GydsSwapLibrary {
         amounts[amounts.length - 1] = amountOut;
         for (uint i = path.length - 1; i > 0; i--) {
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i - 1], path[i]);
+            require(
+                IGydsSwapFactory(factory).isPairTradeAllowed(path[i - 1], path[i]),
+                "GydsSwap: MARKET_CAP_BELOW_10K"
+            );
             amounts[i - 1] = getAmountIn(amounts[i], reserveIn, reserveOut);
         }
     }
@@ -137,4 +145,5 @@ interface IGydsSwapPair {
 
 interface IGydsSwapFactory {
     function getPair(address tokenA, address tokenB) external view returns (address pair);
+    function isPairTradeAllowed(address tokenA, address tokenB) external view returns (bool);
 }

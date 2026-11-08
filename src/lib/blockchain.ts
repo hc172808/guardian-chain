@@ -95,7 +95,7 @@ export interface Block {
   timestamp: number;
   transactions: Transaction[];
   validator: string;
-  validatorStake: number;
+  validatorStake: number | null;
   miningRewards: MiningReward[];
   signature: string;
   finalized: boolean;

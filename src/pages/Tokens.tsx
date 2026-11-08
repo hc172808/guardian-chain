@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { readAllTokenNetworkStates, TokenNetworkState } from '@/lib/tokenPromotion';
 import { NetworkSelector } from '@/components/ui/NetworkSelector';
 import { useNetwork, ALL_NETWORKS, NETWORK_BADGE } from '@/contexts/NetworkContext';
+import { readGrc20OnchainSupply } from '@/lib/tokenDeployment';
 
 interface TokenRecord {
   id: string;
@@ -24,6 +25,7 @@ interface TokenRecord {
   symbol: string;
   address: string;
   total_supply: number;
+  decimals: number;
   burned_supply: number;
   gyds_liquidity: number;
   logo_url: string | null;
@@ -41,16 +43,50 @@ interface TokenRecord {
   created_at: string;
   is_active: boolean;
   creator_id: string;
+  networkType?: string;
+  deploymentStatus?: string;
 }
 
-const toFeaturePanelToken = (t: TokenRecord) => ({
+const normalizeTokenRecord = (row: Record<string, unknown>): TokenRecord => {
+  const value = (camel: string, snake: string) => row[camel] ?? row[snake];
+  return {
+    id: String(row.id ?? ''),
+    name: String(row.name ?? ''),
+    symbol: String(row.symbol ?? ''),
+    address: String(row.address ?? ''),
+    total_supply: Number(value('totalSupply', 'total_supply') ?? 0),
+    decimals: Number(row.decimals ?? 18),
+    burned_supply: Number(value('burnedSupply', 'burned_supply') ?? 0),
+    gyds_liquidity: Number(value('gydsLiquidity', 'gyds_liquidity') ?? 0),
+    logo_url: (value('logoUrl', 'logo_url') as string | null | undefined) ?? null,
+    lp_lock_type: String(value('lpLockType', 'lp_lock_type') ?? 'burned'),
+    lp_unlock_time: (value('lpUnlockTime', 'lp_unlock_time') as string | null | undefined) ?? null,
+    freeze_enabled: Boolean(value('freezeEnabled', 'freeze_enabled')),
+    freeze_holder: (value('freezeHolder', 'freeze_holder') as string | null | undefined) ?? null,
+    freeze_locked: Boolean(value('freezeLocked', 'freeze_locked')),
+    update_enabled: Boolean(value('updateEnabled', 'update_enabled')),
+    update_holder: (value('updateHolder', 'update_holder') as string | null | undefined) ?? null,
+    update_locked: Boolean(value('updateLocked', 'update_locked')),
+    mint_enabled: Boolean(value('mintEnabled', 'mint_enabled')),
+    mint_holder: (value('mintHolder', 'mint_holder') as string | null | undefined) ?? null,
+    mint_locked: Boolean(value('mintLocked', 'mint_locked')),
+    created_at: String(value('createdAt', 'created_at') ?? ''),
+    is_active: Boolean(value('isActive', 'is_active')),
+    creator_id: String(value('creatorId', 'creator_id') ?? ''),
+    networkType: String(value('networkType', 'network_type') ?? 'mainnet'),
+    deploymentStatus: String(value('deploymentStatus', 'deployment_status') ?? 'legacy_unverified'),
+  };
+};
+
+const toFeaturePanelToken = (t: TokenRecord, onchainSupply: string | null) => ({
   name: t.name,
   symbol: t.symbol,
   address: t.address,
-  totalSupply: t.total_supply.toString(),
+  totalSupply: onchainSupply ?? '0',
+  supplyVerifiedOnchain: onchainSupply !== null,
   burnedSupply: t.burned_supply.toString(),
   gydsLiquidity: t.gyds_liquidity.toString(),
-  lpLockType: t.lp_lock_type as 'burned' | 'timelocked',
+  lpLockType: t.lp_lock_type as 'burned' | 'timelocked' | 'not_created',
   lpUnlockTime: t.lp_unlock_time ? new Date(t.lp_unlock_time).getTime() : undefined,
   authorities: {
     freeze: { enabled: t.freeze_enabled, holder: t.freeze_holder, locked: t.freeze_locked },
@@ -65,26 +101,43 @@ const TokensPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [tokens, setTokens] = useState<TokenRecord[]>([]);
   const [networkStates, setNetworkStates] = useState<Map<string, TokenNetworkState>>(new Map());
+  const [onchainSupplies, setOnchainSupplies] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
   const [selectedToken, setSelectedToken] = useState<ReturnType<typeof toFeaturePanelToken> | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { selectedNetwork, activeNetworks } = useNetwork();
+  const { selectedNetwork, activeNetworks, setSelectedNetwork } = useNetwork();
 
   useEffect(() => {
     const fetchTokens = async () => {
       // Build URL — filter by selected network when a specific one is chosen
       const networkParam = selectedNetwork !== 'all' ? `?network=${selectedNetwork}` : '';
-      const data: TokenRecord[] = await fetch(`/api/tokens${networkParam}`, { credentials: 'include' })
+      const payload: unknown = await fetch(`/api/tokens${networkParam}`, { credentials: 'include' })
         .then(r => r.ok ? r.json() : []).catch(() => []);
+      const rows = Array.isArray(payload)
+        ? payload.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+        : [];
+      const data = rows.map(normalizeTokenRecord);
 
       // Also hide tokens whose network is currently toggled off
       const filtered = data.filter(t => {
-        const net = (t as any).networkType ?? (t as any).network_type ?? 'testnet';
-        if (!activeNetworks.has(net as any)) return false;
+        const net = t.networkType ?? 'testnet';
+        if (net !== 'mainnet' && net !== 'testnet' && net !== 'devnet') return false;
+        if (!activeNetworks.has(net)) return false;
         return t.is_active || (user && t.creator_id === user.id);
       });
       setTokens(filtered);
+      const supplyResults = await Promise.all(filtered
+        .filter(t => t.networkType === 'mainnet' && /^0x[a-fA-F0-9]{40}$/.test(t.address))
+        .map(async t => {
+          try {
+            const supply = await readGrc20OnchainSupply(t.address);
+            return [t.address.toLowerCase(), supply.totalSupply] as const;
+          } catch {
+            return [t.address.toLowerCase(), null] as const;
+          }
+        }));
+      setOnchainSupplies(Object.fromEntries(supplyResults));
       const states = await readAllTokenNetworkStates();
       setNetworkStates(states);
       setLoading(false);
@@ -128,15 +181,21 @@ const TokensPage = () => {
           <div className="flex items-start gap-3">
             <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-medium text-warning">Token Deployment</p>
+              <p className="font-medium text-warning">Mainnet Token Deployment</p>
               <p className="text-sm text-muted-foreground">
-                New GRC-20 tokens deploy directly to GYDS mainnet. The initial supply goes to the creator wallet; future minting is off unless enabled. Liquidity can be added separately.
+                New GRC-20 tokens deploy directly to GYDS mainnet after wallet approval and server verification. Supply comes from the deployed contract; other-coin swaps require the $10,000 market-cap threshold over a 30-minute on-chain average. Liquidity is added separately.
               </p>
             </div>
           </div>
         </GlassCard>
 
-        <Tabs defaultValue="browse" className="space-y-6">
+        <Tabs
+          defaultValue="browse"
+          className="space-y-6"
+          onValueChange={(value) => {
+            if (value === 'create') setSelectedNetwork('mainnet');
+          }}
+        >
           <TabsList className="bg-secondary/50">
             <TabsTrigger value="browse" className="gap-2"><Eye className="h-4 w-4" /> Browse Tokens</TabsTrigger>
             {user && <TabsTrigger value="watchlist" className="gap-2"><Star className="h-4 w-4" /> Watchlist</TabsTrigger>}
@@ -181,6 +240,7 @@ const TokensPage = () => {
                     return { label: 'Risky', color: 'bg-destructive/20 text-destructive border-destructive/30' };
                   };
                   const security = getSecurityScore();
+                  const liveSupply = onchainSupplies[token.address.toLowerCase()];
 
                   return (
                     <motion.div
@@ -205,7 +265,11 @@ const TokensPage = () => {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="font-semibold">{token.name}</h3>
                                 {(() => {
-                                   const net = networkStates.get(token.id)?.network_type ?? 'testnet';
+                                  const net = String(
+                                    networkStates.get(token.id)?.network_type ??
+                                    token.networkType ??
+                                    'mainnet',
+                                  ).toLowerCase();
                                   return net === 'mainnet' ? (
                                     <Badge className="text-xs bg-emerald-500/20 text-emerald-300 border-emerald-500/40" data-testid={`badge-network-${token.id}`}>MAINNET</Badge>
                                   ) : (
@@ -225,6 +289,16 @@ const TokensPage = () => {
                             <p className="text-xs text-muted-foreground">{token.gyds_liquidity.toLocaleString()} GYDS</p>
                           </div>
                         </div>
+                        <div className="mt-3 flex justify-between gap-3 text-xs">
+                          <span className="text-muted-foreground">On-chain supply</span>
+                          <span className="text-right font-medium">
+                            {liveSupply
+                              ? `${Number(liveSupply).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${token.symbol}`
+                              : token.deploymentStatus === 'confirmed'
+                                ? 'Mainnet data unavailable'
+                                : 'Not verified on-chain'}
+                          </span>
+                        </div>
                         <div className="mt-3 flex gap-2 flex-wrap">
                           {token.freeze_locked && (
                             <Badge variant="outline" className="text-xs text-primary border-primary/30">Freeze Locked</Badge>
@@ -233,7 +307,11 @@ const TokensPage = () => {
                             <Badge variant="outline" className="text-xs text-primary border-primary/30">Mint Locked</Badge>
                           )}
                           <Badge variant="outline" className="text-xs">
-                            LP: {token.lp_lock_type === 'burned' ? 'Burned 🔥' : 'Time-Locked'}
+                            LP: {token.lp_lock_type === 'burned'
+                              ? 'Burned'
+                              : token.lp_lock_type === 'timelocked'
+                                ? 'Time-Locked'
+                                : 'Not created'}
                           </Badge>
                         </div>
                         <div className="mt-3 flex gap-2">

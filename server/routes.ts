@@ -1,9 +1,11 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, RequestHandler } from "express";
+import type { ParamsFlatDictionary } from "express-serve-static-core";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { getAddress, verifyMessage } from "ethers";
 import { storage } from "./storage";
-import { testNodeManager, getGenesisEnode, NETWORK_CFGS, ALL_NETWORKS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
+import { readDashboardUpdate, startDashboardUpdate } from "./dashboardUpdate";
+import { testNodeManager, getGenesisEnode, getChainBlockHeight, NETWORK_CFGS, ALL_NETWORKS, saveTestNodeState, loadPersistedTestNodeState, getNodeLogFilePath, clearNodeLogFile, creditAddress, debitAddress, getNetworkBalance, seedBalanceTrie } from "./testNodes";
 import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
@@ -22,7 +24,7 @@ import fs from "fs";
 import os from "os";
 import bcrypt from "bcryptjs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
-import { broadcastTransfer, pollForConfirmation, checkRpcHealth, testEndpoints } from "./chainRpc";
+import { broadcastTransfer, pollForConfirmation, checkRpcHealth, getChainBalance, testEndpoints } from "./chainRpc";
 import {
   getTokenDeploymentReadiness,
   verifyGrc20Deployment,
@@ -44,6 +46,8 @@ import {
   getWireGuardConfig,
   getWireGuardPublicConfig,
   getMissingRemoteSettings,
+  readLocalWireGuardConfig,
+  WIREGUARD_CONFIG_PATH,
   getRemoteWireGuardPeers,
   syncRemoteWireGuardPeers,
   testRemoteWireGuard,
@@ -97,6 +101,52 @@ function parsePositiveAmount(value: unknown): number {
 
 function isWalletAddress(value: unknown): value is string {
   return typeof value === "string" && /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+}
+
+function ipv4ToNumber(value: string): number | null {
+  const parts = value.split(".");
+  if (parts.length !== 4 || parts.some(part => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return null;
+  return parts.reduce((result, part) => result * 256 + Number(part), 0);
+}
+
+function isIpv4InCidr(address: string, cidr: string): boolean {
+  const [network, prefixText] = cidr.split("/");
+  const addressNumber = ipv4ToNumber(address);
+  const networkNumber = ipv4ToNumber(network);
+  const prefix = prefixText === undefined ? 32 : Number(prefixText);
+  if (addressNumber === null || networkNumber === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+  const blockSize = 2 ** (32 - prefix);
+  return Math.floor(addressNumber / blockSize) === Math.floor(networkNumber / blockSize);
+}
+
+function getWireGuardTunnelIp(allowedIPs: string | null, subnet: string): string | null {
+  if (!allowedIPs) return null;
+  const [subnetAddress, prefixText] = subnet.split("/");
+  const subnetPrefix = Number(prefixText);
+  const subnetNumber = ipv4ToNumber(subnetAddress);
+  if (subnetNumber === null || !Number.isInteger(subnetPrefix) || subnetPrefix < 0 || subnetPrefix > 30) return null;
+  const blockSize = 2 ** (32 - subnetPrefix);
+  for (const entry of allowedIPs.split(",")) {
+    const [address, prefix] = entry.trim().split("/");
+    if (
+      prefix !== "32"
+      || !/^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(address)
+    ) continue;
+    const addressNumber = ipv4ToNumber(address);
+    if (
+      address === "10.0.0.1"
+      || addressNumber === null
+      || !isIpv4InCidr(address, subnet)
+      || addressNumber % blockSize === 0
+      || addressNumber % blockSize === blockSize - 1
+    ) continue;
+    return address;
+  }
+  return null;
+}
+
+async function readJsonBody<T = unknown>(response: globalThis.Response): Promise<T> {
+  return response.json() as Promise<T>;
 }
 
 async function getUserWalletAddresses(client: any, userId: string): Promise<string[]> {
@@ -314,7 +364,21 @@ async function enrichUserWithRoles(req: Request, _res: Response, next: any) {
   next();
 }
 
-export function registerRoutes(app: Express) {
+type RouteRegistrar = {
+  use: Express["use"];
+  get: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  post: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  put: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  patch: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  delete: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+  all: (path: string, ...handlers: RequestHandler<ParamsFlatDictionary>[]) => unknown;
+};
+
+export function registerRoutes(expressApp: Express) {
+  // Express 5's broad PathParams overload can infer params as string | string[]
+  // even for literal string routes. Keep this registrar string-route-only so
+  // route handlers receive the correct string parameter types.
+  const app = expressApp as unknown as RouteRegistrar;
   app.use(enrichUserWithRoles);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -525,6 +589,12 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Wallets ────────────────────────────────────────────────────────────────
+  app.get("/api/wallets/addresses", requireAuth, async (req, res) => {
+    const user = req.user as any;
+    const wallets = await storage.getUserWallets(user.id);
+    res.json(wallets.map((wallet: any) => wallet.address).filter((address: unknown) => typeof address === "string"));
+  });
+
   app.get("/api/wallets", requireAuth, async (req, res) => {
     const user = req.user as any;
     const data = await storage.getUserWallets(user.id);
@@ -1524,6 +1594,7 @@ export function registerRoutes(app: Express) {
       await client.query(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, [user.id]);
 
       let creationTransaction: any = null;
+       let feePayerAddress: string | null = null;
       if (!isAdminOrFounder && creationFee > 0) {
         const addresses = await getUserWalletAddresses(client, user.id);
         if (!addresses.length) {
@@ -1531,34 +1602,20 @@ export function registerRoutes(app: Express) {
           transactionOpen = false;
           return res.status(400).json({ error: 'Link a wallet before creating a stablecoin.' });
         }
-        const available = await getUserTokenBalance(client, addresses, "GYDS");
-        if (creationFee > available + 1e-12) {
+         let available = 0;
+         for (const address of addresses) {
+           const walletBalance = await getUserTokenBalance(client, [address], "GYDS");
+           available += walletBalance;
+           if (walletBalance + 1e-12 >= creationFee) {
+             feePayerAddress = address;
+             break;
+           }
+         }
+         if (!feePayerAddress) {
           await client.query('ROLLBACK');
           transactionOpen = false;
           return res.status(400).json({ error: `Insufficient GYDS balance. Creation requires ${creationFee.toFixed(4)} GYDS; available: ${available.toFixed(4)} GYDS.` });
         }
-        const feeTransfer = await broadcastTransfer({
-          fromAddress: addresses[0],
-          toAddress: getStablecoinFeeAddress(),
-          amountEther: creationFee,
-          token: "GYDS",
-          chainId: Number(process.env.GYDS_CHAIN_ID ?? 198282),
-        });
-        if (!feeTransfer.onChain) {
-          throw new Error(feeTransfer.error ?? "The stablecoin creation fee transfer was rejected by the chain.");
-        }
-        const { rows: [feeTx] } = await client.query(
-          `INSERT INTO transactions
-             (from_address, to_address, amount, fee, tx_hash, status, user_id,
-              token_symbol, block_height, confirmed_at, network)
-           VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYDS',$6,NOW(),$7)
-           RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
-          [
-            addresses[0], getStablecoinFeeAddress(), creationFee, feeTransfer.txHash,
-            user.id, feeTransfer.blockNumber ?? null, process.env.GYDS_NETWORK ?? 'mainnet',
-          ],
-        );
-        creationTransaction = feeTx;
       }
 
       const { rows: [newSc] } = await client.query(`
@@ -1582,6 +1639,31 @@ export function registerRoutes(app: Express) {
         ]
       );
       await notifyStablecoinReviewers(client, newSc, reviewerIds);
+       if (feePayerAddress) {
+         const feeAddress = getStablecoinFeeAddress();
+         const feeTransfer = await broadcastTransfer({
+           fromAddress: feePayerAddress,
+           toAddress: feeAddress,
+           amountEther: creationFee,
+           token: "GYDS",
+           chainId: Number(process.env.GYDS_CHAIN_ID ?? 198282),
+         });
+         if (!feeTransfer.onChain) {
+           throw new Error(feeTransfer.error ?? "The stablecoin creation fee transfer was rejected by the chain.");
+         }
+         const { rows: [feeTx] } = await client.query(
+           `INSERT INTO transactions
+              (from_address, to_address, amount, fee, tx_hash, status, user_id,
+               token_symbol, block_height, confirmed_at, network)
+            VALUES ($1,$2,$3,0,$4,'confirmed',$5,'GYDS',$6,NOW(),$7)
+            RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
+           [
+             feePayerAddress, feeAddress, creationFee, feeTransfer.txHash,
+             user.id, feeTransfer.blockNumber ?? null, process.env.GYDS_NETWORK ?? 'mainnet',
+           ],
+         );
+         creationTransaction = feeTx;
+       }
       await client.query('COMMIT');
       transactionOpen = false;
       res.status(201).json({
@@ -1858,22 +1940,100 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Network Validators ─────────────────────────────────────────────────────
-  app.get("/api/validators", withCache(8_000), async (_req, res) => {
-    const data = await storage.getValidators();
-    res.json(data);
+  const serializeValidator = (row: any) => ({
+    id: row.id,
+    address: row.address,
+    name: row.name ?? null,
+    stake: row.stake,
+    commission: row.commission,
+    is_active: row.is_active ?? row.isActive ?? true,
+    is_jailed: row.is_jailed ?? row.isJailed ?? false,
+    uptime: row.uptime,
+    blocks_proposed: row.blocks_proposed ?? row.blocksProposed ?? 0,
+    last_vote_height: row.last_vote_height ?? row.lastVoteHeight ?? 0,
+    created_at: row.created_at ?? row.createdAt ?? null,
+    updated_at: row.updated_at ?? row.updatedAt ?? null,
+    created_by: row.created_by ?? row.createdBy ?? null,
+  });
+
+  const normalizeValidatorInput = (body: any) => {
+    const fields: Array<[string, string]> = [
+      ["address", "address"], ["name", "name"], ["stake", "stake"],
+      ["commission", "commission"], ["is_active", "isActive"],
+      ["is_jailed", "isJailed"], ["uptime", "uptime"],
+      ["blocks_proposed", "blocksProposed"], ["last_vote_height", "lastVoteHeight"],
+    ];
+    return Object.fromEntries(fields
+      .map(([apiName, dbName]) => [dbName, body?.[apiName] ?? body?.[dbName]])
+      .filter(([, value]) => value !== undefined));
+  };
+
+  app.get("/api/validators", withCache(8_000), async (req, res) => {
+    let data = await storage.getValidators();
+    if (String(req.query.active ?? "").toLowerCase() === "true") {
+      data = data.filter((row: any) => row.isActive === true);
+    }
+    const requestedLimit = Number.parseInt(String(req.query.limit ?? ""), 10);
+    if (Number.isFinite(requestedLimit) && requestedLimit > 0) {
+      data = data.slice(0, Math.min(requestedLimit, 500));
+    }
+    res.json(data.map(serializeValidator));
+  });
+
+  app.get("/api/validators/live", async (req, res) => {
+    const network = String(req.query.network ?? "testnet").toLowerCase();
+    if (network !== "mainnet" && network !== "testnet") {
+      return res.status(400).json({ online: false, network, validators: [], error: "network must be mainnet or testnet" });
+    }
+    const validatorNode = (testNodeManager.status() as any)[network]?.validator;
+    if (!validatorNode?.running || !validatorNode.port) {
+      return res.json({ online: false, network, validators: [] });
+    }
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${validatorNode.port}/validators`, {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!response.ok) throw new Error(`Validator node returned HTTP ${response.status}`);
+      const rows = await readJsonBody<any>(response);
+      if (!Array.isArray(rows)) throw new Error("Validator node returned an invalid validator list");
+      const validators = rows.flatMap((row: any) => {
+        const address = String(row?.address ?? "").trim();
+        if (!address) return [];
+        const rawCommission = Number(row.commission ?? row.commissionRate ?? 0);
+        const rawUptime = Number(row.uptime ?? 0);
+        const activeValue = row.active ?? row.isActive ?? row.is_active;
+        return [{
+          id: `live:${network}:${address.toLowerCase()}`,
+          address,
+          name: row.name ?? null,
+          stake: Number(row.staked ?? row.stake ?? 0),
+          commission: rawCommission <= 1 ? rawCommission * 100 : rawCommission,
+          is_active: activeValue !== false && activeValue !== 0 && activeValue !== "false",
+          is_jailed: Boolean(row.jailed ?? row.isJailed ?? row.is_jailed ?? false),
+          uptime: rawUptime <= 1 ? rawUptime * 100 : rawUptime,
+          blocks_proposed: Number(row.blocksProposed ?? row.blocks_proposed ?? 0),
+          network,
+          registered: false,
+        }];
+      });
+      res.json({ online: true, network, validators });
+    } catch (e: any) {
+      res.status(502).json({ online: false, network, validators: [], error: e.message });
+    }
   });
 
   app.post("/api/validators", requireAdmin, async (req, res) => {
     const user = req.user as any;
-    const row = await storage.insertValidator({ ...req.body, createdBy: user.id });
+    const row = await storage.insertValidator({ ...normalizeValidatorInput(req.body), createdBy: user.id });
     invalidate("/api/validators");
-    res.json(row);
+    res.json(serializeValidator(row));
   });
 
   app.patch("/api/validators/:id", requireAdmin, async (req, res) => {
-    const row = await storage.updateValidator(req.params.id, req.body);
+    const row = await storage.updateValidator(req.params.id, normalizeValidatorInput(req.body));
     invalidate("/api/validators");
-    res.json(row);
+    res.json(serializeValidator(row));
   });
 
   app.delete("/api/validators/:id", requireAdmin, async (req, res) => {
@@ -2190,9 +2350,9 @@ export function registerRoutes(app: Express) {
         return res.status(400).json({ error: "redirectUrl must start with http://, https://, or /" });
       }
       const value = { enabled, durationsSec, redirectUrl };
-      await storage.setAdminConfig("lockout_settings", value);
-      invalidateLockoutSettingsCache();
       const actor = req.user as any;
+      await storage.upsertConfig("lockout_settings", value, actor.id);
+      invalidateLockoutSettingsCache();
       await storage.insertAuditLog({
         userId: actor.id, userEmail: actor.email ?? null,
         action: "update_lockout_settings", category: "admin",
@@ -2384,7 +2544,7 @@ export function registerRoutes(app: Express) {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: `response=${encodeURIComponent(hcaptcha_token)}&secret=${encodeURIComponent(process.env.HCAPTCHA_SECRET_KEY)}`,
         });
-        const verifyData = await verifyRes.json();
+        const verifyData = await verifyRes.json() as { success?: boolean };
         if (!verifyData.success) return res.status(400).json({ ok: false, error: "CAPTCHA verification failed" });
       } catch {
         return res.status(500).json({ ok: false, error: "CAPTCHA service unavailable" });
@@ -2474,6 +2634,16 @@ export function registerRoutes(app: Express) {
     const allRunningNodes = testNodeManager.getRunningNodes();
     const netNodes = allRunningNodes.filter(n => n.network === netParam);
     const rpcNode  = netNodes.find(n => ["rpc", "fullnode", "lite", "validator"].includes(n.type));
+    const registeredNodesResult = await pgPool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM node_installations
+       WHERE COALESCE(network, 'mainnet') = $1
+         AND is_approved = true
+         AND is_online = true`,
+      [netParam],
+    ).catch(() => ({ rows: [{ count: 0 }] }));
+    const registeredRunningNodes = Number(registeredNodesResult.rows[0]?.count ?? 0);
+    const runningNodes = Math.max(netNodes.length, registeredRunningNodes);
 
     // Helper: probe one RPC URL for block/peer/TPS
     async function probeRpc(rpcUrl: string): Promise<void> {
@@ -2482,12 +2652,12 @@ export function registerRoutes(app: Express) {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
           signal: AbortSignal.timeout(3000),
-        }).then(r => r.json()).catch(() => null),
+        }).then(r => r.json() as Promise<any>).catch(() => null),
         fetch(rpcUrl, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "net_peerCount", params: [] }),
           signal: AbortSignal.timeout(3000),
-        }).then(r => r.json()).catch(() => null),
+        }).then(r => r.json() as Promise<any>).catch(() => null),
       ]);
       if (blockRes?.result) {
         const h = parseInt(blockRes.result, 16);
@@ -2505,7 +2675,7 @@ export function registerRoutes(app: Express) {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ jsonrpc: "2.0", id: 10 + i, method: "eth_getBlockByNumber", params: [bn, false] }),
               signal: AbortSignal.timeout(3000),
-            }).then(r => r.json()).then(d => (d?.result?.transactions?.length ?? 0)).catch(() => 0);
+            }).then(r => r.json() as Promise<any>).then(d => (d?.result?.transactions?.length ?? 0)).catch(() => 0);
           })
         );
         const avgTxPerBlock = counts.reduce((a, b) => a + b, 0) / counts.length;
@@ -2540,6 +2710,20 @@ export function registerRoutes(app: Express) {
       }
     }
 
+    let liveValidatorCount: number | null = null;
+    const validatorNode = (testNodeManager.status() as any)[netParam]?.validator;
+    if (validatorNode?.running && validatorNode.port) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${validatorNode.port}/validators`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        const rows = response.ok ? await readJsonBody<any>(response) : null;
+        if (Array.isArray(rows)) {
+          liveValidatorCount = rows.filter((row: any) => row.active !== false).length;
+        }
+      } catch {}
+    }
+
     // ── 4. Merge and respond ─────────────────────────────────────────────────
     // tokenPrice: use DB value; 0 if not yet set — no hardcoded fallback
     const tokenPrice   = tokenPriceRow ? Number(tokenPriceRow.price) : 0;
@@ -2559,6 +2743,9 @@ export function registerRoutes(app: Express) {
       rpcEndpoint: usedRpcEndpoint,
       stats: {
         ...dbStats,
+        activeMiners: runningNodes,
+        activeValidators: liveValidatorCount ?? dbStats.activeValidators,
+        liveNodes: runningNodes,
         network:       netParam,
         chainId,
         blockHeight,
@@ -2567,8 +2754,10 @@ export function registerRoutes(app: Express) {
         tps,
         avgBlockTime:   onchainBlockHeight !== null ? 5 : null,
         peerCount,
-        validatorCount: dbStats.activeValidators,
-        runningNodes:   netNodes.length,
+        validatorCount: liveValidatorCount ?? dbStats.activeValidators,
+        // Local test nodes may also be mirrored into node_installations; use max
+        // to include installed services without counting those mirrors twice.
+        runningNodes,
         posFinality,
         onchain:        onchainBlockHeight !== null,
       },
@@ -2812,19 +3001,26 @@ export function registerRoutes(app: Express) {
     res.json({ ok: true, sessionsRevoked: true });
   });
 
-  // ── Git sync (admin — trigger a git pull on the deployed server) ────────────
+  // Fixed server-side update worker; no client-provided commands or repository paths.
+  app.get("/api/admin/git-pull/status", requireAdmin, (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try { res.json(readDashboardUpdate()); }
+    catch { res.status(503).json({ error: "Server updates are not configured or status is unavailable." }); }
+  });
   app.post("/api/admin/git-pull", requireAdmin, async (req, res) => {
     const user = req.user as any;
-    const { spawn } = await import("child_process");
-    const cwd = process.cwd();
-    const proc = spawn("git", ["pull", "--ff-only"], { cwd });
-    let stdout = "", stderr = "";
-    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-    proc.on("close", async (code: number) => {
-      await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "git_pull", category: "admin", targetType: "system", targetId: "dashboard", details: { exit_code: code, stdout: stdout.slice(0, 500), stderr: stderr.slice(0, 500) }, ipAddress: req.ip ?? null });
-      res.json({ ok: code === 0, exit_code: code, stdout, stderr });
-    });
+    // Same-origin protection for this cookie-authenticated, high-impact operation.
+    const origin = req.get("origin");
+    if (origin && origin !== `${req.protocol}://${req.get("host")}`) {
+      return res.status(403).json({ error: "Update requests must come from this application." });
+    }
+    try {
+      await storage.insertAuditLog({ userId: user.id, userEmail: user.email, action: "dashboard_update_requested", category: "admin", targetType: "system", targetId: "dashboard", details: { pipeline: "pull_build_restart_verify_rollback" }, ipAddress: req.ip ?? null });
+      const result = startDashboardUpdate();
+      res.status(result.alreadyRunning ? 409 : 202).json(result);
+    } catch {
+      res.status(503).json({ error: "Automatic updates are unavailable. Configure server updates on your deployed server." });
+    }
   });
 
   app.post("/api/admin/restart", requireAdmin, async (req, res) => {
@@ -3016,7 +3212,7 @@ export function registerRoutes(app: Express) {
         } catch {}
       }
       if (id) {
-        storage.updateNode(id, { lastHeartbeat: new Date(), isOnline: true }).catch(() => {});
+        storage.updateNode(id, { network, lastHeartbeat: new Date(), isOnline: true }).catch(() => {});
       }
     }
   }
@@ -3031,6 +3227,7 @@ export function registerRoutes(app: Express) {
     const nodeType = TEST_NODE_TYPE_MAP[type] ?? type;
     const localKey = `LOCAL:${statObj.port ?? 0}:${network}`;
     const base = {
+      network,
       isOnline: true, isApproved: true, lastHeartbeat: new Date(),
       peerCount: statObj.peers ?? 0, lastBlockHeight: statObj.blockHeight ?? 0,
       syncProgress: 100, isSynced: true, wireguardPublicKey: localKey,
@@ -3124,7 +3321,7 @@ export function registerRoutes(app: Express) {
       // Alert Discord + all admin Telegram chats
       discordNodeDown(type, network).catch(() => {});
       pgPool.query(`SELECT telegram_chat_id FROM users WHERE (roles @> '{admin}' OR roles @> '{founder}') AND telegram_chat_id IS NOT NULL`)
-        .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'system', {
+        .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'custom', {
           title: `🔴 Node Offline`,
           body: `<b>${type}</b> on <b>${network}</b> was stopped.`,
         }).catch(() => {})))
@@ -3782,7 +3979,7 @@ export function registerRoutes(app: Express) {
       `).catch(() => {});
 
       // Combine token_operations (historical) with mining_payouts (explicit payout records)
-      const { rows } = await pgPool.query(`
+      const rows = await pgPool.query(`
         SELECT
           wallet_address,
           SUM(amount)   AS total_earned,
@@ -3800,10 +3997,10 @@ export function registerRoutes(app: Express) {
           MAX(paid_at)  AS last_seen
         FROM mining_payouts
         GROUP BY wallet_address
-      `).then(async (res) => {
+      `).then(async (queryResult) => {
         // Merge by wallet_address
         const merged: Record<string, { total: number; shares: number; last: string }> = {};
-        for (const r of res.rows) {
+        for (const r of queryResult.rows) {
           const k = r.wallet_address;
           if (!merged[k]) merged[k] = { total: 0, shares: 0, last: r.last_seen };
           merged[k].total += Number(r.total_earned);
@@ -4197,7 +4394,7 @@ export function registerRoutes(app: Express) {
               body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [addr, "latest"], id: 1 }),
               signal: AbortSignal.timeout(4000),
             });
-            const j = await r.json();
+            const j = await readJsonBody<any>(r);
             const wei = j?.result ? BigInt(j.result) : BigInt(0);
             const ether = Number(wei) / 1e18;
             perAddress[addr] = ether.toFixed(6);
@@ -4220,7 +4417,7 @@ export function registerRoutes(app: Express) {
             body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [addr, "latest"], id: 1 }),
             signal: AbortSignal.timeout(4000),
           });
-          const j = await r.json();
+          const j = await readJsonBody<any>(r);
           const wei = j?.result ? BigInt(j.result) : BigInt(0);
           const ether = Number(wei) / 1e18;
           perAddress[addr] = ether.toString();
@@ -4335,20 +4532,22 @@ export function registerRoutes(app: Express) {
 
   // ── Live Explorer: fetch real blocks from a running test node ────────────
   app.get("/api/explorer/live-blocks", async (req, res) => {
-    const count = Math.min(parseInt((req.query.count as string) || "20", 10), 50);
+    const requestedCount = parseInt(String(req.query.count ?? "20"), 10);
+    const count = Number.isFinite(requestedCount) ? Math.max(1, Math.min(requestedCount, 50)) : 20;
+    const requestedNetwork = String(req.query.network ?? "mainnet").toLowerCase();
+    if (requestedNetwork !== "mainnet" && requestedNetwork !== "testnet") {
+      return res.status(400).json({ ok: false, error: "network must be mainnet or testnet" });
+    }
     const all = testNodeManager.status() as any;
-    // Try each network for any running node
+    // Use only the selected network so the mobile explorer never mixes chain data.
     let targetPort: number | null = null;
-    const networksToTry = ["mainnet", "testnet", "devnet"];
     const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"] as const;
-    outer: for (const net of networksToTry) {
-      const netStatus = all[net] ?? {};
-      for (const t of prioritized) {
-        if (netStatus[t]?.running) { targetPort = netStatus[t].port; break outer; }
-      }
+    const netStatus = all[requestedNetwork] ?? {};
+    for (const t of prioritized) {
+      if (netStatus[t]?.running) { targetPort = netStatus[t].port; break; }
     }
     if (!targetPort) {
-      return res.json({ ok: false, error: "No test nodes running", blocks: [], blockHeight: 0, online: false });
+      return res.json({ ok: false, error: `No ${requestedNetwork} test nodes running`, blocks: [], blockHeight: 0, online: false, network: requestedNetwork });
     }
     try {
       const rpcBase = `http://localhost:${targetPort}`;
@@ -4358,7 +4557,7 @@ export function registerRoutes(app: Express) {
           body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
           signal: AbortSignal.timeout(5000),
         });
-        const j = await r.json();
+        const j = await readJsonBody<any>(r);
         if (j.error) throw new Error(j.error.message);
         return j.result;
       };
@@ -4374,6 +4573,7 @@ export function registerRoutes(app: Express) {
 
       const blocks = blockResults
         .filter(Boolean)
+        .filter((b: any) => typeof b.number === "string" && typeof b.hash === "string")
         .map((b: any) => ({
           height: parseInt(b.number, 16),
           hash: b.hash,
@@ -4388,8 +4588,8 @@ export function registerRoutes(app: Express) {
               ? { id: tx, from: "", to: "", amount: 0, fee: 0, nonce: 0, timestamp: parseInt(b.timestamp, 16) * 1000, status: "confirmed" }
               : { id: tx.hash, from: tx.from || "", to: tx.to || "", amount: Number(BigInt(tx.value || "0x0")) / 1e18, fee: 0, nonce: parseInt(tx.nonce || "0x0", 16), timestamp: parseInt(b.timestamp, 16) * 1000, status: "confirmed" }
           ),
-          validator: b.miner || "0x0000000000000000000000000000000000000000",
-          validatorStake: 100000,
+          validator: b.miner || "",
+          validatorStake: null,
           miningRewards: [],
           signature: b.extraData || "0x",
           finalized: true,
@@ -4397,10 +4597,12 @@ export function registerRoutes(app: Express) {
           difficulty: b.difficulty,
           extraData: b.extraData,
         }));
+      const uniqueBlocks = [...new Map(blocks.map((block: any) => [block.height, block])).values()]
+        .sort((a: any, b: any) => b.height - a.height);
 
-      res.json({ ok: true, online: true, blockHeight: latest, blocks, rpcPort: targetPort });
+      res.json({ ok: true, online: true, network: requestedNetwork, blockHeight: latest, blocks: uniqueBlocks, rpcPort: targetPort });
     } catch (e: any) {
-      res.json({ ok: false, error: e.message, blocks: [], blockHeight: 0, online: false });
+      res.json({ ok: false, error: e.message, blocks: [], blockHeight: 0, online: false, network: requestedNetwork });
     }
   });
 
@@ -4427,7 +4629,7 @@ export function registerRoutes(app: Express) {
           body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
         });
         clearTimeout(timer);
-        const rpcData = await rpcRes.json().catch(() => ({}));
+        const rpcData = await rpcRes.json().catch(() => ({})) as any;
         const blockHex = rpcData?.result;
         const blockHeight = blockHex ? parseInt(blockHex, 16) : undefined;
         const updates: Record<string, any> = { isOnline: true, lastHeartbeat: new Date() };
@@ -4806,7 +5008,7 @@ export function registerRoutes(app: Express) {
       if (amountNumber >= LARGE_THRESHOLD) {
         discordLargeBridgeTransfer(String(amount), fromChain, toChain, fromToken ?? 'GYDS').catch(() => {});
         pgPool.query(`SELECT telegram_chat_id FROM users WHERE (roles @> '{admin}' OR roles @> '{founder}') AND telegram_chat_id IS NOT NULL`)
-          .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'system', {
+        .then(({ rows }) => rows.forEach((r: any) => sendTelegramAlert(r.telegram_chat_id, 'custom', {
             title: `🌉 Large Bridge Transfer`,
             body: `<b>${amount} ${fromToken ?? 'GYDS'}</b>\n${fromChain} → ${toChain}`,
           }).catch(() => {})))
@@ -5068,7 +5270,7 @@ export function registerRoutes(app: Express) {
 
   app.get("/v1/tokens", async (_req, res) => {
     try {
-      const tokens = await storage.getAllTokens?.() ?? [];
+      const tokens = await storage.getActiveTokens();
       res.json(tokens);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -5081,24 +5283,34 @@ export function registerRoutes(app: Express) {
   });
 
   app.get("/v1/oracle/prices", async (_req, res) => {
-    const feeds = await (storage as any).getOracleFeeds().catch(() => []);
-    const valueFor = (feedId: string) => {
-      const feed = feeds.find((row: any) => row.feed_id === feedId && row.active && row.has_submission);
-      const value = feed ? Number(feed.value) : 0;
-      return Number.isFinite(value) && value > 0 ? value : null;
-    };
-    const updatedAt = feeds
-      .filter((row: any) => row.active && row.has_submission && Number(row.value) > 0 && row.last_updated)
-      .map((row: any) => new Date(row.last_updated).toISOString())
-      .sort();
-    res.json({
-      GYDS: valueFor("GYDS/USD"),
-      GYD: valueFor("GYD/USD"),
-      BTC: valueFor("BTC/USD"),
-      ETH: valueFor("ETH/USD"),
-      updated_at: updatedAt.length ? updatedAt[updatedAt.length - 1] : null,
-      source: "admin-configured-oracle-feeds",
-    });
+    try {
+      const feeds = await storage.getOracleFeeds();
+      const prices: Record<string, number | string> = {};
+      const activeFeeds = feeds.filter((feed: any) => feed.active && feed.has_submission);
+      for (const feed of activeFeeds as any[]) {
+        const feedId = String(feed.feed_id ?? "").trim().toUpperCase();
+        const pair = feedId.split("/");
+        const symbol = pair.length === 2 && pair[1] === "USD" ? pair[0] : feedId;
+        const value = Number(feed.value);
+        if (symbol && Number.isFinite(value) && value > 0) prices[symbol] = value;
+      }
+      const latestTimestamp = activeFeeds
+        .filter((feed: any) => Number(feed.value) > 0 && feed.last_updated)
+        .map((feed: any) => new Date(feed.last_updated).getTime())
+        .filter(Number.isFinite)
+        .sort((a: number, b: number) => b - a)[0] ?? null;
+      return res.json({
+        ...prices,
+        GYDS: prices.GYDS ?? null,
+        GYD: prices.GYD ?? null,
+        BTC: prices.BTC ?? null,
+        ETH: prices.ETH ?? null,
+        updated_at: latestTimestamp ? new Date(latestTimestamp).toISOString() : null,
+        source: "admin-configured-oracle-feeds",
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
   });
 
   // ── Trade History ──────────────────────────────────────────────────────────
@@ -5114,9 +5326,10 @@ export function registerRoutes(app: Express) {
   app.get("/v1/address/:address/balance", async (req, res) => {
     try {
       const { address } = req.params;
-      const wallet = await storage.getWalletByAddress?.(address);
-      if (!wallet) return res.status(404).json({ error: "address not found" });
-      res.json({ address, balance: wallet.balance, coin: "GYDS" });
+      if (!isWalletAddress(address)) return res.status(400).json({ error: "invalid wallet address" });
+      const balance = await getChainBalance(address);
+      if (balance === null) return res.status(503).json({ error: "chain RPC unavailable" });
+      res.json({ address, balance, coin: "GYDS" });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -5431,12 +5644,41 @@ export function registerRoutes(app: Express) {
 
   app.get("/v1/pools", async (_req, res) => {
     try {
-      const pools = await storage.getLiquidityPools?.() ?? [];
+      const pools = await storage.getActivePools();
       res.json(pools);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Health Check ───────────────────────────────────────────────────────────
+  // Lightweight database probe for local monitoring and the VPS watchdog.
+  app.get("/api/health/db", async (_req, res) => {
+    const started = Date.now();
+    try {
+      const result = await pgPool.query<{ connected: number }>("SELECT 1 AS connected");
+      if (Number(result.rows[0]?.connected) !== 1) {
+        return res.status(503).json({
+          status: "unhealthy",
+          database: false,
+          latencyMs: Date.now() - started,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      res.json({
+        status: "healthy",
+        database: true,
+        latencyMs: Date.now() - started,
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      res.status(503).json({
+        status: "unhealthy",
+        database: false,
+        latencyMs: Date.now() - started,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   // ── Admin Monitoring (Validator + Explorer + System) ──────────────────────
   app.get("/api/admin/monitoring", requireAdmin, async (_req, res) => {
     try {
@@ -5493,6 +5735,13 @@ export function registerRoutes(app: Express) {
         alerts,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/deployment-health", async (_req, res) => {
+    try {
+      await pgPool.query("SELECT 1");
+      res.json({ ok: true });
+    } catch { res.status(503).json({ ok: false }); }
   });
 
   app.get("/api/health", async (_req, res) => {
@@ -5850,60 +6099,89 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  defineJob({ id: 'network-snapshot', name: 'Network Snapshot', description: 'Captures live chain metrics (block height, TPS, validators) from the RPC node into network_snapshots', schedule: '*/15 * * * *', intervalMs: 900_000, enabled: true,
+  defineJob({ id: 'network-snapshot', name: 'Network Snapshot', description: 'Captures live chain metrics from each configured network RPC node', schedule: '*/15 * * * *', intervalMs: 900_000, enabled: true,
     fn: async () => {
-      // Prefer managed test-node, fall back to GYDS_RPC_URL (localhost:8545)
       const allNodes = testNodeManager.status() as any;
-      const mainnetStatus = allNodes['mainnet'] ?? {};
       const prioritized = ['rpc', 'fullnode', 'boostnode', 'lite', 'validator'] as const;
-      let rpcUrl: string | null = null;
-      for (const t of prioritized) {
-        if (mainnetStatus[t]?.running) { rpcUrl = `http://localhost:${mainnetStatus[t].port}`; break; }
-      }
-      if (!rpcUrl) rpcUrl = process.env.GYDS_RPC_URL || 'http://localhost:8545';
+      const snapshots: string[] = [];
 
-      let blockHeight = 0;
-      let tps = 0;
-      let peerCount = 0;
-      try {
-        const [bnRes, peerRes] = await Promise.all([
-          fetch(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
-            signal: AbortSignal.timeout(4000) }).then(r => r.json()).catch(() => null),
-          fetch(rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'net_peerCount', params: [] }),
-            signal: AbortSignal.timeout(4000) }).then(r => r.json()).catch(() => null),
-        ]);
-        if (bnRes?.result) blockHeight = parseInt(bnRes.result, 16);
-        if (peerRes?.result) peerCount = parseInt(peerRes.result, 16);
-
-        // Estimate TPS from last 5 blocks
-        if (blockHeight > 5) {
-          const counts = await Promise.all(
-            Array.from({ length: 5 }, (_, i) => {
-              const bn = '0x' + (blockHeight - i).toString(16);
-              return fetch(rpcUrl!, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jsonrpc: '2.0', id: 10 + i, method: 'eth_getBlockByNumber', params: [bn, false] }),
-                signal: AbortSignal.timeout(3000) }).then(r => r.json()).then(d => d?.result?.transactions?.length ?? 0).catch(() => 0);
-            })
-          );
-          tps = Math.max(0, Math.round(counts.reduce((a, b) => a + b, 0) / counts.length / 5));
+      for (const network of ["mainnet", "testnet"] as const) {
+        const networkStatus = allNodes[network] ?? {};
+        let rpcUrl: string | null = null;
+        for (const type of prioritized) {
+          if (networkStatus[type]?.running) {
+            rpcUrl = `http://127.0.0.1:${networkStatus[type].port}`;
+            break;
+          }
         }
-      } catch {}
+        if (!rpcUrl && network === "mainnet") {
+          rpcUrl = process.env.GYDS_RPC_URL || "http://localhost:8545";
+        }
+        if (!rpcUrl) {
+          snapshots.push(`${network}: no RPC node running`);
+          continue;
+        }
 
-      // DB baseline for validator/stake counts
-      const dbStats = await storage.getNetworkStats().catch(() => null);
-      const activeValidators = dbStats?.activeValidators ?? 0;
-      const totalStake = dbStats?.totalStake ?? '0';
+        const rpc = async (method: string, params: any[]) => {
+          const response = await fetch(rpcUrl!, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+            signal: AbortSignal.timeout(4000),
+          });
+          const result = await readJsonBody<any>(response);
+          if (!response.ok || result?.error) throw new Error(result?.error?.message ?? `RPC returned HTTP ${response.status}`);
+          return result?.result;
+        };
 
-      if (blockHeight === 0) return `RPC offline at ${rpcUrl} — no snapshot written`;
+        try {
+          const latestHex = await rpc("eth_blockNumber", []);
+          const blockHeight = Number.parseInt(String(latestHex ?? ""), 16);
+          if (!Number.isSafeInteger(blockHeight) || blockHeight <= 0) {
+            snapshots.push(`${network}: RPC returned no block height`);
+            continue;
+          }
 
-      await pgPool.query(
-        `INSERT INTO network_snapshots (block_height, tps, active_validators, total_stake, timestamp)
-         VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT DO NOTHING`,
-        [blockHeight, tps, activeValidators, totalStake]
-      ).catch(() => {});
-      return `Snapshot: block=${blockHeight} tps=${tps} validators=${activeValidators} peers=${peerCount} via ${rpcUrl}`;
+          const counts = await Promise.all(
+            Array.from({ length: Math.min(5, blockHeight) }, (_, i) => {
+              const height = blockHeight - i;
+              return rpc("eth_getBlockByNumber", [`0x${height.toString(16)}`, false])
+                .then((block: any) => Array.isArray(block?.transactions) ? block.transactions.length : 0)
+                .catch(() => 0);
+            }),
+          );
+          const tps = Math.max(0, counts.reduce((sum, count) => sum + count, 0) / counts.length / 5);
+
+          let activeValidators = 0;
+          let totalStake = 0;
+          const validatorNode = networkStatus.validator;
+          if (validatorNode?.running && validatorNode.port) {
+            try {
+              const response = await fetch(`http://127.0.0.1:${validatorNode.port}/validators`, {
+                signal: AbortSignal.timeout(3000),
+              });
+              const validatorRows = response.ok ? await readJsonBody<any>(response) : [];
+              if (Array.isArray(validatorRows)) {
+                const activeRows = validatorRows.filter((row: any) => row.active !== false);
+                activeValidators = activeRows.length;
+                totalStake = activeRows.reduce((sum: number, row: any) => sum + Number(row.staked ?? row.stake ?? 0), 0);
+              }
+            } catch {}
+          }
+
+          await pgPool.query(
+            `INSERT INTO network_snapshots
+              (network, block_height, tps, active_validators, total_stake, timestamp, captured_at)
+             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+            [network, blockHeight, tps, activeValidators, totalStake],
+          );
+          snapshots.push(`${network}: block=${blockHeight}, tps=${tps.toFixed(2)}, validators=${activeValidators}`);
+        } catch (error: any) {
+          snapshots.push(`${network}: RPC error — ${error.message}`);
+        }
+      }
+
+      return snapshots.join("; ");
     }
   });
 
@@ -5935,7 +6213,7 @@ export function registerRoutes(app: Express) {
       const pm: Record<string, number> = {};
       for (const r of priceRows.rows) pm[(r.symbol as string).toUpperCase()] = Number(r.price);
 
-      // 2. Ping the live RPC to confirm chain is up; snapshot block height
+      // 2. Ping the live RPC to confirm chain is up.
       const rpcUrl = process.env.GYDS_RPC_URL || "http://localhost:8545";
       let rpcOnline = false;
       try {
@@ -5944,15 +6222,9 @@ export function registerRoutes(app: Express) {
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
           signal: AbortSignal.timeout(3000),
         });
-        const j = await r.json();
+        const j = await readJsonBody<any>(r);
         if (j?.result) {
           rpcOnline = true;
-          const blockHeight = parseInt(j.result, 16);
-          await pgPool.query(
-            `INSERT INTO network_snapshots (block_height, tps, active_validators, total_stake, timestamp)
-             VALUES ($1, 0, 0, '0', NOW()) ON CONFLICT DO NOTHING`,
-            [blockHeight]
-          ).catch(() => {});
         }
       } catch {}
 
@@ -5999,7 +6271,7 @@ export function registerRoutes(app: Express) {
           });
           const ms = Date.now() - start;
           if (isJsonRpc) {
-            const j = await r.json().catch(() => ({}));
+            const j = await r.json().catch(() => ({})) as any;
             const block = j?.result ? parseInt(j.result, 16) : null;
             results.push(`${url}: block=${block ?? 'err'} (${ms}ms)`);
           } else {
@@ -6045,7 +6317,7 @@ export function registerRoutes(app: Express) {
             body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
           });
           clearTimeout(timer);
-          const rpcData = await rpcRes.json().catch(() => ({}));
+          const rpcData = await rpcRes.json().catch(() => ({})) as any;
           const bh = rpcData?.result ? parseInt(rpcData.result, 16) : undefined;
           blockHeight = bh;
           nowOnline = true;
@@ -7304,11 +7576,10 @@ export function registerRoutes(app: Express) {
       const apr = await getConfiguredStakingApr(client);
       const unstakeFeeBps = await getConfiguredStakingUnstakeFeeBps(client);
       const pendingRewards = position ? positionRewards(position, apr) : 0;
-      const addresses = await getUserWalletAddresses(client, user.id);
       const stats = await getStakingStats(client);
       res.json({
         walletAddress: address,
-        balance: Number((await getUserGydBalance(client, addresses)).toFixed(12)),
+         balance: Number((await getUserGydBalance(client, [address])).toFixed(12)),
         unstakeFeeBps,
         position: position ? {
           id: position.id,
@@ -7346,8 +7617,7 @@ export function registerRoutes(app: Express) {
       // stake requests cannot spend the same confirmed GYD balance.
       await client.query(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, [user.id]);
       const address = await resolveStakingAddress(client, user.id, req.body?.walletAddress);
-      const addresses = await getUserWalletAddresses(client, user.id);
-      const available = await getUserGydBalance(client, addresses);
+       const available = await getUserGydBalance(client, [address]);
       if (amount > available + 1e-12) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: `Insufficient GYD balance. Available: ${available.toFixed(12)} GYD.` });
@@ -7494,8 +7764,7 @@ export function registerRoutes(app: Express) {
          RETURNING id, tx_hash AS "txHash", created_at AS "createdAt"`,
         [poolAddress, address, amountReturned, chainTransfer.txHash, user.id, chainTransfer.blockNumber ?? null, process.env.GYDS_NETWORK ?? 'mainnet'],
       );
-      const addresses = await getUserWalletAddresses(client, user.id);
-      const balance = await getUserGydBalance(client, addresses);
+       const balance = await getUserGydBalance(client, [address]);
       await client.query('COMMIT');
       res.status(201).json({
         ok: true,
@@ -8010,9 +8279,7 @@ export function registerRoutes(app: Express) {
       res.json({
         config: getWireGuardPublicConfig(config),
         remoteReady: getMissingRemoteSettings(config).length === 0,
-        serverPrivateKeyConfigured: Boolean(
-          process.env.WG_SERVER_PRIVATE_KEY || process.env.GYDS_WG_PRIVATE_KEY,
-        ),
+        serverPrivateKeyConfigured: config.serverPrivateKeyConfigured,
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -8076,18 +8343,33 @@ export function registerRoutes(app: Express) {
   app.post("/api/admin/wireguard/sync", requireAdmin, async (_req, res) => {
     try {
       const { rows } = await pgPool.query(
-        `SELECT id, hostname, node_type, wireguard_public_key
+        `SELECT id, hostname, node_type, ip_address, wireguard_public_key
          FROM node_installations
          WHERE is_approved=true
            AND wireguard_public_key IS NOT NULL
            AND wireguard_public_key NOT LIKE 'LOCAL:%'
          ORDER BY created_at ASC, id ASC`,
       );
-      const peers = rows.map((row: any, index: number) => ({
-        publicKey: row.wireguard_public_key,
-        tunnelIp: `10.0.0.${index + 2}`,
-        name: row.hostname || row.node_type || String(row.id),
-      }));
+      const usedIps = new Set<string>();
+      let nextOctet = 2;
+      const peers = rows.map((row: any) => {
+        const savedIp = String(row.ip_address ?? "").trim();
+        let tunnelIp = /^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(savedIp)
+          && !usedIps.has(savedIp)
+          ? savedIp
+          : "";
+        while (!tunnelIp && nextOctet <= 253) {
+          const candidate = `10.0.0.${nextOctet++}`;
+          if (!usedIps.has(candidate)) tunnelIp = candidate;
+        }
+        if (!tunnelIp) throw new Error("No unused WireGuard tunnel IP remains in the 10.0.0.0/24 subnet.");
+        usedIps.add(tunnelIp);
+        return {
+          publicKey: row.wireguard_public_key,
+          tunnelIp,
+          name: row.hostname || row.node_type || String(row.id),
+        };
+      });
       const result = await syncRemoteWireGuardPeers(peers);
       res.json({ ok: true, ...result });
     } catch (e: any) {
@@ -8095,98 +8377,137 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // A live VPN handshake is only a discovery signal. Registering a detected
+  // peer creates a pending node; it never approves or syncs the peer.
+  app.post("/api/admin/wireguard/discovered-peers", requireAdmin, async (req, res) => {
+    try {
+      const publicKey = String(req.body?.publicKey ?? "").trim();
+      const nodeType = String(req.body?.nodeType ?? "rpcnode").trim().toLowerCase();
+      const rpcPort = Number(req.body?.rpcPort ?? 8545);
+      const allowedNodeTypes = new Set([
+        "rpcnode", "litenode", "fullnode", "boostnode", "validatornode", "bootnode", "genesisnode",
+      ]);
+      if (!/^[A-Za-z0-9+/=]{30,100}$/.test(publicKey)) {
+        return res.status(400).json({ error: "A valid WireGuard public key is required." });
+      }
+      if (!allowedNodeTypes.has(nodeType)) {
+        return res.status(400).json({ error: "Unsupported node type." });
+      }
+      if (!Number.isInteger(rpcPort) || rpcPort < 1 || rpcPort > 65535) {
+        return res.status(400).json({ error: "RPC port must be between 1 and 65535." });
+      }
+
+      const livePeer = (await getRemoteWireGuardPeers()).find(peer => peer.publicKey === publicKey);
+      if (!livePeer?.connected) {
+        return res.status(409).json({ error: "This peer has no recent VPN handshake. Refresh after it connects." });
+      }
+      const config = await getWireGuardConfig();
+      const tunnelIp = getWireGuardTunnelIp(livePeer.allowedIPs, config.subnet);
+      if (!tunnelIp) {
+        return res.status(400).json({ error: "The connected peer has no single-host address inside the configured VPN subnet." });
+      }
+      const existing = await pgPool.query(
+        `SELECT id, is_approved FROM node_installations WHERE wireguard_public_key=$1 LIMIT 1`,
+        [publicKey],
+      );
+      if (existing.rows[0]) {
+        return res.status(409).json({
+          error: existing.rows[0].is_approved ? "This peer is already registered and approved." : "This peer is already registered and awaiting approval.",
+          nodeId: existing.rows[0].id,
+        });
+      }
+      const tunnelIpOwner = await pgPool.query(
+        `SELECT id FROM node_installations
+         WHERE ip_address=$1
+           AND wireguard_public_key IS NOT NULL
+           AND wireguard_public_key NOT LIKE 'LOCAL:%'
+         LIMIT 1`,
+        [tunnelIp],
+      );
+      if (tunnelIpOwner.rows[0]) {
+        return res.status(409).json({ error: `Tunnel IP ${tunnelIp} is already assigned to another registered node.` });
+      }
+
+      const userId = String((req.user as any)?.id ?? "");
+      if (!userId) return res.status(401).json({ error: "Admin user is unavailable." });
+      const node = await storage.insertNode({
+        nodeType,
+        hostname: `${nodeType}-${tunnelIp.split(".").at(-1)}`,
+        ipAddress: tunnelIp,
+        rpcPort,
+        wireguardPublicKey: publicKey,
+        userId,
+        isApproved: false,
+        approvedBy: null,
+        approvedAt: null,
+        isOnline: false,
+        isSynced: false,
+      });
+      return res.status(201).json({ ok: true, node });
+    } catch (e: any) {
+      return res.status(502).json({ error: e.message || "Unable to register detected WireGuard peer." });
+    }
+  });
+
   // ── Admin: read the live WireGuard server peer list ────────────────────────
   // Keep this server-side so the private key and other interface settings never
-  // leave the host. This intentionally parses only [Peer] fields.
+  // leave the host. The parser returns safe interface metadata and public peer
+  // fields only; private and preshared keys are never returned.
   app.get("/api/admin/wireguard/peers", requireAdmin, async (_req, res) => {
-    const configPath = "/etc/wireguard/wg0.conf";
+    const configPath = WIREGUARD_CONFIG_PATH;
+    let activePath = configPath;
     try {
       const config = await getWireGuardConfig();
       const configuredForRemote = Boolean(
         config.sshUser || process.env.WG_SSH_HOST || process.env.WG_SSH_PRIVATE_KEY,
       );
       if (configuredForRemote) {
+        activePath = `ssh://${config.sshHost}/${config.interfaceName}`;
         const peers = await getRemoteWireGuardPeers();
         return res.json({
-          path: `ssh://${config.sshHost}/${config.interfaceName}`,
+          path: activePath,
           count: peers.length,
           peers,
           source: "remote",
         });
       }
 
-      const fileConfig = await fs.promises.readFile(configPath, "utf8");
-      const peers: Array<{
-        id: string;
-        publicKey: string;
-        allowedIPs: string | null;
-        endpoint: string | null;
-        name: string | null;
-        source: "file";
-      }> = [];
-      let current: typeof peers[number] | null = null;
-      let pendingComment: string | null = null;
+      const localFile = await readLocalWireGuardConfig();
 
-      const finishPeer = () => {
-        if (current?.publicKey) peers.push(current);
-        current = null;
-      };
-
-      for (const rawLine of fileConfig.split(/\r?\n/)) {
-        const line = rawLine.trim();
-        if (!line) continue;
-        if (line.startsWith("#")) {
-          const comment = line.slice(1).trim();
-          if (comment) pendingComment = comment;
-          continue;
-        }
-        if (/^\[Interface\]$/i.test(line)) {
-          finishPeer();
-          pendingComment = null;
-          continue;
-        }
-        if (/^\[Peer\]$/i.test(line)) {
-          finishPeer();
-          current = {
-            id: "",
-            publicKey: "",
-            allowedIPs: null,
-            endpoint: null,
-            name: pendingComment,
-            source: "file",
-          };
-          pendingComment = null;
-          continue;
-        }
-        if (!current) continue;
-        const match = line.match(/^([^=]+?)\s*=\s*(.*)$/);
-        if (!match) continue;
-        const key = match[1].trim().toLowerCase();
-        const value = match[2].trim();
-        if (key === "publickey") current.publicKey = value;
-        else if (key === "allowedips") current.allowedIPs = value;
-        else if (key === "endpoint") current.endpoint = value;
-      }
-      finishPeer();
-
-      peers.forEach((peer, index) => {
-        peer.id = `wg-file-${index}-${peer.publicKey.slice(0, 12)}`;
+      return res.json({
+        path: localFile.path,
+        count: localFile.peers.length,
+        peers: localFile.peers,
+        source: "file",
+        interface: {
+          name: localFile.interfaceName,
+          addresses: localFile.interfaceAddresses,
+          listenPort: localFile.listenPort,
+          privateKeyConfigured: localFile.serverPrivateKeyConfigured,
+        },
       });
-      res.json({ path: configPath, count: peers.length, peers });
     } catch (error: any) {
-      const code = error?.code === "ENOENT" ? 404 : 500;
-      const reason = error?.code === "ENOENT"
+      const localConfigMissing = error?.code === "ENOENT";
+      const isRemote = activePath.startsWith("ssh://");
+      const code = localConfigMissing ? 404 : isRemote ? 502 : 500;
+      const reason = localConfigMissing
         ? "WireGuard config file was not found"
-        : "WireGuard config file could not be read";
-      res.status(code).json({ error: reason, path: configPath, detail: error?.message });
+        : isRemote
+          ? "Remote WireGuard peers could not be read"
+          : "Local WireGuard config file could not be read";
+      res.status(code).json({ error: reason, path: activePath, detail: error?.message });
     }
   });
 
   // ── Network Snapshots history (for charts) ─────────────────────────────────
   app.get('/api/network-snapshots', async (req, res) => {
     try {
-      const hours = Math.min(parseInt(req.query.hours as string ?? '168') || 168, 720);
-      const rows = await (storage as any).getNetworkHistory(hours).catch(() => [] as any[]);
+      const hours = Math.max(1, Math.min(parseInt(String(req.query.hours ?? '168'), 10) || 168, 720));
+      const requestedNetwork = String(req.query.network ?? 'mainnet').toLowerCase();
+      if (requestedNetwork !== 'mainnet' && requestedNetwork !== 'testnet') {
+        return res.status(400).json({ error: 'network must be mainnet or testnet' });
+      }
+      const rows = await (storage as any).getNetworkHistory(hours, requestedNetwork).catch(() => [] as any[]);
       res.json(rows);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -8234,7 +8555,9 @@ export function registerRoutes(app: Express) {
     try {
       const snap = await pgPool.query(
         `SELECT block_height, tps, active_validators, total_stake, captured_at
-         FROM network_snapshots ORDER BY captured_at DESC LIMIT 1`
+         FROM network_snapshots
+         WHERE network = 'mainnet' AND block_height IS NOT NULL
+         ORDER BY captured_at DESC LIMIT 1`
       ).catch(() => ({ rows: [] as any[] }));
       const s = snap.rows[0];
       res.json({
@@ -8275,7 +8598,9 @@ export function registerRoutes(app: Express) {
         pgPool.query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_online) as online FROM node_installations`).catch(() => ({ rows: [{ total: 0, online: 0 }] })),
       ]);
       const snap = await pgPool.query(
-        `SELECT block_height, tps, total_stake FROM network_snapshots ORDER BY captured_at DESC LIMIT 1`
+        `SELECT block_height, tps, total_stake FROM network_snapshots
+         WHERE network = 'mainnet' AND block_height IS NOT NULL
+         ORDER BY captured_at DESC LIMIT 1`
       ).catch(() => ({ rows: [] as any[] }));
       const s = snap.rows[0];
       res.json({

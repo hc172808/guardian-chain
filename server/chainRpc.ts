@@ -32,6 +32,11 @@ function getConfiguredRpcEndpoints(): string[] {
 
 const TIMEOUT_MS = 8000;
 
+interface JsonRpcResponse {
+  result?: any;
+  error?: { message?: string; code?: number; data?: unknown };
+}
+
 async function rpcCall(url: string, method: string, params: any[] = []): Promise<any> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -42,7 +47,7 @@ async function rpcCall(url: string, method: string, params: any[] = []): Promise
       body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
       signal: controller.signal,
     });
-    const json = await res.json();
+    const json = await res.json() as JsonRpcResponse;
     if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
     return json.result;
   } finally {
@@ -324,7 +329,7 @@ export async function testEndpoint(url: string, timeoutMs = 6000): Promise<Endpo
       body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
       signal: controller.signal,
     });
-    const json = await res.json();
+    const json = await res.json() as JsonRpcResponse;
     if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
     const chainId = parseInt(json.result, 16);
     let blockNumber: number | undefined;
@@ -335,7 +340,7 @@ export async function testEndpoint(url: string, timeoutMs = 6000): Promise<Endpo
         body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 2 }),
         signal: controller.signal,
       });
-      const bnJson = await bnRes.json();
+      const bnJson = await bnRes.json() as JsonRpcResponse;
       if (!bnJson.error) blockNumber = parseInt(bnJson.result, 16);
     } catch {}
     return { url, ok: true, chainId, blockNumber, latencyMs: Date.now() - started };

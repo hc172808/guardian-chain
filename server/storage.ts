@@ -1767,43 +1767,34 @@ export const storage = {
     await pgPool.query(`
       CREATE TABLE IF NOT EXISTS network_snapshots (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        network TEXT NOT NULL DEFAULT 'mainnet',
+        block_height BIGINT,
         active_validators INTEGER DEFAULT 0,
         active_nodes INTEGER DEFAULT 0,
         total_transactions BIGINT DEFAULT 0,
         total_tokens INTEGER DEFAULT 0,
         tps NUMERIC DEFAULT 0,
+        total_stake NUMERIC DEFAULT 0,
+        timestamp TIMESTAMPTZ DEFAULT NOW(),
         captured_at TIMESTAMPTZ DEFAULT NOW()
       );
+      ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'mainnet';
+      ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS block_height BIGINT;
+      ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS total_stake NUMERIC DEFAULT 0;
+      ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS timestamp TIMESTAMPTZ DEFAULT NOW();
       CREATE INDEX IF NOT EXISTS network_snapshots_captured_idx ON network_snapshots(captured_at DESC);
     `);
   },
 
-  async captureNetworkSnapshot() {
-    const stats = await pgPool.query(`
-      SELECT
-        COUNT(DISTINCT v.id) FILTER (WHERE v.status='active') AS active_validators,
-        COUNT(DISTINCT n.id) FILTER (WHERE n.status='active') AS active_nodes,
-        COUNT(DISTINCT t.id) AS total_transactions,
-        COUNT(DISTINCT tok.id) AS total_tokens
-      FROM validators v
-      CROSS JOIN node_installations n
-      CROSS JOIN transactions t
-      CROSS JOIN tokens tok
-    `).catch(() => ({ rows: [{ active_validators: 0, active_nodes: 0, total_transactions: 0, total_tokens: 0 }] }));
-    const s = stats.rows[0];
-    await pgPool.query(
-      `INSERT INTO network_snapshots (active_validators, active_nodes, total_transactions, total_tokens, tps)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [s.active_validators, s.active_nodes, s.total_transactions, s.total_tokens, 1250]
-    );
-  },
-
-  async getNetworkHistory(hours = 24) {
+  async getNetworkHistory(hours = 24, network = "mainnet") {
+    const safeHours = Math.max(1, Math.min(720, Math.floor(Number(hours) || 24)));
     const res = await pgPool.query(`
       SELECT * FROM network_snapshots
-      WHERE captured_at >= NOW() - INTERVAL '${hours} hours'
+      WHERE network = $1
+        AND block_height IS NOT NULL
+        AND captured_at >= NOW() - ($2 * INTERVAL '1 hour')
       ORDER BY captured_at ASC
-    `);
+    `, [network, safeHours]);
     return res.rows;
   },
 
@@ -2174,20 +2165,30 @@ export const storage = {
     return res.rows;
   },
 
-  async createOracleFeed(data: {
-    feedId: string;
-    description: string | null;
-    value: string;
-    decimals: number;
-    provider: string;
-    active: boolean;
-  }) {
+  async createOracleFeed(
+    dataOrFeedId: {
+      feedId: string;
+      description: string | null;
+      value: string;
+      decimals: number;
+      provider: string;
+      active: boolean;
+    } | string,
+    description = "",
+    provider = "manual",
+  ) {
+    const data = typeof dataOrFeedId === "string"
+      ? { feedId: dataOrFeedId, description, value: "0", decimals: 8, provider, active: true }
+      : dataOrFeedId;
     const res = await pgPool.query(
       `INSERT INTO oracle_feeds (feed_id, description, value, decimals, provider, active)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (feed_id) DO NOTHING
+       RETURNING *`,
       [data.feedId, data.description, data.value, data.decimals, data.provider, data.active],
     );
     const row = res.rows[0];
+    if (!row) throw new Error(`Oracle feed ${data.feedId} already exists.`);
     if (row && Number(data.value) > 0) {
       await pgPool.query(
         `INSERT INTO oracle_submissions (feed_id, submitter, value) VALUES ($1,'admin',$2)`,
@@ -2199,7 +2200,7 @@ export const storage = {
 
   async updateOracleFeed(
     feedId: string,
-    patch: {
+    patchOrValue: number | {
       value?: string;
       description?: string | null;
       decimals?: number;
@@ -2207,6 +2208,9 @@ export const storage = {
       active?: boolean;
     },
   ) {
+    const patch = typeof patchOrValue === "number"
+      ? { value: String(patchOrValue) }
+      : patchOrValue;
     const assignments: string[] = [];
     const values: unknown[] = [];
     const add = (column: string, value: unknown) => {

@@ -13,6 +13,17 @@ A full-stack blockchain ecosystem dashboard for the GYDS Network (Chain ID 19828
 | State | TanStack React Query + React Context |
 | Auth | Username/password + Web3 wallet signature (EIP-6963) |
 
+## Token Standards
+
+GYDSchain is EVM-compatible, so its GRC token standards use interfaces compatible with the corresponding Ethereum ERC standards:
+
+- **GRC-20 / ERC-20** — fungible tokens, including GYDS, GYD, GUSD, stablecoins, and utility tokens.
+- **GRC-721 / ERC-721** — non-fungible tokens (NFTs), where each token is unique.
+- **GRC-1155 / ERC-1155** — multi-token contracts that can manage fungible and non-fungible token types.
+- **Native GYDS** — the chain’s native coin; it is not an ERC-20 token.
+
+Token Factory currently supports on-chain deployment of GRC-20 tokens only. GRC-721 and GRC-1155 are documented standards but are not yet deployable there.
+
 ## Quick Start
 
 ```bash
@@ -157,6 +168,13 @@ If you intentionally want to replace the existing directory instead, set
 than deleting it. Do not do this if a node service still uses that directory.
 The PostgreSQL connection test can succeed independently of this repository-root
 problem.
+
+The separately maintained miner app lives at
+[`hc172808/replit-project-migration`](https://github.com/hc172808/replit-project-migration).
+Before cloning or linking it, review [`MINER_REPOSITORY.md`](MINER_REPOSITORY.md):
+the upstream currently tracks a `.env` file, so do not copy it into this project
+or add it as a submodule until that file is safely removed and any exposed
+credentials are rotated.
 
 ## Network Config
 

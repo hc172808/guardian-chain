@@ -71,7 +71,7 @@ check_contains() {
   local file="$1"
   local pattern="$2"
   local label="$3"
-  if grep -q "$pattern" "$file" 2>/dev/null; then
+  if grep -q -- "$pattern" "$file" 2>/dev/null; then
     [[ "$VERBOSE" == "true" ]] && pass "$label: $(basename "$file")"
     return 0
   else
@@ -84,7 +84,7 @@ check_no_pattern() {
   local file="$1"
   local pattern="$2"
   local label="$3"
-  if grep -q "$pattern" "$file" 2>/dev/null; then
+  if grep -q -- "$pattern" "$file" 2>/dev/null; then
     fail "Found dangerous pattern '$label' in $(basename "$file")"
     grep -n "$pattern" "$file" | head -3 | sed 's/^/    /'
     return 1
@@ -216,12 +216,62 @@ fi
 echo ""
 echo -e "${BOLD}[ 7 ] Installer regression checks${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
+if command -v python3 >/dev/null 2>&1; then
+  if python3 "$SCRIPT_DIR/test-install.py"; then
+    pass "Master installer isolated execution regressions"
+  else
+    fail "Master installer isolated execution regressions"
+  fi
+  if python3 "$SCRIPT_DIR/test-node-registration.py"; then
+    pass "Local node registration isolation regression"
+  else
+    fail "Local node registration isolation regression"
+  fi
+else
+  warn "Python 3 unavailable; skipping isolated installer and node-registration checks"
+fi
 check_contains "$REPO_ROOT/install.sh" "does not deploy the dashboard" "requirements-only warning"
 check_contains "$REPO_ROOT/install.sh" "dashboard has NOT been deployed" "requirements-only completion notice"
 check_contains "$REPO_ROOT/install.sh" "cannot complete the dashboard installation" "dashboard install failure is not masked"
+check_contains "$REPO_ROOT/install.sh" "Node installation failed" "node installer failure is reported accurately"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "Skipping bootnode" "unsupported bootnode skipped during all-nodes install"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "BOOTNODE_INSTALLED" "only report bootnode service when installed"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "GYDS_RPC_PORT=8547" "lite/RPC nodes use a non-conflicting port"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "register-local-nodes.sh" "all-nodes installation registers local services"
+check_contains "$REPO_ROOT/public/scripts/install-litenode.sh" "systemctl --user start gyds-litenode" "lite-node installer starts its service"
+check_contains "$REPO_ROOT/public/scripts/register-local-nodes.sh" "INSERT INTO node_installations" "local node registration writes dashboard rows"
+check_contains "$REPO_ROOT/server/routes.ts" "Math.max(netNodes.length, registeredRunningNodes)" "network stats include registered services"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" 'GO_VERSION="${GO_VERSION:-1.25.0}"' "bootnode Go version matches canonical source"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "require_mainnet_genesis_hash" "bootnode mainnet hash preflight"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "GYDS_GENESIS_HASH" "bootnode hash comes from explicit config"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "--config=\${CONFIG_FILE}" "bootnode systemd uses its generated config"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "--genesis-hash=\${GENESIS_HASH}" "bootnode passes the genesis hash"
+if output="$(CHAIN_ID=198282 GYDS_GENESIS_HASH= GYDS_CONF=/dev/null bash "$REPO_ROOT/public/scripts/install-bootnode.sh" 2>&1)"; then
+  fail "Bootnode installer accepted a missing mainnet genesis hash"
+elif [[ "$output" == *"verified mainnet genesis hash is required"* ]]; then
+  pass "Bootnode installer rejects missing mainnet genesis hash before setup"
+else
+  fail "Bootnode missing-hash rejection was unclear: $output"
+fi
+if output="$(CHAIN_ID=198282 GYDS_GENESIS_HASH=0x123 GYDS_CONF=/dev/null bash "$REPO_ROOT/public/scripts/install-bootnode.sh" 2>&1)"; then
+  fail "Bootnode installer accepted a malformed mainnet genesis hash"
+elif [[ "$output" == *"must be a non-zero 0x-prefixed 32-byte hash"* ]]; then
+  pass "Bootnode installer rejects malformed genesis hash before setup"
+else
+  fail "Bootnode malformed-hash rejection was unclear: $output"
+fi
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Non-interactive mode" "non-interactive deploy path"
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "ALLOW_EXISTING_DB_MIGRATIONS" "existing DB migration approval"
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Welcome to nginx" "default Nginx page verification"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "/api/auth/captcha/health" "dashboard auth API health check"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Login/register route verified" "dashboard login route verification"
+check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "/api/auth/captcha" "watchdog checks the API process"
+check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "/api/health/db" "watchdog checks database connectivity"
+check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "RESTART_COOLDOWN_SECONDS" "watchdog prevents restart loops"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "install_watchdog" "git updater installs/refreshes the watchdog"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "gyds-watchdog" "dashboard deploy installs the watchdog"
+check_contains "$REPO_ROOT/public/scripts/setup-server.sh" "cron" "fresh server setup installs cron"
+check_contains "$REPO_ROOT/server/routes.ts" 'app.get("/api/health/db"' "dedicated database health endpoint"
 
 echo ""
 echo -e "${BOLD}[ 7a ] Canonical node source and mode checks${NC}"

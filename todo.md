@@ -130,6 +130,7 @@
 - [x] **WireGuard VPN provisioning (deferred server connection)** — the app generates peer/client configuration and QR data; connect it to the user's existing WireGuard server during server setup when details are available, otherwise skip and leave it for later.
 - [ ] **Validator registration on-chain** — current validator dashboard is mock data. Deploy a Solidity `ValidatorRegistry` contract on chain 198282 and wire `validator_register` RPC method.
 - [ ] **Block explorer real data** — Explorer reads from `network_snapshots` seeded by a cron (`server/chainSync.ts`). Ensure `rpc.netlifegy.com` is live so the cron populates real data.
+- [ ] **External miner project** — see `MINER_REPOSITORY.md`; audit/remove the upstream tracked `.env` and rotate any exposed secrets before adding it as a submodule or copying code.
 
 ### Medium Priority
 
@@ -253,3 +254,13 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 - Founder — username `founder`, password from `FOUNDER_PASSWORD` env (default `password`)
 - Admin — username `admin`, password from `ADMIN_PASSWORD` env (default `password`)
 - Change these immediately by setting `FOUNDER_PASSWORD` / `ADMIN_PASSWORD` in `.env` and restarting.
+
+---
+
+## 2026-11-04 — Master installer debugging
+
+- [x] Reject unknown/conflicting modes, support `--redeploy`, forward requirements options separately, and propagate unattended mode to child installers.
+- [x] Preflight child scripts before any package installation; report failures without printing commands or credentials.
+- [x] Fix PostgreSQL client-only helper ordering and hide connection credentials during its read-only check.
+- [x] Preserve existing firewall rules and allow the current SSH connection's port instead of resetting UFW.
+- [ ] Run isolated execution regressions and the existing shell-script suite; installation on the target server is not performed here.

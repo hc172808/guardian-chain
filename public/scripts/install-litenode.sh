@@ -12,6 +12,9 @@ set -euo pipefail
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
 [[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/node-profile.sh"
+load_node_profile
 
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
@@ -21,7 +24,7 @@ GO_VERSION="${GO_VERSION:-1.25.0}"
 
 GYDS_HOME="${GYDS_HOME:-$HOME/.gydschain}"
 GYDS_BIN="${GYDS_BIN:-$GYDS_HOME/bin}"
-DATA_DIR="${GYDS_HOME}/data"
+DATA_DIR="${GYDS_DATA_DIR:-${GYDS_HOME}/data}"
 LOG_DIR="${GYDS_HOME}/logs"
 
 RPC_PORT="${GYDS_RPC_PORT:-8545}"
@@ -63,6 +66,9 @@ while [[ $# -gt 0 ]]; do
     *) warn "Unknown flag: $1"; shift ;;
   esac
 done
+
+[[ -n "$BOOTSTRAP" && -n "${GYDS_ALLOWED_NODES:-}" ]] || die "Lite mode requires trusted bootstrap peers and their approved node IDs"
+[[ -z "${GYDS_NODE_MODE:-}" || "$GYDS_NODE_MODE" == lite ]] || die "Profile role must be lite"
 
 valid_port() {
   [[ "$1" =~ ^[0-9]{1,5}$ ]] || return 1
@@ -125,7 +131,7 @@ log "[3/6] Fetching source from ${REPO_URL}..."
 if [[ -d "$REPO_DIR/.git" ]]; then
   log "    Existing source found — pulling latest..."
   git -C "$REPO_DIR" fetch origin main
-  git -C "$REPO_DIR" reset --hard origin/main
+  git -C "$REPO_DIR" merge --ff-only origin/main
 else
   git clone --depth=1 "$REPO_URL" "$REPO_DIR"
 fi
@@ -168,6 +174,8 @@ export GYDS_WS_PORT="${WS_PORT}"
 export GYDS_P2P_PORT="${P2P_PORT}"
 export GYDS_DATA_DIR="${DATA_DIR}"
 export GYDS_LOG_LEVEL="${LOG_LEVEL}"
+export GYDS_PEER_AUTH=true
+export GYDS_ALLOWED_NODES="${GYDS_ALLOWED_NODES:-}"
 $([ -n "$BOOTSTRAP" ] && echo "export GYDS_BOOTSTRAP_NODES=\"${BOOTSTRAP}\"")
 exec "${GYDS_BIN}/${BINARY}" start
 EOF
@@ -209,13 +217,25 @@ GYDS_WS_PORT=${WS_PORT}
 GYDS_P2P_PORT=${P2P_PORT}
 GYDS_DATA_DIR=${DATA_DIR}
 GYDS_LOG_LEVEL=${LOG_LEVEL}
+GYDS_PEER_AUTH=true
+GYDS_ALLOWED_NODES=${GYDS_ALLOWED_NODES:-}
 $([ -n "$BOOTSTRAP" ] && echo "GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}")
 GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
 GYDS_WS_API=eth,net,web3,txpool,admin
 EOF
 
-  systemctl --user daemon-reload 2>/dev/null || true
-  systemctl --user enable gyds-litenode 2>/dev/null || true
+  if systemctl --user daemon-reload 2>/dev/null; then
+    systemctl --user enable gyds-litenode 2>/dev/null || true
+    if systemctl --user start gyds-litenode 2>/dev/null; then
+      echo "✓ Lite node service started."
+    else
+      echo "⚠ Lite node is installed but the user systemd manager is unavailable."
+      echo "  Start it from a logged-in session with: systemctl --user start gyds-litenode"
+    fi
+  else
+    echo "⚠ Lite node is installed; user systemd is unavailable in this session."
+    echo "  Start it from a logged-in session with: systemctl --user start gyds-litenode"
+  fi
 fi
 
 # ── Summary & Web Setup Wizard ────────────────────────────────────────────────
