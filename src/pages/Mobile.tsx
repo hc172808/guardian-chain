@@ -24,6 +24,7 @@ import {
 } from '@/lib/biometric';
 import { cn } from '@/lib/utils';
 import { useNetwork, type NetworkKind } from '@/contexts/NetworkContext';
+import { getDisplayCoinSymbol } from '@/lib/networkCoinSymbols';
 import { NETWORK_BY_KIND } from '@/config/network';
 import { CompactNetworkSelector } from '@/components/ui/NetworkSelector';
 
@@ -346,11 +347,11 @@ const HomeTab = () => {
     ? '…'
     : tokenPrice > 0
       ? balanceAmount > 0 && totalBalanceValue < 0.005 ? '<$0.01' : `$${totalBalanceValue.toFixed(2)}`
-      : `${gydsBalance} GYDS`;
+      : `${gydsBalance} ${getDisplayCoinSymbol(activeNetwork, 'GYDS')}`;
 
   const tokens = [
-    { symbol: 'GYDS', name: 'GYDSchain', balance: gydsBalance, change: '', up: null },
-    { symbol: 'GYD',  name: 'GYD Stable', balance: balanceLoaded ? gydBalance : '…', change: '', up: null },
+    { symbol: getDisplayCoinSymbol(activeNetwork, 'GYDS'), name: activeNetwork === 'testnet' ? 'Test GYDSchain' : 'GYDSchain', balance: gydsBalance, change: '', up: null },
+    { symbol: getDisplayCoinSymbol(activeNetwork, 'GYD'),  name: activeNetwork === 'testnet' ? 'Test GYD Stable' : 'GYD Stable', balance: balanceLoaded ? gydBalance : '…', change: '', up: null },
   ];
 
   const quickActions = [
@@ -1003,9 +1004,9 @@ const WalletTab = () => {
   const stakedBal = delegations.reduce((s,d)=>s+Number(d.amount??0),0);
   const gydsNum = parseFloat(gydsBalance.replace(/,/g, '')) || 0;
   const assets = [
-    { symbol: 'GYDS', name: 'GYDSchain',  balance: gydsBalance, usd: gydsNum > 0 ? `${(gydsNum * 0.0847).toFixed(2)}` : '$0.00', change: '',  up: null,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10',    path: '/wallet',  state: undefined },
-    { symbol: 'GYD',  name: 'GYD Stable', balance: gydBalance,  usd: '$0.00',    change: '',  up: null,  icon: CircleDollarSign, color: 'text-blue-400',  bg: 'bg-blue-400/10',   path: '/defi',    state: { tab: 'stablecoin' } },
-    { symbol: 'sGYDS',name: 'Staked GYDS',balance: stakedBal > 0 ? stakedBal.toLocaleString() : '0', usd: '', change: '', up: null, icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-400/10', path: '/defi', state: { tab: 'stake' } },
+    { symbol: getDisplayCoinSymbol(activeNetwork, 'GYDS'), name: activeNetwork === 'testnet' ? 'Test GYDSchain' : 'GYDSchain', balance: gydsBalance, usd: gydsNum > 0 ? `${(gydsNum * 0.0847).toFixed(2)}` : '$0.00', change: '',  up: null,  icon: Zap,             color: 'text-primary',    bg: 'bg-primary/10',    path: '/wallet',  state: undefined },
+    { symbol: getDisplayCoinSymbol(activeNetwork, 'GYD'),  name: activeNetwork === 'testnet' ? 'Test GYD Stable' : 'GYD Stable', balance: gydBalance,  usd: '$0.00',    change: '',  up: null,  icon: CircleDollarSign, color: 'text-blue-400',  bg: 'bg-blue-400/10',   path: '/defi',    state: { tab: 'stablecoin' } },
+    { symbol: `s${getDisplayCoinSymbol(activeNetwork, 'GYDS')}`,name: `Staked ${getDisplayCoinSymbol(activeNetwork, 'GYDS')}`,balance: stakedBal > 0 ? stakedBal.toLocaleString() : '0', usd: '', change: '', up: null, icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-400/10', path: '/defi', state: { tab: 'stake' } },
   ];
 
   // Derived tx display data
@@ -1215,7 +1216,7 @@ const WalletTab = () => {
               const type = (tx.transactionType ?? tx.type ?? 'send').toLowerCase();
               const isOut = type === 'send' || type === 'burn' || type === 'stake';
               const label = TX_TYPE_LABEL[type] ?? type.charAt(0).toUpperCase() + type.slice(1);
-              const sym = tx.tokenSymbol ?? tx.token_symbol ?? 'GYDS';
+              const sym = getDisplayCoinSymbol(tx.network ?? activeNetwork, tx.tokenSymbol ?? tx.token_symbol ?? 'GYDS');
               const amt = Number(tx.amount ?? 0);
               const amtStr = `${isOut ? '-' : '+'}${amt.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${sym}`;
               const hash = tx.txHash ?? tx.tx_hash ?? '';

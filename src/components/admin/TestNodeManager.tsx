@@ -50,7 +50,7 @@ const NETWORKS:  Network[]   = ['mainnet', 'testnet', 'devnet'];
 const NETWORK_CFG = {
   mainnet: { label: 'Mainnet', chainId: 198282, symbol: 'GYDS',  color: 'emerald', icon: '🌐',
     rpcUrl: 'https://rpc.netlifegy.com', explorerUrl: 'https://explorer.netlifegy.com' },
-  testnet: { label: 'Testnet', chainId: 198281, symbol: 'tGYDS', color: 'amber',   icon: '🧪',
+  testnet: { label: 'Testnet', chainId: 198281, symbol: 'TGYDS', color: 'amber',   icon: '🧪',
     rpcUrl: 'https://testnet-rpc.netlifegy.com', explorerUrl: 'https://testnet-explorer.netlifegy.com' },
   devnet: { label: 'Devnet', chainId: 198283, symbol: 'dGYDS', color: 'sky', icon: '🛠️',
     rpcUrl: 'https://devnet-rpc.netlifegy.com', explorerUrl: 'https://devnet-explorer.netlifegy.com' },

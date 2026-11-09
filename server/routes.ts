@@ -650,7 +650,7 @@ export function registerRoutes(expressApp: Express) {
           `SELECT id, from_address AS "fromAddress", to_address AS "toAddress",
                   amount, fee, tx_hash AS "txHash", status,
                   block_height AS "blockHeight", wallet_id AS "walletId",
-                  user_id AS "userId", created_at AS "createdAt", confirmed_at AS "confirmedAt"
+                  user_id AS "userId", network, created_at AS "createdAt", confirmed_at AS "confirmedAt"
            FROM transactions ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
           [limit, offset]
         );
@@ -662,7 +662,7 @@ export function registerRoutes(expressApp: Express) {
                 t.from_address AS "fromAddress", t.to_address AS "toAddress",
                 t.amount, t.fee, t.tx_hash AS "txHash", t.status,
                 t.block_height AS "blockHeight", t.wallet_id AS "walletId",
-                t.user_id AS "userId",
+                t.user_id AS "userId", t.network AS "network",
                 COALESCE(t.token_symbol, 'GYD') AS "tokenSymbol",
                 t.created_at AS "createdAt", t.confirmed_at AS "confirmedAt"
          FROM transactions t

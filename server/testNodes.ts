@@ -95,7 +95,7 @@ export const NETWORK_CFGS: Record<Network, NetworkCfg> = {
     ports: { rpc: 8545, lite: 8555, fullnode: 8565, boostnode: 8575, validator: 8585, genesis: 8590, bootnode: 8595 },
   },
   testnet: {
-    chainId: 198281, chainIdHex: "0x30689", symbol: "tGYDS",
+    chainId: 198281, chainIdHex: "0x30689", symbol: "TGYDS",
     name: "GYDS Testnet", label: "testnet",
     ports: { rpc: 8600, lite: 8601, fullnode: 8602, boostnode: 8603, validator: 8604, genesis: 8605, bootnode: 8606 },
   },

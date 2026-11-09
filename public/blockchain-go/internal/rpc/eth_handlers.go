@@ -43,7 +43,7 @@ func TestnetChainConfig() *ChainConfig {
                 NetworkID:        198281,
                 ProtocolVersion:  1,
                 ChainName:        "GYDS Testnet",
-                Symbol:           "tGYDS",
+                Symbol:           "TGYDS",
                 Decimals:         18,
                 BlockExplorerURL: "https://testnet-explorer.gyds.network",
         }

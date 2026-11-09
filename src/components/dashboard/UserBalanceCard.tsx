@@ -10,11 +10,12 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useNetwork, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { getDisplayCoinSymbol } from '@/lib/networkCoinSymbols';
 
 // Chain IDs and symbols per network — kept in sync with server/testNodes.ts NETWORK_CFGS
 const NET_META: Record<NetworkKind, { chainId: number; symbol: string }> = {
   mainnet: { chainId: 198282, symbol: 'GYDS'  },
-  testnet: { chainId: 198281, symbol: 'tGYDS' },
+  testnet: { chainId: 198281, symbol: 'TGYDS' },
   devnet:  { chainId: 198283, symbol: 'dGYDS' },
 };
 
@@ -169,7 +170,7 @@ export const UserBalanceCard = () => {
             <p className="text-xs text-muted-foreground">{fmt(usdGyds)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">GYD</p>
+            <p className="text-xs text-muted-foreground mb-1">{getDisplayCoinSymbol(displayNetwork, 'GYD')}</p>
             <p className="text-xl font-bold text-emerald-400">{fmtQty(gydBalance)}</p>
             <p className="text-xs text-muted-foreground">{fmt(usdGyd)}</p>
           </div>
@@ -184,7 +185,7 @@ export const UserBalanceCard = () => {
               <TrendingUp className="h-4 w-4 text-emerald-400" />
               {fmt(totalUsd)}
             </p>
-            <p className="text-xs text-muted-foreground">@ {fmt(gydsPrice)}/GYDS</p>
+            <p className="text-xs text-muted-foreground">@ {fmt(gydsPrice)}/{netMeta.symbol}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground mb-1">Network</p>

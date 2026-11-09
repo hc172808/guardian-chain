@@ -44,6 +44,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { api, extractTransactionRows } from '@/lib/api';
+import { getBaseCoinSymbol, getDisplayCoinSymbol } from '@/lib/networkCoinSymbols';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -293,7 +294,7 @@ const WalletContent = () => {
     loadActivity();
     const balanceInterval = setInterval(loadBalances, 5000);
     return () => clearInterval(balanceInterval);
-  }, [user]);
+  }, [user, ctxNetwork]);
 
   const fetchBridgeHistory = async () => {
     if (!user) return;
@@ -426,7 +427,7 @@ const WalletContent = () => {
       txData.forEach(tx => {
         const fromMe = myAddresses.has((tx.from_address ?? tx.fromAddress ?? '').toLowerCase());
         const toMe   = myAddresses.has((tx.to_address   ?? tx.toAddress   ?? '').toLowerCase());
-        const symbol = (tx.token_symbol ?? tx.tokenSymbol ?? 'GYD').toUpperCase();
+        const symbol = getBaseCoinSymbol(tx.token_symbol ?? tx.tokenSymbol ?? 'GYD');
         const amt    = Number(tx.amount ?? 0);
         const fee    = Number(tx.fee ?? 0);
         if (symbol === 'GYDS') {
@@ -444,8 +445,8 @@ const WalletContent = () => {
 
     const tokenBalances: TokenBalance[] = [
       {
-        symbol: 'GYDS',
-        name: 'GYDSchain',
+        symbol: getDisplayCoinSymbol(ctxNetwork, 'GYDS'),
+        name: ctxNetwork === 'testnet' ? 'Test GYDSchain' : 'GYDSchain',
         balance: gydsBalance,
         value: gydsBalance * gydsPrice,
         price: gydsPrice,
@@ -454,8 +455,8 @@ const WalletContent = () => {
         logo: logos['gyds_logo'],
       },
       {
-        symbol: 'GYD',
-        name: 'GYDchain (Stablecoin)',
+        symbol: getDisplayCoinSymbol(ctxNetwork, 'GYD'),
+        name: ctxNetwork === 'testnet' ? 'Test GYDchain (Stablecoin)' : 'GYDchain (Stablecoin)',
         balance: gydBalance,
         value: gydBalance * 1.00,
         price: 1.00,
@@ -732,9 +733,10 @@ const WalletContent = () => {
         status: 'confirmed',
         confirmed_at: new Date().toISOString(),
         wallet_id: wallets[0].id,
-        token_symbol: sendAsset,
+        token_symbol: getBaseCoinSymbol(sendAsset),
       });
-      toast({ title: `Sent ${amount} ${sendAsset}`, description: `Fee: ${fee.toFixed(6)} ${sendAsset}` });
+      const displayAsset = getDisplayCoinSymbol(ctxNetwork, sendAsset);
+      toast({ title: `Sent ${amount} ${displayAsset}`, description: `Fee: ${fee.toFixed(6)} ${displayAsset}` });
       setSendDialogOpen(false);
       setSendTo('');
       setSendAmount('');
@@ -809,9 +811,9 @@ const WalletContent = () => {
                   <Select value={sendAsset} onValueChange={setSendAsset}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="GYDS">GYDS — Gas & Staking (18 decimals)</SelectItem>
-                      <SelectItem value="GYD">GYD — Stablecoin (6 decimals)</SelectItem>
-                      {balances.filter(b => b.symbol !== 'GYDS' && b.symbol !== 'GYD').map(t => (
+                      <SelectItem value="GYDS">{getDisplayCoinSymbol(ctxNetwork, 'GYDS')} — Gas & Staking (18 decimals)</SelectItem>
+                      <SelectItem value="GYD">{getDisplayCoinSymbol(ctxNetwork, 'GYD')} — Stablecoin (6 decimals)</SelectItem>
+                      {balances.filter(b => !['GYDS', 'GYD'].includes(getBaseCoinSymbol(b.symbol))).map(t => (
                         <SelectItem key={t.symbol} value={t.symbol}>{t.symbol} — {t.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -833,19 +835,19 @@ const WalletContent = () => {
                   </div>
                 </div>
                 <div>
-                  <Label>Amount ({sendAsset})</Label>
+                  <Label>Amount ({getDisplayCoinSymbol(ctxNetwork, sendAsset)})</Label>
                   <Input type="number" value={sendAmount} onChange={(e) => setSendAmount(e.target.value)} placeholder="0.00" min="0" step="any" />
                 </div>
                 {sendAmount && parseFloat(sendAmount) > 0 && (
                   <div className="p-3 rounded-lg bg-secondary/30 text-sm space-y-1">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span>{sendAmount} {sendAsset}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Fee (0.1%)</span><span>{(parseFloat(sendAmount) * 0.001).toFixed(6)} {sendAsset}</span></div>
-                    <div className="flex justify-between font-semibold border-t border-border/50 pt-1 mt-1"><span>Total</span><span>{(parseFloat(sendAmount) * 1.001).toFixed(6)} {sendAsset}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span>{sendAmount} {getDisplayCoinSymbol(ctxNetwork, sendAsset)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Fee (0.1%)</span><span>{(parseFloat(sendAmount) * 0.001).toFixed(6)} {getDisplayCoinSymbol(ctxNetwork, sendAsset)}</span></div>
+                    <div className="flex justify-between font-semibold border-t border-border/50 pt-1 mt-1"><span>Total</span><span>{(parseFloat(sendAmount) * 1.001).toFixed(6)} {getDisplayCoinSymbol(ctxNetwork, sendAsset)}</span></div>
                   </div>
                 )}
                 <Button onClick={handleSendTransaction} className="w-full gap-2" disabled={sendLoading}>
                   {sendLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                  {sendLoading ? 'Sending...' : `Send ${sendAsset}`}
+                  {sendLoading ? 'Sending...' : `Send ${getDisplayCoinSymbol(ctxNetwork, sendAsset)}`}
                 </Button>
               </div>
             </DialogContent>
@@ -903,9 +905,9 @@ const WalletContent = () => {
                       <Select value={buyToken} onValueChange={setBuyToken}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="GYD">GYD — Stablecoin</SelectItem>
-                          <SelectItem value="GYDS">GYDS — Gas Token</SelectItem>
-                          {balances.filter(b => b.symbol !== 'GYDS' && b.symbol !== 'GYD').map(t => (
+                          <SelectItem value="GYD">{getDisplayCoinSymbol(ctxNetwork, 'GYD')} — Stablecoin</SelectItem>
+                          <SelectItem value="GYDS">{getDisplayCoinSymbol(ctxNetwork, 'GYDS')} — Gas Token</SelectItem>
+                          {balances.filter(b => !['GYDS', 'GYD'].includes(getBaseCoinSymbol(b.symbol))).map(t => (
                             <SelectItem key={t.symbol} value={t.symbol}>{t.symbol}</SelectItem>
                           ))}
                         </SelectContent>
@@ -964,9 +966,9 @@ const WalletContent = () => {
                   <Select value={cashOutAsset} onValueChange={setCashOutAsset}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="GYD">GYD — Stablecoin (1 USD each)</SelectItem>
-                      <SelectItem value="GYDS">GYDS — Gas & Staking Token</SelectItem>
-                      {balances.filter(b => b.symbol !== 'GYDS' && b.symbol !== 'GYD').map(t => (
+                      <SelectItem value="GYD">{getDisplayCoinSymbol(ctxNetwork, 'GYD')} — Stablecoin (1 USD each)</SelectItem>
+                      <SelectItem value="GYDS">{getDisplayCoinSymbol(ctxNetwork, 'GYDS')} — Gas & Staking Token</SelectItem>
+                      {balances.filter(b => !['GYDS', 'GYD'].includes(getBaseCoinSymbol(b.symbol))).map(t => (
                         <SelectItem key={t.symbol} value={t.symbol}>{t.symbol} — {t.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -1156,9 +1158,9 @@ const WalletContent = () => {
                     ) : (
                       <div className={cn(
                         "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
-                        token.symbol === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
-                        token.symbol === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
-                        token.symbol === 'GUSD' ? "bg-gradient-to-br from-[#0A4FFF] to-[#082567]" :
+                        getBaseCoinSymbol(token.symbol) === 'GYD' ? "bg-gradient-to-br from-blue-500 to-cyan-500" :
+                        getBaseCoinSymbol(token.symbol) === 'GYDS' ? "bg-gradient-to-br from-primary to-primary/50" :
+                        getBaseCoinSymbol(token.symbol) === 'GUSD' ? "bg-gradient-to-br from-[#0A4FFF] to-[#082567]" :
                         "bg-gradient-to-br from-amber-500 to-amber-600 text-black"
                       )}>
                         {token.symbol[0]}
@@ -1197,7 +1199,7 @@ const WalletContent = () => {
                     >
                       <ArrowRightLeft className="h-3 w-3" /> Swap
                     </Button>
-                    {(token.symbol === 'GYD' || token.symbol === 'GYDS' || token.symbol === 'GUSD') && (
+                    {['GYD', 'GYDS', 'GUSD'].includes(getBaseCoinSymbol(token.symbol)) && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1638,11 +1640,15 @@ const WalletContent = () => {
                   <>
                     <div className="flex justify-between gap-4 py-2 border-b border-border/30">
                       <span className="text-muted-foreground">Token</span>
-                      <span className="font-semibold">{selectedTx.token_symbol}</span>
+                      <span className="font-semibold">
+                        {getDisplayCoinSymbol(selectedTx.network ?? ctxNetwork, selectedTx.token_symbol ?? selectedTx.tokenSymbol ?? 'GYD')}
+                      </span>
                     </div>
                     <div className="flex justify-between gap-4 py-2 border-b border-border/30">
                       <span className="text-muted-foreground">Amount</span>
-                      <span className="font-semibold">{Number(selectedTx.token_amount).toLocaleString()} {selectedTx.token_symbol}</span>
+                      <span className="font-semibold">
+                        {Number(selectedTx.token_amount).toLocaleString()} {getDisplayCoinSymbol(selectedTx.network ?? ctxNetwork, selectedTx.token_symbol ?? selectedTx.tokenSymbol ?? 'GYD')}
+                      </span>
                     </div>
                     {selectedTx.fiat_amount && (
                       <div className="flex justify-between gap-4 py-2 border-b border-border/30">

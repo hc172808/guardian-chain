@@ -172,7 +172,7 @@ export async function callConfiguredGydsRpc(
 ): Promise<{ result: any; endpoint: string }> {
   const endpoints = getConfiguredGydsRpcEndpoints();
   if (!endpoints.length) {
-    throw new Error("No explicit GYDS mainnet RPC is configured.");
+    throw new Error("No explicit local or remote GYDS RPC is configured.");
   }
   if (pinnedEndpoint) {
     if (!endpoints.includes(pinnedEndpoint)) {

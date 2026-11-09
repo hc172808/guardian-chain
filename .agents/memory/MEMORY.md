@@ -10,6 +10,7 @@
 - [TOTP implementation](totp-impl.md) — otplib v12 dropped the `authenticator` export; use server/totp.ts (built-in crypto, zero-dep RFC 6238 TOTP) instead.
 - [Admin camelCase](admin-camelcase.md) — Drizzle returns camelCase; NodeInstallation interface and nodes tab now use nodeType, isApproved, isSynced, wireguardPublicKey, createdAt.
 - [Test nodes](test-nodes.md) — 5 nodes: rpc(8545), lite(8555), fullnode(8565), boostnode(8575), validator(8585). Validator node has validator_info/validator_set/validator_getRewards/validator_register JSON-RPC methods + /validators endpoint.
+- [Testnet coin symbols](testnet-coin-symbols.md) — testnet displays TGYDS/TGYD; mainnet remains GYDS/GYD, with canonical operation identifiers preserved.
 - [Tokens table creator](tokens-creator.md) — tokens table uses creator_id (no FK to users), not user_id. Use LEFT JOIN + coalesce for leaderboard queries.
 - [XP leaderboard](xp-leaderboard.md) — user_xp, xp_events, achievements, user_achievements tables pushed via raw SQL (db:push has TTY issue). Storage methods use pgPool directly.
 - [Replit migration](replit-migration.md) — db:push needs TTY; use `drizzle-kit generate` then pipe SQL to psql instead. Supabase client.ts is already a shim routing to Express API — no real Supabase keys needed.

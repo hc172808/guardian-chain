@@ -154,7 +154,7 @@ const FaucetPage = () => {
             Testnet Faucet
           </h1>
           <p className="text-muted-foreground mt-2">
-            Claim free test GYD and GYDS tokens for development and testing
+            Claim free TGYD and TGYDS test coins for development and testing
           </p>
           <Badge variant="outline" className="mt-2 text-amber-400 border-amber-400/30">Testnet Only</Badge>
         </div>
@@ -185,9 +185,9 @@ const FaucetPage = () => {
               G
             </div>
             <div>
-              <h3 className="text-xl font-bold">GYD</h3>
+              <h3 className="text-xl font-bold">TGYD</h3>
               <p className="text-sm text-muted-foreground">Stablecoin (1 USD)</p>
-              <p className="text-2xl font-bold mt-2">{FAUCET_AMOUNTS.gyd} GYD</p>
+              <p className="text-2xl font-bold mt-2">{FAUCET_AMOUNTS.gyd} TGYD</p>
             </div>
             <Button
               className="w-full"
@@ -199,7 +199,7 @@ const FaucetPage = () => {
               ) : !canClaim('gyd') ? (
                 <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> {nextClaimIn('gyd') || 'Cooldown'}</span>
               ) : (
-                'Claim GYD'
+                'Claim TGYD'
               )}
             </Button>
           </GlassCard>
@@ -209,9 +209,9 @@ const FaucetPage = () => {
               Gs
             </div>
             <div>
-              <h3 className="text-xl font-bold">GYDS</h3>
+              <h3 className="text-xl font-bold">TGYDS</h3>
               <p className="text-sm text-muted-foreground">Gas & Staking</p>
-              <p className="text-2xl font-bold mt-2">{FAUCET_AMOUNTS.gyds} GYDS</p>
+              <p className="text-2xl font-bold mt-2">{FAUCET_AMOUNTS.gyds} TGYDS</p>
             </div>
             <Button
               className="w-full"
@@ -223,7 +223,7 @@ const FaucetPage = () => {
               ) : !canClaim('gyds') ? (
                 <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> {nextClaimIn('gyds') || 'Cooldown'}</span>
               ) : (
-                'Claim GYDS'
+                'Claim TGYDS'
               )}
             </Button>
           </GlassCard>
@@ -255,7 +255,7 @@ const FaucetPage = () => {
             <div className="text-sm text-muted-foreground space-y-1">
               <p><strong className="text-foreground">Testnet tokens have no real value.</strong></p>
               <p>• Claim limit: once every 24 hours per token type</p>
-              <p>• {FAUCET_AMOUNTS.gyd} GYD + {FAUCET_AMOUNTS.gyds} GYDS per claim</p>
+              <p>• {FAUCET_AMOUNTS.gyd} TGYD + {FAUCET_AMOUNTS.gyds} TGYDS per claim</p>
               <p>• Tokens are for testing DeFi, staking, and transactions</p>
             </div>
           </div>

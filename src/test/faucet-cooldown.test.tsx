@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
+import { getDisplayCoinSymbol } from '@/lib/networkCoinSymbols';
 
 // ── Pure logic mirrored verbatim from src/pages/Faucet.tsx ───────────────────
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -148,17 +149,17 @@ describe('Claim Button — disabled attribute matches cooldown state', () => {
     const countdown = nextClaimIn(lastClaim, type);
     return (
       <button disabled={!enabled} data-testid="claim-btn">
-        {!enabled ? `Wait ${countdown || 'Cooldown'}` : `Claim ${type.toUpperCase()}`}
+        {!enabled ? `Wait ${countdown || 'Cooldown'}` : `Claim ${getDisplayCoinSymbol('testnet', type)}`}
       </button>
     );
   }
 
-  it('button is enabled and shows "Claim GYD" with no prior claim', () => {
+  it('button is enabled and shows "Claim TGYD" with no prior claim', () => {
     vi.setSystemTime(BASE);
     render(<ClaimButton type="gyd" lastClaim={{}} />);
     const btn = screen.getByTestId('claim-btn');
     expect(btn).not.toBeDisabled();
-    expect(btn).toHaveTextContent('Claim GYD');
+    expect(btn).toHaveTextContent('Claim TGYD');
   });
 
   it('button is disabled immediately after claiming', () => {
@@ -177,13 +178,13 @@ describe('Claim Button — disabled attribute matches cooldown state', () => {
     expect(btn).toHaveTextContent('23h 59m');
   });
 
-  it('button re-enables and shows "Claim GYDS" exactly after 24h', () => {
+  it('button re-enables and shows "Claim TGYDS" exactly after 24h', () => {
     const claimedAt = BASE;
     vi.setSystemTime(claimedAt + COOLDOWN_MS + 1);
     render(<ClaimButton type="gyds" lastClaim={{ gyds: claimedAt }} />);
     const btn = screen.getByTestId('claim-btn');
     expect(btn).not.toBeDisabled();
-    expect(btn).toHaveTextContent('Claim GYDS');
+    expect(btn).toHaveTextContent('Claim TGYDS');
   });
 
   it('gyd button stays disabled while gyds button is enabled (independent)', () => {

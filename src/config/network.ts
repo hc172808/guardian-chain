@@ -110,7 +110,7 @@ export const TESTNET_CONFIG = {
   chainId: 198281,
   chainIdHex: '0x30689',
   chainName: 'GYDS Testnet',
-  nativeCurrency: { name: 'Test GYDS', symbol: 'tGYDS', decimals: 18 },
+  nativeCurrency: { name: 'Test GYDS', symbol: 'TGYDS', decimals: 18 },
   rpcUrls: {
     primary: 'https://testnet-rpc.netlifegy.com',
     backup: [] as string[],
