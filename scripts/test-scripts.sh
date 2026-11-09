@@ -227,15 +227,23 @@ if command -v python3 >/dev/null 2>&1; then
   else
     fail "Local node registration isolation regression"
   fi
+  if python3 "$SCRIPT_DIR/test-install-all-nodes.py"; then
+    pass "Independent node installation failure regression"
+  else
+    fail "Independent node installation failure regression"
+  fi
 else
   warn "Python 3 unavailable; skipping isolated installer and node-registration checks"
 fi
 check_contains "$REPO_ROOT/install.sh" "does not deploy the dashboard" "requirements-only warning"
 check_contains "$REPO_ROOT/install.sh" "dashboard has NOT been deployed" "requirements-only completion notice"
 check_contains "$REPO_ROOT/install.sh" "cannot complete the dashboard installation" "dashboard install failure is not masked"
-check_contains "$REPO_ROOT/install.sh" "Node installation failed" "node installer failure is reported accurately"
+check_contains "$REPO_ROOT/install.sh" "Some node roles were skipped or failed" "partial node installation is reported accurately"
 check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "Skipping bootnode" "unsupported bootnode skipped during all-nodes install"
 check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "BOOTNODE_INSTALLED" "only report bootnode service when installed"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "FAILED_NODES" "failed node roles are recorded without aborting other roles"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "continuing with other selected node roles" "node install failure does not stop remaining roles"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "SKIPPED_NODES" "ineligible node roles are reported as skipped"
 check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "GYDS_RPC_PORT=8547" "lite/RPC nodes use a non-conflicting port"
 check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "register-local-nodes.sh" "all-nodes installation registers local services"
 check_contains "$REPO_ROOT/public/scripts/install-litenode.sh" "systemctl --user start gyds-litenode" "lite-node installer starts its service"

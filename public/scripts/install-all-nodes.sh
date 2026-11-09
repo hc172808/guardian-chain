@@ -26,6 +26,11 @@ INSTALL_RPC=false
 INSTALL_ALL_REQUESTED=false
 BOOTNODE_INSTALLED=false
 BOOTNODE_SKIPPED=false
+FULLNODE_INSTALLED=false
+RPC_INSTALLED=false
+LITENODE_INSTALLED=false
+FAILED_NODES=()
+SKIPPED_NODES=()
 
 for arg in "$@"; do
   case "$arg" in
@@ -63,12 +68,26 @@ for role in bootnode fullnode rpc litenode; do
     rpc) selected=$INSTALL_RPC; child=install-fullnode.sh;;
     litenode) selected=$INSTALL_LITENODE; child=install-litenode.sh;;
   esac
-  if $selected; then [[ -f "$SCRIPT_DIR/$child" ]] || { echo "Missing $child" >&2; exit 1; }; fi
+  if $selected && [[ ! -f "$SCRIPT_DIR/$child" ]]; then
+    echo "⚠ Skipping ${role}: installer script $child is missing."
+    SKIPPED_NODES+=("${role}: missing ${child}")
+    case "$role" in
+      bootnode) INSTALL_BOOTNODE=false ;;
+      fullnode) INSTALL_FULLNODE=false ;;
+      rpc) INSTALL_RPC=false ;;
+      litenode) INSTALL_LITENODE=false ;;
+    esac
+  fi
 done
-if $INSTALL_LITENODE; then
-  [[ -n "${GYDS_BOOTSTRAP_NODES:-}" && -n "${GYDS_ALLOWED_NODES:-}" ]] || {
-    echo "Lite mode requires trusted GYDS_BOOTSTRAP_NODES and GYDS_ALLOWED_NODES. Configure approved peers first." >&2; exit 1;
-  }
+if $INSTALL_LITENODE && [[ -z "${GYDS_BOOTSTRAP_NODES:-}" || -z "${GYDS_ALLOWED_NODES:-}" ]]; then
+  echo "⚠ Skipping litenode: trusted GYDS_BOOTSTRAP_NODES and GYDS_ALLOWED_NODES are not configured."
+  SKIPPED_NODES+=("litenode: trusted bootstrap peers or approved node IDs missing")
+  INSTALL_LITENODE=false
+fi
+if ! $INSTALL_BOOTNODE && ! $INSTALL_FULLNODE && ! $INSTALL_LITENODE && ! $INSTALL_RPC; then
+  echo "No selected node role is ready to install."
+  printf 'Skipped: %s\n' "${SKIPPED_NODES[@]}"
+  exit 1
 fi
 
 # Clone the canonical source once so the selected installers share the same revision
@@ -94,10 +113,19 @@ echo "║   Source: ${REPO_URL}"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-run() {
-  local label="$1"; shift
+run_role() {
+  local role="$1" label="$2" status
+  shift 2
   echo -e "\n${GREEN}━━━ Installing ${label} ━━━${NC}\n"
-  "$@"
+  if "$@"; then
+    echo "✓ ${label} installation completed."
+    return 0
+  else
+    status=$?
+    echo "⚠ ${label} installation failed (exit ${status}); continuing with other selected node roles." >&2
+    FAILED_NODES+=("${role}: installer exited ${status}")
+    return 1
+  fi
 }
 
 if $INSTALL_BOOTNODE; then
@@ -105,19 +133,25 @@ if $INSTALL_BOOTNODE; then
     echo "⚠  Skipping bootnode: ${REPO_URL} does not contain cmd/bootnode yet."
     echo "   No alternate repository was used. The selected fullnode/lite installs will continue."
     BOOTNODE_SKIPPED=true
+    SKIPPED_NODES+=("bootnode: source does not include cmd/bootnode")
   else
-    GYDS_CONF=/dev/null P2P_PORT=30303 run "bootnode" bash "$SCRIPT_DIR/install-bootnode.sh"
-    BOOTNODE_INSTALLED=true
+    if GYDS_CONF=/dev/null P2P_PORT=30303 run_role "bootnode" "bootnode" bash "$SCRIPT_DIR/install-bootnode.sh"; then
+      BOOTNODE_INSTALLED=true
+    fi
   fi
 fi
 
 if $INSTALL_FULLNODE; then
-  GYDS_CONF=/dev/null NODE_ROLE=full GYDS_P2P_PORT=30304 run "fullnode" bash "$SCRIPT_DIR/install-fullnode.sh"
+  if GYDS_CONF=/dev/null NODE_ROLE=full GYDS_P2P_PORT=30304 run_role "fullnode" "fullnode" bash "$SCRIPT_DIR/install-fullnode.sh"; then
+    FULLNODE_INSTALLED=true
+  fi
 fi
 
 if $INSTALL_RPC; then
-  GYDS_CONF=/dev/null NODE_ROLE=rpc GYDS_RPC_DOMAIN='' DOMAIN='' GYDS_RPC_PORT=8547 GYDS_WS_PORT=8548 GYDS_P2P_PORT=30305 ENABLE_MINING=false \
-    run "rpc node" bash "$SCRIPT_DIR/install-fullnode.sh"
+  if GYDS_CONF=/dev/null NODE_ROLE=rpc GYDS_RPC_DOMAIN='' DOMAIN='' GYDS_RPC_PORT=8547 GYDS_WS_PORT=8548 GYDS_P2P_PORT=30305 ENABLE_MINING=false \
+      run_role "rpc node" "rpc node" bash "$SCRIPT_DIR/install-fullnode.sh"; then
+    RPC_INSTALLED=true
+  fi
 fi
 
 if $INSTALL_LITENODE; then
@@ -126,21 +160,27 @@ if $INSTALL_LITENODE; then
   if [[ "$TARGET_USER" == "root" ]] && getent passwd ubuntu >/dev/null; then
     TARGET_USER="ubuntu"
   fi
-  id -u "$TARGET_USER" >/dev/null 2>&1 || {
-    echo "Could not identify a non-root account for the lite node. Set SUDO_USER or NODE_USER."
-    exit 1
-  }
-  TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
-  echo -e "${GREEN}━━━ Installing litenode for user ${TARGET_USER} (HOME=${TARGET_HOME}) ━━━${NC}"
-  sudo -u "$TARGET_USER" -H env GYDS_CONF=/dev/null \
-    GYDS_BOOTSTRAP_NODES="${GYDS_BOOTSTRAP_NODES:-}" GYDS_ALLOWED_NODES="${GYDS_ALLOWED_NODES:-}" GYDS_PEER_AUTH=true \
-    GYDS_RPC_PORT=8549 GYDS_WS_PORT=8550 GYDS_P2P_PORT=30306 \
-    bash "$SCRIPT_DIR/install-litenode.sh"
+  if ! id -u "$TARGET_USER" >/dev/null 2>&1; then
+    echo "⚠ Skipping litenode: could not identify a non-root account. Set SUDO_USER or NODE_USER."
+    SKIPPED_NODES+=("litenode: no non-root service account found")
+  else
+    TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+    echo -e "${GREEN}━━━ Installing litenode for user ${TARGET_USER} (HOME=${TARGET_HOME}) ━━━${NC}"
+    if run_role "litenode" "litenode" sudo -u "$TARGET_USER" -H env GYDS_CONF=/dev/null \
+        GYDS_BOOTSTRAP_NODES="${GYDS_BOOTSTRAP_NODES:-}" GYDS_ALLOWED_NODES="${GYDS_ALLOWED_NODES:-}" GYDS_PEER_AUTH=true \
+        GYDS_RPC_PORT=8549 GYDS_WS_PORT=8550 GYDS_P2P_PORT=30306 \
+        bash "$SCRIPT_DIR/install-litenode.sh"; then
+      LITENODE_INSTALLED=true
+    fi
+  fi
 fi
 
 # Start/register local services after their units have been installed.
 if [[ -f "$SCRIPT_DIR/register-local-nodes.sh" ]]; then
-  APP_DIR="${APP_DIR:-/var/www/gydschain}" bash "$SCRIPT_DIR/register-local-nodes.sh"
+  if ! APP_DIR="${APP_DIR:-/var/www/gydschain}" bash "$SCRIPT_DIR/register-local-nodes.sh"; then
+    echo "⚠ Local node registration failed; installed services remain in place." >&2
+    FAILED_NODES+=("local node registration: installer exited non-zero")
+  fi
 fi
 
 cat <<EOF
@@ -150,10 +190,28 @@ cat <<EOF
 ╚═══════════════════════════════════════════════════════════════════════╝
   Installed services:
 $($BOOTNODE_INSTALLED && echo "    • gyds-bootnode")
-$($INSTALL_FULLNODE && echo "    • gyds-fullnode")
-$($INSTALL_RPC      && echo "    • gyds-rpcnode (RPC mode, port 8547)")
-$($INSTALL_LITENODE && echo "    • gyds-litenode (user systemd, RPC port 8549)")
+$($FULLNODE_INSTALLED && echo "    • gyds-fullnode")
+$($RPC_INSTALLED      && echo "    • gyds-rpcnode (RPC mode, port 8547)")
+$($LITENODE_INSTALLED && echo "    • gyds-litenode (user systemd, RPC port 8549)")
 $($BOOTNODE_SKIPPED && echo "    • bootnode was skipped (unsupported by the selected source repository)")
 
   Logs:    /var/log/gydschain/   (and ~/.gydschain/logs for litenode)
 EOF
+
+if ((${#SKIPPED_NODES[@]} > 0)); then
+  echo ""
+  echo "Skipped node roles:"
+  printf '  • %s\n' "${SKIPPED_NODES[@]}"
+fi
+
+if ((${#FAILED_NODES[@]} > 0)); then
+  echo ""
+  echo "Failed node roles:"
+  printf '  • %s\n' "${FAILED_NODES[@]}"
+fi
+
+if ((${#SKIPPED_NODES[@]} > 0 || ${#FAILED_NODES[@]} > 0)); then
+  echo ""
+  echo "Other selected node roles were still attempted; successful installs were not rolled back."
+  exit 1
+fi

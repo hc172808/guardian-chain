@@ -322,7 +322,7 @@ case "$MODE" in
       exit 1
     fi
     if ! NONINTERACTIVE=1 bash "$ALL_NODES_SCRIPT" --all; then
-      err "Node installation failed. The dashboard was installed first; check the node installer output and logs."
+      err "Some node roles were skipped or failed. Other selected roles were attempted; check the node installer output and logs."
       exit 1
     fi
     ;;
