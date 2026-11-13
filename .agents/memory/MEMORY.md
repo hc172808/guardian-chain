@@ -76,3 +76,4 @@
 - [Stablecoin contract build isolation](stablecoin-contract-build.md) — Keep stablecoin compilation isolated from unrelated legacy AMM Solidity blockers.
 - [Embedded installer code tests](shell-embedded-code-tests.md) — Bash syntax checks do not validate Python heredocs; compile embedded code in the regression suite.
 - [Contract tooling firewall](contract-tooling-firewall.md) — Package installs for Hardhat tooling are blocked by a vulnerable transitive Handlebars package; update the parent dependency, never bypass the firewall.
+- [Nginx reload verification](nginx-reload-verification.md) — After reloading Nginx, retry the virtual-host check briefly so a transient stale response does not fail deployment.

@@ -708,7 +708,16 @@ systemctl reload nginx || systemctl restart nginx
 log "Nginx: $FQDN → $APP_DIR/dist"
 
 # Verify the configured virtual host serves the app, not Ubuntu's default page.
-NGINX_RESPONSE=$(curl -fsS --max-time 10 -H "Host: ${FQDN}" http://127.0.0.1/ 2>/dev/null || true)
+# Give Nginx workers time to finish a graceful reload before treating a stale
+# response from the previous config as a deployment failure.
+NGINX_RESPONSE=""
+for attempt in {1..10}; do
+    NGINX_RESPONSE=$(curl -fsS --max-time 10 -H "Host: ${FQDN}" http://127.0.0.1/ 2>/dev/null || true)
+    if [[ -n "$NGINX_RESPONSE" ]] && ! grep -qi "Welcome to nginx" <<< "$NGINX_RESPONSE"; then
+        break
+    fi
+    [[ "$attempt" -eq 10 ]] || sleep 1
+done
 if [[ -z "$NGINX_RESPONSE" ]]; then
     warn "Could not verify the dashboard over local HTTP; check Nginx and the server logs."
 elif grep -qi "Welcome to nginx" <<< "$NGINX_RESPONSE"; then
