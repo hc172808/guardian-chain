@@ -109,6 +109,42 @@ CRON
     ok "Installed API/database watchdog (every minute; restart cooldown 5 minutes)"
 }
 
+check_migration_identity_safety() {
+    local migration="$1"
+    command -v python3 >/dev/null 2>&1 || {
+        err "python3 is required to verify that migrations preserve account credentials."
+        return 2
+    }
+
+    python3 - "$migration" <<'PY'
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as migration_file:
+    sql = migration_file.read()
+
+# Ignore comments and string values; check the SQL operations themselves.
+sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)
+sql = re.sub(r"--[^\n]*", " ", sql)
+sql = re.sub(r"'(?:''|[^'])*'", "''", sql, flags=re.S)
+sql = re.sub(r'"([A-Za-z_][A-Za-z0-9_$]*)"', r"\1", sql)
+
+user_write = re.compile(
+    r"\b(?:UPDATE\s+(?:ONLY\s+)?(?:public\s*\.\s*)?users\b"
+    r"|INSERT\s+INTO\s+(?:public\s*\.\s*)?users\b.*?\bDO\s+UPDATE\b)",
+    re.I | re.S,
+)
+identity_assignment = re.compile(r"\b(?:username|password_hash|password)\s*=", re.I)
+
+for statement in sql.split(";"):
+    if user_write.search(statement) and identity_assignment.search(statement):
+        print("Migration attempts to update a users username or password field.")
+        sys.exit(1)
+
+sys.exit(0)
+PY
+}
+
 # Resolve branch
 if [[ -z "$BRANCH" ]]; then
     BRANCH=$(git -C "$APP_DIR" branch --show-current 2>/dev/null || echo "main")
@@ -173,16 +209,28 @@ if [[ "$CURRENT" == "$REMOTE" ]] && [[ "$FORCE" -eq 0 ]]; then
     if [[ "$DO_DB" -eq 1 ]] && [[ -n "${DATABASE_URL:-}" ]]; then
         info "Running schema migration anyway (in case it was interrupted)..."
         _do_migrate() {
-            local migrated=0 failed=0
+            local migrated=0 skipped=0 failed=0 safety_status
             for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
                 [[ -f "$f" ]] || continue
+                if check_migration_identity_safety "$f"; then
+                    :
+                else
+                    safety_status=$?
+                    if [[ "$safety_status" -eq 1 ]]; then
+                        warn "  Skipped $(basename "$f") — it changes a users username or password."
+                        (( skipped++ )) || true
+                        continue
+                    fi
+                    err "Could not verify migration safety; refusing to continue."
+                    return 1
+                fi
                 if psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f "$f" >> "$LOG_FILE" 2>&1; then
                     ok "  $(basename "$f")"; (( migrated++ )) || true
                 else
                     warn "  $(basename "$f") — some statements skipped (table already exists, etc.)"; (( failed++ )) || true
                 fi
             done
-            ok "Migrations: $migrated files processed, $failed with warnings"
+            ok "Migrations: $migrated processed, $skipped skipped for account safety, $failed with warnings"
         }
         _do_migrate
     fi
@@ -250,6 +298,19 @@ else
     for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
         [[ -f "$f" ]] || continue
         fname=$(basename "$f")
+
+        if check_migration_identity_safety "$f"; then
+            :
+        else
+            safety_status=$?
+            if [[ "$safety_status" -eq 1 ]]; then
+                warn "  SKIPPED $fname — it changes a users username or password."
+                (( skipped++ )) || true
+                continue
+            fi
+            err "Could not verify migration safety; refusing to continue."
+            exit 1
+        fi
 
         # Quick check: does this file contain any destructive statements?
         # If so, warn loudly and skip it (safety guard)

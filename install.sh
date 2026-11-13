@@ -223,9 +223,7 @@ case "$MODE" in
     esac
     require_script "$NODE_SCRIPT" >/dev/null ;;
   redeploy)
-    if ! command -v gyds-redeploy >/dev/null 2>&1; then
-      require_script "redeploy.sh" >/dev/null
-    fi ;;
+    require_script "gyds-update.sh" >/dev/null ;;
 esac
 REQ_SCRIPT=$(find_script "requirements.sh" || true)
 # Do not print the failing command: it could contain credentials.
@@ -329,14 +327,8 @@ case "$MODE" in
 
   # ── 5. Redeploy / update ────────────────────────────────────────────────────
   redeploy)
-    step "Redeploying / updating existing installation"
-    if command -v gyds-redeploy &>/dev/null; then
-      gyds-redeploy
-    else
-      REDEPLOY_SCRIPT=$(find_script "redeploy.sh")
-      [[ -n "$REDEPLOY_SCRIPT" ]] || { err "redeploy.sh not found and gyds-redeploy not installed"; exit 1; }
-      bash "$REDEPLOY_SCRIPT"
-    fi
+    step "Updating existing installation — preserving user accounts"
+    run_script "gyds-update.sh"
     ;;
 
   *)

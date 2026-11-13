@@ -44,9 +44,8 @@ export async function seedFounder() {
       console.log("[seed] No wallet account for founder — connect wallet to claim admin.");
     }
 
-    // ── Step 2: Always upsert the founder password account ───────────────────
-    // Uses ON CONFLICT (username) so it updates the password on every restart,
-    // ensuring FOUNDER_PASSWORD env var is always in effect.
+    // ── Step 2: Ensure the founder password account exists ───────────────────
+    // Existing accounts keep their username and password hash across restarts.
     // NOTE: do NOT set wallet_address here — the real wallet account already
     // owns that address and the unique constraint would reject the insert.
     const founderId   = "founder_bootstrap_001";
@@ -55,35 +54,39 @@ export async function seedFounder() {
     const founderUser = await pool.query(
       `INSERT INTO users (id, email, username, password_hash, first_name, last_name, updated_at)
        VALUES ($1, $2, $3, $4, 'Founder', 'GYDSchain', NOW())
-        ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()
+        ON CONFLICT (username) DO NOTHING
         RETURNING id`,
       [founderId, "founder@gydschain.local", "founder", founderHash]
     );
-    const founderAccountId = founderUser.rows[0]?.id ?? founderId;
+    const founderAccountId = founderUser.rows[0]?.id
+      ?? (await pool.query(`SELECT id FROM users WHERE username=$1 LIMIT 1`, ["founder"])).rows[0]?.id;
+    if (!founderAccountId) throw new Error("Founder account could not be created or found");
     await pool.query(
       `INSERT INTO profiles (id, user_id, email, username, display_name, role)
        VALUES (gen_random_uuid(), $1, $2, $3, 'Founder', 'founder')
-       ON CONFLICT (user_id) DO UPDATE SET username=$3, display_name='Founder', role='founder'`,
+       ON CONFLICT (user_id) DO UPDATE SET display_name='Founder', role='founder'`,
       [founderAccountId, "founder@gydschain.local", "founder"]
     );
     await grantRoles(founderAccountId, ["user", "admin", "founder"]);
 
-    // ── Step 3: Always upsert the admin password account ─────────────────────
+    // ── Step 3: Ensure the admin password account exists ─────────────────────
     const adminId   = "admin_bootstrap_001";
     const adminHash = await bcrypt.hash(adminPassword, 12);
 
     const adminUser = await pool.query(
       `INSERT INTO users (id, email, username, password_hash, first_name, last_name, updated_at)
        VALUES ($1, $2, $3, $4, 'Admin', 'User', NOW())
-        ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()
+        ON CONFLICT (username) DO NOTHING
         RETURNING id`,
       [adminId, "admin@gydschain.local", "admin", adminHash]
     );
-    const adminAccountId = adminUser.rows[0]?.id ?? adminId;
+    const adminAccountId = adminUser.rows[0]?.id
+      ?? (await pool.query(`SELECT id FROM users WHERE username=$1 LIMIT 1`, ["admin"])).rows[0]?.id;
+    if (!adminAccountId) throw new Error("Admin account could not be created or found");
     await pool.query(
       `INSERT INTO profiles (id, user_id, email, username, display_name, role)
        VALUES (gen_random_uuid(), $1, $2, $3, 'Admin', 'admin')
-       ON CONFLICT (user_id) DO UPDATE SET username=$3, display_name='Admin', role='admin'`,
+       ON CONFLICT (user_id) DO UPDATE SET display_name='Admin', role='admin'`,
       [adminAccountId, "admin@gydschain.local", "admin"]
     );
     await grantRoles(adminAccountId, ["user", "admin"]);
