@@ -278,6 +278,22 @@ check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "/api/health/db" "wa
 check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "RESTART_COOLDOWN_SECONDS" "watchdog prevents restart loops"
 check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "install_watchdog" "git updater installs/refreshes the watchdog"
 check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "gyds-watchdog" "dashboard deploy installs the watchdog"
+check_contains "$REPO_ROOT/install.sh" 'run_script "gyds-update.sh"' "menu update uses the account-safe updater"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "check_migration_identity_safety" "database updates guard account identity"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "install_redeploy_compat" "installed redeploy alias uses safe update path"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "account-safe updater" "redeploy command uses the guarded updater"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "check-migration-identity-safety.py" "dashboard setup guards account identity migrations"
+check_contains "$REPO_ROOT/public/scripts/redeploy.sh" "check-migration-identity-safety.py" "legacy redeploy checks account identity"
+check_contains "$REPO_ROOT/public/scripts/setup-server.sh" "account-safe updater" "server setup installs the safe update command"
+check_contains "$REPO_ROOT/server/seed.ts" "ON CONFLICT (username) DO NOTHING" "bootstrap seeding preserves existing credentials"
+check_no_pattern "$REPO_ROOT/server/seed.ts" "DO UPDATE SET password_hash" "bootstrap password reset"
+for migration in "$REPO_ROOT"/migrations/*.sql; do
+  if python3 "$REPO_ROOT/public/scripts/check-migration-identity-safety.py" "$migration" >/dev/null 2>&1; then
+    pass "Migration preserves usernames and passwords: $(basename "$migration")"
+  else
+    fail "Migration changes usernames or passwords: $(basename "$migration")"
+  fi
+done
 check_contains "$REPO_ROOT/public/scripts/setup-server.sh" "cron" "fresh server setup installs cron"
 check_contains "$REPO_ROOT/server/routes.ts" 'app.get("/api/health/db"' "dedicated database health endpoint"
 

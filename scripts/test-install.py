@@ -141,10 +141,48 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.events.read_text(), "requirements.sh|1|--minimal\n")
 
     def test_redeploy_flag_is_supported(self):
-        self.stub("redeploy.sh")
+        self.stub("gyds-update.sh")
         result = self.run_install("--redeploy")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.events.read_text(), "redeploy.sh|1|\n")
+        self.assertEqual(self.events.read_text(), "gyds-update.sh|1|\n")
+
+    def test_migration_safety_checker_protects_user_identity(self):
+        checker = ROOT / "public/scripts/check-migration-identity-safety.py"
+        migration = self.root / "candidate.sql"
+
+        migration.write_text("-- UPDATE users SET password_hash = 'demo';\nALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;\n")
+        safe = subprocess.run(
+            [shutil.which("python3"), str(checker), str(migration)],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(safe.returncode, 0, safe.stderr)
+
+        migration.write_text("UPDATE public.\"users\"\nSET \"username\" = 'renamed';\n")
+        username_update = subprocess.run(
+            [shutil.which("python3"), str(checker), str(migration)],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(username_update.returncode, 1)
+
+        migration.write_text(
+            "INSERT INTO users (username, password_hash) VALUES ('admin', 'new') "
+            "ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;\n"
+        )
+        password_update = subprocess.run(
+            [shutil.which("python3"), str(checker), str(migration)],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(password_update.returncode, 1)
+
+        migration.write_text(
+            "MERGE INTO public.users AS current USING staged_users AS staged "
+            "ON current.id = staged.id WHEN MATCHED THEN UPDATE SET username = staged.username;\n"
+        )
+        merge_update = subprocess.run(
+            [shutil.which("python3"), str(checker), str(migration)],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(merge_update.returncode, 1)
 
     def test_postgres_client_only_helpers_and_hidden_credentials(self):
         # Use existing fake psql so the branch never installs any packages.

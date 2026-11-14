@@ -3,8 +3,8 @@
 # ║  GYDSchain — Safe Code Update Script v1.0                                  ║
 # ║                                                                             ║
 # ║  Pulls the latest code and rebuilds the app.                               ║
-# ║  ✅ NEVER touches user accounts, passwords, wallets, or balances.          ║
-# ║  ✅ Only adds new tables/columns — never drops or clears existing data.    ║
+# ║  ✅ Never overwrites existing usernames or password hashes.              ║
+# ║  ✅ Checks migration files before applying database changes.              ║
 # ║  ✅ Zero-downtime PM2 reload (users stay connected while it updates).      ║
 # ║                                                                             ║
 # ║  Usage:                                                                     ║
@@ -109,40 +109,38 @@ CRON
     ok "Installed API/database watchdog (every minute; restart cooldown 5 minutes)"
 }
 
+install_redeploy_compat() {
+    [[ "$EUID" -eq 0 ]] || return 0
+    local update_script="${APP_DIR}/public/scripts/gyds-update.sh"
+    [[ -f "$update_script" ]] || return 0
+
+    cat > /usr/local/bin/gyds-redeploy <<RDEPLOY
+#!/usr/bin/env bash
+set -euo pipefail
+APP_DIR="${APP_DIR}"
+UPDATE_SCRIPT="\${APP_DIR}/public/scripts/gyds-update.sh"
+UPDATE_ARGS=()
+for arg in "\$@"; do
+    case "\$arg" in
+        --skip-db) UPDATE_ARGS+=(--no-db) ;;
+        --skip-build) UPDATE_ARGS+=(--no-build) ;;
+        *) UPDATE_ARGS+=("\$arg") ;;
+    esac
+done
+exec bash "\$UPDATE_SCRIPT" "\${UPDATE_ARGS[@]}"
+RDEPLOY
+    chmod 755 /usr/local/bin/gyds-redeploy
+    ok "Updated gyds-redeploy to use the account-safe updater"
+}
+
 check_migration_identity_safety() {
     local migration="$1"
-    command -v python3 >/dev/null 2>&1 || {
-        err "python3 is required to verify that migrations preserve account credentials."
+    local checker="${APP_DIR}/public/scripts/check-migration-identity-safety.py"
+    [[ -f "$checker" ]] || {
+        err "Account-safety migration checker is missing: $checker"
         return 2
     }
-
-    python3 - "$migration" <<'PY'
-import re
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as migration_file:
-    sql = migration_file.read()
-
-# Ignore comments and string values; check the SQL operations themselves.
-sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)
-sql = re.sub(r"--[^\n]*", " ", sql)
-sql = re.sub(r"'(?:''|[^'])*'", "''", sql, flags=re.S)
-sql = re.sub(r'"([A-Za-z_][A-Za-z0-9_$]*)"', r"\1", sql)
-
-user_write = re.compile(
-    r"\b(?:UPDATE\s+(?:ONLY\s+)?(?:public\s*\.\s*)?users\b"
-    r"|INSERT\s+INTO\s+(?:public\s*\.\s*)?users\b.*?\bDO\s+UPDATE\b)",
-    re.I | re.S,
-)
-identity_assignment = re.compile(r"\b(?:username|password_hash|password)\s*=", re.I)
-
-for statement in sql.split(";"):
-    if user_write.search(statement) and identity_assignment.search(statement):
-        print("Migration attempts to update a users username or password field.")
-        sys.exit(1)
-
-sys.exit(0)
-PY
+    python3 "$checker" "$migration"
 }
 
 # Resolve branch
@@ -188,8 +186,8 @@ echo -e "  ${DIM}App:${NC}  $APP_DIR"
 echo -e "  ${DIM}Branch:${NC} $BRANCH"
 echo -e "  ${DIM}Log:${NC}  $LOG_FILE"
 echo ""
-echo -e "${GREEN}  This script NEVER deletes or modifies user accounts,${NC}"
-echo -e "${GREEN}  passwords, wallets, balances, or any existing data.${NC}"
+echo -e "${GREEN}  This script preserves existing usernames and password hashes.${NC}"
+echo -e "${GREEN}  Migrations are checked before they are applied.${NC}"
 ruler
 
 # ── Step 1: Git pull ──────────────────────────────────────────────────────────
@@ -209,7 +207,7 @@ if [[ "$CURRENT" == "$REMOTE" ]] && [[ "$FORCE" -eq 0 ]]; then
     if [[ "$DO_DB" -eq 1 ]] && [[ -n "${DATABASE_URL:-}" ]]; then
         info "Running schema migration anyway (in case it was interrupted)..."
         _do_migrate() {
-            local migrated=0 skipped=0 failed=0 safety_status
+            local migrated=0 failed=0 safety_status
             for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
                 [[ -f "$f" ]] || continue
                 if check_migration_identity_safety "$f"; then
@@ -217,9 +215,8 @@ if [[ "$CURRENT" == "$REMOTE" ]] && [[ "$FORCE" -eq 0 ]]; then
                 else
                     safety_status=$?
                     if [[ "$safety_status" -eq 1 ]]; then
-                        warn "  Skipped $(basename "$f") — it changes a users username or password."
-                        (( skipped++ )) || true
-                        continue
+                        err "  Rejected $(basename "$f") — it changes a users username or password; update stopped."
+                        return 1
                     fi
                     err "Could not verify migration safety; refusing to continue."
                     return 1
@@ -230,10 +227,13 @@ if [[ "$CURRENT" == "$REMOTE" ]] && [[ "$FORCE" -eq 0 ]]; then
                     warn "  $(basename "$f") — some statements skipped (table already exists, etc.)"; (( failed++ )) || true
                 fi
             done
-            ok "Migrations: $migrated processed, $skipped skipped for account safety, $failed with warnings"
+            ok "Migrations: $migrated files processed, $failed with warnings"
         }
-        _do_migrate
+        if ! _do_migrate; then
+            exit 1
+        fi
     fi
+    install_redeploy_compat
     install_watchdog
     exit 0
 fi
@@ -254,6 +254,7 @@ git -C "$APP_DIR" pull --ff-only origin "$BRANCH" 2>&1 | tee_log
 
 [[ $STASHED -eq 1 ]] && { git -C "$APP_DIR" stash pop >> "$LOG_FILE" 2>&1 || warn "Could not restore stash — check git stash list"; }
 install_watchdog
+install_redeploy_compat
 
 NEW_COMMIT=$(git -C "$APP_DIR" log -1 --format='%h %s')
 ok "Pulled: $NEW_COMMIT"
@@ -290,8 +291,8 @@ if [[ "$DO_DB" -eq 0 ]]; then
 elif [[ -z "${DATABASE_URL:-}" ]]; then
     warn "DATABASE_URL not set — skipping schema migration"
 else
-    echo -e "  ${DIM}Running migrations/*.sql — only adds new tables/columns.${NC}"
-    echo -e "  ${DIM}Existing data is NEVER deleted or modified.${NC}"
+    echo -e "  ${DIM}Running migrations/*.sql — adds schema and checks account identity fields.${NC}"
+    echo -e "  ${DIM}Existing usernames and password hashes are not updated by migrations.${NC}"
     echo ""
 
     migrated=0; skipped=0; failed=0
@@ -304,9 +305,8 @@ else
         else
             safety_status=$?
             if [[ "$safety_status" -eq 1 ]]; then
-                warn "  SKIPPED $fname — it changes a users username or password."
-                (( skipped++ )) || true
-                continue
+                err "  REJECTED $fname — it changes a users username or password; update stopped."
+                exit 1
             fi
             err "Could not verify migration safety; refusing to continue."
             exit 1
@@ -432,7 +432,7 @@ ruler
 echo -e "${GREEN}${BOLD}  ✓  Update complete!${NC}"
 ruler
 echo -e "  ${DIM}Commit:${NC}   $NEW_COMMIT"
-echo -e "  ${DIM}Accounts:${NC} $(psql "${DATABASE_URL:-}" -t -c 'SELECT count(*) FROM users;' 2>/dev/null | tr -d ' ' || echo '?') users — untouched"
+echo -e "  ${DIM}Accounts:${NC} $(psql "${DATABASE_URL:-}" -t -c 'SELECT count(*) FROM users;' 2>/dev/null | tr -d ' ' || echo '?') users — preserved"
 echo ""
 echo -e "  ${DIM}Check logs:${NC}    pm2 logs $PM2_APP --lines 40"
 echo -e "  ${DIM}Check status:${NC}  pm2 status"

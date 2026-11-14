@@ -91,9 +91,7 @@ export async function seedFounder() {
     );
     await grantRoles(adminAccountId, ["user", "admin"]);
 
-    console.log(`[seed] Accounts ready:`);
-    console.log(`  founder / ${founderPassword}`);
-    console.log(`  admin   / ${adminPassword}`);
+    console.log("[seed] Bootstrap accounts ready; existing usernames and passwords were preserved.");
   } catch (err: any) {
     console.error("[seed] Founder seed error:", err.message);
   }

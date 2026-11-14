@@ -549,22 +549,23 @@ fi
 # ─── Install redeploy helper ───────────────────────────────────────────────────
 cat > /usr/local/bin/gyds-redeploy <<REDEPLOY
 #!/usr/bin/env bash
-# Safe redeploy: git pull → npm install → build → PM2 reload
+# Compatibility wrapper: use the account-safe updater for all updates.
 set -euo pipefail
 APP_DIR="${APP_DIR}"
-source "\$APP_DIR/.env" 2>/dev/null || true
-echo "[gyds-redeploy] Pulling latest from git..."
-git -C "\$APP_DIR" fetch origin
-git -C "\$APP_DIR" pull --ff-only origin "\$(git -C \"\$APP_DIR\" branch --show-current)"
-echo "[gyds-redeploy] Installing dependencies..."
-cd "\$APP_DIR" && npm ci --prefer-offline 2>/dev/null || npm install --legacy-peer-deps
-echo "[gyds-redeploy] Building frontend..."
-npm run build
-echo "[gyds-redeploy] Reloading API server..."
-pm2 reload gydschain-api --update-env
-echo "[gyds-redeploy] Reloading Nginx..."
-nginx -s reload 2>/dev/null || systemctl reload nginx
-echo "[gyds-redeploy] Done! \$(date)"
+UPDATE_SCRIPT="\${APP_DIR}/public/scripts/gyds-update.sh"
+if [[ ! -f "\$UPDATE_SCRIPT" ]]; then
+    echo "Missing account-safe updater: \$UPDATE_SCRIPT" >&2
+    exit 1
+fi
+UPDATE_ARGS=()
+for arg in "\$@"; do
+    case "\$arg" in
+        --skip-db) UPDATE_ARGS+=(--no-db) ;;
+        --skip-build) UPDATE_ARGS+=(--no-build) ;;
+        *) UPDATE_ARGS+=("\$arg") ;;
+    esac
+done
+exec bash "\$UPDATE_SCRIPT" "\${UPDATE_ARGS[@]}"
 REDEPLOY
 chmod +x /usr/local/bin/gyds-redeploy
 log "Redeploy helper installed: run 'gyds-redeploy' to update"
