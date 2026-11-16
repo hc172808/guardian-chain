@@ -13,7 +13,7 @@
 #
 #  Optional env overrides:
 #    NODE_TYPE=fullnode            default; also: litenode, rpc
-#    REPO_URL=https://...          override the canonical fullnode source repo
+#    SRC_DIR=/path/to/node-fixes/fullnode  override the bundled local source
 #    GYDS_BOOTSTRAP_NODES=host:30303[,host:30303...]
 #    CHAIN_ID=198282                mainnet; testnet=198281
 #    Validator setup remains on scripts/setup-validator-node.sh until the
@@ -37,9 +37,16 @@ CHAIN_ID="${CHAIN_ID:-198282}"
 BLOCK_TIME="${BLOCK_TIME:-120}"
 BOOTSTRAP_NODES="${GYDS_BOOTSTRAP_NODES:-}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="${REPO_DIR:-/opt/gyds-fullnode}"
-SRC_DIR="${SRC_DIR:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/fullnode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
+SRC_DIR="${SRC_DIR:-${PROJECT_ROOT}/node-fixes/fullnode}"
 DATA_DIR="${GYDS_DATA_DIR:-${GYDS_HOME}/data-fullnode}"
 
 DASHBOARD_DIR="${DASHBOARD_DIR:-/var/www/gydschain}"
@@ -120,30 +127,14 @@ else
 fi
 export PATH="/usr/local/go/bin:${PATH}"
 
-# ── Step 3: Source code ───────────────────────────────────────────────────────
+# ── Step 3: Local source code ─────────────────────────────────────────────────
 step "3/8  Source code"
-if [[ -z "$SRC_DIR" ]]; then
-  if [[ -d "${REPO_DIR}/.git" ]]; then
-    ORIGIN_URL="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)"
-    if [[ -z "$ORIGIN_URL" || "${ORIGIN_URL%.git}" != "${REPO_URL%.git}" ]]; then
-      err "Existing checkout at ${REPO_DIR} does not match ${REPO_URL}; refusing to build from another repository."
-      exit 1
-    fi
-    log "Canonical repo exists at ${REPO_DIR} — fast-forwarding main..."
-    git -C "${REPO_DIR}" pull --ff-only origin main
-  else
-    log "Cloning canonical fullnode source from ${REPO_URL}..."
-    git clone --depth=1 --branch main "${REPO_URL}" "${REPO_DIR}"
-  fi
-  SRC_DIR="$REPO_DIR"
-fi
-
-if [[ ! -f "${SRC_DIR}/go.mod" ]] || ! grep -Eq '^module[[:space:]]+github\.com/gydschain/fullnode([[:space:]]|$)' "${SRC_DIR}/go.mod"; then
-  err "Expected the canonical module github.com/gydschain/fullnode at ${SRC_DIR}."
-  err "Set SRC_DIR only to a checkout of https://github.com/hc172808/fullnode.git."
+if [[ ! -f "${SRC_DIR}/go.mod" ]] || ! grep -Fqx 'module github.com/gydschain/fullnode' "${SRC_DIR}/go.mod"; then
+  err "Expected the bundled local module github.com/gydschain/fullnode at ${SRC_DIR}."
+  err "Set PROJECT_ROOT to the checked-out project or SRC_DIR to node-fixes/fullnode."
   exit 1
 fi
-log "Source: ${SRC_DIR}"
+log "Local source: ${SRC_DIR}"
 if [[ "$NODE_MODE" != "rpc" && -z "$BOOTSTRAP_NODES" ]]; then
   warn "No bootstrap peers configured. The node will run isolated until GYDS_BOOTSTRAP_NODES is set."
 fi

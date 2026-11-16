@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Validator Node Installer
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Source:   local node-fixes/validatornode bundle
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
 #  Chain ID: 198282  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      sudo bash install-validatornode.sh [--domain validator.netlifegy.com]
@@ -11,6 +11,16 @@
 #              means losing your stake and validator identity.
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/validatornode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
 
 # ── Load shared config (written by deploy-dashboard.sh — all values skippable) ─
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
@@ -39,8 +49,7 @@ STAKE_AMOUNT="${GYDS_STAKE_AMOUNT:-10000}"
 UPSTREAM_RPC="${GYDS_UPSTREAM_RPC:-https://rpc.netlifegy.com}"
 DOMAIN="${DOMAIN:-}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-BRANCH="main"
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/validatornode}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -52,7 +61,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  GYDSchain VALIDATOR NODE Installer v${GYDS_VERSION}               ║"
 echo "║  Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║  Repo: github.com/hc172808/fullnode                            ║"
+echo "║  Source: local node-fixes/validatornode                        ║"
 echo "║  Stake required: ${STAKE_AMOUNT} GYDS                              ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -135,20 +144,15 @@ if [[ "$CURRENT_GO" != "$GO_VERSION" ]]; then
 fi
 log "    $(go version)"
 
-# ── Clone / update repo ───────────────────────────────────────────────────────
-log "[3/8] Fetching source from ${REPO_URL}..."
-if [[ -d "$APP_DIR/.git" ]]; then
-  log "    Existing install found — pulling latest..."
-  git -C "$APP_DIR" fetch origin "$BRANCH"
-  git -C "$APP_DIR" reset --hard "origin/$BRANCH"
-else
-  git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
-fi
-[[ -f "$APP_DIR/go.mod" ]] || die "go.mod not found in $APP_DIR — check repo layout"
+# ── Validate bundled local source ─────────────────────────────────────────────
+log "[3/8] Checking local validator source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module github.com/gydschain/validatornode" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 # ── Build binary ──────────────────────────────────────────────────────────────
 log "[4/8] Building $BINARY..."
-( cd "$APP_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" \
     -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
@@ -368,7 +372,7 @@ echo "  Service        : gyds-validatornode.service"
 echo "  Data           : ${DATA_DIR}"
 echo "  Validator key  : ${KEY_FILE}  ← BACK THIS UP!"
 echo "  Logs           : ${LOG_DIR}/validatornode.log"
-echo "  Repo           : ${REPO_URL}"
+echo "  Source         : ${NODE_SOURCE_DIR}"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  STAKING"

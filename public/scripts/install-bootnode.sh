@@ -40,10 +40,15 @@ PUBLIC_ADDR="${PUBLIC_ADDR:-}"           # e.g. bootnode1.netlifegy.com:30303
 BOOTSTRAP_PEERS="${BOOTSTRAP_PEERS:-}"   # comma-separated host:port list
 GENESIS_HASH="${GYDS_GENESIS_HASH:-}"
 
-# Source location: all supported node modes are built from the canonical repo.
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="${REPO_DIR:-/opt/gyds-fullnode}"
-SRC_DIR="${SRC_DIR:-}"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../public/blockchain-go/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
+SRC_DIR="${SRC_DIR:-${PROJECT_ROOT}/public/blockchain-go}"
 
 GO_VERSION="${GO_VERSION:-1.25.0}"
 
@@ -109,35 +114,27 @@ chown -R "${GYDS_USER}:${GYDS_USER}" "${GYDS_HOME}" "${LOG_DIR}"
 chmod 750 "${BOOTNODE_DIR}"
 
 # ---------------------- 4. Build the binary ----------------------
-if [[ -z "${SRC_DIR}" || ! -d "${SRC_DIR}" ]]; then
-  warn "SRC_DIR not set — cloning from ${REPO_URL}..."
-  if [[ -d "${REPO_DIR}/.git" ]]; then
-    log "Repo already exists at ${REPO_DIR} — pulling latest..."
-    git -C "${REPO_DIR}" pull --ff-only
-  else
-    git clone --depth=1 "${REPO_URL}" "${REPO_DIR}"
-  fi
-  SRC_DIR="${REPO_DIR}"
-fi
-
 if [[ ! -d "${SRC_DIR}" ]]; then
   err "Source not found at ${SRC_DIR}"
-  err "Example: SRC_DIR=/opt/gyds-fullnode sudo -E bash $0"
+  err "Set PROJECT_ROOT to a checked-out project or SRC_DIR to its local public/blockchain-go directory."
   exit 1
 fi
 
 if [[ ! -d "${SRC_DIR}/cmd/bootnode" ]]; then
-  err "bootnode mode is not implemented in fullnode.git yet."
-  err "This installer intentionally stops rather than using a different node repository."
+  err "Local ChainCore source is missing cmd/bootnode."
   exit 1
 fi
+grep -Fqx "module chaincore" "${SRC_DIR}/go.mod" || {
+  err "Unexpected module in ${SRC_DIR}/go.mod; refusing to build another node source."
+  exit 1
+}
 
 log "Building gyds-bootnode from ${SRC_DIR}..."
 BUILD_TMP="$(mktemp -d)"
 cp -r "${SRC_DIR}" "${BUILD_TMP}/blockchain-go"
 pushd "${BUILD_TMP}/blockchain-go" >/dev/null
 sudo -u "${GYDS_USER}" -H env HOME="${GYDS_HOME}" PATH="$PATH" \
-  go build -ldflags "-s -w" -o "${BUILD_TMP}/gyds-bootnode" ./cmd/bootnode
+  sh -c 'cd "$1" && go mod download && go build -ldflags "-s -w" -o "$2" ./cmd/bootnode' sh "${SRC_DIR}" "${BUILD_TMP}/gyds-bootnode"
 popd >/dev/null
 
 install -m 0755 -o root -g root "${BUILD_TMP}/gyds-bootnode" "${BIN_PATH}"

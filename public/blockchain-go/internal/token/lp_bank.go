@@ -20,8 +20,8 @@ type LPDeposit struct {
 	TokenID        string    `json:"tokenId"`
 	GYDSAmount     *big.Int  `json:"gydsAmount"`
 	TokenAmount    *big.Int  `json:"tokenAmount"`
-	IsBurned       bool      `json:"isBurned"`       // If true, LP is permanently locked (burned)
-	UnlockTime     time.Time `json:"unlockTime"`     // Only relevant if not burned
+	IsBurned       bool      `json:"isBurned"`   // If true, LP is permanently locked (burned)
+	UnlockTime     time.Time `json:"unlockTime"` // Only relevant if not burned
 	DepositedAt    time.Time `json:"depositedAt"`
 	TotalLPTokens  *big.Int  `json:"totalLpTokens"`  // LP tokens minted
 	BurnedLPTokens *big.Int  `json:"burnedLpTokens"` // LP tokens burned (should equal total if burned)
@@ -125,12 +125,12 @@ func (lpb *LiquidityPoolBank) GetLockStatus(tokenID string) (*LPLockStatus, erro
 	}
 
 	status := &LPLockStatus{
-		TokenID:       tokenID,
-		IsBurned:      deposit.IsBurned,
-		IsLocked:      true,
-		GYDSLiquidity: deposit.GYDSAmount,
+		TokenID:        tokenID,
+		IsBurned:       deposit.IsBurned,
+		IsLocked:       true,
+		GYDSLiquidity:  deposit.GYDSAmount,
 		TokenLiquidity: deposit.TokenAmount,
-		DepositedAt:   deposit.DepositedAt,
+		DepositedAt:    deposit.DepositedAt,
 	}
 
 	if deposit.IsBurned {

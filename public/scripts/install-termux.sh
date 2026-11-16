@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Mobile (Termux/Android) Lite Node Installer
-#  Builds the canonical gyds-fullnode binary in lite mode from fullnode.git.
+#  Builds the bundled local node-fixes/litenode source.
 #  Run inside Termux on Android:  bash install-termux.sh
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -20,9 +20,16 @@ WALLET="$GYDS_HOME/wallet"
 
 EXPLORER_URL="https://explorer.netlifegy.com"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="${REPO_DIR:-$GYDS_HOME/fullnode-repo}"
-SRC_DIR="${SRC_DIR:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/litenode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
+SRC_DIR="${SRC_DIR:-${PROJECT_ROOT}/node-fixes/litenode}"
 
 case "$CHAIN_ID" in
   198282) NETWORK="mainnet" ;;
@@ -46,8 +53,8 @@ echo "╚═══════════════════════�
 # ─── 1. Termux packages ────────────────────────────────────────────
 echo "📦 [1/6] Installing Termux packages..."
 pkg update -y
-pkg install -y golang git curl jq openssl openssl-tool nodejs tmux build-essential
-for b in go git curl jq openssl tmux; do
+pkg install -y golang curl jq openssl openssl-tool nodejs tmux build-essential
+for b in go curl jq openssl tmux; do
   command -v "$b" >/dev/null || { echo "❌ Missing $b after install"; exit 1; }
 done
 echo "    $(go version)"
@@ -60,40 +67,24 @@ if [[ -d "$GYDS_HOME/data" && "$DATA" != "$GYDS_HOME/data" ]]; then
   echo "⚠️  Legacy data at $GYDS_HOME/data is untouched; canonical node data will sync in $DATA."
 fi
 
-# ─── 3. Canonical source ──────────────────────────────────────────
-if [[ -z "$SRC_DIR" ]]; then
-  echo "🌐 [3/6] Getting canonical fullnode source from GitHub..."
-  if [[ -d "$REPO_DIR/.git" ]]; then
-    ORIGIN_URL="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)"
-    if [[ -z "$ORIGIN_URL" || "${ORIGIN_URL%.git}" != "${REPO_URL%.git}" ]]; then
-      echo "❌ Existing checkout at $REPO_DIR does not match $REPO_URL" >&2
-      exit 1
-    fi
-    git -C "$REPO_DIR" pull --ff-only origin main
-  else
-    git clone --depth=1 --branch main "$REPO_URL" "$REPO_DIR"
-  fi
-  SRC_DIR="$REPO_DIR"
-else
-  echo "📁 [3/6] Using local source: $SRC_DIR"
-fi
-if [[ ! -f "$SRC_DIR/go.mod" ]] || ! grep -Eq '^module[[:space:]]+github\.com/gydschain/fullnode([[:space:]]|$)' "$SRC_DIR/go.mod"; then
-  echo "❌ Expected canonical module github.com/gydschain/fullnode at $SRC_DIR" >&2
+# ─── 3. Local source ───────────────────────────────────────────────
+echo "📁 [3/6] Using bundled local source: $SRC_DIR"
+if [[ ! -f "$SRC_DIR/go.mod" ]] || ! grep -Fqx 'module github.com/gydschain/litenode' "$SRC_DIR/go.mod"; then
+  echo "❌ Expected bundled module github.com/gydschain/litenode at $SRC_DIR" >&2
   exit 1
 fi
 
-# ─── 4. Build canonical node binary ────────────────────────────────
-echo "🔨 [4/6] Building canonical node in lite mode (this can take a few minutes on phone)..."
+# ─── 4. Build local lite node binary ────────────────────────────────
+echo "🔨 [4/6] Building the local lite node (this can take a few minutes on phone)..."
 BUILD_TMP="$(mktemp -d)"
 trap 'rm -rf "${BUILD_TMP:-}"' EXIT
 ( cd "$SRC_DIR" && GOTOOLCHAIN=auto go mod download && \
   GOTOOLCHAIN=auto go build -ldflags "-s -w -X main.version=${GYDS_VERSION}" \
-    -o "$BUILD_TMP/gyds-fullnode" . )
-install -m 0755 "$BUILD_TMP/gyds-fullnode" "$BIN/gyds-fullnode"
-ln -sfn gyds-fullnode "$BIN/gyds-litenode"
+    -o "$BUILD_TMP/gyds-litenode" . )
+install -m 0755 "$BUILD_TMP/gyds-litenode" "$BIN/gyds-litenode"
 rm -rf "$BUILD_TMP"
 trap - EXIT
-echo "    Built: $BIN/gyds-fullnode (GYDS_NODE_MODE=lite)"
+echo "    Built: $BIN/gyds-litenode"
 
 # ─── 5. Wallet ─────────────────────────────────────────────────────
 echo "🔑 [5/6] Generating wallet..."
@@ -126,6 +117,10 @@ GYDS_BOOTSTRAP_NODES=$BOOTSTRAP_NODES
 GYDS_LOG_FORMAT=json
 WALLET_FILE=$KEYFILE
 EXPLORER_URL=$EXPLORER_URL
+LITE_DATADIR=$DATA
+LITE_RPC_PORT=$RPC_PORT
+LITE_RPC_ENDPOINTS=${GYDS_LITE_RPC_ENDPOINTS:-https://rpc.netlifegy.com}
+LITE_LOG_LEVEL=info
 EOF
 
 cat > "$HOME/start-gyds.sh" <<EOF
@@ -139,7 +134,7 @@ if [[ -z "\${GYDS_BOOTSTRAP_NODES:-}" ]]; then
     exit 1
 fi
 mkdir -p "$LOGS"
-nohup "$BIN/gyds-fullnode" start \\
+nohup "$BIN/gyds-litenode" \\
     > "$LOGS/node.log" 2>&1 &
 echo \$! > "$GYDS_HOME/pid.node"
 echo "✅ Lite node started (PID: \$(cat "$GYDS_HOME/pid.node"))"

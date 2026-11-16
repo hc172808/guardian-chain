@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Server, Globe, Smartphone, Network, Copy, Check, Terminal, Container, Download, Zap, CheckCircle2, Loader2, PlusCircle, Blocks, Shield, AlertTriangle } from 'lucide-react';
+import { Server, Globe, Smartphone, Network, Copy, Check, Terminal, Zap, CheckCircle2, Loader2, PlusCircle, Blocks, Shield, AlertTriangle } from 'lucide-react';
 
 type NodeType = 'genesis' | 'bootnode' | 'fullnode' | 'litenode' | 'rpcnode' | 'boostnode' | 'validatornode' | 'termux';
 
@@ -18,8 +18,6 @@ interface NodeOption {
   icon: typeof Server;
   ports: string;
   needsRoot: boolean;
-  repo: string;
-  portainerStack: string;
   founderOnly?: boolean;
 }
 
@@ -31,8 +29,6 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Blocks,
     ports: '8544 (rpc), 30300 (p2p)',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/genesis.git',
-    portainerStack: 'portainer-genesis.yml',
     founderOnly: true,
   },
   {
@@ -42,8 +38,6 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Network,
     ports: '30303 tcp+udp',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/bootnode.git',
-    portainerStack: 'portainer-fullnode.yml',
   },
   {
     id: 'fullnode',
@@ -52,8 +46,6 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Server,
     ports: '8546, 30303',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/fullnode.git',
-    portainerStack: 'portainer-fullnode.yml',
   },
   {
     id: 'rpcnode',
@@ -62,8 +54,6 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Globe,
     ports: '8545, 8546, 8080',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/rpcnode.git',
-    portainerStack: 'portainer-rpcnode.yml',
   },
   {
     id: 'validatornode',
@@ -72,8 +62,6 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Shield,
     ports: '8547, 8548, 30306',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/validatornode.git',
-    portainerStack: 'portainer-validatornode.yml',
   },
   {
     id: 'litenode',
@@ -82,8 +70,6 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Server,
     ports: '3030 (api)',
     needsRoot: false,
-    repo: 'https://github.com/hc172808/litenode.git',
-    portainerStack: 'portainer-litenode.yml',
   },
   {
     id: 'boostnode',
@@ -92,8 +78,6 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Zap,
     ports: '8547, 30304',
     needsRoot: true,
-    repo: 'https://github.com/hc172808/boostnode.git',
-    portainerStack: 'portainer-boostnode.yml',
   },
   {
     id: 'termux',
@@ -102,8 +86,6 @@ const NODE_OPTIONS: NodeOption[] = [
     icon: Smartphone,
     ports: 'n/a',
     needsRoot: false,
-    repo: 'https://github.com/hc172808/litenode.git',
-    portainerStack: '',
   },
 ];
 
@@ -118,14 +100,11 @@ const INSTALL_SCRIPTS: Record<NodeType, string> = {
   termux:        'install-termux.sh',
 };
 
-type InstallMode = 'bash' | 'docker' | 'portainer';
-
 export function NodeInstaller() {
   const [selected, setSelected] = useState<Record<NodeType, boolean>>({
     genesis: false, bootnode: false, fullnode: false, litenode: false,
     rpcnode: false, boostnode: false, validatornode: false, termux: false,
   });
-  const [mode, setMode] = useState<InstallMode>('bash');
   const [enableMining, setEnableMining]   = useState(true);
   const [blockTime, setBlockTime]         = useState('120');
   const [wgEndpoint, setWgEndpoint]       = useState('vpn.netlifegy.com:51820');
@@ -146,81 +125,41 @@ export function NodeInstaller() {
   const toggle = (id: NodeType) =>
     setSelected((s) => ({ ...s, [id]: !s[id] }));
 
-  // Scripts are served directly from the dashboard at /scripts/
-  // Also available from GitHub raw if you push the repo
+  // Installer scripts are served by the dashboard; node source comes from the local checkout.
   const dashboardOrigin = window.location.origin;
   const scriptBaseUrl = `${dashboardOrigin}/scripts/`;
-  const githubRawBase = 'https://raw.githubusercontent.com/hc172808/netlifegy.com/main/public/scripts/';
 
   const buildBashCommand = (): string => {
-    const lines: string[] = ['# GYDSchain Node Installer — paste this on your Ubuntu 22.04 server', 'set -euo pipefail', ''];
+    const lines: string[] = [
+      '# GYDSchain local node installers — run from a checked-out project directory',
+      'set -euo pipefail',
+      'PROJECT_ROOT="${PROJECT_ROOT:-$PWD}"',
+      'export PROJECT_ROOT',
+      '',
+    ];
     selectedNodes.forEach(n => {
-      if (n.id === 'termux') return;
       lines.push(`# ── Install ${n.label}`);
-      lines.push(`# Option A (from this dashboard):`);
-      lines.push(`curl -fsSL ${scriptBaseUrl}${INSTALL_SCRIPTS[n.id]} | \\`);
+      if (n.id === 'termux') {
+        lines.push(`# Requires a local project checkout on the Android device.`);
+        lines.push(`PROJECT_ROOT="$PROJECT_ROOT" bash "$PROJECT_ROOT/public/scripts/install-termux.sh"`);
+        lines.push('');
+        return;
+      }
+      lines.push(`curl -fsSL ${scriptBaseUrl}${INSTALL_SCRIPTS[n.id]} -o /tmp/${INSTALL_SCRIPTS[n.id]}`);
+      const envCommand = n.needsRoot ? 'sudo env' : 'env';
       if (n.id === 'genesis') {
-        lines.push(`  CHAIN_ID=198282 STORAGE_SIZE=500 \\`);
-        if (genesisBootstrap) lines.push(`  BOOTSTRAP_PEERS="${genesisBootstrap}" \\`);
+        lines.push(`${envCommand} PROJECT_ROOT="$PROJECT_ROOT" CHAIN_ID=198282 STORAGE_SIZE=500 bash /tmp/${INSTALL_SCRIPTS[n.id]}`);
       } else {
-        lines.push(`  BLOCK_TIME=${blockTime} ENABLE_MINING=${enableMining} \\`);
-        lines.push(`  WG_SERVER_ENDPOINT=${wgEndpoint} \\`);
+        lines.push(`${envCommand} PROJECT_ROOT="$PROJECT_ROOT" BLOCK_TIME=${blockTime} ENABLE_MINING=${enableMining} WG_SERVER_ENDPOINT=${wgEndpoint} \\`);
         if (genesisBootstrap && (n.id === 'fullnode' || n.id === 'validatornode' || n.id === 'bootnode')) {
           lines.push(`  GYDS_BOOTSTRAP_NODES="${genesisBootstrap}" \\`);
         }
+        lines.push(`  bash /tmp/${INSTALL_SCRIPTS[n.id]}`);
       }
-      lines.push(`  ${n.needsRoot ? 'sudo ' : ''}bash`);
-      lines.push('');
-      lines.push(`# Option B (from GitHub raw):`);
-      lines.push(`curl -fsSL ${githubRawBase}${INSTALL_SCRIPTS[n.id]} | ${n.needsRoot ? 'sudo ' : ''}bash`);
+      lines.push(`rm -f /tmp/${INSTALL_SCRIPTS[n.id]}`);
       lines.push('');
     });
-    if (selected.termux) {
-      lines.push('# ── Mobile / Termux (run inside Termux on Android):');
-      lines.push(`curl -fsSL ${scriptBaseUrl}install-termux.sh | bash`);
-    }
     return lines.join('\n');
-  };
-
-  const buildDockerCommand = (): string => {
-    return selectedNodes
-      .filter(n => n.id !== 'termux')
-      .map(n => [
-        `# ── ${n.label}`,
-        `git clone ${n.repo} gyds-${n.id} && cd gyds-${n.id}`,
-        `docker build -t gyds-${n.id}:latest . \\`,
-        `  --build-arg CHAIN_ID=198282 \\`,
-        `  --build-arg ENABLE_MINING=${enableMining}`,
-        `docker run -d --name gyds-${n.id} \\`,
-        `  --cap-add NET_ADMIN \\`,
-        `  -e WG_SERVER_ENDPOINT=${wgEndpoint} \\`,
-        n.id !== 'genesis' && genesisBootstrap ? `  -e GYDS_BOOTSTRAP_NODES="${genesisBootstrap}" \\` : '',
-        `  -v gyds-${n.id}-data:/var/lib/gydschain \\`,
-        `  --restart unless-stopped \\`,
-        `  gyds-${n.id}:latest`,
-        '',
-      ].filter(Boolean).join('\n'))
-      .join('\n');
-  };
-
-  const getPortainerStackUrl = (): string => {
-    const stacks = [...new Set(selectedNodes.filter(n => n.portainerStack).map(n => n.portainerStack))];
-    const base = `${dashboardOrigin}/docker/`;
-    return stacks.map(s => `${base}${s}`).join('\n');
-  };
-
-  const getWgConfigTemplate = (): string => {
-    return `[Interface]
-PrivateKey = YOUR_PRIVATE_KEY_HERE
-Address = 10.0.0.X/32
-DNS = 1.1.1.1
-MTU = 1420
-
-[Peer]
-PublicKey = SERVER_PUBLIC_KEY_HERE
-Endpoint = ${wgEndpoint}
-AllowedIPs = 10.0.0.0/24
-PersistentKeepalive = 25`;
   };
 
   const copy = (text: string, label: string) => {
@@ -228,17 +167,6 @@ PersistentKeepalive = 25`;
     setCopied(label);
     toast({ title: 'Copied to clipboard', description: `${label} copied. Paste into your server terminal.` });
     setTimeout(() => setCopied(null), 2000);
-  };
-
-  const downloadFile = (content: string, filename: string) => {
-    const blob = new Blob([content], { type: 'text/yaml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: 'Downloaded', description: `${filename} saved` });
   };
 
   const registerNodes = async () => {
@@ -332,7 +260,6 @@ PersistentKeepalive = 25`;
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">{opt.desc}</p>
                     <p className="text-xs text-muted-foreground mt-1">Ports: {opt.ports}</p>
-                    <p className="text-xs text-primary/60 mt-1 truncate">{opt.repo.replace('https://github.com/', '')}</p>
                   </div>
                 </div>
               </button>
@@ -341,30 +268,11 @@ PersistentKeepalive = 25`;
         </div>
       </GlassCard>
 
-      {/* Install mode selector */}
+      {/* Local source policy and node settings */}
       <GlassCard className="p-6 space-y-4">
-        <h4 className="font-medium">Install Method</h4>
-        <div className="flex flex-wrap gap-3">
-          {([
-            { id: 'bash',      icon: Terminal,  label: 'Bash Script',       desc: 'Ubuntu 22.04 — direct on host' },
-            { id: 'docker',    icon: Container, label: 'Docker CLI',         desc: 'Run in Docker containers' },
-            { id: 'portainer', icon: Server,    label: 'Portainer Stack',    desc: 'Import YAML in Portainer UI' },
-          ] as const).map(m => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setMode(m.id)}
-              className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
-                mode === m.id ? 'border-primary bg-primary/10' : 'border-border bg-secondary/20 hover:border-primary/30'
-              }`}
-            >
-              <m.icon className={`h-5 w-5 ${mode === m.id ? 'text-primary' : 'text-muted-foreground'}`} />
-              <div>
-                <p className="font-medium text-sm">{m.label}</p>
-                <p className="text-xs text-muted-foreground">{m.desc}</p>
-              </div>
-            </button>
-          ))}
+        <h4 className="font-medium">Local node source</h4>
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground" data-testid="notice-local-node-source">
+          Installers build from the node source bundled in this project. Run the command from a project checkout after pulling updates; no separate node repository is fetched. Docker and Portainer installers are paused until their bundles are rebuilt locally. Review <code>nodes-requirements.md</code> before using these sources on a public network.
         </div>
 
         {/* Genesis warning */}
@@ -433,114 +341,21 @@ PersistentKeepalive = 25`;
 
       {anySelected && (
         <>
-          {/* Bash mode */}
-          {mode === 'bash' && (
-            <GlassCard className="p-6 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium flex items-center gap-2">
-                  <Terminal className="h-4 w-4" />
-                  Bash install command
-                </h4>
-                <CopyBtn text={buildBashCommand()} label="Bash command" />
-              </div>
-              <pre className="text-xs bg-black/40 p-4 rounded overflow-x-auto whitespace-pre-wrap">
-                {buildBashCommand()}
-              </pre>
-              <p className="text-xs text-muted-foreground border-t border-border/50 pt-2">
-                Each script installs Go 1.22, builds the binary, creates a system user, configures ufw + fail2ban, and starts a systemd service that auto-restarts.
-              </p>
-            </GlassCard>
-          )}
-
-          {/* Docker mode */}
-          {mode === 'docker' && (
-            <GlassCard className="p-6 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium flex items-center gap-2">
-                  <Container className="h-4 w-4" />
-                  Docker CLI commands
-                </h4>
-                <CopyBtn text={buildDockerCommand()} label="Docker commands" />
-              </div>
-              <pre className="text-xs bg-black/40 p-4 rounded overflow-x-auto whitespace-pre-wrap">
-                {buildDockerCommand()}
-              </pre>
-            </GlassCard>
-          )}
-
-          {/* Portainer mode */}
-          {mode === 'portainer' && (
-            <div className="space-y-4">
-              <GlassCard className="p-6 space-y-3">
-                <h4 className="font-medium flex items-center gap-2">
-                  <Server className="h-4 w-4" />
-                  Portainer Stack Files
-                </h4>
-                <p className="text-sm text-muted-foreground">
-                  In Portainer: <strong>Stacks → Add stack → Upload</strong> or paste the URL.
-                  Each stack includes a WireGuard VPN client that connects back to your VPN server.
-                </p>
-                <div className="space-y-2">
-                  {[...new Set(selectedNodes.filter(n => n.portainerStack).map(n => n.portainerStack))].map(stack => {
-                    const node = selectedNodes.find(n => n.portainerStack === stack)!;
-                    return (
-                      <div key={stack} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
-                        <div>
-                          <p className="font-medium text-sm">{stack}</p>
-                          <p className="text-xs text-muted-foreground">{node.label} + WireGuard VPN client</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-2"
-                            onClick={() => copy(`${dashboardOrigin}/docker/${stack}`, `URL ${stack}`)}
-                          >
-                            <Copy className="h-3 w-3" /> URL
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-2"
-                            onClick={async () => {
-                              const res = await fetch(`/docker/${stack}`).catch(() => null);
-                              const text = res?.ok ? await res.text() : `# Download from:\n${dashboardOrigin}/docker/${stack}`;
-                              downloadFile(text, stack);
-                            }}
-                          >
-                            <Download className="h-3 w-3" /> Download
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </GlassCard>
-
-              <GlassCard className="p-6 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Terminal className="h-4 w-4" />
-                    WireGuard Client Config Template
-                  </h4>
-                  <CopyBtn text={getWgConfigTemplate()} label="WG config" />
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Save as <code className="bg-black/30 px-1 rounded">/etc/gydschain/wg-&lt;nodetype&gt;.conf</code> on the host before deploying the stack.
-                </p>
-                <pre className="text-xs bg-black/40 p-4 rounded overflow-x-auto whitespace-pre-wrap">
-                  {getWgConfigTemplate()}
-                </pre>
-                <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t border-border/50">
-                  <p><strong>Steps:</strong></p>
-                  <p>1. <code className="bg-black/30 px-1 rounded">wg genkey | tee privkey | wg pubkey &gt; pubkey</code> — generate keypair</p>
-                  <p>2. Give your public key to the VPN server admin to get assigned an IP + server pubkey</p>
-                  <p>3. Fill in the config and save to the path shown above</p>
-                  <p>4. Deploy the Portainer stack — the WireGuard container will auto-connect</p>
-                </div>
-              </GlassCard>
+          <GlassCard className="p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium flex items-center gap-2">
+                <Terminal className="h-4 w-4" />
+                Bash install command
+              </h4>
+              <CopyBtn text={buildBashCommand()} label="Bash command" />
             </div>
-          )}
+            <pre className="text-xs bg-black/40 p-4 rounded overflow-x-auto whitespace-pre-wrap">
+              {buildBashCommand()}
+            </pre>
+            <p className="text-xs text-muted-foreground border-t border-border/50 pt-2">
+              Run from the local project checkout so each installer can build the bundled source. Root access is requested only for node roles that need it.
+            </p>
+          </GlassCard>
         </>
       )}
 

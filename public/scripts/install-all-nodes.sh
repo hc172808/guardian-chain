@@ -51,11 +51,9 @@ fi
 
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
 
-# Canonical source repo shared by every supported node installer
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="${REPO_DIR:-/opt/gyds-fullnode}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-export REPO_URL REPO_DIR
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+export PROJECT_ROOT
 
 # Validate every selected child's dependencies before fetching or installing.
 for dependency in node-profile.sh; do
@@ -90,26 +88,12 @@ if ! $INSTALL_BOOTNODE && ! $INSTALL_FULLNODE && ! $INSTALL_LITENODE && ! $INSTA
   exit 1
 fi
 
-# Clone the canonical source once so the selected installers share the same revision
-if [[ -z "${SRC_DIR:-}" || ! -d "${SRC_DIR:-}" ]]; then
-  echo "⚙  Fullnode source not set — cloning from ${REPO_URL}..."
-  if [[ -d "${REPO_DIR}/.git" ]]; then
-    echo "   Repo exists at ${REPO_DIR} — pulling latest..."
-    git -C "${REPO_DIR}" pull --ff-only
-  else
-    git clone --depth=1 "${REPO_URL}" "${REPO_DIR}"
-  fi
-  export SRC_DIR="${REPO_DIR}"
-fi
-
-[[ -d "${SRC_DIR:-}" ]] || { echo "❌ Source not found at ${REPO_DIR}"; exit 1; }
-
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain Multi-Node Installer                                     ║"
 echo "║   bootnode=${INSTALL_BOOTNODE}  fullnode=${INSTALL_FULLNODE}  litenode=${INSTALL_LITENODE}  rpc=${INSTALL_RPC}            ║"
-echo "║   Source: ${REPO_URL}"
+echo "║   Local project: ${PROJECT_ROOT}"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -129,27 +113,30 @@ run_role() {
 }
 
 if $INSTALL_BOOTNODE; then
-  if $INSTALL_ALL_REQUESTED && [[ ! -d "${SRC_DIR}/cmd/bootnode" ]]; then
-    echo "⚠  Skipping bootnode: ${REPO_URL} does not contain cmd/bootnode yet."
-    echo "   No alternate repository was used. The selected fullnode/lite installs will continue."
+  if [[ ! -d "${PROJECT_ROOT}/public/blockchain-go/cmd/bootnode" ]]; then
+    echo "⚠  Skipping bootnode: local public/blockchain-go/cmd/bootnode is missing."
     BOOTNODE_SKIPPED=true
-    SKIPPED_NODES+=("bootnode: source does not include cmd/bootnode")
+    SKIPPED_NODES+=("bootnode: bundled source is missing")
   else
-    if GYDS_CONF=/dev/null P2P_PORT=30303 run_role "bootnode" "bootnode" bash "$SCRIPT_DIR/install-bootnode.sh"; then
+    if GYDS_CONF=/dev/null PROJECT_ROOT="$PROJECT_ROOT" SRC_DIR="$PROJECT_ROOT/public/blockchain-go" P2P_PORT=30303 \
+      run_role "bootnode" "bootnode" bash "$SCRIPT_DIR/install-bootnode.sh"; then
       BOOTNODE_INSTALLED=true
     fi
   fi
 fi
 
 if $INSTALL_FULLNODE; then
-  if GYDS_CONF=/dev/null NODE_ROLE=full GYDS_P2P_PORT=30304 run_role "fullnode" "fullnode" bash "$SCRIPT_DIR/install-fullnode.sh"; then
+  if GYDS_CONF=/dev/null PROJECT_ROOT="$PROJECT_ROOT" NODE_SOURCE_DIR="$PROJECT_ROOT/node-fixes/fullnode" \
+    NODE_ROLE=full GYDS_P2P_PORT=30304 \
+    run_role "fullnode" "fullnode" bash "$SCRIPT_DIR/install-fullnode.sh"; then
     FULLNODE_INSTALLED=true
   fi
 fi
 
 if $INSTALL_RPC; then
-  if GYDS_CONF=/dev/null NODE_ROLE=rpc GYDS_RPC_DOMAIN='' DOMAIN='' GYDS_RPC_PORT=8547 GYDS_WS_PORT=8548 GYDS_P2P_PORT=30305 ENABLE_MINING=false \
-      run_role "rpc node" "rpc node" bash "$SCRIPT_DIR/install-fullnode.sh"; then
+  if GYDS_CONF=/dev/null PROJECT_ROOT="$PROJECT_ROOT" NODE_SOURCE_DIR="$PROJECT_ROOT/node-fixes/rpcnode" \
+      GYDS_RPC_DOMAIN='' DOMAIN='' GYDS_RPC_PORT=8547 GYDS_WS_PORT=8548 GYDS_P2P_PORT=30305 ENABLE_MINING=false \
+      run_role "rpc node" "rpc node" bash "$SCRIPT_DIR/install-rpcnode.sh"; then
     RPC_INSTALLED=true
   fi
 fi
@@ -166,7 +153,8 @@ if $INSTALL_LITENODE; then
   else
     TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
     echo -e "${GREEN}━━━ Installing litenode for user ${TARGET_USER} (HOME=${TARGET_HOME}) ━━━${NC}"
-    if run_role "litenode" "litenode" sudo -u "$TARGET_USER" -H env GYDS_CONF=/dev/null \
+    if run_role "litenode" "litenode" sudo -u "$TARGET_USER" -H env GYDS_CONF=/dev/null PROJECT_ROOT="$PROJECT_ROOT" \
+        NODE_SOURCE_DIR="$PROJECT_ROOT/node-fixes/litenode" \
         GYDS_BOOTSTRAP_NODES="${GYDS_BOOTSTRAP_NODES:-}" GYDS_ALLOWED_NODES="${GYDS_ALLOWED_NODES:-}" GYDS_PEER_AUTH=true \
         GYDS_RPC_PORT=8549 GYDS_WS_PORT=8550 GYDS_P2P_PORT=30306 \
         bash "$SCRIPT_DIR/install-litenode.sh"; then
@@ -193,7 +181,7 @@ $($BOOTNODE_INSTALLED && echo "    • gyds-bootnode")
 $($FULLNODE_INSTALLED && echo "    • gyds-fullnode")
 $($RPC_INSTALLED      && echo "    • gyds-rpcnode (RPC mode, port 8547)")
 $($LITENODE_INSTALLED && echo "    • gyds-litenode (user systemd, RPC port 8549)")
-$($BOOTNODE_SKIPPED && echo "    • bootnode was skipped (unsupported by the selected source repository)")
+$($BOOTNODE_SKIPPED && echo "    • bootnode was skipped (local source missing)")
 
   Logs:    /var/log/gydschain/   (and ~/.gydschain/logs for litenode)
 EOF

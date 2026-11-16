@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Full Node Installer — FOUNDER ONLY
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Source:   local node-fixes/fullnode or node-fixes/rpcnode bundle
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
 #  Chain ID: 198282  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      sudo bash install-fullnode.sh
@@ -15,6 +15,14 @@ GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 GYDS_SHARED_CONFIG_LOADED=0
 [[ -f "$GYDS_CONF" ]] && GYDS_SHARED_CONFIG_LOADED=1
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/fullnode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
 source "$SCRIPT_DIR/node-profile.sh"
 load_node_profile
 
@@ -25,7 +33,7 @@ case "$NODE_ROLE" in full|rpc) ;; *) echo "Unsupported node role" >&2; exit 1;; 
 SERVICE_NAME="gyds-${NODE_ROLE}node"
 BINARY="$SERVICE_NAME"
 APP_USER="${APP_USER:-gyds}"
-APP_DIR="${NODE_SOURCE_DIR:-/opt/${SERVICE_NAME}}"
+APP_DIR="${APP_DIR:-/opt/${SERVICE_NAME}}"
 DATA_DIR="${GYDS_DATA_DIR:-/var/lib/${SERVICE_NAME}}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
@@ -47,8 +55,13 @@ if [[ -z "$RPC_DOMAIN" && -n "$DOMAIN" ]]; then
   fi
 fi
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-BRANCH="main"
+SOURCE_ROLE="fullnode"
+SOURCE_MODULE="github.com/gydschain/fullnode"
+if [[ "$NODE_ROLE" == "rpc" ]]; then
+  SOURCE_ROLE="rpcnode"
+  SOURCE_MODULE="github.com/gydschain/rpcnode"
+fi
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/${SOURCE_ROLE}}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -60,7 +73,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain FULL NODE Installer v${GYDS_VERSION} — FOUNDER          ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/fullnode                            ║"
+echo "║   Source: local node-fixes/${SOURCE_ROLE}                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -138,20 +151,15 @@ if [[ "$CURRENT_GO" != "$GO_VERSION" ]]; then
 fi
 log "    $(go version)"
 
-# ── Clone / update repo ───────────────────────────────────────────────────────
-log "[3/7] Fetching source from ${REPO_URL}..."
-if [[ -d "$APP_DIR/.git" ]]; then
-  log "    Existing install found — pulling latest..."
-  git -C "$APP_DIR" fetch origin "$BRANCH"
-  git -C "$APP_DIR" merge --ff-only "origin/$BRANCH"
-else
-  git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
-fi
-[[ -f "$APP_DIR/go.mod" ]] || die "go.mod not found in $APP_DIR — check repo layout"
+# ── Validate bundled local source ─────────────────────────────────────────────
+log "[3/7] Checking local ${SOURCE_ROLE} source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module ${SOURCE_MODULE}" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 # ── Build binary ──────────────────────────────────────────────────────────────
 log "[4/7] Building $BINARY..."
-( cd "$APP_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
 rm -f "/tmp/${BINARY}"

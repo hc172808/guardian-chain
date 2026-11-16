@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "bash", "web"]
+modules = ["nodejs-20", "bash", "web", "postgresql-16"]
 [agent]
 expertMode = true
 integrations = ["javascript_database:1.0.0"]
@@ -65,8 +65,13 @@ externalPort = 8080
 exposeLocalhost = true
 
 [[ports]]
-localPort = 8585
+localPort = 8575
 externalPort = 8099
+exposeLocalhost = true
+
+[[ports]]
+localPort = 8585
+externalPort = 8081
 exposeLocalhost = true
 
 [[ports]]
@@ -75,37 +80,32 @@ externalPort = 9000
 exposeLocalhost = true
 
 [[ports]]
-localPort = 8595
-externalPort = 8081
-exposeLocalhost = true
-
-[[ports]]
 localPort = 8600
-externalPort = 5173
-
-[[ports]]
-localPort = 8601
-externalPort = 3002
-
-[[ports]]
-localPort = 8602
-externalPort = 5000
-
-[[ports]]
-localPort = 8603
-externalPort = 3003
-
-[[ports]]
-localPort = 8604
-externalPort = 4200
-
-[[ports]]
-localPort = 8605
 externalPort = 6000
 
 [[ports]]
-localPort = 8606
+localPort = 8601
+externalPort = 5173
+
+[[ports]]
+localPort = 8602
 externalPort = 6800
+
+[[ports]]
+localPort = 8603
+externalPort = 3002
+
+[[ports]]
+localPort = 8604
+externalPort = 3003
+
+[[ports]]
+localPort = 8605
+externalPort = 4200
+
+[[ports]]
+localPort = 8606
+externalPort = 5000
 
 
 

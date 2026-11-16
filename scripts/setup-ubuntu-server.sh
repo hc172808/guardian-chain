@@ -89,12 +89,10 @@ echo ""
 # ─── Locate source dir ───────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-FULLNODE_REPO_URL="${FULLNODE_REPO_URL:-https://github.com/hc172808/fullnode.git}"
-FULLNODE_REPO_DIR="${FULLNODE_REPO_DIR:-/opt/gyds-fullnode}"
 SRC_DIR_OVERRIDE="${SRC_DIR:-}"
-SRC_DIR="${SRC_DIR_OVERRIDE:-$FULLNODE_REPO_DIR}"
+SRC_DIR="${SRC_DIR_OVERRIDE:-$REPO_ROOT/node-fixes/fullnode}"
 BUILD_BINARY=true
-log "Canonical fullnode source path: $SRC_DIR"
+log "Bundled local fullnode source path: $SRC_DIR"
 
 # ═════════════════════════════════════════════════════════════════════════════
 header "Step 1/8 — System Update & Core Packages"
@@ -157,30 +155,11 @@ log "Directories ready: $GYDS_HOME"
 header "Step 4/8 — Build Binary"
 # ═════════════════════════════════════════════════════════════════════════════
 if [[ "$BUILD_BINARY" == "true" ]]; then
-  if [[ -d "$SRC_DIR/.git" ]]; then
-    ORIGIN_URL="$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null || true)"
-    if [[ -z "$ORIGIN_URL" || "${ORIGIN_URL%.git}" != "${FULLNODE_REPO_URL%.git}" ]]; then
-      err "Existing checkout at $SRC_DIR does not match $FULLNODE_REPO_URL."
-      exit 1
-    fi
-    git -C "$SRC_DIR" pull --ff-only origin main
-  elif [[ ! -f "$SRC_DIR/go.mod" ]]; then
-    if [[ -n "$SRC_DIR_OVERRIDE" ]]; then
-      err "SRC_DIR override must be a fullnode.git checkout with go.mod: $SRC_DIR"
-      exit 1
-    fi
-    if [[ -e "$SRC_DIR" ]]; then
-      err "Refusing to clone over the existing non-repository path: $SRC_DIR"
-      exit 1
-    fi
-    git clone --depth=1 --branch main "$FULLNODE_REPO_URL" "$SRC_DIR"
-  fi
-
-  if [[ ! -f "$SRC_DIR/go.mod" ]] || ! grep -Eq '^module[[:space:]]+github\.com/gydschain/fullnode([[:space:]]|$)' "$SRC_DIR/go.mod"; then
-    err "Expected canonical module github.com/gydschain/fullnode at $SRC_DIR."
+  if [[ ! -f "$SRC_DIR/go.mod" ]] || ! grep -Fqx 'module github.com/gydschain/fullnode' "$SRC_DIR/go.mod"; then
+    err "Expected bundled local module github.com/gydschain/fullnode at $SRC_DIR."
     exit 1
   fi
-  info "Building canonical gyds-fullnode from $SRC_DIR ..."
+  info "Building local gyds-fullnode from $SRC_DIR ..."
   BUILD_TMP="$(mktemp -d)"
   trap 'rm -rf "${BUILD_TMP:-}"' EXIT
   cp -r "$SRC_DIR" "$BUILD_TMP/fullnode"
@@ -201,7 +180,7 @@ EOF
   rm -rf "$BUILD_TMP"
   trap - EXIT
   log "Canonical binaries installed to $GYDS_BIN"
-  warn "fullnode.git does not implement bootnode mode; no new gyds-bootnode binary was installed."
+  warn "The local setup flow installs the fullnode only; use install-bootnode.sh for a bootnode."
 else
   err "Canonical node binary build was disabled unexpectedly."
   exit 1

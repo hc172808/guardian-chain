@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Genesis Node Installer — FOUNDER ONLY
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Source:   local node-fixes/genesis bundle
 #  Sets up the genesis/bootstrap node that starts the GYDSchain network.
 #  Target OS: Ubuntu 20.04/22.04/24.04 | Debian 11/12  |  Chain ID 198282
 #  Run:  sudo bash install-genesis.sh
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/genesis/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
 
 # ── Load shared config (written by deploy-dashboard.sh) ───────────────────────
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
@@ -30,8 +40,7 @@ RPC_PORT="${GYDS_RPC_PORT:-8544}"
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 STORAGE_SIZE="${STORAGE_SIZE:-500}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="$APP_DIR"
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/genesis}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
@@ -42,7 +51,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain GENESIS NODE Installer v${GYDS_VERSION} — FOUNDER       ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/fullnode                       ║"
+echo "║   Source: local node-fixes/genesis                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -78,17 +87,14 @@ if [[ "$CURRENT_GO" != "$GO_VERSION" ]]; then
 fi
 log "    $(go version)"
 
-# ─── 3. Clone / build ────────────────────────────────────────────────────────
-log "[3/7] Fetching source from ${REPO_URL}..."
-if [[ -d "$REPO_DIR/.git" ]]; then
-  git -C "$REPO_DIR" fetch origin main && git -C "$REPO_DIR" reset --hard origin/main
-else
-  git clone --depth=1 "$REPO_URL" "$REPO_DIR"
-fi
-[[ -f "$REPO_DIR/go.mod" ]] || die "go.mod not found in $REPO_DIR"
+# ─── 3. Validate local source ─────────────────────────────────────────────────
+log "[3/7] Checking local genesis source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module github.com/gydschain/genesis" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 log "[4/7] Building ${BINARY}..."
-( cd "$REPO_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
 rm -f "/tmp/${BINARY}"

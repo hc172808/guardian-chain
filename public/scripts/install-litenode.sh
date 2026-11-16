@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Lite Node Installer — PUBLIC ACCESS
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Source:   local node-fixes/litenode bundle
 #  OS:       Ubuntu/Debian/CentOS/RHEL/macOS
 #  Chain ID: 198282  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      bash install-litenode.sh   (no sudo required for user-mode)
@@ -13,6 +13,14 @@ GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
 [[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/litenode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
 source "$SCRIPT_DIR/node-profile.sh"
 load_node_profile
 
@@ -33,8 +41,7 @@ P2P_PORT="${GYDS_P2P_PORT:-30303}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="${REPO_DIR:-$HOME/gyds-litenode-src}"
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/litenode}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -46,7 +53,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain LITE NODE Installer v${GYDS_VERSION}                   ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/fullnode                       ║"
+echo "║   Source: local node-fixes/litenode                        ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -126,21 +133,16 @@ fi
 go version || die "Go not found after install"
 log "    $(go version)"
 
-# ── Clone / update repo ───────────────────────────────────────────────────────
-log "[3/6] Fetching source from ${REPO_URL}..."
-if [[ -d "$REPO_DIR/.git" ]]; then
-  log "    Existing source found — pulling latest..."
-  git -C "$REPO_DIR" fetch origin main
-  git -C "$REPO_DIR" merge --ff-only origin/main
-else
-  git clone --depth=1 "$REPO_URL" "$REPO_DIR"
-fi
-[[ -f "$REPO_DIR/go.mod" ]] || die "go.mod not found in $REPO_DIR"
+# ── Validate bundled local source ─────────────────────────────────────────────
+log "[3/6] Checking local litenode source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module github.com/gydschain/litenode" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 # ── Build binary ──────────────────────────────────────────────────────────────
 log "[4/6] Building ${BINARY}..."
 mkdir -p "$GYDS_BIN"
-( cd "$REPO_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" -o "${GYDS_BIN}/${BINARY}" . )
 chmod +x "${GYDS_BIN}/${BINARY}"
 log "    Installed: ${GYDS_BIN}/${BINARY} ($(du -h "${GYDS_BIN}/${BINARY}" | cut -f1))"

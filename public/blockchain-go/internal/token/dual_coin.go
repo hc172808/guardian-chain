@@ -28,10 +28,10 @@ type CoinConfig struct {
 	InitialSupply *big.Int
 
 	// For GYD stablecoin
-	IsPegged     bool
-	PeggedTo     string   // e.g., "USD"
-	PegRatio     *big.Float // 1 GYD = 1 USD by default
-	CustomPrice  *big.Float // If pegging is removed
+	IsPegged    bool
+	PeggedTo    string     // e.g., "USD"
+	PegRatio    *big.Float // 1 GYD = 1 USD by default
+	CustomPrice *big.Float // If pegging is removed
 }
 
 // DualCoinManager manages both GYDS and GYD
@@ -40,8 +40,8 @@ type DualCoinManager struct {
 	gydConfig  CoinConfig
 
 	// GYD price management
-	gydIsPegged   bool
-	gydPegRatio   *big.Float
+	gydIsPegged    bool
+	gydPegRatio    *big.Float
 	gydCustomPrice *big.Float
 
 	// Supply tracking
@@ -51,7 +51,7 @@ type DualCoinManager struct {
 	gydBurned       *big.Int
 
 	// Collateral for GYD (if backed)
-	gydCollateral   *big.Int // Value in USD cents
+	gydCollateral *big.Int // Value in USD cents
 
 	mu sync.RWMutex
 }
@@ -67,7 +67,7 @@ func NewDualCoinManager() *DualCoinManager {
 			InitialSupply: big.NewInt(0),
 			IsPegged:      false,
 		},
-	gydConfig: CoinConfig{
+		gydConfig: CoinConfig{
 			Name:          "GYDchain",
 			Symbol:        "GYD",
 			Decimals:      6,
@@ -282,16 +282,16 @@ func (dcm *DualCoinManager) GetStats() map[string]interface{} {
 			"burned":      dcm.gydsBurned.String(),
 		},
 		"gyd": map[string]interface{}{
-			"name":              dcm.gydConfig.Name,
-			"symbol":            dcm.gydConfig.Symbol,
-			"decimals":          dcm.gydConfig.Decimals,
-			"circulating":       dcm.gydCirculating.String(),
-			"burned":            dcm.gydBurned.String(),
-			"is_pegged":         dcm.gydIsPegged,
-			"peg_ratio":         dcm.gydPegRatio.String(),
-			"custom_price":      dcm.gydCustomPrice.String(),
-			"collateral_usd":    new(big.Float).Quo(new(big.Float).SetInt(dcm.gydCollateral), big.NewFloat(100)).String(),
-			"collateral_ratio":  dcm.GetCollateralRatio().String(),
+			"name":             dcm.gydConfig.Name,
+			"symbol":           dcm.gydConfig.Symbol,
+			"decimals":         dcm.gydConfig.Decimals,
+			"circulating":      dcm.gydCirculating.String(),
+			"burned":           dcm.gydBurned.String(),
+			"is_pegged":        dcm.gydIsPegged,
+			"peg_ratio":        dcm.gydPegRatio.String(),
+			"custom_price":     dcm.gydCustomPrice.String(),
+			"collateral_usd":   new(big.Float).Quo(new(big.Float).SetInt(dcm.gydCollateral), big.NewFloat(100)).String(),
+			"collateral_ratio": dcm.GetCollateralRatio().String(),
 		},
 	}
 }

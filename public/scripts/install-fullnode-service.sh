@@ -10,14 +10,21 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly REPO_URL="https://github.com/hc172808/fullnode.git"
-readonly BRANCH="main"
 readonly SERVICE_NAME="gyds-fullnode"
 readonly ENV_FILE="/etc/gyds-fullnode.env"
 readonly BACKUP_ROOT="${GYDS_BACKUP_DIR:-/var/backups/gyds-fullnode}"
 readonly LOCK_FILE="/run/lock/gyds-fullnode-install.lock"
 
-APP_DIR="${GYDS_APP_DIR:-/opt/gyds-fullnode}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/fullnode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
+APP_DIR="${GYDS_NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/fullnode}"
 BIN_DIR="${GYDS_BIN:-/usr/local/bin}"
 DATA_DIR_OVERRIDE="${GYDS_DATA_DIR:-}"
 SERVICE_USER="${GYDS_SERVICE_USER:-gyds}"
@@ -30,21 +37,20 @@ die()  { printf '[GYDS installer] ERROR: %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-Install or safely update the canonical GYDS Go fullnode service.
+Build and safely install the locally bundled GYDS Go fullnode.
 
 Options:
-  --app-dir PATH     Canonical source checkout (default: /opt/gyds-fullnode)
+  --app-dir PATH     Local source directory (default: node-fixes/fullnode)
   --bin-dir PATH     Binary directory for a new service (default: /usr/local/bin)
   --data-dir PATH    Chain data directory for a new service
   --dry-run          Print the scope without changing the system
   -h, --help         Show this help
 
 Environment overrides:
-  GYDS_APP_DIR, GYDS_BIN, GYDS_DATA_DIR, GYDS_SERVICE_USER,
+  PROJECT_ROOT, GYDS_NODE_SOURCE_DIR, GYDS_BIN, GYDS_DATA_DIR, GYDS_SERVICE_USER,
   GYDS_HEALTH_TIMEOUT, GYDS_BOOTSTRAP_NODES
 
-The installer fast-forwards only from https://github.com/hc172808/fullnode.git.
-It refuses dirty source checkouts and never resets local source changes.
+Source is read from the local project bundle; no node repository is cloned or fetched.
 Existing systemd settings and chain data are left in place. For a new service,
 RPC and dashboard bind to 127.0.0.1 by default. A temporary build-worktree
 hardening call is used if upstream full-node code does not bind locally.
@@ -84,7 +90,7 @@ while (($#)); do
 done
 
 if ((DRY_RUN)); then
-  log "Would install/update only the Go fullnode from $REPO_URL (branch $BRANCH)."
+  log "Would build/install the Go fullnode from local source $APP_DIR."
   log "Would leave the dashboard application, database, existing service settings, and chain data alone."
   log "New-service RPC/dashboard listeners bind to localhost; existing listener bindings are preserved."
   log "Would not change firewall rules or create a public RPC listener."
@@ -116,14 +122,7 @@ BACKUP_BINARY=""
 BINARY_PATH=""
 SERVICE_GROUP=""
 
-git_app() {
-  git -c "safe.directory=$APP_DIR" -C "$APP_DIR" "$@"
-}
-
 cleanup() {
-  if [[ -n "$BUILD_SOURCE" && -d "$BUILD_SOURCE" && -d "$APP_DIR/.git" ]]; then
-    git_app worktree remove --force "$BUILD_SOURCE" >/dev/null 2>&1 || true
-  fi
   if [[ -n "$STAGED_BINARY" ]]; then
     rm -f -- "$STAGED_BINARY"
   fi
@@ -145,13 +144,13 @@ install_system_packages() {
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
       apt-get install -y --no-install-recommends \
-        build-essential ca-certificates curl git python3 tar util-linux
+        build-essential ca-certificates curl python3 tar util-linux
       ;;
     rhel|centos|rocky|almalinux|fedora)
       if command -v dnf >/dev/null 2>&1; then
-        dnf install -y gcc gcc-c++ make ca-certificates curl git python3 tar util-linux
+        dnf install -y gcc gcc-c++ make ca-certificates curl python3 tar util-linux
       elif command -v yum >/dev/null 2>&1; then
-        yum install -y gcc gcc-c++ make ca-certificates curl git python3 tar util-linux
+        yum install -y gcc gcc-c++ make ca-certificates curl python3 tar util-linux
       else
         die "Neither dnf nor yum is available"
       fi
@@ -162,71 +161,18 @@ install_system_packages() {
   esac
 }
 
-verify_origin() {
-  local origin
-  origin="$(git_app remote get-url origin 2>/dev/null || true)"
-  case "$origin" in
-    https://github.com/hc172808/fullnode.git|https://github.com/hc172808/fullnode|\
-    git@github.com:hc172808/fullnode.git|git@github.com:hc172808/fullnode|\
-    ssh://git@github.com/hc172808/fullnode.git|ssh://git@github.com/hc172808/fullnode)
-      ;;
-    *)
-      die "Refusing source checkout with non-canonical origin: ${origin:-<missing>}"
-      ;;
-  esac
-}
-
-prepare_checkout() {
-  install -d -m 0755 "$(dirname "$APP_DIR")"
-
-  if [[ -L "$APP_DIR" ]]; then
-    die "Refusing to use a symlink as the source directory: $APP_DIR"
-  fi
-
-  if [[ -e "$APP_DIR" && ! -d "$APP_DIR" ]]; then
-    die "Source path exists but is not a directory: $APP_DIR"
-  fi
-
-  if [[ -d "$APP_DIR" && ! -d "$APP_DIR/.git" ]]; then
-    if [[ -z "$(find "$APP_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
-      rmdir "$APP_DIR"
-    else
-      die "Source path is non-empty but is not a Git checkout: $APP_DIR"
-    fi
-  fi
-
-  if [[ ! -d "$APP_DIR/.git" ]]; then
-    local staged_checkout="$TMP_DIR/initial-checkout"
-    log "Cloning canonical source into $APP_DIR..."
-    git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$staged_checkout"
-    APP_DIR="$(realpath -m "$APP_DIR")"
-    mv -- "$staged_checkout" "$APP_DIR"
-  fi
-
-  verify_origin
-  local current_branch
-  current_branch="$(git_app branch --show-current)"
-  [[ "$current_branch" == "$BRANCH" ]] ||
-    die "Checkout is on '$current_branch', not '$BRANCH'; switch it to main manually."
-
-  local changes
-  changes="$(git_app status --porcelain --untracked-files=all)"
-  [[ -z "$changes" ]] ||
-    die "Source checkout has local or untracked changes. Commit or move them before installing."
-
-  OLD_SHA="$(git_app rev-parse HEAD)"
-  log "Fetching $REPO_URL ($BRANCH)..."
-  git_app fetch --prune origin "$BRANCH"
-  git_app show-ref --verify --quiet "refs/remotes/origin/$BRANCH" ||
-    die "Canonical remote branch origin/$BRANCH was not found"
-  NEW_SHA="$(git_app rev-parse "origin/$BRANCH")"
-
-  git_app merge-base --is-ancestor "$OLD_SHA" "$NEW_SHA" ||
-    die "Canonical update is not a fast-forward. Review the source history manually."
+prepare_local_source() {
+  [[ ! -L "$APP_DIR" ]] || die "Refusing to use a symlink as the local source directory: $APP_DIR"
+  [[ -d "$APP_DIR" ]] || die "Local source directory does not exist: $APP_DIR"
+  [[ -f "$APP_DIR/go.mod" ]] || die "Local source is missing go.mod: $APP_DIR"
+  grep -Fqx 'module github.com/gydschain/fullnode' "$APP_DIR/go.mod" ||
+    die "Expected local module github.com/gydschain/fullnode at $APP_DIR"
 
   BUILD_SOURCE="$TMP_DIR/source"
-  git_app worktree add --detach "$BUILD_SOURCE" "$NEW_SHA"
-  log "Source: ${OLD_SHA:0:12} -> ${NEW_SHA:0:12}"
+  mkdir -p "$BUILD_SOURCE"
+  cp -a "$APP_DIR/." "$BUILD_SOURCE/"
+  NEW_SHA="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'local')"
+  log "Using local project source ($NEW_SHA): $APP_DIR"
 }
 
 version_at_least() {
@@ -390,7 +336,6 @@ valid_port() {
 }
 
 install_system_packages
-command -v git >/dev/null 2>&1 || die "git installation failed"
 command -v curl >/dev/null 2>&1 || die "curl installation failed"
 command -v python3 >/dev/null 2>&1 || die "python3 installation failed"
 command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
@@ -401,7 +346,7 @@ exec 9>"$LOCK_FILE"
 flock -n 9 || die "Another GYDS fullnode installation is running"
 
 TMP_DIR="$(mktemp -d /tmp/gyds-fullnode-install.XXXXXX)"
-prepare_checkout
+prepare_local_source
 if systemctl cat "$SERVICE_NAME" >/dev/null 2>&1; then
   HAS_EXISTING_UNIT=1
 fi
@@ -475,14 +420,6 @@ fi
 
 # Ensure main advances only after tests/build and service-mode checks have
 # passed, and only if no one changed the checkout while this installation ran.
-if [[ "$OLD_SHA" != "$NEW_SHA" ]]; then
-  [[ "$(git_app rev-parse HEAD)" == "$OLD_SHA" ]] ||
-    die "Source HEAD changed during the build; no service files were changed."
-  [[ -z "$(git_app status --porcelain --untracked-files=all)" ]] ||
-    die "Source checkout changed during the build; no service files were changed."
-  git_app merge --ff-only "$NEW_SHA"
-fi
-
 if [[ -z "$UNIT_TEXT" ]]; then
   if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     die "$SERVICE_NAME is active but has no readable unit file; refusing to replace it."
@@ -678,7 +615,7 @@ if (( ! healthy )); then
   die "Initial service did not become healthy. Binary and configuration were kept for diagnosis; check journalctl -u $SERVICE_NAME."
 fi
 
-log "Fullnode is healthy at source ${NEW_SHA:0:12}."
+log "Fullnode is healthy at local project source ${NEW_SHA}."
 if ((LOOPBACK_PATCHED)); then
   log "The temporary loopback-only listener hardening was applied only to the build worktree; canonical source stays unmodified."
 fi

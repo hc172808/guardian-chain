@@ -2,19 +2,32 @@
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Universal Node Installer
 #  Usage:  sudo bash install-node.sh [validator|fullnode|rpc|lite|litenode]
-#  Builds every node mode from the single fullnode repository.
+#  Dispatches to local node bundles; the fullnode mode uses node-fixes/fullnode.
 #  Chain ID: 198282  |  Domain: netlifegy.com
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/fullnode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
+
 NODE_TYPE="${1:-fullnode}"
 case "$NODE_TYPE" in
-  validator|fullnode|rpc|lite|litenode) ;;
-  bootnode)
-    echo "bootnode mode is not implemented in fullnode.git; use install-bootnode.sh only after upstream support is added." >&2
-    exit 1
+  fullnode) ;;
+  bootnode|genesis|boostnode)
+    shift || true
+    exec bash "$SCRIPT_DIR/install-${NODE_TYPE}.sh" "$@"
     ;;
-  *) echo "Usage: $0 [validator|fullnode|rpc|lite|litenode]"; exit 1 ;;
+  rpc) shift || true; exec env PROJECT_ROOT="$PROJECT_ROOT" bash "$SCRIPT_DIR/install-rpcnode.sh" "$@" ;;
+  validator) shift || true; exec env PROJECT_ROOT="$PROJECT_ROOT" bash "$SCRIPT_DIR/install-validatornode.sh" "$@" ;;
+  lite|litenode) shift || true; exec env PROJECT_ROOT="$PROJECT_ROOT" bash "$SCRIPT_DIR/install-litenode.sh" "$@" ;;
+  *) echo "Usage: $0 [fullnode|rpc|litenode|validator|bootnode|genesis|boostnode]"; exit 1 ;;
 esac
 
 INSTALL_DIR="/opt/gydschain"
@@ -28,8 +41,7 @@ BLOCK_TIME="${BLOCK_TIME:-120}"
 P2P_PORT="${P2P_PORT:-30303}"
 RPC_PORT="${RPC_PORT:-8546}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="${REPO_DIR:-/opt/gyds-fullnode}"
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/fullnode}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
@@ -45,23 +57,17 @@ echo -e "${NC}"
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
 
-# Clone/update the one canonical source repository.
-if [[ -d "$REPO_DIR/.git" ]]; then
-  log "Fullnode repo already exists at ${REPO_DIR} — pulling latest..."
-  git -C "$REPO_DIR" fetch origin main
-  git -C "$REPO_DIR" reset --hard origin/main
-else
-  log "Cloning canonical fullnode source from ${REPO_URL}..."
-  git clone --depth=1 --branch main "$REPO_URL" "$REPO_DIR"
-fi
-
-[[ -f "$REPO_DIR/go.mod" ]] || { err "go.mod not found in ${REPO_DIR}"; exit 1; }
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || { err "Local fullnode source not found at ${NODE_SOURCE_DIR}; set PROJECT_ROOT to the checked-out project."; exit 1; }
+grep -Fqx "module github.com/gydschain/fullnode" "$NODE_SOURCE_DIR/go.mod" || {
+  err "Unexpected Go module in ${NODE_SOURCE_DIR}/go.mod; refusing to build another node source."
+  exit 1
+}
 
 # ─── 1. Deps ──────────────────────────────────────────────────────
 log "[1/8] Installing apt packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq build-essential git curl wget jq openssl ufw fail2ban iptables logrotate ca-certificates
+apt-get install -y -qq build-essential curl wget jq openssl ufw fail2ban iptables logrotate ca-certificates
 
 # ─── 2. Go ────────────────────────────────────────────────────────
 log "[2/8] Installing Go ${GO_VERSION}..."
@@ -78,8 +84,8 @@ log "[3/8] Creating directories..."
 mkdir -p "$INSTALL_DIR" "$DATA_DIR" "$LOG_DIR" "$INSTALL_DIR/keys"
 
 # ─── 4. Build the selected mode from fullnode ─────────────────────
-log "[4/8] Building ${NODE_TYPE} mode from ${REPO_DIR}..."
-pushd "$REPO_DIR" >/dev/null
+log "[4/8] Building fullnode from local source ${NODE_SOURCE_DIR}..."
+pushd "$NODE_SOURCE_DIR" >/dev/null
 go mod download
 go build -ldflags="-s -w" -o "$INSTALL_DIR/gyds-fullnode" .
 popd >/dev/null

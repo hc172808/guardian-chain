@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain RPC Node Installer
-#  Repo:     https://github.com/hc172808/rpcnode.git
+#  Source:   local node-fixes/rpcnode bundle
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
 #  Chain ID: 198282  |  Domain: netlifegy.com
 #  Run:      sudo bash install-rpcnode.sh
@@ -12,6 +12,15 @@ set -euo pipefail
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
 [[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/rpcnode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
 
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
@@ -23,7 +32,9 @@ GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
 GO_VERSION="${GO_VERSION:-1.25.0}"
 
-CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
+CHAIN_ID="${GYDS_CHAIN_ID:-${CHAIN_ID:-198282}}"
+CHAIN_ID="${CHAIN_ID//$'\r'/}"
+CHAIN_ID="${CHAIN_ID//[[:space:]]/}"
 RPC_PORT="${GYDS_RPC_PORT:-8545}"
 WS_PORT="${GYDS_WS_PORT:-8546}"
 P2P_PORT="${GYDS_P2P_PORT:-30305}"   # different P2P port for RPC nodes
@@ -32,8 +43,7 @@ RATE_LIMIT="${RATE_LIMIT:-100}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
 DOMAIN="${DOMAIN:-rpc.netlifegy.com}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/rpcnode.git}"
-BRANCH="main"
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/rpcnode}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -41,17 +51,17 @@ log()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 
-# This RPC-node implementation currently ships the GYDS mainnet genesis only.
-case "$CHAIN_ID" in
+case "${CHAIN_ID,,}" in
+  mainnet) CHAIN_ID="198282" ;;
   198282) ;;
-  *) die "Unsupported chain ID '${CHAIN_ID}'. This RPC node supports GYDS mainnet (198282)." ;;
+  *) die "Unsupported chain ID '${CHAIN_ID}'. The bundled RPC node supports GYDS mainnet only (198282)." ;;
 esac
 
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain RPC NODE Installer v${GYDS_VERSION}                    ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Domain: ${DOMAIN}          ║"
-echo "║   Repo: github.com/hc172808/fullnode                       ║"
+echo "║   Source: local node-fixes/rpcnode                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -117,19 +127,15 @@ if [[ "$CURRENT_GO" != "$GO_VERSION" ]]; then
 fi
 log "    $(go version)"
 
-# ── Clone / update repo ───────────────────────────────────────────────────────
-log "[3/7] Fetching source from ${REPO_URL}..."
-if [[ -d "$APP_DIR/.git" ]]; then
-  git -C "$APP_DIR" fetch origin "$BRANCH"
-  git -C "$APP_DIR" reset --hard "origin/$BRANCH"
-else
-  git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
-fi
-[[ -f "$APP_DIR/go.mod" ]] || die "go.mod not found in $APP_DIR"
+# ── Validate bundled local source ─────────────────────────────────────────────
+log "[3/7] Checking local RPC node source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local RPC source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module github.com/gydschain/rpcnode" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 # ── Build binary ──────────────────────────────────────────────────────────────
 log "[4/7] Building ${BINARY}..."
-( cd "$APP_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
 rm -f "/tmp/${BINARY}"
