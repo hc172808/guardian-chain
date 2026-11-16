@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain RPC Node Installer
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Repo:     https://github.com/hc172808/rpcnode.git
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
 #  Chain ID: 198282  |  Domain: netlifegy.com
 #  Run:      sudo bash install-rpcnode.sh
@@ -32,7 +32,7 @@ RATE_LIMIT="${RATE_LIMIT:-100}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
 DOMAIN="${DOMAIN:-rpc.netlifegy.com}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
+REPO_URL="${REPO_URL:-https://github.com/hc172808/rpcnode.git}"
 BRANCH="main"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
@@ -40,6 +40,12 @@ GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
+
+# This RPC-node implementation currently ships the GYDS mainnet genesis only.
+case "$CHAIN_ID" in
+  198282) ;;
+  *) die "Unsupported chain ID '${CHAIN_ID}'. This RPC node supports GYDS mainnet (198282)." ;;
+esac
 
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"

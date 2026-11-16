@@ -96,6 +96,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       metadata          JSONB,
       email_verified    BOOLEAN DEFAULT false,
       preferred_currency TEXT DEFAULT 'USD',
+      is_public         BOOLEAN NOT NULL DEFAULT false,
       created_at        TIMESTAMPTZ DEFAULT NOW(),
       updated_at        TIMESTAMPTZ DEFAULT NOW()
     )
@@ -104,6 +105,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
   for (const col of [
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS preferred_currency TEXT DEFAULT 'USD'`,
+    `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT false`,
   ]) {
     await run("profiles-cols", col);
   }

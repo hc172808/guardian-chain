@@ -40,6 +40,7 @@ export const profiles = pgTable("profiles", {
   notificationPrefs: jsonb("notification_prefs"),
   metadata: jsonb("metadata"),
   preferredCurrency: text("preferred_currency").default("USD"),
+  isPublic: boolean("is_public").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

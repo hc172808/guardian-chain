@@ -458,7 +458,10 @@ export function registerRoutes(expressApp: Express) {
     try {
       const { rows } = await pgPool.query(`SELECT is_public FROM profiles WHERE user_id=$1`, [user.id]);
       res.json({ is_public: rows[0]?.is_public ?? false });
-    } catch { res.json({ is_public: false }); }
+    } catch (e: any) {
+      console.error("[profile/privacy] Failed to load setting:", e.message);
+      res.status(500).json({ error: "Could not load profile privacy setting" });
+    }
   });
 
   app.patch("/api/profile/privacy", requireAuth, async (req, res) => {
@@ -466,9 +469,19 @@ export function registerRoutes(expressApp: Express) {
     const { is_public } = req.body;
     if (typeof is_public !== 'boolean') return res.status(400).json({ error: 'is_public must be boolean' });
     try {
-      await pgPool.query(`UPDATE profiles SET is_public=$1, updated_at=NOW() WHERE user_id=$2`, [is_public, user.id]);
-      res.json({ ok: true, is_public });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+      const { rows } = await pgPool.query(
+        `INSERT INTO profiles (user_id, is_public)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE
+         SET is_public = EXCLUDED.is_public, updated_at = NOW()
+         RETURNING is_public`,
+        [user.id, is_public],
+      );
+      res.json({ ok: true, is_public: rows[0].is_public });
+    } catch (e: any) {
+      console.error("[profile/privacy] Failed to save setting:", e.message);
+      res.status(500).json({ error: "Could not save profile privacy setting" });
+    }
   });
 
   // ── Public profile view ────────────────────────────────────────────────────
