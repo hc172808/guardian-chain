@@ -100,6 +100,8 @@ const INSTALL_SCRIPTS: Record<NodeType, string> = {
   termux:        'install-termux.sh',
 };
 
+const NODE_SCRIPTS_URL = 'https://raw.githubusercontent.com/hc172808/guardian-chain/main/public/scripts';
+
 export function NodeInstaller() {
   const [selected, setSelected] = useState<Record<NodeType, boolean>>({
     genesis: false, bootnode: false, fullnode: false, litenode: false,
@@ -127,34 +129,91 @@ export function NodeInstaller() {
 
   const buildBashCommand = (): string => {
     const lines: string[] = [
-      '# GYDSchain local node installers — run from a checked-out project directory',
+      '# Fetch GYDSchain installer scripts from guardian-chain; use the local checkout if unavailable.',
       'set -euo pipefail',
       'PROJECT_ROOT="${PROJECT_ROOT:-$PWD}"',
       'export PROJECT_ROOT',
+      `NODE_SCRIPTS_URL="\${GYDS_NODE_SCRIPTS_URL:-${NODE_SCRIPTS_URL}}"`,
+      'SCRIPT_CACHE_DIR="$(mktemp -d)"',
+      'chmod 755 "$SCRIPT_CACHE_DIR"',
+      'trap \'rm -rf "$SCRIPT_CACHE_DIR"\' EXIT',
+      'fetch_node_script() {',
+      '  local name="$1" destination="$SCRIPT_CACHE_DIR/$1" local_script="$PROJECT_ROOT/public/scripts/$1"',
+      '  if command -v curl >/dev/null 2>&1 && curl -fsSL --connect-timeout 5 --max-time 15 "$NODE_SCRIPTS_URL/$name" -o "$destination" 2>/dev/null; then',
+      '    chmod 644 "$destination"',
+      '    printf \'Fetched %s from GitHub\\n\' "$name" >&2',
+      '  elif [[ -f "$local_script" ]]; then',
+      '    cp "$local_script" "$destination"',
+      '    chmod 644 "$destination"',
+      '    printf \'GitHub unavailable; using local %s\\n\' "$name" >&2',
+      '  else',
+      '    printf \'Could not fetch %s and no local copy exists at %s\\n\' "$name" "$local_script" >&2',
+      '    return 1',
+      '  fi',
+      '  printf \'%s\\n\' "$destination"',
+      '}',
+      // These installers source a helper relative to their own script directory.
+      'NODE_PROFILE_SCRIPT="$(fetch_node_script node-profile.sh)"',
       '',
     ];
     selectedNodes.forEach(n => {
       lines.push(`# ── Install ${n.label}`);
       if (n.id === 'termux') {
-        lines.push(`# Requires a local project checkout on the Android device.`);
-        lines.push(`PROJECT_ROOT="$PROJECT_ROOT" bash "$PROJECT_ROOT/public/scripts/install-termux.sh"`);
+        lines.push(`# Requires the node source checkout on the Android device.`);
+        lines.push(`SCRIPT_PATH="$(fetch_node_script ${INSTALL_SCRIPTS[n.id]})"`);
+        lines.push(`PROJECT_ROOT="$PROJECT_ROOT" bash "$SCRIPT_PATH"`);
         lines.push('');
         return;
       }
       const envCommand = n.needsRoot ? 'sudo env' : 'env';
-      const scriptPath = `$PROJECT_ROOT/public/scripts/${INSTALL_SCRIPTS[n.id]}`;
+      lines.push(`SCRIPT_PATH="$(fetch_node_script ${INSTALL_SCRIPTS[n.id]})"`);
       if (n.id === 'genesis') {
-        lines.push(`${envCommand} PROJECT_ROOT="$PROJECT_ROOT" CHAIN_ID=198282 STORAGE_SIZE=500 bash "${scriptPath}"`);
+        lines.push(`${envCommand} PROJECT_ROOT="$PROJECT_ROOT" CHAIN_ID=198282 STORAGE_SIZE=500 bash "$SCRIPT_PATH"`);
       } else {
         lines.push(`${envCommand} PROJECT_ROOT="$PROJECT_ROOT" BLOCK_TIME=${blockTime} ENABLE_MINING=${enableMining} WG_SERVER_ENDPOINT=${wgEndpoint} \\`);
         if (genesisBootstrap && (n.id === 'fullnode' || n.id === 'validatornode' || n.id === 'bootnode')) {
           lines.push(`  GYDS_BOOTSTRAP_NODES="${genesisBootstrap}" \\`);
         }
-        lines.push(`  bash "${scriptPath}"`);
+        lines.push(`  bash "$SCRIPT_PATH"`);
       }
       lines.push('');
     });
     return lines.join('\n');
+  };
+
+  const buildUninstallCommand = (): string => {
+    const roles = selectedNodes.map((node) => node.id).join(' ');
+    const needsRoot = selectedNodes.some((node) => node.needsRoot);
+    return [
+      '# Stops and removes selected GYDS node services and binaries; chain data, wallets, configs, and logs are kept.',
+      'set -euo pipefail',
+      'PROJECT_ROOT="${PROJECT_ROOT:-$PWD}"',
+      'export PROJECT_ROOT',
+      `NODE_SCRIPTS_URL="\${GYDS_NODE_SCRIPTS_URL:-${NODE_SCRIPTS_URL}}"`,
+      'SCRIPT_CACHE_DIR="$(mktemp -d)"',
+      'chmod 755 "$SCRIPT_CACHE_DIR"',
+      'trap \'rm -rf "$SCRIPT_CACHE_DIR"\' EXIT',
+      'fetch_node_script() {',
+      '  local name="$1" destination="$SCRIPT_CACHE_DIR/$1" local_script="$PROJECT_ROOT/public/scripts/$1"',
+      '  if command -v curl >/dev/null 2>&1 && curl -fsSL --connect-timeout 5 --max-time 15 "$NODE_SCRIPTS_URL/$name" -o "$destination" 2>/dev/null; then',
+      '    chmod 644 "$destination"',
+      '    printf \'Fetched %s from GitHub\\n\' "$name" >&2',
+      '  elif [[ -f "$local_script" ]]; then',
+      '    cp "$local_script" "$destination"',
+      '    chmod 644 "$destination"',
+      '    printf \'GitHub unavailable; using local %s\\n\' "$name" >&2',
+      '  else',
+      '    printf \'Could not fetch %s and no local copy exists at %s\\n\' "$name" "$local_script" >&2',
+      '    return 1',
+      '  fi',
+      '  printf \'%s\\n\' "$destination"',
+      '}',
+      'SCRIPT_PATH="$(fetch_node_script uninstall-node.sh)"',
+      needsRoot
+        ? `sudo env NODE_INSTALL_USER="\${SUDO_USER:-$USER}" bash "$SCRIPT_PATH" ${roles}`
+        : `NODE_INSTALL_USER="\${SUDO_USER:-$USER}" bash "$SCRIPT_PATH" ${roles}`,
+      '',
+    ].join('\n');
   };
 
   const copy = (text: string, label: string) => {
@@ -263,11 +322,11 @@ export function NodeInstaller() {
         </div>
       </GlassCard>
 
-      {/* Local source policy and node settings */}
+      {/* Node script source policy and node settings */}
       <GlassCard className="p-6 space-y-4">
-        <h4 className="font-medium">Local node source</h4>
+        <h4 className="font-medium">Node scripts and local source</h4>
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground" data-testid="notice-local-node-source">
-          Installers build from the node source bundled in this project. Run the command from a project checkout after pulling updates; no separate node repository is fetched. Docker and Portainer installers are paused until their bundles are rebuilt locally. Review <code>nodes-requirements.md</code> before using these sources on a public network.
+          Installer scripts are fetched from <code>hc172808/guardian-chain/public/scripts</code> first, then use the local script if GitHub is unavailable. Node code is still built from the source bundled in this project; separate node repositories are not fetched. Review <code>nodes-requirements.md</code> before using these sources on a public network.
         </div>
 
         {/* Genesis warning */}
@@ -348,7 +407,22 @@ export function NodeInstaller() {
               {buildBashCommand()}
             </pre>
             <p className="text-xs text-muted-foreground border-t border-border/50 pt-2">
-              Run from the local project checkout so each installer can build the bundled source. Root access is requested only for node roles that need it.
+              Remote scripts are downloaded to a temporary folder, with local fallback. Run from the project checkout so each installer can build its bundled node source. Root access is requested only for node roles that need it.
+            </p>
+          </GlassCard>
+          <GlassCard className="p-6 space-y-3 border-destructive/30">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium flex items-center gap-2">
+                <Terminal className="h-4 w-4" />
+                Uninstall selected nodes
+              </h4>
+              <CopyBtn text={buildUninstallCommand()} label="Uninstall command" />
+            </div>
+            <pre className="text-xs bg-black/40 p-4 rounded overflow-x-auto whitespace-pre-wrap">
+              {buildUninstallCommand()}
+            </pre>
+            <p className="text-xs text-muted-foreground border-t border-border/50 pt-2">
+              The command asks for confirmation, stops/removes selected node services and binaries, and keeps chain data, validator keys, wallets, configuration, and logs. Firewall rules, shared users, and dashboard registrations are left unchanged.
             </p>
           </GlassCard>
         </>
