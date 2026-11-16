@@ -125,10 +125,6 @@ export function NodeInstaller() {
   const toggle = (id: NodeType) =>
     setSelected((s) => ({ ...s, [id]: !s[id] }));
 
-  // Installer scripts are served by the dashboard; node source comes from the local checkout.
-  const dashboardOrigin = window.location.origin;
-  const scriptBaseUrl = `${dashboardOrigin}/scripts/`;
-
   const buildBashCommand = (): string => {
     const lines: string[] = [
       '# GYDSchain local node installers — run from a checked-out project directory',
@@ -145,18 +141,17 @@ export function NodeInstaller() {
         lines.push('');
         return;
       }
-      lines.push(`curl -fsSL ${scriptBaseUrl}${INSTALL_SCRIPTS[n.id]} -o /tmp/${INSTALL_SCRIPTS[n.id]}`);
       const envCommand = n.needsRoot ? 'sudo env' : 'env';
+      const scriptPath = `$PROJECT_ROOT/public/scripts/${INSTALL_SCRIPTS[n.id]}`;
       if (n.id === 'genesis') {
-        lines.push(`${envCommand} PROJECT_ROOT="$PROJECT_ROOT" CHAIN_ID=198282 STORAGE_SIZE=500 bash /tmp/${INSTALL_SCRIPTS[n.id]}`);
+        lines.push(`${envCommand} PROJECT_ROOT="$PROJECT_ROOT" CHAIN_ID=198282 STORAGE_SIZE=500 bash "${scriptPath}"`);
       } else {
         lines.push(`${envCommand} PROJECT_ROOT="$PROJECT_ROOT" BLOCK_TIME=${blockTime} ENABLE_MINING=${enableMining} WG_SERVER_ENDPOINT=${wgEndpoint} \\`);
         if (genesisBootstrap && (n.id === 'fullnode' || n.id === 'validatornode' || n.id === 'bootnode')) {
           lines.push(`  GYDS_BOOTSTRAP_NODES="${genesisBootstrap}" \\`);
         }
-        lines.push(`  bash /tmp/${INSTALL_SCRIPTS[n.id]}`);
+        lines.push(`  bash "${scriptPath}"`);
       }
-      lines.push(`rm -f /tmp/${INSTALL_SCRIPTS[n.id]}`);
       lines.push('');
     });
     return lines.join('\n');

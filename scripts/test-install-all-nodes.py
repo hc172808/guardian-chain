@@ -30,6 +30,11 @@ def make_fixture(root: Path) -> tuple[Path, Path, dict[str, str]]:
         "if [[ \"${NODE_ROLE:-}\" == full && \"${FAIL_FULL:-0}\" == 1 ]]; then exit 7; fi\n"
         "exit 0\n"
     )
+    (scripts / "install-rpcnode.sh").write_text(
+        "#!/usr/bin/env bash\n"
+        "printf 'MOCK_ROLE=rpc\\n'\n"
+        "exit 0\n"
+    )
     (scripts / "install-bootnode.sh").write_text("echo MOCK_ROLE=bootnode\n")
     (scripts / "install-litenode.sh").write_text("echo MOCK_ROLE=litenode\n")
     (scripts / "register-local-nodes.sh").write_text("exit 0\n")
@@ -81,7 +86,7 @@ def main() -> int:
             print("FAIL: all-mode did not continue with the fullnode after role skips")
             print(result.stdout)
             return 1
-        if "bootnode: source does not include cmd/bootnode" not in result.stdout:
+        if "bootnode: bundled source is missing" not in result.stdout:
             print("FAIL: unsupported bootnode was not recorded as skipped")
             print(result.stdout)
             return 1

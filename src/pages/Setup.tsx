@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import {
   CheckCircle2, Circle, ChevronRight, ChevronLeft, RefreshCw,
-  Globe, Database, Shield, Bell, Github, Eye, EyeOff,
+  Globe, Database, Shield, Bell, Eye, EyeOff,
   Zap, Check, AlertTriangle, Loader2, Terminal, Copy
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,7 +17,7 @@ import { useAuth } from '@/contexts/AuthContext';
 const API = (path: string, opts?: RequestInit) =>
   fetch(path, { credentials: 'include', ...opts });
 
-type StepId = 'welcome' | 'domain' | 'database' | 'security' | 'notifications' | 'github' | 'review';
+type StepId = 'welcome' | 'domain' | 'database' | 'security' | 'notifications' | 'review';
 
 interface Step {
   id: StepId;
@@ -33,7 +33,6 @@ const STEPS: Step[] = [
   { id: 'database',      title: 'Database',            description: 'PostgreSQL connection settings',     icon: <Database className="h-5 w-5" /> },
   { id: 'security',      title: 'Security',            description: 'Session secret & environment',       icon: <Shield className="h-5 w-5" /> },
   { id: 'notifications', title: 'Notifications',       description: 'Telegram & email (optional)',        icon: <Bell className="h-5 w-5" />, optional: true },
-  { id: 'github',        title: 'GitHub Webhook',      description: 'Auto-deploy on push (optional)',     icon: <Github className="h-5 w-5" />, optional: true },
   { id: 'review',        title: 'Review & Save',       description: 'Confirm and write to .env',          icon: <CheckCircle2 className="h-5 w-5" /> },
 ];
 
@@ -52,7 +51,6 @@ interface FormValues {
   SMTP_FROM: string;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
-  GITHUB_WEBHOOK_SECRET: string;
 }
 
 const DEFAULT: FormValues = {
@@ -60,7 +58,6 @@ const DEFAULT: FormValues = {
   DATABASE_URL: '', SESSION_SECRET: '',
   SMTP_HOST: '', SMTP_PORT: '587', SMTP_USER: '', SMTP_PASS: '', SMTP_FROM: '',
   TELEGRAM_BOT_TOKEN: '', TELEGRAM_CHAT_ID: '',
-  GITHUB_WEBHOOK_SECRET: '',
 };
 
 function PasswordInput({ value, onChange, placeholder, id }: {
@@ -543,48 +540,6 @@ export default function SetupPage() {
                 </div>
               )}
 
-              {/* ── GitHub Webhook ── */}
-              {currentStep.id === 'github' && (
-                <GlassCard className="p-6 space-y-5">
-                  <Field
-                    label="GITHUB_WEBHOOK_SECRET"
-                    hint="A random secret you set in both GitHub and here. Used to verify incoming webhook payloads."
-                  >
-                    <div className="flex gap-2">
-                      <div className="flex-1">
-                        <PasswordInput
-                          value={values.GITHUB_WEBHOOK_SECRET}
-                          onChange={set('GITHUB_WEBHOOK_SECRET')}
-                          placeholder="random-secret-string"
-                        />
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => generateSecret('GITHUB_WEBHOOK_SECRET')}
-                        disabled={generatingSecret === 'GITHUB_WEBHOOK_SECRET'}
-                        title="Auto-generate"
-                      >
-                        {generatingSecret === 'GITHUB_WEBHOOK_SECRET'
-                          ? <Loader2 className="h-4 w-4 animate-spin" />
-                          : <RefreshCw className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </Field>
-
-                  <div className="p-4 rounded-lg bg-secondary/30 space-y-3">
-                    <p className="text-sm font-medium">How to set up in GitHub</p>
-                    <ol className="text-xs text-muted-foreground space-y-2 list-decimal list-inside">
-                      <li>Go to your GitHub repo → <strong>Settings</strong> → <strong>Webhooks</strong> → <strong>Add webhook</strong></li>
-                      <li>Payload URL: <code className="bg-background px-1 rounded">{values.APP_URL || 'https://your-domain.com'}/api/webhooks/github</code></li>
-                      <li>Content type: <code className="bg-background px-1 rounded">application/json</code></li>
-                      <li>Secret: paste the value you set above</li>
-                      <li>Events: select <strong>Just the push event</strong></li>
-                    </ol>
-                  </div>
-                </GlassCard>
-              )}
-
               {/* ── Review & Save ── */}
               {currentStep.id === 'review' && (
                 <div className="space-y-4">
@@ -594,7 +549,7 @@ export default function SetupPage() {
                       {(Object.entries(values) as [keyof FormValues, string][])
                         .filter(([, v]) => v.trim())
                         .map(([k, v]) => {
-                          const isSecret = ['DATABASE_URL', 'SESSION_SECRET', 'SMTP_PASS', 'TELEGRAM_BOT_TOKEN', 'GITHUB_WEBHOOK_SECRET'].includes(k);
+                          const isSecret = ['DATABASE_URL', 'SESSION_SECRET', 'SMTP_PASS', 'TELEGRAM_BOT_TOKEN'].includes(k);
                           const display = isSecret ? '••••••••' : v;
                           return (
                             <div key={k} className="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0 gap-4">

@@ -71,6 +71,9 @@ func versionCmd() *cobra.Command {
 
 func runNode() error {
         cfg := config.FromEnv()
+        if err := cfg.Validate(); err != nil {
+                return err
+        }
 
         zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
         if cfg.LogFormat == "pretty" {
@@ -88,14 +91,17 @@ func runNode() error {
                 Int64("chainId", cfg.ChainID).
                 Msg("Starting GYDS rpcnode")
 
-        chain := core.NewChain(core.GydsGenesis)
+        genesis := *core.GydsGenesis
+        genesis.ChainID = cfg.ChainID
+        genesis.NetworkName = cfg.NetworkName
+        chain := core.NewChain(&genesis)
         log.Info().Uint64("height", chain.Height()).Msg("Chain initialised from genesis")
 
         vs := consensus.NewValidatorSet(core.GydsGenesis.Validators)
         engine := consensus.NewPoSEngine(chain, vs, 120*time.Second)
 
         // rpc/server.go NewServer signature: (chain, port, wsPort, host, corsOrigins)
-        rpcSrv := rpc.NewServer(chain, cfg.RPCPort, cfg.WSPort, cfg.RPCHost, []string{"*"})
+        rpcSrv := rpc.NewServer(chain, cfg.RPCPort, cfg.WSPort, cfg.RPCHost, []string{"*"}, cfg.ChainID)
         engine.OnNewBlock(func(b *core.Block) {
                 log.Info().
                         Uint64("number", b.Header.Number).

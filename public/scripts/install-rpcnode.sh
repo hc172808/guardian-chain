@@ -3,7 +3,7 @@
 #  GYDSchain RPC Node Installer
 #  Source:   local node-fixes/rpcnode bundle
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
-#  Chain ID: 198282  |  Domain: netlifegy.com
+#  Chain IDs: 198282 (mainnet), 198281 (testnet)  |  Domain: netlifegy.com
 #  Run:      sudo bash install-rpcnode.sh
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -52,15 +52,17 @@ warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 
 case "${CHAIN_ID,,}" in
-  mainnet) CHAIN_ID="198282" ;;
-  198282) ;;
-  *) die "Unsupported chain ID '${CHAIN_ID}'. The bundled RPC node supports GYDS mainnet only (198282)." ;;
+  mainnet) CHAIN_ID="198282"; NETWORK="mainnet" ;;
+  testnet) CHAIN_ID="198281"; NETWORK="testnet" ;;
+  198282) NETWORK="mainnet" ;;
+  198281) NETWORK="testnet" ;;
+  *) die "Unrecognized chain ID '${CHAIN_ID}'. The bundled RPC node supports GYDS mainnet (198282) and testnet (198281)." ;;
 esac
 
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain RPC NODE Installer v${GYDS_VERSION}                    ║"
-echo "║   Chain ID: ${CHAIN_ID}  |  Domain: ${DOMAIN}          ║"
+echo "║   Chain: ${NETWORK} (${CHAIN_ID})  |  Domain: ${DOMAIN}   ║"
 echo "║   Source: local node-fixes/rpcnode                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"

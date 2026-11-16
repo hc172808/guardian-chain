@@ -53,21 +53,6 @@ import {
   syncRemoteWireGuardPeers,
   testRemoteWireGuard,
 } from "./wireguard";
-// ── GitHub Webhook store (in-memory, max 100 events) ─────────────────────────
-interface GithubWebhookEvent {
-  id: string;
-  event: string;
-  repo: string;
-  pusher?: string;
-  branch?: string;
-  commitCount?: number;
-  headCommit?: string;
-  timestamp: string;
-  verified: boolean;
-}
-const githubWebhookEvents: GithubWebhookEvent[] = [];
-const githubPendingRecheck = new Set<string>(); // repos that need a NodeRepoSync recheck
-
 const STAKING_YEAR_SECONDS = 365.25 * 24 * 60 * 60;
 
 function getStakingPoolAddress(): string {
@@ -469,14 +454,29 @@ export function registerRoutes(expressApp: Express) {
     const { is_public } = req.body;
     if (typeof is_public !== 'boolean') return res.status(400).json({ error: 'is_public must be boolean' });
     try {
-      const { rows } = await pgPool.query(
-        `INSERT INTO profiles (user_id, is_public)
-         VALUES ($1, $2)
-         ON CONFLICT (user_id) DO UPDATE
-         SET is_public = EXCLUDED.is_public, updated_at = NOW()
-         RETURNING is_public`,
-        [user.id, is_public],
+      let { rows } = await pgPool.query(
+        `UPDATE profiles SET is_public=$1, updated_at=NOW() WHERE user_id=$2 RETURNING is_public`,
+        [is_public, user.id],
       );
+      if (!rows[0]) {
+        // Existing deployments may have a profiles table without the expected
+        // user_id unique constraint. Update first so changing privacy does not
+        // depend on that constraint being available.
+        ({ rows } = await pgPool.query(
+          `INSERT INTO profiles (user_id, is_public)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING
+           RETURNING is_public`,
+          [user.id, is_public],
+        ));
+        if (!rows[0]) {
+          ({ rows } = await pgPool.query(
+            `UPDATE profiles SET is_public=$1, updated_at=NOW() WHERE user_id=$2 RETURNING is_public`,
+            [is_public, user.id],
+          ));
+        }
+      }
+      if (!rows[0]) throw new Error("Could not find or create the profile privacy record");
       res.json({ ok: true, is_public: rows[0].is_public });
     } catch (e: any) {
       console.error("[profile/privacy] Failed to save setting:", e.message);
@@ -6432,99 +6432,6 @@ export function registerRoutes(expressApp: Express) {
     job.lastRun = new Date(); job.lastDuration = Date.now() - start;
   });
 
-  // ── GitHub Webhook Receiver ─────────────────────────────────────────────────
-  // This endpoint is called by GitHub when any of the node repos receive a push.
-  // Set up: GitHub repo → Settings → Webhooks → Payload URL: https://<your-domain>/api/webhooks/github
-  // Content type: application/json | Secret: value of GITHUB_WEBHOOK_SECRET env var
-  app.post("/api/webhooks/github",
-    (req, _res, next) => {
-      // Buffer the raw body for HMAC verification
-      let data = Buffer.alloc(0);
-      req.on('data', (chunk: Buffer) => { data = Buffer.concat([data, chunk]); });
-      req.on('end', () => { (req as any).rawBody = data; next(); });
-    },
-    async (req: Request, res: Response) => {
-      try {
-        const rawBody: Buffer = (req as any).rawBody ?? Buffer.from(JSON.stringify(req.body));
-        const sig = req.headers['x-hub-signature-256'] as string | undefined;
-        const secret = process.env.GITHUB_WEBHOOK_SECRET;
-        let verified = false;
-
-        if (secret && sig) {
-          const hmac = crypto.createHmac('sha256', secret);
-          hmac.update(rawBody);
-          const expected = `sha256=${hmac.digest('hex')}`;
-          try {
-            verified = crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
-          } catch { verified = false; }
-          if (!verified) {
-            return res.status(401).json({ error: 'Invalid webhook signature' });
-          }
-        } else {
-          // No secret configured — accept but mark as unverified (dev mode)
-          verified = false;
-        }
-
-        const eventType = req.headers['x-github-event'] as string ?? 'unknown';
-        const deliveryId = req.headers['x-github-delivery'] as string ?? crypto.randomUUID();
-        let payload: any = {};
-        try { payload = JSON.parse(rawBody.toString()); } catch { payload = req.body ?? {}; }
-
-        const repoFullName: string = payload.repository?.full_name ?? 'unknown/unknown';
-        const pusherName: string = payload.pusher?.name ?? payload.sender?.login ?? undefined;
-        const branch: string = payload.ref ? payload.ref.replace('refs/heads/', '') : undefined;
-        const commits: any[] = payload.commits ?? [];
-        const headSha: string = payload.head_commit?.id?.slice(0, 7) ?? undefined;
-
-        const event: GithubWebhookEvent = {
-          id: deliveryId,
-          event: eventType,
-          repo: repoFullName,
-          pusher: pusherName,
-          branch,
-          commitCount: commits.length || undefined,
-          headCommit: headSha,
-          timestamp: new Date().toISOString(),
-          verified,
-        };
-
-        // Store (keep last 100)
-        githubWebhookEvents.push(event);
-        if (githubWebhookEvents.length > 100) githubWebhookEvents.shift();
-
-        // Flag repos that node repos need a recheck
-        const NODE_REPOS = ['hc172808/fullnode', 'hc172808/genesis', 'hc172808/rpcnode', 'hc172808/boostnode', 'hc172808/validatornode'];
-        if (NODE_REPOS.includes(repoFullName) && eventType === 'push') {
-          githubPendingRecheck.add(repoFullName);
-          console.log(`[GitHub Webhook] Push to ${repoFullName} by ${pusherName} — NodeRepoSync recheck flagged`);
-        }
-
-        res.json({ ok: true, received: event.id });
-      } catch (err: any) {
-        console.error('[GitHub Webhook] Error:', err);
-        res.status(500).json({ error: 'Webhook processing failed' });
-      }
-    }
-  );
-
-  // Get recent GitHub webhook events (admin only)
-  app.get("/api/admin/github-webhook/events", requireAdmin, (_req, res) => {
-    res.json({
-      events: githubWebhookEvents.slice().reverse(), // newest first
-      pendingRecheck: Array.from(githubPendingRecheck),
-      webhookUrl: `${process.env.APP_URL ?? 'https://app.netlifegy.com'}/api/webhooks/github`,
-      secretConfigured: !!process.env.GITHUB_WEBHOOK_SECRET,
-    });
-  });
-
-  // Acknowledge recheck (called by NodeRepoSync after it finishes checking)
-  app.post("/api/admin/github-webhook/ack", requireAdmin, (req, res) => {
-    const { repo } = req.body;
-    if (repo) githubPendingRecheck.delete(repo);
-    else githubPendingRecheck.clear();
-    res.json({ ok: true });
-  });
-
   // ── User Feature Grants ────────────────────────────────────────────────────
   // List all known features (static — same as frontend)
   app.get("/api/admin/feature-definitions", requireAdmin, async (_req, res) => {
@@ -7156,7 +7063,6 @@ export function registerRoutes(expressApp: Express) {
     'APP_URL', 'DOMAIN', 'SUBDOMAIN', 'PORT', 'NODE_ENV',
     'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_FROM',
     'TELEGRAM_CHAT_ID',
-    'GITHUB_WEBHOOK_SECRET',
     'SETUP_COMPLETE',
   ];
   const SETUP_SECRET_KEYS = [
@@ -7212,7 +7118,6 @@ export function registerRoutes(expressApp: Express) {
         'DATABASE_URL', 'SESSION_SECRET',
         'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM',
         'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID',
-        'GITHUB_WEBHOOK_SECRET',
         'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY',
         'SETUP_COMPLETE',
       ]);

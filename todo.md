@@ -123,7 +123,7 @@
 - [x] **Create a safe Go fullnode installer** — scope is node-only; `public/scripts/install-fullnode-service.sh` verifies the canonical origin, tests/builds before updating, fast-forwards only, preserves existing service/data, and rolls back the prior binary if startup fails.
   - [x] Keep the dashboard application, database, firewall, and Nginx untouched; new-service RPC/dashboard bind to localhost through build-worktree-only hardening, while existing listener settings stay unchanged.
   - [x] Add installer safety checks to `scripts/test-scripts.sh`.
-- [x] **Pull the canonical fullnode before Go feature work** — verified `hc172808/fullnode` was current and recorded the standing rule; never treat `fullnode-repull` as canonical (`guardian-chain` origin).
+- [x] **Pull the app repository before local node work** — the former separate fullnode-repository workflow is superseded; node source now stays in local project bundles, with future repository criteria in `nodes-requirements.md`.
 
 - [x] **Real SMTP email verification** — Nodemailer delivery is wired through `server/email.ts` and the SMTP settings are available in Admin → Server Config. Without `SMTP_HOST`, development safely logs the message instead.
 - [ ] **Production Geth node** — genesis.json is correct; deploy a real Geth binary on a VPS, run `geth init genesis.json`, and peer the test nodes to the live network.

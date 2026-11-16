@@ -16,6 +16,7 @@ import (
 
 type Server struct {
 	chain      *core.Chain
+	chainID    int64
 	rpcPort    int
 	wsPort     int
 	host       string
@@ -29,9 +30,10 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-func NewServer(chain *core.Chain, rpcPort int, wsPort int, host string, corsOrigins []string) *Server {
+func NewServer(chain *core.Chain, rpcPort int, wsPort int, host string, corsOrigins []string, chainID int64) *Server {
 	return &Server{
 		chain:       chain,
+chainID:     chainID,
 		rpcPort:     rpcPort,
 		wsPort:      wsPort,
 		host:        host,
@@ -119,9 +121,9 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
 	chain := s.chain
 	switch method {
 	case "eth_chainId":
-		return fmt.Sprintf("0x%x", 198282)
+return fmt.Sprintf("0x%x", s.chainID)
 	case "net_version":
-		return "198282"
+return strconv.FormatInt(s.chainID, 10)
 	case "eth_blockNumber":
 		return fmt.Sprintf("0x%x", chain.Height())
 	case "eth_getBlockByNumber":

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -54,9 +55,26 @@ func FromEnv() *Config {
 	cfg := DefaultConfig()
 
 	if v := os.Getenv("GYDS_CHAIN_ID"); v != "" {
-		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "mainnet":
+			cfg.ChainID = 198282
+			cfg.NetworkName = "GYDS Mainnet"
+		case "testnet":
+			cfg.ChainID = 198281
+			cfg.NetworkName = "GYDS Testnet"
+		default:
+			id, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+			if err != nil {
+				cfg.ChainID = 0
+				return cfg
+			}
 			cfg.ChainID = id
 		}
+	}
+	if cfg.ChainID == 198282 {
+		cfg.NetworkName = "GYDS Mainnet"
+	} else if cfg.ChainID == 198281 {
+		cfg.NetworkName = "GYDS Testnet"
 	}
 	if v := os.Getenv("GYDS_NODE_MODE"); v != "" {
 		cfg.NodeMode = v
@@ -94,4 +112,11 @@ func FromEnv() *Config {
 		}
 	}
 	return cfg
+}
+
+func (cfg *Config) Validate() error {
+	if cfg.ChainID != 198282 && cfg.ChainID != 198281 {
+		return fmt.Errorf("unrecognized GYDS chain ID %d; supported IDs are mainnet 198282 and testnet 198281", cfg.ChainID)
+	}
+	return nil
 }

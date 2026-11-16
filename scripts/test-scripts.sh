@@ -298,25 +298,45 @@ check_contains "$REPO_ROOT/public/scripts/setup-server.sh" "cron" "fresh server 
 check_contains "$REPO_ROOT/server/routes.ts" 'app.get("/api/health/db"' "dedicated database health endpoint"
 
 echo ""
-echo -e "${BOLD}[ 7a ] Canonical node source and mode checks${NC}"
+echo -e "${BOLD}[ 7a ] Local node source and mode checks${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
-for s in \
-  "$REPO_ROOT/public/scripts/install-node.sh" \
-  "$REPO_ROOT/public/scripts/install-localnode.sh" \
-  "$REPO_ROOT/public/scripts/install-termux.sh" \
-  "$SCRIPT_DIR/setup-ubuntu-server.sh"; do
-  check_contains "$s" "github.com/hc172808/fullnode.git" "canonical fullnode source"
+for spec in \
+  "fullnode|install-fullnode.sh|github.com/gydschain/fullnode" \
+  "rpcnode|install-rpcnode.sh|github.com/gydschain/rpcnode" \
+  "litenode|install-litenode.sh|github.com/gydschain/litenode" \
+  "boostnode|install-boostnode.sh|github.com/gydschain/boostnode" \
+  "genesis|install-genesis.sh|github.com/gydschain/genesis" \
+  "validatornode|install-validatornode.sh|github.com/gydschain/validatornode"; do
+  IFS='|' read -r role installer module <<< "$spec"
+  check_contains "$REPO_ROOT/public/scripts/$installer" "node-fixes/$role" "$role installer uses its bundled source"
+  check_contains "$REPO_ROOT/node-fixes/$role/go.mod" "$module" "$role local Go module"
 done
-check_contains "$REPO_ROOT/public/scripts/install-localnode.sh" "github.com/gydschain/fullnode" "canonical module validation"
-check_contains "$REPO_ROOT/public/scripts/install-termux.sh" "github.com/gydschain/fullnode" "canonical module validation"
-check_contains "$SCRIPT_DIR/setup-ubuntu-server.sh" "github.com/gydschain/fullnode" "canonical module validation"
-check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "https://github.com/hc172808/fullnode.git" "canonical fullnode installer source"
-check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "https://github.com/hc172808/rpcnode.git" "canonical RPC node installer source"
-check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "This RPC node supports GYDS mainnet (198282)" "RPC node rejects unsupported chain IDs clearly"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "public/blockchain-go" "bootnode installer uses bundled source"
+check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "198282)" "RPC installer accepts mainnet chain ID"
+check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "198281)" "RPC installer accepts testnet chain ID"
+check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "Unrecognized chain ID" "RPC installer rejects unknown chain IDs clearly"
+check_contains "$REPO_ROOT/node-fixes/rpcnode/rpc/server.go" 'fmt.Sprintf("0x%x", s.chainID)' "RPC endpoint reports configured chain ID"
+check_contains "$REPO_ROOT/node-fixes/rpcnode/rpc/server.go" 'strconv.FormatInt(s.chainID, 10)' "RPC net_version reports configured chain ID"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" 'bash "${scriptPath}"' "admin installer runs local script files"
+if grep -Eq 'github\.com/hc172808/(fullnode|genesis|rpcnode|boostnode|litenode|validatornode|bootnode)(\.git)?' \
+  "$REPO_ROOT"/public/scripts/install-*.sh; then
+  fail "Node installers reference separate remote node repositories"
+else
+  pass "Node installers do not reference separate remote node repositories"
+fi
+check_no_pattern "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "curl -fsSL" "remote installer-script download"
+check_no_pattern "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "NodeRepoSync" "node repository sync UI"
+check_no_pattern "$REPO_ROOT/src/pages/Admin.tsx" "NodeRepoSync" "node repository sync UI"
+check_no_pattern "$REPO_ROOT/server/routes.ts" "/api/webhooks/github" "node repository webhook endpoint"
+check_no_pattern "$REPO_ROOT/src/pages/Setup.tsx" "GITHUB_WEBHOOK_SECRET" "node repository webhook setup"
 check_contains "$REPO_ROOT/shared/schema.ts" 'isPublic: boolean("is_public")' "profile privacy schema column"
 check_contains "$REPO_ROOT/server/startup-migrate.ts" "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_public" "profile privacy startup migration"
-check_contains "$REPO_ROOT/server/routes.ts" "ON CONFLICT (user_id) DO UPDATE" "profile privacy setting persists for missing profiles"
-check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "git_app merge --ff-only" "fast-forward-only source update"
+check_contains "$REPO_ROOT/server/routes.ts" 'UPDATE profiles SET is_public=\$1, updated_at=NOW() WHERE user_id=\$2' "profile privacy updates do not require a unique index"
+check_contains "$REPO_ROOT/server/routes.ts" "INSERT INTO profiles (user_id, is_public)" "profile privacy creates a missing profile"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "prepare_local_source()" "fullnode installer uses the checked-out source"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "Using local project source" "fullnode installer identifies local source"
+check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "git clone" "remote node repository clone"
+check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "git pull" "remote node repository pull"
 check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "test ./..." "installer tests source before replacing binary"
 check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "SetLoopbackOnly()" "fresh fullnode listeners bind to loopback"
 check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "Existing native service found; its current listener binding will be preserved." "existing service binding is preserved"
@@ -392,11 +412,11 @@ check_no_pattern "$REPO_ROOT/public/scripts/install-localnode.sh" "public/blockc
 check_no_pattern "$REPO_ROOT/public/scripts/install-termux.sh" "public/blockchain-go" "legacy blockchain-go source"
 check_no_pattern "$SCRIPT_DIR/setup-ubuntu-server.sh" "public/blockchain-go" "legacy blockchain-go source"
 if output="$(bash "$REPO_ROOT/public/scripts/install-node.sh" bootnode 2>&1)"; then
-  fail "Universal installer accepted unsupported bootnode mode"
-elif [[ "$output" == *"not implemented"* ]]; then
-  pass "Universal installer rejects unsupported bootnode mode before setup"
+  fail "Universal bootnode installer unexpectedly completed without configuration"
+elif [[ "$output" == *"verified mainnet genesis hash is required"* ]]; then
+  pass "Universal installer dispatches bootnode to its local hash preflight"
 else
-  fail "Universal installer bootnode rejection was unclear: $output"
+  fail "Universal bootnode installer did not reach its local preflight: $output"
 fi
 if output="$(NODE_TYPE=validator bash "$REPO_ROOT/public/scripts/install-localnode.sh" 2>&1)"; then
   fail "Local-network installer accepted validator mode"

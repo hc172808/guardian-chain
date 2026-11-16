@@ -1,6 +1,6 @@
 # Installer debugging
 
-- [ ] Compare hc172808/fullnode setup-node.sh with the multi-node installer, fix integration failures, and provide developer instructions.
+- [ ] Audit and verify locally bundled node sources against `nodes-requirements.md`; establish real chain compatibility before production use.
 - [ ] Fix master-installer argument handling, dependency preflight and unattended child-script execution.
 - [ ] Fix requirements client-only startup and preserve existing firewall rules.
 - [ ] Run isolated installer regression tests and existing script checks.

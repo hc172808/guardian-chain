@@ -73,7 +73,6 @@ import { TestNodeManager } from '@/components/admin/TestNodeManager';
 import { GrantAchievementPanel } from '@/components/admin/GrantAchievementPanel';
 import { FlaskConical, Trophy, Rocket as RocketIcon, ArrowRightLeft, RotateCcw, ExternalLink, ToggleLeft, ToggleRight, Zap, Timer, TrendingUp } from 'lucide-react';
 import { CronJobManager } from '@/components/admin/CronJobManager';
-import { NodeRepoSync } from '@/components/admin/NodeRepoSync';
 import { PaymentMethodsManager } from '@/components/admin/PaymentMethodsManager';
 import { WalletReleaseManager } from '@/components/layout/WalletDownloadButton';
 import { ServerConfigManager } from '@/components/admin/ServerConfigManager';
@@ -149,23 +148,11 @@ function GitSyncPanel({ toast }: { toast: any }) {
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </div>
         <div className="p-4 rounded-lg bg-secondary/30 space-y-2">
-          <h4 className="font-medium">All Repositories</h4>
+          <h4 className="font-medium">Dashboard repository</h4>
           <div className="text-xs text-muted-foreground space-y-1">
-            {[
-              ['Dashboard',  'hc172808/guardian-chain'],
-              ['Full Node',  'hc172808/fullnode'],
-              ['Lite Node',  'hc172808/litenode'],
-              ['Boost Node', 'hc172808/boostnode'],
-              ['RPC Node',   'hc172808/rpcnode'],
-              ['Genesis',    'hc172808/genesis'],
-            ].map(([name, repo]) => (
-              <div key={repo} className="flex items-center justify-between">
-                <span className="text-foreground">{name}</span>
-                <a href={`https://github.com/${repo}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                  github.com/{repo}
-                </a>
-              </div>
-            ))}
+            <a href="https://github.com/hc172808/guardian-chain" target="_blank" rel="noreferrer" className="text-primary hover:underline">
+              github.com/hc172808/guardian-chain
+            </a>
           </div>
         </div>
       </div>
@@ -1262,9 +1249,6 @@ const AdminContent = () => {
 
         <TabsContent value="github" className="space-y-4">
           <GitSyncPanel toast={toast} />
-          <GlassCard className="p-6">
-            <NodeRepoSync />
-          </GlassCard>
         </TabsContent>
 
         <TabsContent value="firewall">

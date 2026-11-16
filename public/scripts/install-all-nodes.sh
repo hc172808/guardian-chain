@@ -63,7 +63,7 @@ for role in bootnode fullnode rpc litenode; do
   case "$role" in
     bootnode) selected=$INSTALL_BOOTNODE; child=install-bootnode.sh;;
     fullnode) selected=$INSTALL_FULLNODE; child=install-fullnode.sh;;
-    rpc) selected=$INSTALL_RPC; child=install-fullnode.sh;;
+    rpc) selected=$INSTALL_RPC; child=install-rpcnode.sh;;
     litenode) selected=$INSTALL_LITENODE; child=install-litenode.sh;;
   esac
   if $selected && [[ ! -f "$SCRIPT_DIR/$child" ]]; then
