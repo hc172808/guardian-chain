@@ -159,6 +159,14 @@ if $INSTALL_LITENODE; then
         GYDS_RPC_PORT=8549 GYDS_WS_PORT=8550 GYDS_P2P_PORT=30306 \
         bash "$SCRIPT_DIR/install-litenode.sh"; then
       LITENODE_INSTALLED=true
+      if command -v loginctl >/dev/null 2>&1 &&
+          loginctl enable-linger "$TARGET_USER" &&
+          [[ "$(loginctl show-user "$TARGET_USER" -p Linger --value 2>/dev/null || true)" == "yes" ]]; then
+        echo "✓ Lite-node user services will start at boot for ${TARGET_USER}."
+      else
+        echo "⚠ Lite node is installed, but boot startup needs: sudo loginctl enable-linger ${TARGET_USER}"
+        SKIPPED_NODES+=("litenode autostart: enable user lingering for ${TARGET_USER}")
+      fi
     fi
   fi
 fi

@@ -356,13 +356,22 @@ PM2CFG
 
 # Start as node user
 if id -u "$NODE_USER" &>/dev/null; then
-    su - "$NODE_USER" -c "pm2 delete gydschain-api 2>/dev/null; pm2 start '$APP_DIR/ecosystem.config.cjs'; pm2 save --force" || true
-    env PATH="$PATH:/usr/bin:/usr/local/bin" pm2 startup systemd -u "$NODE_USER" --hp "/home/$NODE_USER" 2>/dev/null | tail -1 | bash 2>/dev/null || true
+    if ! su - "$NODE_USER" -c "pm2 delete gydschain-api >/dev/null 2>&1 || true; pm2 start '$APP_DIR/ecosystem.config.cjs' && pm2 save --force"; then
+        err "PM2 could not start gydschain-api as ${NODE_USER}."
+        exit 1
+    fi
+    PM2_RUN_USER="$NODE_USER"
 else
     pm2 delete gydschain-api 2>/dev/null || true
     pm2 start "$APP_DIR/ecosystem.config.cjs"
     pm2 save --force
+    PM2_RUN_USER="root"
 fi
+if [[ ! -f "$APP_DIR/public/scripts/ensure-api-boot.sh" ]]; then
+    err "Missing PM2 boot setup helper: $APP_DIR/public/scripts/ensure-api-boot.sh"
+    exit 1
+fi
+bash "$APP_DIR/public/scripts/ensure-api-boot.sh" "$PM2_RUN_USER"
 log "PM2 running: gydschain-api → port $PORT_API"
 
 # Install an independent API/database watchdog. PM2 restarts crashed processes;
@@ -484,6 +493,7 @@ NGINXCFG
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/gydschain
 nginx -t && systemctl reload nginx || systemctl restart nginx
+systemctl enable nginx
 log "Nginx: ${FQDN} → $APP_DIR/dist, /api → :${PORT_API}"
 
 # ─── Step 7: UFW Firewall ──────────────────────────────────────────────────────
@@ -604,9 +614,9 @@ echo -e "${CYAN}Cloudflare DNS to configure:${NC}"
 echo -e "  Type: A   Name: ${SUBDOMAIN}   Content: ${PUBLIC_IP}   Proxied: ✓ (orange cloud)"
 echo ""
 echo -e "${CYAN}PM2 commands:${NC}"
-echo -e "  pm2 status"
-echo -e "  pm2 logs gydschain-api --lines 50"
-echo -e "  pm2 restart gydschain-api"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 status"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 logs gydschain-api --lines 50"
+echo -e "  systemctl status pm2-${PM2_RUN_USER}.service  (enabled at boot)"
 echo ""
 echo -e "${CYAN}Redeploy (pull + build + reload):${NC}"
 echo -e "  gyds-redeploy"

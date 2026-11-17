@@ -254,6 +254,30 @@ check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "require_mainnet_
 check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "GYDS_GENESIS_HASH" "bootnode hash comes from explicit config"
 check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "--config=\${CONFIG_FILE}" "bootnode systemd uses its generated config"
 check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "--genesis-hash=\${GENESIS_HASH}" "bootnode passes the genesis hash"
+check_contains "$REPO_ROOT/public/scripts/ensure-api-boot.sh" 'ExecStart=${PM2_BIN} resurrect' "dashboard PM2 process list restores at boot"
+check_contains "$REPO_ROOT/public/scripts/ensure-api-boot.sh" "systemctl enable" "dashboard API boot service is enabled"
+check_contains "$REPO_ROOT/public/scripts/ensure-api-boot.sh" "systemctl is-active" "dashboard API boot service is verified"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "ensure-api-boot.sh" "dashboard deployment configures API boot startup"
+check_contains "$REPO_ROOT/public/scripts/setup-server.sh" "ensure-api-boot.sh" "server setup configures API boot startup"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "pm2_as_app_user" "safe updates control PM2 as the app owner"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "ensure-api-boot.sh" "safe updates repair API boot startup"
+check_no_pattern "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "pm2 startup systemd.*tail -1" "unchecked PM2 startup pipeline"
+check_no_pattern "$REPO_ROOT/public/scripts/setup-server.sh" "pm2 startup systemd.*tail -1" "unchecked PM2 startup pipeline"
+check_contains "$REPO_ROOT/public/scripts/install-litenode.sh" "loginctl enable-linger" "lite-node user service is configured for boot"
+check_contains "$REPO_ROOT/public/scripts/install-litenode.sh" "default.target.wants/gyds-litenode.service" "lite-node user unit is enabled for the default target"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "loginctl enable-linger" "bulk lite-node install enables boot startup"
+check_contains "$REPO_ROOT/public/scripts/uninstall-node.sh" "Type UNINSTALL to continue" "node uninstall requires explicit confirmation"
+check_contains "$REPO_ROOT/public/scripts/uninstall-node.sh" "chain data, validator keys, wallets" "node uninstall preserves node data"
+check_no_pattern "$REPO_ROOT/public/scripts/uninstall-node.sh" "rm -rf" "recursive node-data deletion"
+if output="$(bash "$REPO_ROOT/public/scripts/uninstall-node.sh" --dry-run fullnode rpcnode 2>&1)"; then
+  if [[ "$output" == *"gyds-fullnode.service"* && "$output" == *"gyds-rpcnode.service"* && "$output" == *"chain data, wallets, validator keys, configs, and logs are not removed"* ]]; then
+    pass "Node uninstaller dry-run lists selected services and preserves data"
+  else
+    fail "Node uninstaller dry-run did not show the expected safe plan: $output"
+  fi
+else
+  fail "Node uninstaller dry-run failed: $output"
+fi
 if output="$(CHAIN_ID=198282 GYDS_GENESIS_HASH= GYDS_CONF=/dev/null bash "$REPO_ROOT/public/scripts/install-bootnode.sh" 2>&1)"; then
   fail "Bootnode installer accepted a missing mainnet genesis hash"
 elif [[ "$output" == *"verified mainnet genesis hash is required"* ]]; then
@@ -317,14 +341,17 @@ check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "198281)" "RPC ins
 check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "Unrecognized chain ID" "RPC installer rejects unknown chain IDs clearly"
 check_contains "$REPO_ROOT/node-fixes/rpcnode/rpc/server.go" 'fmt.Sprintf("0x%x", s.chainID)' "RPC endpoint reports configured chain ID"
 check_contains "$REPO_ROOT/node-fixes/rpcnode/rpc/server.go" 'strconv.FormatInt(s.chainID, 10)' "RPC net_version reports configured chain ID"
-check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" 'bash "${scriptPath}"' "admin installer runs local script files"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "raw.githubusercontent.com/hc172808/guardian-chain/main/public/scripts" "admin installer fetches scripts from the project GitHub path"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "fetch_node_script" "admin installer downloads scripts before running them"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "GitHub unavailable; using local" "admin installer falls back to local scripts"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" 'bash "$SCRIPT_PATH"' "admin installer runs the downloaded or fallback script"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "uninstall-node.sh" "admin installer offers node uninstallation"
 if grep -Eq 'github\.com/hc172808/(fullnode|genesis|rpcnode|boostnode|litenode|validatornode|bootnode)(\.git)?' \
   "$REPO_ROOT"/public/scripts/install-*.sh; then
   fail "Node installers reference separate remote node repositories"
 else
   pass "Node installers do not reference separate remote node repositories"
 fi
-check_no_pattern "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "curl -fsSL" "remote installer-script download"
 check_no_pattern "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "NodeRepoSync" "node repository sync UI"
 check_no_pattern "$REPO_ROOT/src/pages/Admin.tsx" "NodeRepoSync" "node repository sync UI"
 check_no_pattern "$REPO_ROOT/server/routes.ts" "/api/webhooks/github" "node repository webhook endpoint"

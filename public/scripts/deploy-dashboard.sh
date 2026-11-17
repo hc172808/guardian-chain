@@ -583,12 +583,18 @@ if id -u "$NODE_USER" &>/dev/null; then
         err "PM2 could not start gydschain-api as ${NODE_USER}."
         exit 1
     fi
-    env PATH="$PATH:/usr/bin:/usr/local/bin" pm2 startup systemd -u "$NODE_USER" --hp "/home/$NODE_USER" 2>/dev/null | tail -1 | bash 2>/dev/null || true
+    PM2_RUN_USER="$NODE_USER"
 else
     pm2 delete gydschain-api 2>/dev/null || true
     pm2 start "$APP_DIR/ecosystem.config.cjs"
     pm2 save --force
+    PM2_RUN_USER="root"
 fi
+if [[ ! -f "$APP_DIR/public/scripts/ensure-api-boot.sh" ]]; then
+    err "Missing PM2 boot setup helper: $APP_DIR/public/scripts/ensure-api-boot.sh"
+    exit 1
+fi
+bash "$APP_DIR/public/scripts/ensure-api-boot.sh" "$PM2_RUN_USER"
 log "PM2: gydschain-api → port $PORT_API"
 
 # Install an independent API/database watchdog. PM2 restarts crashed processes;
@@ -714,6 +720,7 @@ if ! nginx -t; then
     exit 1
 fi
 systemctl reload nginx || systemctl restart nginx
+systemctl enable nginx
 log "Nginx: $FQDN → $APP_DIR/dist"
 
 # Verify the configured virtual host serves the app, not Ubuntu's default page.
@@ -846,8 +853,9 @@ else
 fi
 echo ""
 echo -e "${CYAN}Manage:${NC}"
-echo -e "  pm2 status"
-echo -e "  pm2 logs gydschain-api --lines 50"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 status"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 logs gydschain-api --lines 50"
+echo -e "  systemctl status pm2-${PM2_RUN_USER}.service  (enabled at boot)"
 echo -e "  gyds-redeploy          ← pull + build + reload"
 echo ""
 echo -e "${YELLOW}⚠  Save these credentials (also in ${APP_DIR}/.env):${NC}"

@@ -85,6 +85,21 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 APP_USER="${PM2_USER:-$(stat -c '%U' "$APP_DIR" 2>/dev/null || echo root)}"
+PM2_USER="${PM2_USER:-$APP_USER}"
+
+pm2_as_app_user() {
+    if [[ "$EUID" -eq 0 && "$PM2_USER" != "root" ]]; then
+        local user_home user_pm2 user_path
+        user_home="$(getent passwd "$PM2_USER" | cut -d: -f6)"
+        [[ -n "$user_home" ]] || { err "Could not find PM2 user's home: $PM2_USER"; return 1; }
+        user_pm2="$(su - "$PM2_USER" -c 'command -v pm2' 2>/dev/null || true)"
+        [[ -n "$user_pm2" && -x "$user_pm2" ]] || { err "PM2 is not available to $PM2_USER"; return 1; }
+        user_path="$(dirname "$user_pm2"):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        runuser -u "$PM2_USER" -- env HOME="$user_home" PM2_HOME="$user_home/.pm2" PATH="$user_path" "$user_pm2" "$@"
+    else
+        pm2 "$@"
+    fi
+}
 
 install_watchdog() {
     local watchdog_source="${APP_DIR}/public/scripts/gyds-watchdog.sh"
@@ -158,8 +173,8 @@ if [[ "$STATUS_ONLY" -eq 1 ]]; then
     echo -e "  Commit:    $(git -C "$APP_DIR" log -1 --format='%h  %s  (%cr)' 2>/dev/null || echo 'unknown')"
     echo -e "  Remote:    $(git -C "$APP_DIR" log -1 --format='%h  %s' origin/"$BRANCH" 2>/dev/null || echo 'unknown')"
     echo ""
-    if pm2 list 2>/dev/null | grep -q "$PM2_APP"; then
-        pm2 show "$PM2_APP" 2>/dev/null | grep -E "status|uptime|memory|restarts" | head -6 || true
+    if pm2_as_app_user list 2>/dev/null | grep -q "$PM2_APP"; then
+        pm2_as_app_user show "$PM2_APP" 2>/dev/null | grep -E "status|uptime|memory|restarts" | head -6 || true
     else
         warn "PM2 process '$PM2_APP' not found"
     fi
@@ -377,14 +392,14 @@ fi
 # ── Step 5: PM2 reload (zero-downtime) ───────────────────────────────────────
 step "5/5  Restart server (zero-downtime)"
 
-if pm2 list 2>/dev/null | grep -q "$PM2_APP"; then
+if pm2_as_app_user list 2>/dev/null | grep -q "$PM2_APP"; then
     info "Reloading $PM2_APP with updated env..."
-    pm2 reload "$PM2_APP" --update-env 2>&1 | tee_log
+    pm2_as_app_user reload "$PM2_APP" --update-env 2>&1 | tee_log
     ok "PM2 reload complete — server is live"
 else
     warn "$PM2_APP not found in PM2 — starting fresh..."
     if [[ -f "$APP_DIR/ecosystem.config.cjs" ]]; then
-        pm2 start "$APP_DIR/ecosystem.config.cjs" 2>&1 | tee_log
+        pm2_as_app_user start "$APP_DIR/ecosystem.config.cjs" 2>&1 | tee_log
         ok "PM2 started"
     else
         err "No ecosystem.config.cjs found — start PM2 manually:"
@@ -396,7 +411,12 @@ fi
 # Reload nginx if config is valid
 nginx -t 2>/dev/null && { nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || true; ok "Nginx reloaded"; } || true
 
-pm2 save --force 2>/dev/null || true
+pm2_as_app_user save --force 2>&1 | tee_log
+if [[ "$EUID" -eq 0 && -f "$APP_DIR/public/scripts/ensure-api-boot.sh" ]]; then
+    bash "$APP_DIR/public/scripts/ensure-api-boot.sh" "$PM2_USER" 2>&1 | tee_log
+elif [[ "$EUID" -ne 0 ]]; then
+    warn "Run the boot-service check as root: sudo bash $APP_DIR/public/scripts/ensure-api-boot.sh $PM2_USER"
+fi
 
 # ── Cloudflare false-positive ban cleanup ─────────────────────────────────────
 # If this deployment is behind Cloudflare and was previously running without
@@ -435,6 +455,7 @@ echo -e "  ${DIM}Commit:${NC}   $NEW_COMMIT"
 echo -e "  ${DIM}Accounts:${NC} $(psql "${DATABASE_URL:-}" -t -c 'SELECT count(*) FROM users;' 2>/dev/null | tr -d ' ' || echo '?') users — preserved"
 echo ""
 echo -e "  ${DIM}Check logs:${NC}    pm2 logs $PM2_APP --lines 40"
-echo -e "  ${DIM}Check status:${NC}  pm2 status"
+echo -e "  ${DIM}Check status:${NC}  sudo -u $PM2_USER pm2 status"
+echo -e "  ${DIM}Boot service:${NC}  systemctl status pm2-$PM2_USER"
 echo -e "  ${DIM}Full log:${NC}      tail -f $LOG_FILE"
 echo ""

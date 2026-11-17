@@ -1,9 +1,10 @@
 # GYDS Node Source Requirements
 
 This document is the checklist for maintaining the node sources bundled in this
-project and for any future standalone node repositories. Node installation must
-not depend on pulling a separate node repository unless that policy is changed
-deliberately and the app's installers are updated with it.
+project and for any future standalone node repositories. Installer scripts are
+fetched from `hc172808/guardian-chain/main/public/scripts` first, with a local
+checkout fallback. Node source code remains bundled in this project; installers
+must not pull separate node repositories.
 
 ## Current local source inventory
 
@@ -17,8 +18,10 @@ deliberately and the app's installers are updated with it.
 | Validator node | `node-fixes/validatornode` | `public/scripts/install-validatornode.sh` |
 | Bootnode | `public/blockchain-go` | `public/scripts/install-bootnode.sh` |
 
-The Admin node installer now invokes the script in the checked-out project
-directory and builds from its local source bundle. Go may still download
+The Admin node installer downloads the selected script from the dashboard
+repository's `public/scripts` folder first and falls back to the matching local
+file when GitHub cannot be reached. It places scripts in a temporary directory
+and builds node binaries from the local source bundle. Go may still download
 third-party modules recorded in `go.mod`/`go.sum`; that is dependency retrieval,
 not retrieval of node source repositories.
 
@@ -51,6 +54,8 @@ not retrieval of node source repositories.
   exposing any RPC endpoint publicly.
 - Current installers should fail clearly when their expected local bundle is
   absent or has the wrong Go module. They must not clone or pull node source.
+- Script retrieval from the dashboard repository is not permission to fetch
+  node source code remotely; keep node builds bound to the local role bundle.
 
 ## Requirements for each future standalone node repository
 
@@ -106,8 +111,10 @@ not retrieval of node source repositories.
 
 ## Adding a future remote source
 
-Treat a remote repository as an optional future source of versioned releases,
-not an implicit installer dependency. Before wiring one into the app, document
+Treat a future standalone node repository as an optional source of versioned
+node releases, not an implicit installer dependency. The existing remote-first
+installer-script download from the dashboard repository is a separate mechanism.
+Before wiring a standalone node repository into the app, document
 its repository URL, owner, release/tag policy, integrity verification, module
 path, source-to-installer interface, supported networks, tests, rollback plan,
 and how the local bundle remains usable when the remote service is unavailable.
