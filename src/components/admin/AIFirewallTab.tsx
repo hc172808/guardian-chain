@@ -12,9 +12,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { logAuditEvent } from '@/lib/auditLog';
 import {
-  Brain, Shield, AlertTriangle, Ban, Activity, Zap, Globe, Plus, Trash2,
-  RefreshCw, Lock, Unlock, Eye, TrendingUp, Radio, ChevronRight,
-  Loader2, CheckCircle, XCircle, Flame, Target, Cpu, BarChart3,
+  Brain, Shield, Ban, Activity, Globe, Plus, Trash2,
+  RefreshCw, Lock, Unlock, Eye, ChevronRight,
+  Loader2, CheckCircle, Flame, Target, Cpu,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -40,17 +40,6 @@ interface ThreatPattern {
   action: 'log' | 'alert' | 'block';
   enabled: boolean;
   hits: number;
-}
-
-interface ThreatEvent {
-  id: string;
-  timestamp: Date;
-  ip: string;
-  type: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  details: string;
-  action_taken: string;
-  blocked: boolean;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -94,42 +83,6 @@ const DEFAULT_PATTERNS: ThreatPattern[] = [
   { id: '6', pattern: 'P2P node impersonation', description: 'Fake peer handshake attempts', severity: 'high', action: 'block', enabled: true, hits: 0 },
 ];
 
-// ─── Live Threat Feed (simulated from rule state) ─────────────────────────────
-
-const generateThreat = (patterns: ThreatPattern[]): ThreatEvent => {
-  const enabledPatterns = patterns.filter(p => p.enabled);
-  const pattern = enabledPatterns[Math.floor(Math.random() * enabledPatterns.length)] || DEFAULT_PATTERNS[0];
-  const octets = Array.from({ length: 4 }, () => Math.floor(Math.random() * 256));
-  return {
-    id: Math.random().toString(36).slice(2),
-    timestamp: new Date(),
-    ip: octets.join('.'),
-    type: pattern.pattern,
-    severity: pattern.severity,
-    details: pattern.description,
-    action_taken: pattern.action === 'block' ? 'Blocked' : pattern.action === 'alert' ? 'Alerted' : 'Logged',
-    blocked: pattern.action === 'block',
-  };
-};
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-const ThreatMeter = ({ level }: { level: number }) => {
-  const color = level < 25 ? 'bg-green-500' : level < 50 ? 'bg-yellow-500' : level < 75 ? 'bg-orange-500' : 'bg-red-500';
-  const label = level < 25 ? 'Low' : level < 50 ? 'Moderate' : level < 75 ? 'High' : 'Critical';
-  return (
-    <div className="space-y-1.5">
-      <div className="flex justify-between text-xs">
-        <span className="text-muted-foreground">Threat Level</span>
-        <span className="font-semibold">{label} ({level}%)</span>
-      </div>
-      <div className="h-2 bg-secondary/50 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-1000 ${color}`} style={{ width: `${level}%` }} />
-      </div>
-    </div>
-  );
-};
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const AIFirewallTab = () => {
@@ -138,12 +91,9 @@ export const AIFirewallTab = () => {
 
   const [settings, setSettings]     = useState<AISettings>(DEFAULT_SETTINGS);
   const [patterns, setPatterns]     = useState<ThreatPattern[]>(DEFAULT_PATTERNS);
-  const [threats, setThreats]       = useState<ThreatEvent[]>([]);
-  const [threatLevel, setThreatLevel] = useState(18);
   const [saving, setSaving]         = useState(false);
   const [loading, setLoading]       = useState(true);
   const [lockdown, setLockdown]     = useState(false);
-  const [stats, setStats]           = useState({ blocked: 0, alerted: 0, logged: 0, requests: 0 });
   const [newPattern, setNewPattern] = useState({ pattern: '', description: '', severity: 'medium' as const, action: 'block' as const });
   const [addingPattern, setAddingPattern] = useState(false);
   const [activeSection, setActiveSection] = useState<'overview' | 'patterns' | 'geo' | 'blocked' | 'settings'>('overview');
@@ -178,25 +128,23 @@ export const AIFirewallTab = () => {
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
 
-  // ── Live threat simulation ──
+  // Refresh real server counters; do not synthesize threat events in the UI.
   useEffect(() => {
-    if (!settings.enabled) return;
-    const interval = setInterval(() => {
-      if (Math.random() < 0.35) {
-        const event = generateThreat(patterns);
-        setThreats(prev => [event, ...prev].slice(0, 50));
-        setStats(prev => ({
-          ...prev,
-          blocked: event.blocked ? prev.blocked + 1 : prev.blocked,
-          alerted: !event.blocked && event.action_taken === 'Alerted' ? prev.alerted + 1 : prev.alerted,
-          logged:  event.action_taken === 'Logged' ? prev.logged + 1 : prev.logged,
-          requests: prev.requests + Math.floor(Math.random() * 12) + 1,
-        }));
-        setThreatLevel(prev => Math.min(95, Math.max(5, prev + (Math.random() > 0.5 ? 2 : -1))));
-      }
-    }, 2800);
-    return () => clearInterval(interval);
-  }, [settings.enabled, patterns]);
+    let active = true;
+    const refreshStatus = async () => {
+      try {
+        const response = await fetch('/api/security/status', { credentials: 'include' });
+        if (!response.ok) return;
+        const status = await response.json();
+        if (active) setFwStatus(status);
+      } catch {}
+    };
+    const interval = window.setInterval(() => void refreshStatus(), 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   // ── Save settings ──
   const saveSettings = async (newSettings: AISettings) => {
@@ -287,13 +235,6 @@ export const AIFirewallTab = () => {
     }
   };
 
-  const clearThreats = () => {
-    setThreats([]);
-    setStats({ blocked: 0, alerted: 0, logged: 0, requests: 0 });
-    setThreatLevel(18);
-    toast({ title: 'Threat log cleared' });
-  };
-
   // ── Blocked IP management (calls real security module) ──
   const blockIpManually = async () => {
     const ip = newBlockIp.trim();
@@ -349,7 +290,7 @@ export const AIFirewallTab = () => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold">AI Firewall Engine</span>
+              <span className="font-semibold">Application Firewall</span>
               {settings.enabled ? (
                 <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">ACTIVE</Badge>
               ) : (
@@ -358,12 +299,9 @@ export const AIFirewallTab = () => {
               {lockdown && (
                 <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs animate-pulse">🔴 LOCKDOWN</Badge>
               )}
-              {settings.learning_mode && (
-                <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs">LEARNING</Badge>
-              )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Pattern analysis · Anomaly detection · Adaptive blocking
+              Built-in request checks · payload inspection · IP enforcement
             </p>
           </div>
         </div>
@@ -379,27 +317,8 @@ export const AIFirewallTab = () => {
         </div>
       </div>
 
-      {/* ── Stats row ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: 'Blocked',  value: stats.blocked,   icon: Ban,       color: 'text-red-400' },
-          { label: 'Alerted',  value: stats.alerted,   icon: AlertTriangle, color: 'text-yellow-400' },
-          { label: 'Requests', value: stats.requests,  icon: Activity,  color: 'text-primary' },
-          { label: 'Logged',   value: stats.logged,    icon: Eye,       color: 'text-blue-400' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="p-3 rounded-lg bg-secondary/30 border border-border/30">
-            <div className="flex items-center gap-2">
-              <Icon className={`h-3.5 w-3.5 ${color}`} />
-              <span className="text-xs text-muted-foreground">{label}</span>
-            </div>
-            <p className="text-xl font-bold mt-1">{value.toLocaleString()}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Threat meter ── */}
-      <div className="p-3 rounded-lg bg-secondary/20 border border-border/30">
-        <ThreatMeter level={threatLevel} />
+      <div className="rounded-lg border border-border/30 bg-secondary/10 p-3 text-xs text-muted-foreground">
+        Live runtime counters come from the server and reset when it restarts. Custom patterns, geo-blocking, learning mode, and adaptive-limit settings are saved for reference but are not enforced by the current server middleware.
       </div>
 
       {/* ── Sub-nav ── */}
@@ -412,62 +331,52 @@ export const AIFirewallTab = () => {
               activeSection === s ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {s === 'overview' ? '📊 Feed' : s === 'patterns' ? '🎯 Patterns' : s === 'geo' ? '🌍 Geo' : s === 'blocked' ? `🚫 Blocked${blockedIps.length ? ` (${blockedIps.length})` : ''}` : '⚙️ Settings'}
+            {s === 'overview' ? '📊 Activity' : s === 'patterns' ? '🎯 Saved patterns' : s === 'geo' ? '🌍 Geo settings' : s === 'blocked' ? `🚫 Blocked${blockedIps.length ? ` (${blockedIps.length})` : ''}` : '⚙️ Settings'}
           </button>
         ))}
       </div>
 
-      {/* ── Overview / Threat Feed ── */}
+      {/* ── Overview / live runtime counters ── */}
       {activeSection === 'overview' && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium flex items-center gap-2">
-              <Radio className="h-4 w-4 text-primary animate-pulse" />
-              Live Threat Feed
-            </h4>
-            <Button variant="ghost" size="sm" onClick={clearThreats} className="text-xs gap-1">
-              <RefreshCw className="h-3 w-3" /> Clear
-            </Button>
-          </div>
-
-          {threats.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Shield className="h-8 w-8 mx-auto mb-2 opacity-40" />
-              <p className="text-sm">No threats detected yet</p>
-              <p className="text-xs mt-1">AI engine is monitoring all traffic</p>
-            </div>
-          ) : (
-            <div className="space-y-1.5 max-h-72 overflow-y-auto">
-              {threats.map((t) => (
-                <div key={t.id} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-secondary/20 border border-border/20 text-xs">
-                  <div className={`mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase border ${SEVERITY_COLOR[t.severity]}`}>
-                    {t.severity}
+          <h4 className="text-sm font-medium flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" />
+            Live application counters
+          </h4>
+          {fwStatus ? (
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4" data-testid="firewall-live-counters">
+              {[
+                { label: 'Requests blocked', value: fwStatus.blocked ?? 0, icon: Ban },
+                { label: 'Rate flags', value: fwStatus.rateBlocked ?? 0, icon: Activity },
+                { label: 'Payload flags', value: fwStatus.payloadBlocked ?? 0, icon: Eye },
+                { label: 'Burst flags', value: fwStatus.burstBlocked ?? 0, icon: Shield },
+              ].map(({ label, value, icon: Icon }) => (
+                <div key={label} className="rounded-lg border border-border/30 bg-secondary/20 p-3">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{t.type}</p>
-                    <p className="text-muted-foreground">{t.ip} — {t.details}</p>
-                  </div>
-                  <div className="shrink-0 flex items-center gap-1.5">
-                    <Badge
-                      variant={t.blocked ? 'destructive' : 'secondary'}
-                      className="text-[10px] h-4"
-                    >
-                      {t.action_taken}
-                    </Badge>
-                    <span className="text-muted-foreground text-[10px]">
-                      {t.timestamp.toLocaleTimeString()}
-                    </span>
-                  </div>
+                  <p className="mt-1 text-xl font-semibold tabular-nums">{Number(value).toLocaleString()}</p>
                 </div>
               ))}
             </div>
+          ) : (
+            <div className="rounded-lg border border-border/30 bg-secondary/20 p-4 text-sm text-muted-foreground">
+              Live firewall counters are unavailable. Check the administrator session and server status.
+            </div>
           )}
+          <p className="text-xs text-muted-foreground">
+            Recent event details are not stored in this dashboard yet. No simulated IPs or threat events are shown.
+          </p>
         </div>
       )}
 
       {/* ── Threat Patterns ── */}
       {activeSection === 'patterns' && (
         <div className="space-y-3">
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-300">
+            These patterns are saved configuration only. The live middleware uses its built-in checks and does not read this list yet.
+          </div>
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-medium flex items-center gap-2">
               <Target className="h-4 w-4 text-primary" />
@@ -571,6 +480,9 @@ export const AIFirewallTab = () => {
       {/* ── Geo Blocking ── */}
       {activeSection === 'geo' && (
         <div className="space-y-4">
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-300">
+            Geo rules and validator exemptions are saved settings only. The current server does not identify countries or enforce these rules.
+          </div>
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-medium flex items-center gap-2">
               <Globe className="h-4 w-4 text-primary" />
@@ -748,10 +660,13 @@ export const AIFirewallTab = () => {
       {/* ── Settings ── */}
       {activeSection === 'settings' && (
         <div className="space-y-5">
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-300">
+            Runtime controls: application firewall, request-check sensitivity, auto-block, payload inspection, and emergency lockdown. Learning mode, adaptive limits, geo settings, and non-lockdown response modes currently save configuration only.
+          </div>
           {/* Sensitivity */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="text-sm">AI Sensitivity</Label>
+              <Label className="text-sm">Request-check sensitivity</Label>
               <span className="text-xs font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary">
                 {settings.sensitivity}/10 — {SENSITIVITY_LABEL(settings.sensitivity)}
               </span>
@@ -773,10 +688,10 @@ export const AIFirewallTab = () => {
           {/* Toggles */}
           <div className="space-y-2">
             {[
-              { key: 'auto_block' as const, label: 'Auto-block threats', desc: 'Automatically block IPs matching high/critical patterns', icon: Ban },
-              { key: 'learning_mode' as const, label: 'Learning mode', desc: 'Observe traffic without blocking — builds baseline model', icon: Brain },
-              { key: 'scan_payloads' as const, label: 'Payload inspection', desc: 'Deep-inspect RPC calldata for injection attempts', icon: Eye },
-              { key: 'adaptive_rate_limit' as const, label: 'Adaptive rate limiting', desc: 'Dynamically tighten limits when threats spike', icon: Cpu },
+              { key: 'auto_block' as const, label: 'Auto-block detected IPs', desc: 'Enforce IP bans from built-in request checks', icon: Ban },
+              { key: 'learning_mode' as const, label: 'Learning mode', desc: 'Saved only; no baseline model is connected', icon: Brain },
+              { key: 'scan_payloads' as const, label: 'Payload inspection', desc: 'Inspect request payloads for built-in injection checks', icon: Eye },
+              { key: 'adaptive_rate_limit' as const, label: 'Adaptive rate limiting', desc: 'Saved only; runtime limits do not use this setting', icon: Cpu },
             ].map(({ key, label, desc, icon: Icon }) => (
               <div key={key} className="flex items-center justify-between p-3 rounded-lg bg-secondary/20">
                 <div className="flex items-center gap-2.5">

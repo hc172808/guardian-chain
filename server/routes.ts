@@ -12,7 +12,7 @@ import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { pool as pgPool } from "./db";
 import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY, isReservedAddress } from "./reservedWallets";
 import { normalizeNodeRpcUrl, readGenesisSnapshotFromRpc } from "./genesisStatus";
-import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
+import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, setApplicationFirewallEnabled, setIpBlockEnforcement, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { discordNodeDown, discordLargeBridgeTransfer, discordNewGovernanceProposal } from "./discord";
 import { sendBuyRequestStatusEmail, sendCashoutStatusEmail, sendGovernanceNotificationEmail, sendBridgeCompletionEmail } from "./email";
@@ -1135,6 +1135,10 @@ export function registerRoutes(expressApp: Express) {
     const user = req.user as any;
     const { key, value } = req.body;
     const row = await storage.upsertConfig(key, value, user.id);
+    if (key === "ai_firewall_settings") {
+      if (typeof value?.enabled === "boolean") setApplicationFirewallEnabled(value.enabled);
+      await refreshSecuritySettings();
+    }
     res.json(row);
   });
 
@@ -2240,6 +2244,64 @@ export function registerRoutes(expressApp: Express) {
   });
 
   // ── AI Firewall / Security enforcement routes ──────────────────────────────
+  app.patch("/api/security/toggles", requireAdmin, async (req, res) => {
+    const body = req.body ?? {};
+    const allowedKeys = new Set(["firewallEnabled", "ipBlockEnabled"]);
+    if (Object.keys(body).some(key => !allowedKeys.has(key))) {
+      return res.status(400).json({ error: "Only firewallEnabled and ipBlockEnabled can be changed here." });
+    }
+    const hasFirewallSetting = Object.prototype.hasOwnProperty.call(body, "firewallEnabled");
+    const hasIpBlockSetting = Object.prototype.hasOwnProperty.call(body, "ipBlockEnabled");
+    if (!hasFirewallSetting && !hasIpBlockSetting) {
+      return res.status(400).json({ error: "At least one firewall setting is required." });
+    }
+    if (
+      (hasFirewallSetting && typeof body.firewallEnabled !== "boolean") ||
+      (hasIpBlockSetting && typeof body.ipBlockEnabled !== "boolean")
+    ) {
+      return res.status(400).json({ error: "Firewall settings must be boolean values." });
+    }
+
+    const actor = req.user as any;
+    try {
+      if (hasFirewallSetting) {
+        const existingRow = await storage.getConfig("ai_firewall_settings");
+        const storedValue = existingRow?.configValue;
+        const currentSettings = typeof storedValue === "string"
+          ? JSON.parse(storedValue)
+          : storedValue && typeof storedValue === "object"
+            ? storedValue
+            : {};
+        await storage.upsertConfig(
+          "ai_firewall_settings",
+          { ...currentSettings, enabled: body.firewallEnabled },
+          actor.id,
+        );
+        setApplicationFirewallEnabled(body.firewallEnabled);
+      }
+      if (hasIpBlockSetting) {
+        await setIpBlockEnforcement(body.ipBlockEnabled);
+      }
+      await refreshSecuritySettings();
+      await storage.insertAuditLog({
+        userId: actor.id,
+        userEmail: actor.email ?? null,
+        action: "Updated firewall enforcement",
+        category: "firewall",
+        targetType: "security_settings",
+        details: {
+          ...(hasFirewallSetting && { firewallEnabled: body.firewallEnabled }),
+          ...(hasIpBlockSetting && { ipBlockEnabled: body.ipBlockEnabled }),
+        } as any,
+        ipAddress: getClientIp(req),
+      } as any).catch(() => {});
+      res.json({ ok: true, status: getFirewallStatus() });
+    } catch (error: any) {
+      console.error("[Security] Could not update firewall settings:", error?.message ?? error);
+      res.status(500).json({ error: "Could not save firewall settings." });
+    }
+  });
+
   // Status
   app.get("/api/security/status", requireAdmin, (_req, res) => {
     res.json(getFirewallStatus());

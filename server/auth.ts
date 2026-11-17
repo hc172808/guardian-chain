@@ -209,17 +209,32 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Runtime security-check settings (admin/founder only) ───────────────────
-  const requireCaptchaAdmin = (req: any, res: any): boolean => {
-    const roles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
-    if (!roles.some((role: string) => role === 'admin' || role === 'founder')) {
+  const requireCaptchaAdmin = async (req: any, res: any): Promise<boolean> => {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return false;
+    }
+    let roles: Array<{ role: string }>;
+    try {
+      // Auth routes are registered before the admin routes' role-enrichment
+      // middleware, so the Passport session may not contain roles. The
+      // user_roles table is the source of truth for current privileges.
+      roles = await storage.getUserRoles(userId);
+    } catch (error: any) {
+      console.error('[auth] Could not verify captcha-admin role:', error?.message ?? error);
+      res.status(503).json({ error: 'Could not verify admin access. Please retry.' });
+      return false;
+    }
+    if (!roles.some(({ role }) => role === 'admin' || role === 'founder')) {
       res.status(403).json({ error: 'Admin access required' });
       return false;
     }
     return true;
   };
 
-  app.get("/api/auth/captcha/settings", requireAuth, (req: any, res) => {
-    if (!requireCaptchaAdmin(req, res)) return;
+  app.get("/api/auth/captcha/settings", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     res.json({
       settings: getCaptchaSettings(),
       defaults: getCaptchaSettingsDefaults(),
@@ -228,20 +243,20 @@ export async function setupAuth(app: Express): Promise<void> {
     });
   });
 
-  app.put("/api/auth/captcha/settings", requireAuth, (req: any, res) => {
-    if (!requireCaptchaAdmin(req, res)) return;
+  app.put("/api/auth/captcha/settings", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     const settings = updateCaptchaSettings(req.body ?? {});
     res.json({ ok: true, settings, attack: attackState(), fallbackAllowed: isFallbackAllowed() });
   });
 
-  app.post("/api/auth/captcha/settings/reset", requireAuth, (req: any, res) => {
-    if (!requireCaptchaAdmin(req, res)) return;
+  app.post("/api/auth/captcha/settings/reset", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     res.json({ ok: true, settings: resetCaptchaSettings(), attack: attackState(), fallbackAllowed: isFallbackAllowed() });
   });
 
   // Manual attack-mode override: { minutes: number } (0 clears it)
-  app.post("/api/auth/captcha/attack-mode", requireAuth, (req: any, res) => {
-    if (!requireCaptchaAdmin(req, res)) return;
+  app.post("/api/auth/captcha/attack-mode", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     const minutes = Number(req.body?.minutes ?? 0);
     const state = setManualAttackMode(Number.isFinite(minutes) && minutes > 0 ? minutes * 60_000 : 0);
     res.json({ ok: true, attack: state, fallbackAllowed: isFallbackAllowed() });
@@ -258,11 +273,8 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
 
-  app.get("/api/auth/captcha/monitor", requireAuth, (req: any, res) => {
-    const roles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
-    if (!roles.some((role: string) => role === 'admin' || role === 'founder')) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+  app.get("/api/auth/captcha/monitor", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     const failures = (captchaMonitor.counts.html_response ?? 0) + (captchaMonitor.counts.fallback_activated ?? 0);
     const requestId = typeof req.query.requestId === 'string' ? req.query.requestId : null;
     res.json({

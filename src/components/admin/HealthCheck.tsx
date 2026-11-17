@@ -3,7 +3,6 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Activity, Database, Globe, Radio, Shield, Server, RefreshCw, Wifi } from 'lucide-react';
-import { api } from '@/lib/api';
 
 interface ComponentStatus {
   reachable: boolean;
@@ -65,7 +64,21 @@ export const HealthCheck = () => {
     setError(null);
     try {
       await checkCaptcha();
-      const data = await api.get('/api/health');
+      const response = await fetch('/api/health/full', {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Health check returned ${response.status} ${contentType || 'an unexpected response'}`);
+      }
+      const data = await response.json();
+      // The full check returns 503 when infrastructure is degraded, but its
+      // component report is still useful. Render the report instead of
+      // discarding it as a failed request.
+      if (!data?.components) {
+        throw new Error(data?.error ?? `Health check failed (${response.status})`);
+      }
       setResult(data);
     } catch (e: any) {
       setError(e.message);
@@ -109,11 +122,11 @@ export const HealthCheck = () => {
         </div>
         <div className="flex items-center gap-3">
           {result && (
-            <Badge variant={result.status === 'healthy' ? 'default' : 'destructive'} className="uppercase text-xs">
+            <Badge variant={result.status === 'healthy' ? 'default' : 'destructive'} className="uppercase text-xs" data-testid="infrastructure-health-status">
               {result.status}
             </Badge>
           )}
-          <Button size="sm" onClick={runHealthCheck} disabled={loading}>
+          <Button size="sm" onClick={runHealthCheck} disabled={loading} data-testid="button-run-health-check">
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             {loading ? 'Checking...' : 'Run Check'}
           </Button>
@@ -121,7 +134,7 @@ export const HealthCheck = () => {
       </div>
 
       {error && (
-        <div className="p-3 mb-4 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
+        <div className="p-3 mb-4 rounded-lg bg-destructive/10 text-destructive text-sm" role="alert" data-testid="error-infrastructure-health">{error}</div>
       )}
 
       {captchaWarning && (
