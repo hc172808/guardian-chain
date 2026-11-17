@@ -30,6 +30,21 @@ not retrieval of node source repositories.
 - All seven roles above have a local source directory and a corresponding
   installer. Passing a compile test only proves the source builds; it does not
   prove that it can safely join or operate a public chain.
+- The checkout does not currently contain one canonical genesis specification:
+  `public/blockchain-go/internal/genesis.DefaultGenesisConfig` declares a 1B
+  supply and placeholder allocations, while the node-builder path separately
+  pre-mints 100M GYDS to a founder account.
+- The five standalone `node-fixes/*/core/genesis.go` files use a separate
+  200,000-token allocation across placeholder accounts. Their genesis headers
+  use fixed state-root values rather than deriving state from those
+  allocations; the validator bundle also hardcodes its genesis hash.
+- There is no separate testnet genesis fixture in the bundled node sources.
+  Accepting chain ID 198281 in an RPC or installer is not enough to establish
+  testnet genesis compatibility.
+- The previously approved 3B, six-recipient schedule is not represented by the
+  current genesis files. Do not replace these placeholders with guessed
+  allocations or deploy a changed genesis. A genesis change alters block 0 and
+  cannot be applied to existing chain data as a routine node update.
 - The bootnode entry point builds and tests on its own, but running
   `go test ./...` for the entire `public/blockchain-go` module currently fails
   in `internal/indexer` because that package uses APIs that no longer match the
