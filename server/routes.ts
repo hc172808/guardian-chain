@@ -10,7 +10,12 @@ import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { pool as pgPool } from "./db";
-import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY, isReservedAddress } from "./reservedWallets";
+import {
+  getConfiguredReservedWallets,
+  getReservedWalletConfiguration,
+  isReservedAddress,
+  TOTAL_GENESIS_SUPPLY,
+} from "./reservedWallets";
 import { normalizeNodeRpcUrl, readGenesisSnapshotFromRpc } from "./genesisStatus";
 import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, setApplicationFirewallEnabled, setIpBlockEnforcement, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
@@ -312,7 +317,13 @@ function getStablecoinFeeAddress(): string {
   if (configured && !isWalletAddress(configured)) {
     throw new Error("STABLECOIN_FEE_ADDRESS must be a valid wallet address.");
   }
-  return (configured || RESERVED_WALLETS.find((wallet) => wallet.key === "developmentFund")!.address).toLowerCase();
+  const developmentFund = getReservedWalletConfiguration().wallets
+    .find((wallet) => wallet.key === "developmentFund")?.address;
+  const address = configured || developmentFund;
+  if (!address || !isWalletAddress(address)) {
+    throw new Error("Configure STABLECOIN_FEE_ADDRESS or GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS on the server.");
+  }
+  return address.toLowerCase();
 }
 
 // 20 req / 15 min — matches auth.ts authLimiter
@@ -3844,8 +3855,8 @@ export function registerRoutes(expressApp: Express) {
   // ── Treasury wallets (founder + reserved) ──────────────────────────────────
   // Balances are derived from PostgreSQL: confirmed token_operations (genesis
   // premine, mints, burns) plus confirmed GYDS transactions in/out.
-  async function reservedWalletBalances() {
-    const addresses = RESERVED_WALLETS.map((w) => w.address.toLowerCase());
+  async function reservedWalletBalances(wallets = getConfiguredReservedWallets()) {
+    const addresses = wallets.map((w) => w.address.toLowerCase());
 
     const ops = await pgPool.query(
       `SELECT LOWER(wallet_address) AS addr, operation_type, SUM(amount::numeric) AS total
@@ -3885,7 +3896,7 @@ export function registerRoutes(expressApp: Express) {
       if (tx.to_addr in balances) balances[tx.to_addr] += amount;
     }
 
-    return RESERVED_WALLETS.map((w) => ({
+    return wallets.map((w) => ({
       ...w,
       address: w.address.toLowerCase(),
       balance: Math.max(0, balances[w.address.toLowerCase()] ?? 0),
@@ -3894,9 +3905,14 @@ export function registerRoutes(expressApp: Express) {
 
   app.get("/api/admin/treasury/wallets", requireAdmin, async (_req, res) => {
     try {
-      const wallets = await reservedWalletBalances();
+      const configuration = getReservedWalletConfiguration();
+      const wallets = configuration.configured
+        ? await reservedWalletBalances(configuration.wallets)
+        : configuration.wallets.map((wallet) => ({ ...wallet, balance: 0 }));
       res.json({
         ok: true,
+        configured: configuration.configured,
+        issues: configuration.issues,
         totalSupply: TOTAL_GENESIS_SUPPLY,
         wallets,
       });
@@ -3907,7 +3923,9 @@ export function registerRoutes(expressApp: Express) {
 
   app.get("/api/admin/treasury/transfers", requireAdmin, async (_req, res) => {
     try {
-      const addresses = RESERVED_WALLETS.map((w) => w.address.toLowerCase());
+      const configuration = getReservedWalletConfiguration();
+      if (!configuration.configured) return res.json({ ok: true, configured: false, transfers: [] });
+      const addresses = configuration.wallets.map((w) => w.address.toLowerCase());
       const { rows } = await pgPool.query(
         `SELECT id, from_address AS "fromAddress", to_address AS "toAddress",
                 amount::numeric AS amount, COALESCE(fee,0)::numeric AS fee,
@@ -3932,6 +3950,14 @@ export function registerRoutes(expressApp: Express) {
       const to = String(req.body?.to ?? "").toLowerCase().trim();
       const amount = Number(req.body?.amount ?? 0);
 
+      const configuration = getReservedWalletConfiguration();
+      if (!configuration.configured) {
+        return res.status(503).json({
+          ok: false,
+          error: "Treasury wallet addresses are not fully configured on this server.",
+          issues: configuration.issues,
+        });
+      }
       if (!isReservedAddress(from)) return res.status(400).json({ ok: false, error: "Sender must be a treasury wallet" });
       if (!/^0x[a-f0-9]{40}$/.test(to)) return res.status(400).json({ ok: false, error: "Invalid recipient address" });
       if (from === to) return res.status(400).json({ ok: false, error: "Sender and recipient must differ" });
@@ -4227,7 +4253,17 @@ export function registerRoutes(expressApp: Express) {
     }
     const network = requestedNetwork as (typeof ALL_NETWORKS)[number];
     const chainId = NETWORK_CFGS[network].chainId;
-    const addresses = RESERVED_WALLETS.filter((wallet) => wallet.allocation > 0).map((wallet) => wallet.address);
+    const walletConfiguration = getReservedWalletConfiguration();
+    if (!walletConfiguration.configured) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({
+        configured: false,
+        network,
+        reason: "treasury-addresses-not-configured",
+        issues: walletConfiguration.issues,
+      });
+    }
+    const addresses = walletConfiguration.wallets.filter((wallet) => wallet.allocation > 0).map((wallet) => wallet.address);
 
     try {
       const { rows } = await pgPool.query<{
@@ -4309,14 +4345,23 @@ export function registerRoutes(expressApp: Express) {
       ? requestedNetwork as (typeof ALL_NETWORKS)[number]
       : "mainnet";
     const chainId = NETWORK_CFGS[genesisNetwork].chainId;
-    const FOUNDER = (process.env.FOUNDER_WALLET ?? '0xd43455e4ef3E472d81aaA848046FF9a55285F5Fc').toLowerCase();
+    const walletConfiguration = getReservedWalletConfiguration();
+    if (!walletConfiguration.configured) {
+      return res.status(503).json({
+        error: "Genesis recipients are not fully configured on this server.",
+        issues: walletConfiguration.issues,
+      });
+    }
+    const wallets = walletConfiguration.wallets;
+    const founder = wallets.find((wallet) => wallet.key === "founder");
+    if (!founder) return res.status(503).json({ error: "Configure a founder genesis recipient before exporting genesis.json." });
 
     try {
       const alloc: Record<string, { balance: string }> = {};
       if (TOTAL_GENESIS_SUPPLY !== 3_000_000_000) {
         throw new Error(`Configured genesis allocation totals ${TOTAL_GENESIS_SUPPLY}, expected 3000000000 GYDS`);
       }
-      for (const wallet of RESERVED_WALLETS) {
+      for (const wallet of wallets) {
         if (!Number.isSafeInteger(wallet.allocation) || wallet.allocation < 0) {
           throw new Error(`Invalid genesis allocation for ${wallet.key}`);
         }
@@ -4347,7 +4392,7 @@ export function registerRoutes(expressApp: Express) {
         difficulty: '1',
         gasLimit: '0x47b760',
         // Clique: 32-byte vanity + 20-byte sealer address + 65-byte seal
-        extradata: '0x' + '0'.repeat(64) + FOUNDER.slice(2) + '0'.repeat(130),
+        extradata: '0x' + '0'.repeat(64) + founder.address.slice(2) + '0'.repeat(130),
         alloc,
       };
 
