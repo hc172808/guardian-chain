@@ -4,7 +4,7 @@
  * 7 node types × 3 networks = 21 total node instances
  *
  * Port allocation:
- *   Mainnet: rpc=8545, lite=8555, fullnode=8565, boostnode=8575, validator=8585, genesis=8590, bootnode=8595
+ *   Mainnet: rpc=8547, lite=8555, fullnode=8565, boostnode=8575, validator=8585, genesis=8590, bootnode=8595
  *   Testnet: rpc=8600, lite=8601, fullnode=8602, boostnode=8603, validator=8604, genesis=8605, bootnode=8606
  *   Devnet:  rpc=8700, lite=8701, fullnode=8702, boostnode=8703, validator=8704, genesis=8705, bootnode=8706
  *
@@ -92,7 +92,8 @@ export const NETWORK_CFGS: Record<Network, NetworkCfg> = {
   mainnet: {
     chainId: 198282, chainIdHex: "0x3068a", symbol: "GYDS",
     name: "GYDS Network (Mainnet)", label: "mainnet",
-    ports: { rpc: 8545, lite: 8555, fullnode: 8565, boostnode: 8575, validator: 8585, genesis: 8590, bootnode: 8595 },
+    // The installed mainnet RPC service owns 8545; keep the dashboard simulator separate.
+    ports: { rpc: 8547, lite: 8555, fullnode: 8565, boostnode: 8575, validator: 8585, genesis: 8590, bootnode: 8595 },
   },
   testnet: {
     chainId: 198281, chainIdHex: "0x30689", symbol: "TGYDS",
@@ -946,7 +947,7 @@ export const testNodeManager = {
         if (!settled) {
           settled = true;
           const hint = (err as any).code === "EADDRINUSE"
-            ? ` — port ${s.port} is already in use`
+            ? ` — port ${s.port} is already in use. Identify its owner with: sudo ss -ltnp 'sport = :${s.port}'. The dashboard can stop only nodes it started.`
             : "";
           resolve({ ok: false, message: `${NODE_LABELS[type]} failed to start: ${err.message}${hint}` });
         }

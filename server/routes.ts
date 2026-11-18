@@ -2883,7 +2883,7 @@ export function registerRoutes(expressApp: Express) {
 
     // 3c. Widen to all localhost fallback ports if mainnet and still no data
     if (!onchainBlockHeight && netParam === "mainnet") {
-      for (const port of [8545, 8565, 8555, 8575, 8585]) {
+      for (const port of [8545, 8547, 8565, 8555, 8575, 8585]) {
         const url = `http://localhost:${port}`;
         const alreadyTried = rpcNode ? `http://localhost:${rpcNode.port}` : null;
         if (url === alreadyTried) continue;
@@ -4679,7 +4679,7 @@ export function registerRoutes(expressApp: Express) {
         : (process.env.GYDS_RPC_URL || "http://localhost:8545");
     if (!urls.includes(primary)) urls.push(primary);
     const fallbackPorts = network === "mainnet"
-      ? [8545, 8565, 8555, 8575, 8585]
+      ? [8545, 8547, 8565, 8555, 8575, 8585]
       : network === "testnet"
         ? [8600, 8602, 8601, 8603, 8604]
         : [8700, 8702, 8701, 8703, 8704];

@@ -56,42 +56,52 @@ externalPort = 8008
 [[ports]]
 localPort = 8555
 externalPort = 8080
+exposeLocalhost = true
 
 [[ports]]
 localPort = 8565
 externalPort = 3002
+exposeLocalhost = true
 
 [[ports]]
 localPort = 8595
 externalPort = 8081
+exposeLocalhost = true
 
 [[ports]]
 localPort = 8600
 externalPort = 5000
+exposeLocalhost = true
 
 [[ports]]
 localPort = 8601
 externalPort = 3003
+exposeLocalhost = true
 
 [[ports]]
 localPort = 8602
 externalPort = 4200
+exposeLocalhost = true
 
 [[ports]]
 localPort = 8603
 externalPort = 5173
+exposeLocalhost = true
 
 [[ports]]
 localPort = 8604
 externalPort = 6000
+exposeLocalhost = true
 
 [[ports]]
 localPort = 8605
 externalPort = 6800
+exposeLocalhost = true
 
 [[ports]]
 localPort = 8606
 externalPort = 8000
+exposeLocalhost = true
 
 
 

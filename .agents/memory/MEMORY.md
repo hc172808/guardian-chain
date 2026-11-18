@@ -9,7 +9,7 @@
 - [Remote WireGuard management](wireguard-remote-management.md) — Remote VPS peer sync uses SSH with fingerprint verification; private key stays in the WG_SSH_PRIVATE_KEY secret.
 - [TOTP implementation](totp-impl.md) — otplib v12 dropped the `authenticator` export; use server/totp.ts (built-in crypto, zero-dep RFC 6238 TOTP) instead.
 - [Admin camelCase](admin-camelcase.md) — Drizzle returns camelCase; NodeInstallation interface and nodes tab now use nodeType, isApproved, isSynced, wireguardPublicKey, createdAt.
-- [Test nodes](test-nodes.md) — 5 nodes: rpc(8545), lite(8555), fullnode(8565), boostnode(8575), validator(8585). Validator node has validator_info/validator_set/validator_getRewards/validator_register JSON-RPC methods + /validators endpoint.
+- [Test nodes](test-nodes.md) — Dashboard RPC simulator uses 8547; installed mainnet RPC keeps 8545. Validator has custom JSON-RPC methods and /validators endpoint.
 - [Testnet coin symbols](testnet-coin-symbols.md) — testnet displays TGYDS/TGYD; mainnet remains GYDS/GYD, with canonical operation identifiers preserved.
 - [Tokens table creator](tokens-creator.md) — tokens table uses creator_id (no FK to users), not user_id. Use LEFT JOIN + coalesce for leaderboard queries.
 - [XP leaderboard](xp-leaderboard.md) — user_xp, xp_events, achievements, user_achievements tables pushed via raw SQL (db:push has TTY issue). Storage methods use pgPool directly.

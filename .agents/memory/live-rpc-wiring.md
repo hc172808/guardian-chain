@@ -10,7 +10,7 @@ description: How the app connects to localhost blockchain nodes instead of mock 
 
 ## Key facts
 - `server/chainRpc.ts` `getRpcEndpoints()` returns: GYDS_RPC_URL first, then all mainnet local ports (8545, 8565, 8555, 8575, 8585, 8590, 8595) as fallbacks.
-- Managed test nodes: mainnet (8545–8595) and testnet (8600–8606). State persists in the `test_node_state` DB table (`should_run` column); devnet is retired.
+- Managed test nodes: mainnet RPC simulator uses 8547 so it does not collide with the installed RPC service on 8545; other node ports are unchanged. State persists in `test_node_state`; devnet is retired.
 - `/api/rpc` proxy now tries managed nodes first, then GYDS_RPC_URL, then all local mainnet ports — never returns 503 if any port is up.
 - Wallet network-add requests advertise only the network-specific app `/api/rpc?network=...` endpoint and verify its `eth_chainId` first. EIP-3085 wallets can reject a chain if any advertised RPC URL is unavailable or reports a different chain ID.
 - `/api/rpc/balance` tries managed nodes, then GYDS_RPC_URL, then DB-registered online nodes.
