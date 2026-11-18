@@ -277,18 +277,20 @@ const Fail2BanTab = () => {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600',
-    log_path: '', filter_name: '', description: '',
+    log_path: '', filter_name: '', action: 'iptables-multiport', description: '',
   });
 
-  const fetchJails = async () => {
+  const fetchJails = async (seedDefaults = false) => {
     try {
-      const data = await api.get('/api/firewall/jails');
+      const data = seedDefaults
+        ? await api.post('/api/firewall/jails/seed-defaults', {})
+        : await api.get('/api/firewall/jails');
       setJails(Array.isArray(data) ? data : []);
     } catch { setJails([]); }
     setLoading(false);
   };
 
-  useEffect(() => { fetchJails(); }, []);
+  useEffect(() => { void fetchJails(true); }, []);
 
   const handleAdd = async () => {
     if (!user || !form.jail_name) return;
@@ -301,15 +303,17 @@ const Fail2BanTab = () => {
         find_time: parseInt(form.find_time),
         log_path: form.log_path || null,
         filter_name: form.filter_name || null,
+        action: form.action,
+        is_enabled: false,
         description: form.description || null,
       });
-      toast({ title: 'Fail2Ban jail added' });
+      toast({ title: 'Fail2Ban jail added disabled' });
       logAuditEvent(user.id, user.email || null, {
         action: 'Added Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails',
         details: { jail_name: form.jail_name, max_retries: form.max_retries, ban_time: form.ban_time },
       });
       setDialogOpen(false);
-      setForm({ jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600', log_path: '', filter_name: '', description: '' });
+      setForm({ jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600', log_path: '', filter_name: '', action: 'iptables-multiport', description: '' });
       fetchJails();
     } catch (e: any) {
       toast({ title: 'Failed', description: e.message, variant: 'destructive' });
@@ -346,6 +350,10 @@ const Fail2BanTab = () => {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-border/60 bg-secondary/10 p-3 text-xs text-muted-foreground">
+        Standard SSH, Nginx, PostgreSQL, and repeat-offender jail settings are preloaded disabled.
+        These are saved dashboard settings only; they do not write to the VPS or start its Fail2Ban service.
+      </div>
       <div className="flex items-center justify-between">
         <h4 className="font-medium flex items-center gap-2">
           <Ban className="h-4 w-4 text-primary" />
@@ -385,6 +393,17 @@ const Fail2BanTab = () => {
                 <Input placeholder="e.g. sshd, nginx-http-auth" value={form.filter_name} onChange={(e) => setForm({ ...form, filter_name: e.target.value })} />
               </div>
               <div className="space-y-2">
+                <Label>Ban Action</Label>
+                <Select value={form.action} onValueChange={(action) => setForm({ ...form, action })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="iptables-multiport">iptables-multiport</SelectItem>
+                    <SelectItem value="iptables-allports">iptables-allports</SelectItem>
+                    <SelectItem value="nftables-multiport">nftables-multiport</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
                 <Label>Description</Label>
                 <Input placeholder="What this jail protects" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               </div>
@@ -420,7 +439,14 @@ const Fail2BanTab = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Switch checked={jail.is_enabled} onCheckedChange={() => toggleJail(jail.id, jail.is_enabled)} />
+                  <Badge variant={jail.is_enabled ? 'default' : 'outline'}>
+                    {jail.is_enabled ? 'Enabled' : 'Disabled'}
+                  </Badge>
+                  <Switch
+                    aria-label={`${jail.is_enabled ? 'Disable' : 'Enable'} ${jail.jail_name} jail`}
+                    checked={jail.is_enabled}
+                    onCheckedChange={() => toggleJail(jail.id, jail.is_enabled)}
+                  />
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteJail(jail.id)}>
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -433,6 +459,13 @@ const Fail2BanTab = () => {
                 {jail.banned_ips && jail.banned_ips.length > 0 && (
                   <span className="text-destructive">🚫 {jail.banned_ips.length} banned</span>
                 )}
+              </div>
+              <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                <span>Filter: <code className="text-foreground">{jail.filter_name || '—'}</code></span>
+                <span>Action: <code className="text-foreground">{jail.action || '—'}</code></span>
+                <span className="break-all sm:col-span-2">
+                  Log path: <code className="text-foreground">{jail.log_path || '—'}</code>
+                </span>
               </div>
             </div>
           ))}

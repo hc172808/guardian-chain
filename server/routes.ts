@@ -27,6 +27,7 @@ import { broadcastActivity, issueWsToken } from "./activityFeed";
 import { broadcastTransfer, pollForConfirmation, checkRpcHealth, getChainBalance, testEndpoints, getConfiguredGydsRpcEndpoints } from "./chainRpc";
 import { buildRpcEndpointList, checkRpcEndpoint } from "./infrastructureHealth";
 import { hasAdminRole, hasFounderRole, normalizeRoleNames } from "./roles";
+import { DEFAULT_FAIL2BAN_JAILS } from "./fail2banPresets";
 import {
   getTokenDeploymentReadiness,
   verifyGrc20Deployment,
@@ -2138,7 +2139,7 @@ export function registerRoutes(expressApp: Express) {
   });
   const serJail = (r: any) => ({
     id: r.id, jail_name: r.jailName ?? r.jail_name,
-    is_enabled: r.isEnabled ?? r.is_enabled ?? true,
+    is_enabled: r.isEnabled ?? r.is_enabled ?? false,
     max_retries: r.maxRetries ?? r.max_retries ?? 5,
     ban_time: r.banTime ?? r.ban_time ?? 3600,
     find_time: r.findTime ?? r.find_time ?? 600,
@@ -2188,6 +2189,55 @@ export function registerRoutes(expressApp: Express) {
     ...(b.action      !== undefined && { action:      b.action }),
     ...(b.description !== undefined && { description: b.description }),
   });
+  let fail2banSeedPromise: Promise<any[]> | null = null;
+  const ensureDefaultFail2BanJails = (userId: string): Promise<any[]> => {
+    if (fail2banSeedPromise) return fail2banSeedPromise;
+
+    fail2banSeedPromise = (async () => {
+      const marker = await storage.getConfig("fail2ban_default_jails_v1_seeded");
+      if (marker?.configValue?.initialized === true) {
+        return storage.getFail2banJails();
+      }
+
+      const currentJails = await storage.getFail2banJails();
+      for (const jail of currentJails) {
+        if (jail.isEnabled !== false) {
+          await storage.updateFail2banJail(jail.id, { isEnabled: false });
+        }
+      }
+
+      const existingNames = new Set(
+        currentJails.map((jail: any) => String(jail.jailName ?? jail.jail_name).toLowerCase()),
+      );
+      for (const preset of DEFAULT_FAIL2BAN_JAILS) {
+        if (existingNames.has(preset.jail_name.toLowerCase())) continue;
+        await storage.insertFail2banJail({
+          jailName: preset.jail_name,
+          isEnabled: false,
+          maxRetries: preset.max_retries,
+          banTime: preset.ban_time,
+          findTime: preset.find_time,
+          logPath: preset.log_path,
+          filterName: preset.filter_name,
+          action: preset.action,
+          description: preset.description,
+          createdBy: userId,
+        } as any);
+      }
+
+      await storage.upsertConfig(
+        "fail2ban_default_jails_v1_seeded",
+        { initialized: true },
+        userId,
+      );
+      return storage.getFail2banJails();
+    })();
+
+    const seedPromise = fail2banSeedPromise;
+    return seedPromise.finally(() => {
+      if (fail2banSeedPromise === seedPromise) fail2banSeedPromise = null;
+    });
+  };
   const mapIp = (b: any) => ({
     ...(b.ip_address !== undefined && { ipAddress: b.ip_address }),
     ...(b.list_type  !== undefined && { listType:  b.list_type }),
@@ -2225,11 +2275,22 @@ export function registerRoutes(expressApp: Express) {
     await storage.deleteFirewallRule(req.params.id); res.json({ ok: true });
   });
 
+  app.post("/api/firewall/jails/seed-defaults", requireAdmin, async (req, res) => {
+    const user = req.user as any;
+    const rows = await ensureDefaultFail2BanJails(user.id);
+    res.json(rows.map(serJail));
+  });
   app.get("/api/firewall/jails", requireAdmin, async (_req, res) => {
     const rows = await storage.getFail2banJails(); res.json(rows.map(serJail));
   });
   app.post("/api/firewall/jails", requireAdmin, async (req, res) => {
-    const row = await storage.insertFail2banJail(mapJail(req.body) as any); res.json(serJail(row));
+    const user = req.user as any;
+    const body = { ...(req.body ?? {}), is_enabled: req.body?.is_enabled ?? false };
+    const row = await storage.insertFail2banJail({
+      ...mapJail(body),
+      createdBy: user.id,
+    } as any);
+    res.json(serJail(row));
   });
   app.patch("/api/firewall/jails/:id", requireAdmin, async (req, res) => {
     const row = await storage.updateFail2banJail(req.params.id, mapJail(req.body)); res.json(serJail(row));
