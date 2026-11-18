@@ -1102,7 +1102,13 @@ export const FirewallManager = () => {
             <div>
               <p className="text-sm font-medium">IP-block enforcement</p>
               <p className="text-xs text-muted-foreground">
-                {runtimeStatus?.ipBlockEnabled ? 'Detected bans are enforced' : 'Monitor-only; requests are not rejected'}
+                {!runtimeStatus?.enabled
+                  ? runtimeStatus?.ipBlockEnabled
+                    ? 'Saved on, but paused while the application firewall is off'
+                    : 'Turn on the application firewall before enabling enforcement'
+                  : runtimeStatus.ipBlockEnabled
+                    ? 'Detected bans are enforced'
+                    : 'Monitor-only; requests are not rejected'}
               </p>
             </div>
             {runtimeStatus ? (
@@ -1110,7 +1116,7 @@ export const FirewallManager = () => {
                 aria-label="IP-block enforcement"
                 data-testid="switch-ip-block-enforcement"
                 checked={runtimeStatus.ipBlockEnabled}
-                disabled={!canControl || statusLoading || savingToggle !== null}
+                disabled={!canControl || statusLoading || savingToggle !== null || !runtimeStatus.enabled}
                 onCheckedChange={(enabled) => void updateRuntimeToggle('ipBlockEnabled', enabled)}
               />
             ) : (

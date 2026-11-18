@@ -24,7 +24,9 @@ import fs from "fs";
 import os from "os";
 import bcrypt from "bcryptjs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
-import { broadcastTransfer, pollForConfirmation, checkRpcHealth, getChainBalance, testEndpoints } from "./chainRpc";
+import { broadcastTransfer, pollForConfirmation, checkRpcHealth, getChainBalance, testEndpoints, getConfiguredGydsRpcEndpoints } from "./chainRpc";
+import { buildRpcEndpointList, checkRpcEndpoint } from "./infrastructureHealth";
+import { hasAdminRole, hasFounderRole, normalizeRoleNames } from "./roles";
 import {
   getTokenDeploymentReadiness,
   verifyGrc20Deployment,
@@ -331,23 +333,52 @@ function requireAuth(req: Request, res: Response, next: any) {
 function requireAdmin(req: Request, res: Response, next: any) {
   if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
   const user = req.user as any;
-  if (!user._isAdmin && !user._isFounder) return res.status(403).json({ error: "Forbidden" });
-  next();
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  // Do not rely on a role snapshot cached in the Passport session at login.
+  void pgPool.query<{ role: string }>(
+    `SELECT role FROM user_roles WHERE user_id = $1`,
+    [user.id],
+  ).then(({ rows }) => {
+    const roles = normalizeRoleNames(rows);
+    user.roles = roles;
+    user._isFounder = hasFounderRole(roles);
+    user._isAdmin = hasAdminRole(roles);
+    user._rolesLoaded = true;
+    if (!user._isAdmin) return res.status(403).json({ error: "Admin access required" });
+    next();
+  }).catch((error: any) => {
+    console.error("[auth] Could not verify admin role:", error?.message ?? error);
+    res.status(503).json({ error: "Could not verify admin access. Please retry." });
+  });
 }
 
 async function enrichUserWithRoles(req: Request, _res: Response, next: any) {
   if (req.isAuthenticated() && req.user) {
     const user = req.user as any;
     if (!("_rolesLoaded" in user)) {
-      const roles = await storage.getUserRoles(user.id);
-      const roleNames = [...new Set(roles.map((r: any) => r.role))];
+      const roleNames = normalizeRoleNames(await storage.getUserRoles(user.id));
       user.roles = roleNames;
-      user._isFounder = roleNames.includes("founder");
-      user._isAdmin = roleNames.includes("admin") || roleNames.includes("founder");
+      user._isFounder = hasFounderRole(roleNames);
+      user._isAdmin = hasAdminRole(roleNames);
       user._rolesLoaded = true;
     }
   }
   next();
+}
+
+function getInfrastructureRpcUrls(network: "mainnet" | "testnet"): string[] {
+  const configuredUrls = network === "mainnet"
+    ? getConfiguredGydsRpcEndpoints()
+    : [
+        process.env.GYDS_TESTNET_RPC_URL,
+        ...(process.env.GYDS_TESTNET_RPC_BACKUP_URLS ?? "").split(","),
+      ];
+  return buildRpcEndpointList(configuredUrls, Object.values(NETWORK_CFGS[network].ports));
+}
+
+function checkInfrastructureRpc(network: "mainnet" | "testnet") {
+  return Promise.all(getInfrastructureRpcUrls(network).map((url) => checkRpcEndpoint(url)));
 }
 
 type RouteRegistrar = {
@@ -372,12 +403,12 @@ export function registerRoutes(expressApp: Express) {
     if (!req.isAuthenticated()) return res.json(null);
     const user = req.user as any;
     // Always fetch live roles from DB — req.user never has them populated
-    const roleRows = await pgPool.query(
+    const roleRows = await pgPool.query<{ role: string }>(
       `SELECT role FROM user_roles WHERE user_id = $1`, [user.id]
     ).catch(() => ({ rows: [] as any[] }));
-    const roles: string[] = [...new Set(roleRows.rows.map((r: any) => r.role))];
-    const isAdmin = roles.includes('admin') || roles.includes('founder');
-    const isFounder = roles.includes('founder');
+    const roles = normalizeRoleNames(roleRows.rows);
+    const isAdmin = hasAdminRole(roles);
+    const isFounder = hasFounderRole(roles);
     res.json({
       id: user.id,
       email: user.email,
@@ -5774,19 +5805,7 @@ export function registerRoutes(expressApp: Express) {
       const [validatorRows, nodeRows, rpcHealth] = await Promise.all([
         storage.getValidators?.().catch(() => [] as any[]),
         pgPool?.query(`SELECT COUNT(*) as total, SUM(CASE WHEN is_synced THEN 1 ELSE 0 END) as synced FROM node_installations`).catch(() => ({ rows: [{ total: 0, synced: 0 }] })),
-        (async () => {
-          const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
-          return Promise.all(rpcEndpoints.map(async url => {
-            try {
-              const ctrl = new AbortController();
-              const t = setTimeout(() => ctrl.abort(), 4000);
-              const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
-              clearTimeout(t);
-              const d: any = await r.json();
-              return { url, reachable: !!d.result, blockNumber: d.result };
-            } catch (e: any) { return { url, reachable: false, error: e.message }; }
-          }));
-        })(),
+        checkInfrastructureRpc("mainnet"),
       ]);
       const validators = Array.isArray(validatorRows) ? validatorRows : [];
       const nodeSummary = nodeRows?.rows?.[0] ?? { total: 0, synced: 0 };
@@ -5834,26 +5853,13 @@ export function registerRoutes(expressApp: Express) {
   });
 
   app.get("/api/health", async (_req, res) => {
-    const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
-    const checkRpc = async (url: string) => {
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 5000);
-        const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
-        clearTimeout(t);
-        const d: any = await r.json();
-        return { url, reachable: !!d.result, blockNumber: d.result };
-      } catch (e: any) { return { url, reachable: false, error: e.message }; }
-    };
-    const rpcChecks = await Promise.all(rpcEndpoints.map(checkRpc));
+    const rpcChecks = await checkInfrastructureRpc("mainnet");
     const allRpcOk = rpcChecks.some((r: any) => r.reachable);
     res.json({ status: allRpcOk ? "healthy" : "degraded", timestamp: new Date().toISOString(), chain_id: 198282, components: { rpc: rpcChecks } });
   });
 
   // ── Full infrastructure health check (replaces Supabase Edge Function) ──────
   app.get("/api/health/full", async (_req, res) => {
-    const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
-
     const checkEndpoint = async (url: string, timeout = 5000) => {
       const start = Date.now();
       try {
@@ -5865,18 +5871,6 @@ export function registerRoutes(expressApp: Express) {
       } catch (e: any) { return { reachable: false, latency: Date.now() - start, error: e.message }; }
     };
 
-    const checkRpc = async (url: string) => {
-      const start = Date.now();
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 5000);
-        const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
-        clearTimeout(t);
-        const d: any = await r.json();
-        return { url, reachable: !!d.result, latency: Date.now() - start, blockNumber: d.result };
-      } catch (e: any) { return { url, reachable: false, latency: Date.now() - start, error: e.message }; }
-    };
-
     const dbStart = Date.now();
     let dbCheck = { reachable: false, latency: 0, error: "No pool" };
     try {
@@ -5885,14 +5879,20 @@ export function registerRoutes(expressApp: Express) {
     } catch (e: any) { dbCheck = { reachable: false, latency: Date.now() - dbStart, error: e.message }; }
 
     const [rpcChecks, wsCheck, explorerCheck, vpnCheck, testnetCheck] = await Promise.all([
-      Promise.all(rpcEndpoints.map(checkRpc)),
+      checkInfrastructureRpc("mainnet"),
       checkEndpoint("https://ws.netlifegy.com"),
       checkEndpoint("https://explorer.netlifegy.com"),
       checkEndpoint("https://vpn.netlifegy.com", 3000),
-      checkRpc("https://testnet-rpc.netlifegy.com"),
+      checkInfrastructureRpc("testnet"),
     ]);
 
     const allRpcOk = rpcChecks.some((r: any) => r.reachable);
+    const testnetResult = testnetCheck.find((result) => result.reachable) ?? testnetCheck[0] ?? {
+      url: "testnet RPC",
+      reachable: false,
+      latency: 0,
+      error: "No testnet RPC endpoints are configured.",
+    };
     const overallHealthy = dbCheck.reachable && allRpcOk;
 
     res.status(overallHealthy ? 200 : 503).json({
@@ -5905,7 +5905,7 @@ export function registerRoutes(expressApp: Express) {
         websocket: { url: "wss://ws.netlifegy.com", ...wsCheck },
         explorer: { url: "https://explorer.netlifegy.com", ...explorerCheck },
         vpn: { url: "vpn.netlifegy.com", ...vpnCheck },
-        testnet: { url: "https://testnet-rpc.netlifegy.com", ...testnetCheck },
+        testnet: testnetResult,
       },
     });
   });

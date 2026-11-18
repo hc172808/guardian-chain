@@ -18,6 +18,7 @@ import {
   getCaptchaSettings, getCaptchaSettingsDefaults, updateCaptchaSettings, resetCaptchaSettings,
   recordAttackSignal, setManualAttackMode, attackState, isFallbackAllowed,
 } from "./captchaSettings";
+import { hasAdminRole } from "./roles";
 const pgPool = pool;
 
 // ── WhatsApp OTP store (in-memory, short-lived) ───────────────────────────────
@@ -220,13 +221,17 @@ export async function setupAuth(app: Express): Promise<void> {
       // Auth routes are registered before the admin routes' role-enrichment
       // middleware, so the Passport session may not contain roles. The
       // user_roles table is the source of truth for current privileges.
-      roles = await storage.getUserRoles(userId);
+      const result = await pgPool.query<{ role: string }>(
+        `SELECT role FROM user_roles WHERE user_id = $1`,
+        [userId],
+      );
+      roles = result.rows;
     } catch (error: any) {
       console.error('[auth] Could not verify captcha-admin role:', error?.message ?? error);
       res.status(503).json({ error: 'Could not verify admin access. Please retry.' });
       return false;
     }
-    if (!roles.some(({ role }) => role === 'admin' || role === 'founder')) {
+    if (!hasAdminRole(roles)) {
       res.status(403).json({ error: 'Admin access required' });
       return false;
     }
