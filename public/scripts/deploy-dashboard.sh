@@ -450,7 +450,7 @@ id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" 
   [[ -n "$WA_PHONE_ID"          ]] && echo "WHATSAPP_PHONE_ID=${WA_PHONE_ID}"
   [[ -n "$GYDS_BOOTSTRAP_NODES" ]] && echo "GYDS_BOOTSTRAP_NODES=${GYDS_BOOTSTRAP_NODES}"
 } > "$APP_DIR/gyds-config.env"
-chmod 644 "$APP_DIR/gyds-config.env"
+chmod 600 "$APP_DIR/gyds-config.env"
 id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/gyds-config.env" || true
 log "Shared config written → $APP_DIR/gyds-config.env"
 

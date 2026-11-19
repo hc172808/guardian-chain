@@ -7228,6 +7228,7 @@ export function registerRoutes(expressApp: Express) {
     const merged = { ...existing, ...values };
     const lines = Object.entries(merged).map(([k, v]) => `${k}=${v}`);
     fs.writeFileSync(envPath, lines.join('\n') + '\n', 'utf8');
+    fs.chmodSync(envPath, 0o600);
   }
 
   const SETUP_READABLE_KEYS = [
@@ -7622,6 +7623,7 @@ export function registerRoutes(expressApp: Express) {
         ...Object.entries(gydsConf).map(([k, v]) => `${k}=${v}`),
       ];
       fs.writeFileSync(configPath, gydsLines.join('\n') + '\n', 'utf8');
+      fs.chmodSync(configPath, 0o600);
 
       // Try PM2 restart
       let restarted = false;
