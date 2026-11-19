@@ -288,7 +288,7 @@ export const firewallRules = pgTable("firewall_rules", {
 export const fail2banJails = pgTable("fail2ban_jails", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   jailName: text("jail_name").notNull(),
-  isEnabled: boolean("is_enabled").notNull().default(true),
+  isEnabled: boolean("is_enabled").notNull().default(false),
   maxRetries: integer("max_retries").notNull().default(5),
   banTime: integer("ban_time").notNull().default(3600),
   findTime: integer("find_time").notNull().default(600),

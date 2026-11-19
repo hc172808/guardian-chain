@@ -10,9 +10,14 @@ import { withCache, getCacheStats, clearCache, invalidate } from "./queryCache";
 import { encryptSeed, decryptSeed } from "./walletCrypto";
 import { getVapidPublicKey, sendPushToUser, broadcastPush } from "./webpush";
 import { pool as pgPool } from "./db";
-import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY, isReservedAddress } from "./reservedWallets";
+import {
+  getConfiguredReservedWallets,
+  getReservedWalletConfiguration,
+  isReservedAddress,
+  TOTAL_GENESIS_SUPPLY,
+} from "./reservedWallets";
 import { normalizeNodeRpcUrl, readGenesisSnapshotFromRpc } from "./genesisStatus";
-import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
+import { blockIp, unblockIp, clearAllBlockedIps, getBlockedIpList, getFirewallStatus, refreshSecuritySettings, setApplicationFirewallEnabled, setIpBlockEnforcement, listIpBans, addIpBan, removeIpBan, getClientIp, getHoneypotRedirectUrl, invalidateHoneypotCache, getLockoutSettings, invalidateLockoutSettingsCache, listActiveLockouts, clearLockout, DEFAULT_LOCKOUT_DURATIONS_SEC } from "./security";
 import { sendTelegramAlert, sendTelegramMessage, testTelegramConnection } from "./telegram";
 import { discordNodeDown, discordLargeBridgeTransfer, discordNewGovernanceProposal } from "./discord";
 import { sendBuyRequestStatusEmail, sendCashoutStatusEmail, sendGovernanceNotificationEmail, sendBridgeCompletionEmail } from "./email";
@@ -24,7 +29,10 @@ import fs from "fs";
 import os from "os";
 import bcrypt from "bcryptjs";
 import { broadcastActivity, issueWsToken } from "./activityFeed";
-import { broadcastTransfer, pollForConfirmation, checkRpcHealth, getChainBalance, testEndpoints } from "./chainRpc";
+import { broadcastTransfer, pollForConfirmation, checkRpcHealth, getChainBalance, testEndpoints, getConfiguredGydsRpcEndpoints } from "./chainRpc";
+import { buildRpcEndpointList, checkRpcEndpoint } from "./infrastructureHealth";
+import { hasAdminRole, hasFounderRole, normalizeRoleNames } from "./roles";
+import { DEFAULT_FAIL2BAN_JAILS } from "./fail2banPresets";
 import {
   getTokenDeploymentReadiness,
   verifyGrc20Deployment,
@@ -309,7 +317,13 @@ function getStablecoinFeeAddress(): string {
   if (configured && !isWalletAddress(configured)) {
     throw new Error("STABLECOIN_FEE_ADDRESS must be a valid wallet address.");
   }
-  return (configured || RESERVED_WALLETS.find((wallet) => wallet.key === "developmentFund")!.address).toLowerCase();
+  const developmentFund = getReservedWalletConfiguration().wallets
+    .find((wallet) => wallet.key === "developmentFund")?.address;
+  const address = configured || developmentFund;
+  if (!address || !isWalletAddress(address)) {
+    throw new Error("Configure STABLECOIN_FEE_ADDRESS or GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS on the server.");
+  }
+  return address.toLowerCase();
 }
 
 // 20 req / 15 min — matches auth.ts authLimiter
@@ -331,23 +345,52 @@ function requireAuth(req: Request, res: Response, next: any) {
 function requireAdmin(req: Request, res: Response, next: any) {
   if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
   const user = req.user as any;
-  if (!user._isAdmin && !user._isFounder) return res.status(403).json({ error: "Forbidden" });
-  next();
+  if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+
+  // Do not rely on a role snapshot cached in the Passport session at login.
+  void pgPool.query<{ role: string }>(
+    `SELECT role FROM user_roles WHERE user_id = $1`,
+    [user.id],
+  ).then(({ rows }) => {
+    const roles = normalizeRoleNames(rows);
+    user.roles = roles;
+    user._isFounder = hasFounderRole(roles);
+    user._isAdmin = hasAdminRole(roles);
+    user._rolesLoaded = true;
+    if (!user._isAdmin) return res.status(403).json({ error: "Admin access required" });
+    next();
+  }).catch((error: any) => {
+    console.error("[auth] Could not verify admin role:", error?.message ?? error);
+    res.status(503).json({ error: "Could not verify admin access. Please retry." });
+  });
 }
 
 async function enrichUserWithRoles(req: Request, _res: Response, next: any) {
   if (req.isAuthenticated() && req.user) {
     const user = req.user as any;
     if (!("_rolesLoaded" in user)) {
-      const roles = await storage.getUserRoles(user.id);
-      const roleNames = [...new Set(roles.map((r: any) => r.role))];
+      const roleNames = normalizeRoleNames(await storage.getUserRoles(user.id));
       user.roles = roleNames;
-      user._isFounder = roleNames.includes("founder");
-      user._isAdmin = roleNames.includes("admin") || roleNames.includes("founder");
+      user._isFounder = hasFounderRole(roleNames);
+      user._isAdmin = hasAdminRole(roleNames);
       user._rolesLoaded = true;
     }
   }
   next();
+}
+
+function getInfrastructureRpcUrls(network: "mainnet" | "testnet"): string[] {
+  const configuredUrls = network === "mainnet"
+    ? getConfiguredGydsRpcEndpoints()
+    : [
+        process.env.GYDS_TESTNET_RPC_URL,
+        ...(process.env.GYDS_TESTNET_RPC_BACKUP_URLS ?? "").split(","),
+      ];
+  return buildRpcEndpointList(configuredUrls, Object.values(NETWORK_CFGS[network].ports));
+}
+
+function checkInfrastructureRpc(network: "mainnet" | "testnet") {
+  return Promise.all(getInfrastructureRpcUrls(network).map((url) => checkRpcEndpoint(url)));
 }
 
 type RouteRegistrar = {
@@ -372,12 +415,12 @@ export function registerRoutes(expressApp: Express) {
     if (!req.isAuthenticated()) return res.json(null);
     const user = req.user as any;
     // Always fetch live roles from DB — req.user never has them populated
-    const roleRows = await pgPool.query(
+    const roleRows = await pgPool.query<{ role: string }>(
       `SELECT role FROM user_roles WHERE user_id = $1`, [user.id]
     ).catch(() => ({ rows: [] as any[] }));
-    const roles: string[] = [...new Set(roleRows.rows.map((r: any) => r.role))];
-    const isAdmin = roles.includes('admin') || roles.includes('founder');
-    const isFounder = roles.includes('founder');
+    const roles = normalizeRoleNames(roleRows.rows);
+    const isAdmin = hasAdminRole(roles);
+    const isFounder = hasFounderRole(roles);
     res.json({
       id: user.id,
       email: user.email,
@@ -1135,6 +1178,10 @@ export function registerRoutes(expressApp: Express) {
     const user = req.user as any;
     const { key, value } = req.body;
     const row = await storage.upsertConfig(key, value, user.id);
+    if (key === "ai_firewall_settings") {
+      if (typeof value?.enabled === "boolean") setApplicationFirewallEnabled(value.enabled);
+      await refreshSecuritySettings();
+    }
     res.json(row);
   });
 
@@ -2103,7 +2150,7 @@ export function registerRoutes(expressApp: Express) {
   });
   const serJail = (r: any) => ({
     id: r.id, jail_name: r.jailName ?? r.jail_name,
-    is_enabled: r.isEnabled ?? r.is_enabled ?? true,
+    is_enabled: r.isEnabled ?? r.is_enabled ?? false,
     max_retries: r.maxRetries ?? r.max_retries ?? 5,
     ban_time: r.banTime ?? r.ban_time ?? 3600,
     find_time: r.findTime ?? r.find_time ?? 600,
@@ -2153,6 +2200,55 @@ export function registerRoutes(expressApp: Express) {
     ...(b.action      !== undefined && { action:      b.action }),
     ...(b.description !== undefined && { description: b.description }),
   });
+  let fail2banSeedPromise: Promise<any[]> | null = null;
+  const ensureDefaultFail2BanJails = (userId: string): Promise<any[]> => {
+    if (fail2banSeedPromise) return fail2banSeedPromise;
+
+    fail2banSeedPromise = (async () => {
+      const marker = await storage.getConfig("fail2ban_default_jails_v1_seeded");
+      if (marker?.configValue?.initialized === true) {
+        return storage.getFail2banJails();
+      }
+
+      const currentJails = await storage.getFail2banJails();
+      for (const jail of currentJails) {
+        if (jail.isEnabled !== false) {
+          await storage.updateFail2banJail(jail.id, { isEnabled: false });
+        }
+      }
+
+      const existingNames = new Set(
+        currentJails.map((jail: any) => String(jail.jailName ?? jail.jail_name).toLowerCase()),
+      );
+      for (const preset of DEFAULT_FAIL2BAN_JAILS) {
+        if (existingNames.has(preset.jail_name.toLowerCase())) continue;
+        await storage.insertFail2banJail({
+          jailName: preset.jail_name,
+          isEnabled: false,
+          maxRetries: preset.max_retries,
+          banTime: preset.ban_time,
+          findTime: preset.find_time,
+          logPath: preset.log_path,
+          filterName: preset.filter_name,
+          action: preset.action,
+          description: preset.description,
+          createdBy: userId,
+        } as any);
+      }
+
+      await storage.upsertConfig(
+        "fail2ban_default_jails_v1_seeded",
+        { initialized: true },
+        userId,
+      );
+      return storage.getFail2banJails();
+    })();
+
+    const seedPromise = fail2banSeedPromise;
+    return seedPromise.finally(() => {
+      if (fail2banSeedPromise === seedPromise) fail2banSeedPromise = null;
+    });
+  };
   const mapIp = (b: any) => ({
     ...(b.ip_address !== undefined && { ipAddress: b.ip_address }),
     ...(b.list_type  !== undefined && { listType:  b.list_type }),
@@ -2190,11 +2286,22 @@ export function registerRoutes(expressApp: Express) {
     await storage.deleteFirewallRule(req.params.id); res.json({ ok: true });
   });
 
+  app.post("/api/firewall/jails/seed-defaults", requireAdmin, async (req, res) => {
+    const user = req.user as any;
+    const rows = await ensureDefaultFail2BanJails(user.id);
+    res.json(rows.map(serJail));
+  });
   app.get("/api/firewall/jails", requireAdmin, async (_req, res) => {
     const rows = await storage.getFail2banJails(); res.json(rows.map(serJail));
   });
   app.post("/api/firewall/jails", requireAdmin, async (req, res) => {
-    const row = await storage.insertFail2banJail(mapJail(req.body) as any); res.json(serJail(row));
+    const user = req.user as any;
+    const body = { ...(req.body ?? {}), is_enabled: req.body?.is_enabled ?? false };
+    const row = await storage.insertFail2banJail({
+      ...mapJail(body),
+      createdBy: user.id,
+    } as any);
+    res.json(serJail(row));
   });
   app.patch("/api/firewall/jails/:id", requireAdmin, async (req, res) => {
     const row = await storage.updateFail2banJail(req.params.id, mapJail(req.body)); res.json(serJail(row));
@@ -2240,6 +2347,64 @@ export function registerRoutes(expressApp: Express) {
   });
 
   // ── AI Firewall / Security enforcement routes ──────────────────────────────
+  app.patch("/api/security/toggles", requireAdmin, async (req, res) => {
+    const body = req.body ?? {};
+    const allowedKeys = new Set(["firewallEnabled", "ipBlockEnabled"]);
+    if (Object.keys(body).some(key => !allowedKeys.has(key))) {
+      return res.status(400).json({ error: "Only firewallEnabled and ipBlockEnabled can be changed here." });
+    }
+    const hasFirewallSetting = Object.prototype.hasOwnProperty.call(body, "firewallEnabled");
+    const hasIpBlockSetting = Object.prototype.hasOwnProperty.call(body, "ipBlockEnabled");
+    if (!hasFirewallSetting && !hasIpBlockSetting) {
+      return res.status(400).json({ error: "At least one firewall setting is required." });
+    }
+    if (
+      (hasFirewallSetting && typeof body.firewallEnabled !== "boolean") ||
+      (hasIpBlockSetting && typeof body.ipBlockEnabled !== "boolean")
+    ) {
+      return res.status(400).json({ error: "Firewall settings must be boolean values." });
+    }
+
+    const actor = req.user as any;
+    try {
+      if (hasFirewallSetting) {
+        const existingRow = await storage.getConfig("ai_firewall_settings");
+        const storedValue = existingRow?.configValue;
+        const currentSettings = typeof storedValue === "string"
+          ? JSON.parse(storedValue)
+          : storedValue && typeof storedValue === "object"
+            ? storedValue
+            : {};
+        await storage.upsertConfig(
+          "ai_firewall_settings",
+          { ...currentSettings, enabled: body.firewallEnabled },
+          actor.id,
+        );
+        setApplicationFirewallEnabled(body.firewallEnabled);
+      }
+      if (hasIpBlockSetting) {
+        await setIpBlockEnforcement(body.ipBlockEnabled);
+      }
+      await refreshSecuritySettings();
+      await storage.insertAuditLog({
+        userId: actor.id,
+        userEmail: actor.email ?? null,
+        action: "Updated firewall enforcement",
+        category: "firewall",
+        targetType: "security_settings",
+        details: {
+          ...(hasFirewallSetting && { firewallEnabled: body.firewallEnabled }),
+          ...(hasIpBlockSetting && { ipBlockEnabled: body.ipBlockEnabled }),
+        } as any,
+        ipAddress: getClientIp(req),
+      } as any).catch(() => {});
+      res.json({ ok: true, status: getFirewallStatus() });
+    } catch (error: any) {
+      console.error("[Security] Could not update firewall settings:", error?.message ?? error);
+      res.status(500).json({ error: "Could not save firewall settings." });
+    }
+  });
+
   // Status
   app.get("/api/security/status", requireAdmin, (_req, res) => {
     res.json(getFirewallStatus());
@@ -2729,7 +2894,7 @@ export function registerRoutes(expressApp: Express) {
 
     // 3c. Widen to all localhost fallback ports if mainnet and still no data
     if (!onchainBlockHeight && netParam === "mainnet") {
-      for (const port of [8545, 8565, 8555, 8575, 8585]) {
+      for (const port of [8545, 8547, 8565, 8555, 8575, 8585]) {
         const url = `http://localhost:${port}`;
         const alreadyTried = rpcNode ? `http://localhost:${rpcNode.port}` : null;
         if (url === alreadyTried) continue;
@@ -3690,8 +3855,8 @@ export function registerRoutes(expressApp: Express) {
   // ── Treasury wallets (founder + reserved) ──────────────────────────────────
   // Balances are derived from PostgreSQL: confirmed token_operations (genesis
   // premine, mints, burns) plus confirmed GYDS transactions in/out.
-  async function reservedWalletBalances() {
-    const addresses = RESERVED_WALLETS.map((w) => w.address.toLowerCase());
+  async function reservedWalletBalances(wallets = getConfiguredReservedWallets()) {
+    const addresses = wallets.map((w) => w.address.toLowerCase());
 
     const ops = await pgPool.query(
       `SELECT LOWER(wallet_address) AS addr, operation_type, SUM(amount::numeric) AS total
@@ -3731,7 +3896,7 @@ export function registerRoutes(expressApp: Express) {
       if (tx.to_addr in balances) balances[tx.to_addr] += amount;
     }
 
-    return RESERVED_WALLETS.map((w) => ({
+    return wallets.map((w) => ({
       ...w,
       address: w.address.toLowerCase(),
       balance: Math.max(0, balances[w.address.toLowerCase()] ?? 0),
@@ -3740,9 +3905,15 @@ export function registerRoutes(expressApp: Express) {
 
   app.get("/api/admin/treasury/wallets", requireAdmin, async (_req, res) => {
     try {
-      const wallets = await reservedWalletBalances();
+      res.setHeader("Cache-Control", "no-store");
+      const configuration = getReservedWalletConfiguration();
+      const wallets = configuration.configured
+        ? await reservedWalletBalances(configuration.wallets)
+        : configuration.wallets.map((wallet) => ({ ...wallet, balance: 0 }));
       res.json({
         ok: true,
+        configured: configuration.configured,
+        issues: configuration.issues,
         totalSupply: TOTAL_GENESIS_SUPPLY,
         wallets,
       });
@@ -3753,7 +3924,10 @@ export function registerRoutes(expressApp: Express) {
 
   app.get("/api/admin/treasury/transfers", requireAdmin, async (_req, res) => {
     try {
-      const addresses = RESERVED_WALLETS.map((w) => w.address.toLowerCase());
+      res.setHeader("Cache-Control", "no-store");
+      const configuration = getReservedWalletConfiguration();
+      if (!configuration.configured) return res.json({ ok: true, configured: false, transfers: [] });
+      const addresses = configuration.wallets.map((w) => w.address.toLowerCase());
       const { rows } = await pgPool.query(
         `SELECT id, from_address AS "fromAddress", to_address AS "toAddress",
                 amount::numeric AS amount, COALESCE(fee,0)::numeric AS fee,
@@ -3778,6 +3952,14 @@ export function registerRoutes(expressApp: Express) {
       const to = String(req.body?.to ?? "").toLowerCase().trim();
       const amount = Number(req.body?.amount ?? 0);
 
+      const configuration = getReservedWalletConfiguration();
+      if (!configuration.configured) {
+        return res.status(503).json({
+          ok: false,
+          error: "Treasury wallet addresses are not fully configured on this server.",
+          issues: configuration.issues,
+        });
+      }
       if (!isReservedAddress(from)) return res.status(400).json({ ok: false, error: "Sender must be a treasury wallet" });
       if (!/^0x[a-f0-9]{40}$/.test(to)) return res.status(400).json({ ok: false, error: "Invalid recipient address" });
       if (from === to) return res.status(400).json({ ok: false, error: "Sender and recipient must differ" });
@@ -4073,7 +4255,17 @@ export function registerRoutes(expressApp: Express) {
     }
     const network = requestedNetwork as (typeof ALL_NETWORKS)[number];
     const chainId = NETWORK_CFGS[network].chainId;
-    const addresses = RESERVED_WALLETS.filter((wallet) => wallet.allocation > 0).map((wallet) => wallet.address);
+    const walletConfiguration = getReservedWalletConfiguration();
+    if (!walletConfiguration.configured) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({
+        configured: false,
+        network,
+        reason: "treasury-addresses-not-configured",
+        issues: walletConfiguration.issues,
+      });
+    }
+    const addresses = walletConfiguration.wallets.filter((wallet) => wallet.allocation > 0).map((wallet) => wallet.address);
 
     try {
       const { rows } = await pgPool.query<{
@@ -4150,19 +4342,29 @@ export function registerRoutes(expressApp: Express) {
   // ── Genesis JSON builder — fixed approved allocations for new chains ────────
   // Existing database balances are intentionally excluded from a fresh genesis.
   app.get("/api/chain/genesis.json", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     const requestedNetwork = String(req.query.network ?? "mainnet");
     const genesisNetwork = ALL_NETWORKS.includes(requestedNetwork as any)
       ? requestedNetwork as (typeof ALL_NETWORKS)[number]
       : "mainnet";
     const chainId = NETWORK_CFGS[genesisNetwork].chainId;
-    const FOUNDER = (process.env.FOUNDER_WALLET ?? '0xd43455e4ef3E472d81aaA848046FF9a55285F5Fc').toLowerCase();
+    const walletConfiguration = getReservedWalletConfiguration();
+    if (!walletConfiguration.configured) {
+      return res.status(503).json({
+        error: "Genesis recipients are not fully configured on this server.",
+        issues: walletConfiguration.issues,
+      });
+    }
+    const wallets = walletConfiguration.wallets;
+    const founder = wallets.find((wallet) => wallet.key === "founder");
+    if (!founder) return res.status(503).json({ error: "Configure a founder genesis recipient before exporting genesis.json." });
 
     try {
       const alloc: Record<string, { balance: string }> = {};
       if (TOTAL_GENESIS_SUPPLY !== 3_000_000_000) {
         throw new Error(`Configured genesis allocation totals ${TOTAL_GENESIS_SUPPLY}, expected 3000000000 GYDS`);
       }
-      for (const wallet of RESERVED_WALLETS) {
+      for (const wallet of wallets) {
         if (!Number.isSafeInteger(wallet.allocation) || wallet.allocation < 0) {
           throw new Error(`Invalid genesis allocation for ${wallet.key}`);
         }
@@ -4193,7 +4395,7 @@ export function registerRoutes(expressApp: Express) {
         difficulty: '1',
         gasLimit: '0x47b760',
         // Clique: 32-byte vanity + 20-byte sealer address + 65-byte seal
-        extradata: '0x' + '0'.repeat(64) + FOUNDER.slice(2) + '0'.repeat(130),
+        extradata: '0x' + '0'.repeat(64) + founder.address.slice(2) + '0'.repeat(130),
         alloc,
       };
 
@@ -4525,7 +4727,7 @@ export function registerRoutes(expressApp: Express) {
         : (process.env.GYDS_RPC_URL || "http://localhost:8545");
     if (!urls.includes(primary)) urls.push(primary);
     const fallbackPorts = network === "mainnet"
-      ? [8545, 8565, 8555, 8575, 8585]
+      ? [8545, 8547, 8565, 8555, 8575, 8585]
       : network === "testnet"
         ? [8600, 8602, 8601, 8603, 8604]
         : [8700, 8702, 8701, 8703, 8704];
@@ -5712,19 +5914,7 @@ export function registerRoutes(expressApp: Express) {
       const [validatorRows, nodeRows, rpcHealth] = await Promise.all([
         storage.getValidators?.().catch(() => [] as any[]),
         pgPool?.query(`SELECT COUNT(*) as total, SUM(CASE WHEN is_synced THEN 1 ELSE 0 END) as synced FROM node_installations`).catch(() => ({ rows: [{ total: 0, synced: 0 }] })),
-        (async () => {
-          const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
-          return Promise.all(rpcEndpoints.map(async url => {
-            try {
-              const ctrl = new AbortController();
-              const t = setTimeout(() => ctrl.abort(), 4000);
-              const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
-              clearTimeout(t);
-              const d: any = await r.json();
-              return { url, reachable: !!d.result, blockNumber: d.result };
-            } catch (e: any) { return { url, reachable: false, error: e.message }; }
-          }));
-        })(),
+        checkInfrastructureRpc("mainnet"),
       ]);
       const validators = Array.isArray(validatorRows) ? validatorRows : [];
       const nodeSummary = nodeRows?.rows?.[0] ?? { total: 0, synced: 0 };
@@ -5772,26 +5962,13 @@ export function registerRoutes(expressApp: Express) {
   });
 
   app.get("/api/health", async (_req, res) => {
-    const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
-    const checkRpc = async (url: string) => {
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 5000);
-        const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
-        clearTimeout(t);
-        const d: any = await r.json();
-        return { url, reachable: !!d.result, blockNumber: d.result };
-      } catch (e: any) { return { url, reachable: false, error: e.message }; }
-    };
-    const rpcChecks = await Promise.all(rpcEndpoints.map(checkRpc));
+    const rpcChecks = await checkInfrastructureRpc("mainnet");
     const allRpcOk = rpcChecks.some((r: any) => r.reachable);
     res.json({ status: allRpcOk ? "healthy" : "degraded", timestamp: new Date().toISOString(), chain_id: 198282, components: { rpc: rpcChecks } });
   });
 
   // ── Full infrastructure health check (replaces Supabase Edge Function) ──────
   app.get("/api/health/full", async (_req, res) => {
-    const rpcEndpoints = ["https://rpc.netlifegy.com", "https://rpc2.netlifegy.com", "https://rpc3.netlifegy.com"];
-
     const checkEndpoint = async (url: string, timeout = 5000) => {
       const start = Date.now();
       try {
@@ -5803,18 +5980,6 @@ export function registerRoutes(expressApp: Express) {
       } catch (e: any) { return { reachable: false, latency: Date.now() - start, error: e.message }; }
     };
 
-    const checkRpc = async (url: string) => {
-      const start = Date.now();
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 5000);
-        const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }), signal: ctrl.signal });
-        clearTimeout(t);
-        const d: any = await r.json();
-        return { url, reachable: !!d.result, latency: Date.now() - start, blockNumber: d.result };
-      } catch (e: any) { return { url, reachable: false, latency: Date.now() - start, error: e.message }; }
-    };
-
     const dbStart = Date.now();
     let dbCheck = { reachable: false, latency: 0, error: "No pool" };
     try {
@@ -5823,14 +5988,20 @@ export function registerRoutes(expressApp: Express) {
     } catch (e: any) { dbCheck = { reachable: false, latency: Date.now() - dbStart, error: e.message }; }
 
     const [rpcChecks, wsCheck, explorerCheck, vpnCheck, testnetCheck] = await Promise.all([
-      Promise.all(rpcEndpoints.map(checkRpc)),
+      checkInfrastructureRpc("mainnet"),
       checkEndpoint("https://ws.netlifegy.com"),
       checkEndpoint("https://explorer.netlifegy.com"),
       checkEndpoint("https://vpn.netlifegy.com", 3000),
-      checkRpc("https://testnet-rpc.netlifegy.com"),
+      checkInfrastructureRpc("testnet"),
     ]);
 
     const allRpcOk = rpcChecks.some((r: any) => r.reachable);
+    const testnetResult = testnetCheck.find((result) => result.reachable) ?? testnetCheck[0] ?? {
+      url: "testnet RPC",
+      reachable: false,
+      latency: 0,
+      error: "No testnet RPC endpoints are configured.",
+    };
     const overallHealthy = dbCheck.reachable && allRpcOk;
 
     res.status(overallHealthy ? 200 : 503).json({
@@ -5843,7 +6014,7 @@ export function registerRoutes(expressApp: Express) {
         websocket: { url: "wss://ws.netlifegy.com", ...wsCheck },
         explorer: { url: "https://explorer.netlifegy.com", ...explorerCheck },
         vpn: { url: "vpn.netlifegy.com", ...vpnCheck },
-        testnet: { url: "https://testnet-rpc.netlifegy.com", ...testnetCheck },
+        testnet: testnetResult,
       },
     });
   });
@@ -7057,6 +7228,7 @@ export function registerRoutes(expressApp: Express) {
     const merged = { ...existing, ...values };
     const lines = Object.entries(merged).map(([k, v]) => `${k}=${v}`);
     fs.writeFileSync(envPath, lines.join('\n') + '\n', 'utf8');
+    fs.chmodSync(envPath, 0o600);
   }
 
   const SETUP_READABLE_KEYS = [
@@ -7300,6 +7472,9 @@ export function registerRoutes(expressApp: Express) {
   // ── Server Config (admin-editable .env vars + gyds-config.env) ────────────
   const SERVER_CONFIG_READABLE: string[] = [
     'ADMIN_WALLET', 'FOUNDER_WALLET', 'REWARD_ADDRESS',
+    'GYDS_TREASURY_FOUNDER_ADDRESS', 'GYDS_TREASURY_MINING_POOL_ADDRESS',
+    'GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS', 'GYDS_TREASURY_STAKING_REWARDS_ADDRESS',
+    'GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS', 'GYDS_TREASURY_TEAM_ADDRESS',
     'VITE_HCAPTCHA_SITE_KEY',
     'TELEGRAM_CHAT_ID',
     'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_FROM',
@@ -7376,11 +7551,33 @@ export function registerRoutes(expressApp: Express) {
         'GYDS_SWAP_ROUTER_ADDRESS', 'GYDS_SWAP_FARM_ADDRESS',
         'GYDS_USDT_TOKEN_ADDRESS', 'GYDS_GYD_TOKEN_ADDRESS',
       ];
+      const treasuryAddressKeys = [
+        'GYDS_TREASURY_FOUNDER_ADDRESS',
+        'GYDS_TREASURY_MINING_POOL_ADDRESS',
+        'GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS',
+        'GYDS_TREASURY_STAKING_REWARDS_ADDRESS',
+        'GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS',
+        'GYDS_TREASURY_TEAM_ADDRESS',
+      ];
       for (const key of contractAddressKeys) {
         const value = toSave[key];
         if (value && !/^0x[a-fA-F0-9]{40}$/.test(value)) {
           return res.status(400).json({ error: `${key} must be a valid EVM contract address.` });
         }
+      }
+      const treasuryRecipients = new Map<string, string>();
+      for (const key of treasuryAddressKeys) {
+        const value = toSave[key];
+        if (!value) continue;
+        if (!/^0x[a-fA-F0-9]{40}$/.test(value)) {
+          return res.status(400).json({ error: `${key} must be a valid EVM wallet address.` });
+        }
+        const normalized = value.toLowerCase();
+        const previous = treasuryRecipients.get(normalized);
+        if (previous) {
+          return res.status(400).json({ error: `${key} must be different from ${previous}.` });
+        }
+        treasuryRecipients.set(normalized, key);
       }
 
       // Write to .env
@@ -7426,6 +7623,7 @@ export function registerRoutes(expressApp: Express) {
         ...Object.entries(gydsConf).map(([k, v]) => `${k}=${v}`),
       ];
       fs.writeFileSync(configPath, gydsLines.join('\n') + '\n', 'utf8');
+      fs.chmodSync(configPath, 0o600);
 
       // Try PM2 restart
       let restarted = false;

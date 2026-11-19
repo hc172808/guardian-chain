@@ -9,7 +9,7 @@
 - [Remote WireGuard management](wireguard-remote-management.md) — Remote VPS peer sync uses SSH with fingerprint verification; private key stays in the WG_SSH_PRIVATE_KEY secret.
 - [TOTP implementation](totp-impl.md) — otplib v12 dropped the `authenticator` export; use server/totp.ts (built-in crypto, zero-dep RFC 6238 TOTP) instead.
 - [Admin camelCase](admin-camelcase.md) — Drizzle returns camelCase; NodeInstallation interface and nodes tab now use nodeType, isApproved, isSynced, wireguardPublicKey, createdAt.
-- [Test nodes](test-nodes.md) — 5 nodes: rpc(8545), lite(8555), fullnode(8565), boostnode(8575), validator(8585). Validator node has validator_info/validator_set/validator_getRewards/validator_register JSON-RPC methods + /validators endpoint.
+- [Test nodes](test-nodes.md) — Dashboard RPC simulator uses 8547; installed mainnet RPC keeps 8545. Validator has custom JSON-RPC methods and /validators endpoint.
 - [Testnet coin symbols](testnet-coin-symbols.md) — testnet displays TGYDS/TGYD; mainnet remains GYDS/GYD, with canonical operation identifiers preserved.
 - [Tokens table creator](tokens-creator.md) — tokens table uses creator_id (no FK to users), not user_id. Use LEFT JOIN + coalesce for leaderboard queries.
 - [XP leaderboard](xp-leaderboard.md) — user_xp, xp_events, achievements, user_achievements tables pushed via raw SQL (db:push has TTY issue). Storage methods use pgPool directly.
@@ -36,7 +36,7 @@
 - [Active sessions](active-sessions.md) — GET/DELETE /api/auth/sessions; session table (connect-pg-simple) queried via sess->'passport'->>'user'. ua/ip/loginAt stored in session on login. ActiveSessionsPanel in Profile security tab; revoke individual or all other sessions.
 - [Test node auto-approval](test-node-approval.md) — Starting a test node via /api/admin/test-nodes/:type/start upserts node_installations (isApproved=true, isOnline=true) for the admin user. testNodeDbIds Map tracks row IDs; stop marks isOnline=false; status poll updates heartbeats. VALID_NODE_TYPES now includes "validator".
 - [Node repo fixes](node-repo-fixes.md) — node-fixes/ dir has corrected Go source for rpcnode/boostnode/fullnode/genesis; install-fullnode.sh and install-genesis.sh repo URLs fixed; NodeRepoSync.tsx in Admin GitHub tab checks each repo via GitHub API.
-- [Local node source policy](fullnode-canonical-source.md) — Keep node source in project bundles; preserve genesis compatibility and require fresh approval before any coordinated reset.
+- [Local node source policy](fullnode-canonical-source.md) — Fetch installer scripts from the dashboard repo first with local fallback; keep node source local and require fresh reset approval.
 - [SDK section](sdk-section.md) — Developer.tsx SDKs tab: JS/TS and Python marked Available with full code examples; Go is In Progress; Rust is Planned; feature matrix table included.
 - [GitHub webhook](github-webhook.md) — POST /api/webhooks/github receives GitHub push events; HMAC-SHA256 via GITHUB_WEBHOOK_SECRET; stores last 100 in-memory; GET /api/admin/github-webhook/events + POST /api/admin/github-webhook/ack; NodeRepoSync polls every 30s and auto-triggers checkOne().
 - [PWA install prompt](pwa-install.md) — InstallPrompt.tsx in Layout.tsx; uses beforeinstallprompt for Android; iOS step-by-step guide; manifest.json v2 has id, 7 icons, 4 shortcuts, share_target, protocol_handlers web+gyds, edge_side_panel; sw.js v2 has stale-while-revalidate + background sync.

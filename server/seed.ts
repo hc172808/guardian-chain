@@ -1,6 +1,6 @@
 import { pool } from "./db";
 import bcrypt from "bcryptjs";
-import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY } from "./reservedWallets";
+import { getReservedWalletConfiguration, TOTAL_GENESIS_SUPPLY } from "./reservedWallets";
 
 
 // ─── Founder wallet ────────────────────────────────────────────────────────────
@@ -133,6 +133,14 @@ export async function seedFirewallDefaults() {
 // Existing databases are deliberately left untouched so a restart cannot
 // rewrite the supply or balances of a running network.
 export async function seedGenesisAllocations() {
+  const walletConfiguration = getReservedWalletConfiguration();
+  if (!walletConfiguration.configured) {
+    console.warn(
+      `[seed] Genesis allocation seed skipped; configure all reserved recipient addresses: ${walletConfiguration.issues.map((issue) => issue.envVar).join(", ")}`,
+    );
+    return;
+  }
+
   let client: any;
   try {
     client = await pool.connect();
@@ -148,7 +156,7 @@ export async function seedGenesisAllocations() {
     }
 
     let inserted = 0;
-    for (const w of RESERVED_WALLETS) {
+    for (const w of walletConfiguration.wallets) {
       const txHash = `genesis:${w.key}`;
       await client.query(
         `INSERT INTO token_operations

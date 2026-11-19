@@ -1,5 +1,5 @@
-// GYDS Blockchain Wallet Configuration
-// This file contains all reserved wallet addresses for the blockchain
+// Public recipient addresses are configured on the server at deployment.
+// Only non-address metadata belongs in the client bundle.
 
 export const GENESIS_CONFIG = {
   // Genesis block configuration
@@ -9,66 +9,43 @@ export const GENESIS_CONFIG = {
   initialPrice: 0.0000001, // Starting price in USD
 };
 
-export const RESERVED_WALLETS = {
-  // Founder wallet - receives genesis block allocation
+export const RESERVED_WALLET_METADATA = {
   founder: {
-    address: '0x6422d12bfaddee5142bfad21b3006a74d09017b1',
     name: 'Founder Wallet',
     allocation: 300_000_000, // 10% of total supply
     vestingMonths: 48,
     description: 'Founder allocation with 48-month vesting',
   },
-
-  // Mining pool wallet - distributes mining rewards
   miningPool: {
-    address: '0x484a282e391C75595337F1B0314CCa4e2F31E188',
     name: 'Mining Pool',
     allocation: 1_200_000_000, // 40% of total supply
     description: 'Mining rewards distribution pool',
   },
-
-  // Liquidity pool wallet - DEX liquidity provision
   liquidityPool: {
-    address: '0xcAA827c6F120Bc0cAcbcfa53476eE3b41b37c9e4',
     name: 'Liquidity Pool',
     allocation: 600_000_000, // 20% of total supply
     description: 'DEX liquidity provision',
   },
-
-  // Staking rewards wallet
   stakingRewards: {
-    address: '0xF71EFF5d7290dC897BF2f1619Ce02AB98Af73040',
     name: 'Staking Rewards',
     allocation: 450_000_000, // 15% of total supply
     description: 'PoS validator staking rewards',
   },
-
-  // Development fund wallet
   developmentFund: {
-    address: '0x67B5d5581C2438ae4C1207544960394085125F83',
     name: 'Development Fund',
     allocation: 300_000_000, // 10% of total supply
     vestingMonths: 24,
     description: 'Development and ecosystem growth',
   },
-
-  // Team wallet
   team: {
-    address: '0xA8029E177f234A7A838dDB36fbA57336b02Df197',
     name: 'Team Wallet',
     allocation: 150_000_000, // 5% of total supply
     vestingMonths: 36,
     description: 'Team allocation with 36-month vesting',
   },
-
-  // Burn address - tokens sent here are permanently destroyed
-  burn: {
-    address: '0x000000000000000000000000000000000000dEaD',
-    name: 'Burn Address',
-    allocation: 0,
-    description: 'Token burn address - permanently destroys tokens',
-  },
 };
+
+export const BURN_ADDRESS = '0x000000000000000000000000000000000000dEaD';
 
 // Token economics
 export const TOKENOMICS = {
@@ -93,19 +70,3 @@ export const TOKENOMICS = {
   burnForMint: true, // USDT burning enables GYDS minting
 };
 
-// Get all wallet addresses as an array
-export const getAllWalletAddresses = () => {
-  return Object.values(RESERVED_WALLETS).map(w => w.address);
-};
-
-// Check if an address is a reserved wallet
-export const isReservedWallet = (address: string): boolean => {
-  return getAllWalletAddresses().includes(address.toLowerCase());
-};
-
-// Get wallet info by address
-export const getWalletByAddress = (address: string) => {
-  return Object.values(RESERVED_WALLETS).find(
-    w => w.address.toLowerCase() === address.toLowerCase()
-  );
-};

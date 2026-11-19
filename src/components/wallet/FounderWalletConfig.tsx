@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +21,15 @@ import {
   Shield,
   Wallet
 } from 'lucide-react';
-import { RESERVED_WALLETS } from '@/config/wallets';
+
+interface TreasuryWallet {
+  key: string;
+  name: string;
+  address: string;
+  allocation: number;
+  description: string;
+  balance: number;
+}
 
 interface FounderWalletConfigProps {
   onWalletConfigured?: (address: string) => void;
@@ -33,13 +41,35 @@ export const FounderWalletConfig = ({ onWalletConfigured }: FounderWalletConfigP
   const [open, setOpen] = useState(false);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [reservedFounderAddress, setReservedFounderAddress] = useState('');
+  const [reservedFounderAllocation, setReservedFounderAllocation] = useState(0);
   
   // Form state
-  const [walletAddress, setWalletAddress] = useState(RESERVED_WALLETS.founder.address);
+  const [walletAddress, setWalletAddress] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [seedPhrase, setSeedPhrase] = useState('');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/api/admin/treasury/wallets')
+      .then((result) => {
+        if (cancelled) return;
+        const founder = (result?.wallets ?? []).find((wallet: TreasuryWallet) => wallet.key === 'founder');
+        const address = founder?.address ?? '';
+        setReservedFounderAddress(address);
+        setReservedFounderAllocation(Number(founder?.allocation ?? 0));
+        setWalletAddress((current) => current || address);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setReservedFounderAddress('');
+          setReservedFounderAllocation(0);
+        }
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Encryption now uses the secure walletCrypto module
 
@@ -156,19 +186,20 @@ export const FounderWalletConfig = ({ onWalletConfigured }: FounderWalletConfigP
             </div>
             <div className="flex items-center gap-2">
               <code className="text-xs bg-background/50 px-2 py-1 rounded flex-1 truncate">
-                {RESERVED_WALLETS.founder.address}
+                {reservedFounderAddress || 'Not configured on this server'}
               </code>
               <Button 
                 size="icon" 
                 variant="ghost" 
                 className="h-6 w-6"
-                onClick={() => copyToClipboard(RESERVED_WALLETS.founder.address, 'Address')}
+                onClick={() => copyToClipboard(reservedFounderAddress, 'Address')}
+                disabled={!reservedFounderAddress}
               >
                 <Copy className="h-3 w-3" />
               </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Allocation: {RESERVED_WALLETS.founder.allocation.toLocaleString()} GYDS ({(RESERVED_WALLETS.founder.allocation / 1_000_000_000 * 100).toFixed(0)}%)
+              Allocation: {reservedFounderAllocation.toLocaleString()} GYDS ({(reservedFounderAllocation / 1_000_000_000 * 100).toFixed(0)}%)
             </p>
           </GlassCard>
 
@@ -186,8 +217,9 @@ export const FounderWalletConfig = ({ onWalletConfigured }: FounderWalletConfigP
               <Button 
                 size="icon" 
                 variant="outline"
-                onClick={() => setWalletAddress(RESERVED_WALLETS.founder.address)}
+                onClick={() => setWalletAddress(reservedFounderAddress)}
                 title="Use reserved address"
+                disabled={!reservedFounderAddress}
               >
                 <Wallet className="h-4 w-4" />
               </Button>

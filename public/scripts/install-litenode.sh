@@ -225,11 +225,43 @@ $([ -n "$BOOTSTRAP" ] && echo "GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}")
 GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
 GYDS_WS_API=eth,net,web3,txpool,admin
 EOF
+  mkdir -p "$HOME/.config/systemd/user/default.target.wants"
+  ln -sfn ../gyds-litenode.service "$HOME/.config/systemd/user/default.target.wants/gyds-litenode.service"
+
+  # User services only start at system boot when linger is enabled. Enable it
+  # when already root or when passwordless sudo is available; otherwise print
+  # the exact one-time command instead of silently implying boot support.
+  if command -v loginctl >/dev/null 2>&1; then
+    LINGER_STATE="$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || true)"
+    if [[ "$LINGER_STATE" != "yes" ]]; then
+      if [[ "$EUID" -eq 0 ]]; then
+        loginctl enable-linger "$USER" && LINGER_STATE="yes" || true
+      elif command -v sudo >/dev/null 2>&1; then
+        if sudo loginctl enable-linger "$USER" 2>/dev/null; then
+          LINGER_STATE="yes"
+        fi
+      fi
+    fi
+    if [[ "$LINGER_STATE" == "yes" ]]; then
+      echo "✓ User lingering is enabled; the lite-node service can start at system boot."
+    else
+      echo "⚠ Boot autostart needs one privileged setup command:"
+      echo "  sudo loginctl enable-linger $USER"
+    fi
+  else
+    echo "⚠ loginctl is unavailable; user systemd autostart may require logging in after reboot."
+  fi
 
   if systemctl --user daemon-reload 2>/dev/null; then
-    systemctl --user enable gyds-litenode 2>/dev/null || true
+    if ! systemctl --user enable gyds-litenode 2>/dev/null; then
+      echo "⚠ Could not enable the lite-node user service."
+    fi
     if systemctl --user start gyds-litenode 2>/dev/null; then
-      echo "✓ Lite node service started."
+      if systemctl --user is-enabled --quiet gyds-litenode 2>/dev/null; then
+        echo "✓ Lite node service is enabled and started."
+      else
+        echo "⚠ Lite node is running but its user service is not enabled for boot."
+      fi
     else
       echo "⚠ Lite node is installed but the user systemd manager is unavailable."
       echo "  Start it from a logged-in session with: systemctl --user start gyds-litenode"

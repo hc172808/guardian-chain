@@ -47,6 +47,12 @@ NODE_ENV="${NODE_ENV:-production}"
 ADMIN_WALLET="${ADMIN_WALLET:-}"
 FOUNDER_WALLET="${FOUNDER_WALLET:-}"
 REWARD_ADDRESS="${REWARD_ADDRESS:-}"
+GYDS_TREASURY_FOUNDER_ADDRESS="${GYDS_TREASURY_FOUNDER_ADDRESS:-}"
+GYDS_TREASURY_MINING_POOL_ADDRESS="${GYDS_TREASURY_MINING_POOL_ADDRESS:-}"
+GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS="${GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS:-}"
+GYDS_TREASURY_STAKING_REWARDS_ADDRESS="${GYDS_TREASURY_STAKING_REWARDS_ADDRESS:-}"
+GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS="${GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS:-}"
+GYDS_TREASURY_TEAM_ADDRESS="${GYDS_TREASURY_TEAM_ADDRESS:-}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 HCAPTCHA_SITE_KEY="${HCAPTCHA_SITE_KEY:-}"
 HCAPTCHA_SECRET_KEY="${HCAPTCHA_SECRET_KEY:-}"
@@ -84,6 +90,14 @@ if [[ "${NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
   prompt_opt ADMIN_WALLET        "Admin wallet address    (0x...)"
   prompt_opt FOUNDER_WALLET      "Founder wallet address  (0x...)"
   prompt_opt REWARD_ADDRESS      "Mining/reward wallet    (0x...)"
+  echo ""
+  echo -e "${YELLOW}  ▸ Genesis treasury recipients  (leave all blank to configure later)${NC}"
+  prompt_opt GYDS_TREASURY_FOUNDER_ADDRESS        "Genesis founder recipient       (0x...)"
+  prompt_opt GYDS_TREASURY_MINING_POOL_ADDRESS    "Mining pool recipient            (0x...)"
+  prompt_opt GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS "Liquidity pool recipient         (0x...)"
+  prompt_opt GYDS_TREASURY_STAKING_REWARDS_ADDRESS "Staking rewards recipient        (0x...)"
+  prompt_opt GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS "Development fund recipient       (0x...)"
+  prompt_opt GYDS_TREASURY_TEAM_ADDRESS           "Team recipient                   (0x...)"
 
   echo ""
   echo -e "${YELLOW}  ▸ Repository access${NC}"
@@ -383,6 +397,12 @@ APP_URL="${APP_URL:-https://${FQDN}}"
   [[ -n "$ADMIN_WALLET"         ]] && echo "ADMIN_WALLET=${ADMIN_WALLET}"
   [[ -n "$FOUNDER_WALLET"       ]] && echo "FOUNDER_WALLET=${FOUNDER_WALLET}"
   [[ -n "$REWARD_ADDRESS"       ]] && echo "REWARD_ADDRESS=${REWARD_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_FOUNDER_ADDRESS"         ]] && echo "GYDS_TREASURY_FOUNDER_ADDRESS=${GYDS_TREASURY_FOUNDER_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_MINING_POOL_ADDRESS"     ]] && echo "GYDS_TREASURY_MINING_POOL_ADDRESS=${GYDS_TREASURY_MINING_POOL_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS"  ]] && echo "GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS=${GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_STAKING_REWARDS_ADDRESS" ]] && echo "GYDS_TREASURY_STAKING_REWARDS_ADDRESS=${GYDS_TREASURY_STAKING_REWARDS_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS" ]] && echo "GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS=${GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_TEAM_ADDRESS" ]] && echo "GYDS_TREASURY_TEAM_ADDRESS=${GYDS_TREASURY_TEAM_ADDRESS}"
   [[ -n "$GITHUB_TOKEN"         ]] && echo "GITHUB_TOKEN=${GITHUB_TOKEN}"
   [[ -n "$HCAPTCHA_SITE_KEY"    ]] && echo "VITE_HCAPTCHA_SITE_KEY=${HCAPTCHA_SITE_KEY}"
   [[ -n "$HCAPTCHA_SECRET_KEY"  ]] && echo "HCAPTCHA_SECRET_KEY=${HCAPTCHA_SECRET_KEY}"
@@ -430,7 +450,7 @@ id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" 
   [[ -n "$WA_PHONE_ID"          ]] && echo "WHATSAPP_PHONE_ID=${WA_PHONE_ID}"
   [[ -n "$GYDS_BOOTSTRAP_NODES" ]] && echo "GYDS_BOOTSTRAP_NODES=${GYDS_BOOTSTRAP_NODES}"
 } > "$APP_DIR/gyds-config.env"
-chmod 644 "$APP_DIR/gyds-config.env"
+chmod 600 "$APP_DIR/gyds-config.env"
 id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/gyds-config.env" || true
 log "Shared config written → $APP_DIR/gyds-config.env"
 
@@ -583,12 +603,18 @@ if id -u "$NODE_USER" &>/dev/null; then
         err "PM2 could not start gydschain-api as ${NODE_USER}."
         exit 1
     fi
-    env PATH="$PATH:/usr/bin:/usr/local/bin" pm2 startup systemd -u "$NODE_USER" --hp "/home/$NODE_USER" 2>/dev/null | tail -1 | bash 2>/dev/null || true
+    PM2_RUN_USER="$NODE_USER"
 else
     pm2 delete gydschain-api 2>/dev/null || true
     pm2 start "$APP_DIR/ecosystem.config.cjs"
     pm2 save --force
+    PM2_RUN_USER="root"
 fi
+if [[ ! -f "$APP_DIR/public/scripts/ensure-api-boot.sh" ]]; then
+    err "Missing PM2 boot setup helper: $APP_DIR/public/scripts/ensure-api-boot.sh"
+    exit 1
+fi
+bash "$APP_DIR/public/scripts/ensure-api-boot.sh" "$PM2_RUN_USER"
 log "PM2: gydschain-api → port $PORT_API"
 
 # Install an independent API/database watchdog. PM2 restarts crashed processes;
@@ -714,6 +740,7 @@ if ! nginx -t; then
     exit 1
 fi
 systemctl reload nginx || systemctl restart nginx
+systemctl enable nginx
 log "Nginx: $FQDN → $APP_DIR/dist"
 
 # Verify the configured virtual host serves the app, not Ubuntu's default page.
@@ -846,8 +873,9 @@ else
 fi
 echo ""
 echo -e "${CYAN}Manage:${NC}"
-echo -e "  pm2 status"
-echo -e "  pm2 logs gydschain-api --lines 50"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 status"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 logs gydschain-api --lines 50"
+echo -e "  systemctl status pm2-${PM2_RUN_USER}.service  (enabled at boot)"
 echo -e "  gyds-redeploy          ← pull + build + reload"
 echo ""
 echo -e "${YELLOW}⚠  Save these credentials (also in ${APP_DIR}/.env):${NC}"

@@ -6,12 +6,14 @@ import { GENESIS_CONFIG, TOKENOMICS } from './wallets';
 // A browser wallet cannot reach a node at the server's 127.0.0.1 address.
 // Route wallet/RPC traffic through this app's public origin; the server then
 // forwards it to its local node and can fall back to configured RPCs.
-const getAppRpcProxyUrl = () =>
-  typeof window !== 'undefined' ? new URL('/api/rpc', window.location.origin).toString() : '';
+const getAppRpcProxyUrl = (network = 'mainnet') =>
+  typeof window !== 'undefined'
+    ? new URL(`/api/rpc?network=${encodeURIComponent(network)}`, window.location.origin).toString()
+    : '';
 
 // All RPC endpoints — main + backups + local
 export const RPC_ENDPOINTS_LIST = {
-  main: getAppRpcProxyUrl() || 'https://rpc.netlifegy.com',
+  main: getAppRpcProxyUrl('mainnet') || 'https://rpc.netlifegy.com',
   backups: [
     'https://rpc2.netlifegy.com',
     'https://rpc3.netlifegy.com',
@@ -53,7 +55,7 @@ export async function applyNetworkOverrides(): Promise<void> {
     if (data.main) {
       // Keep the upstream as a fallback, but advertise the same-origin proxy
       // so wallets outside the server never receive 127.0.0.1/0.0.0.0 URLs.
-      RPC_ENDPOINTS_LIST.main = getAppRpcProxyUrl() || data.main;
+      RPC_ENDPOINTS_LIST.main = getAppRpcProxyUrl('mainnet') || data.main;
       NETWORK_CONFIG.rpcUrls.primary = RPC_ENDPOINTS_LIST.main;
       SERVICE_ENDPOINTS.rpc = RPC_ENDPOINTS_LIST.main;
       TRUST_WALLET_CONFIG.rpcUrl = RPC_ENDPOINTS_LIST.main;
@@ -112,7 +114,7 @@ export const TESTNET_CONFIG = {
   chainName: 'GYDS Testnet',
   nativeCurrency: { name: 'Test GYDS', symbol: 'TGYDS', decimals: 18 },
   rpcUrls: {
-    primary: 'https://testnet-rpc.netlifegy.com',
+    primary: getAppRpcProxyUrl('testnet') || 'https://testnet-rpc.netlifegy.com',
     backup: [] as string[],
     local: ['http://localhost:8600'],
   },
@@ -127,7 +129,7 @@ export const DEVNET_CONFIG = {
   chainName: 'GYDS Devnet',
   nativeCurrency: { name: 'Dev GYDS', symbol: 'dGYDS', decimals: 18 },
   rpcUrls: {
-    primary: 'https://devnet-rpc.netlifegy.com',
+    primary: getAppRpcProxyUrl('devnet') || 'https://devnet-rpc.netlifegy.com',
     backup: [] as string[],
     local: ['http://localhost:8700'],
   },
@@ -156,12 +158,14 @@ export const SERVICE_ENDPOINTS = {
 // EIP-3085 params for wallet_addEthereumChain
 export const getNetworkParams = (kind: NetworkKind = 'mainnet') => {
   const config = NETWORK_BY_KIND[kind];
-  const rpcUrls = [config.rpcUrls.primary, ...(config.rpcUrls.backup ?? [])];
   return {
     chainId: config.chainIdHex,
     chainName: config.chainName,
     nativeCurrency: config.nativeCurrency,
-    rpcUrls,
+    // EIP-3085 wallets verify every advertised endpoint. Keep the wallet
+    // configuration on the app's canonical, network-specific proxy instead
+    // of advertising legacy backup RPCs that may be offline or misconfigured.
+    rpcUrls: [config.rpcUrls.primary],
     blockExplorerUrls: config.blockExplorerUrls,
     iconUrls: config.iconUrls ?? [],
   };
@@ -249,6 +253,31 @@ export const addNetworkToWallet = async (kind: NetworkKind = 'mainnet'): Promise
   const params = getNetworkParams(kind);
 
   try {
+    const rpcResponse = await fetch(params.rpcUrls[0], {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_chainId', params: [], id: 1 }),
+    });
+    if (!rpcResponse.ok) {
+      throw new Error(`The ${params.chainName} RPC check failed (HTTP ${rpcResponse.status}). Check that this network's RPC service is running.`);
+    }
+    const rpcData = await rpcResponse.json();
+    if (rpcData?.error || typeof rpcData?.result !== 'string') {
+      throw new Error(`The ${params.chainName} RPC did not return a valid chain ID.`);
+    }
+    let actualChainId: bigint;
+    try {
+      actualChainId = BigInt(rpcData.result);
+    } catch {
+      throw new Error(`The ${params.chainName} RPC returned an invalid chain ID.`);
+    }
+    if (actualChainId !== BigInt(params.chainId)) {
+      throw new Error(
+        `The ${params.chainName} RPC reports chain ID ${actualChainId.toString()}, but this network is configured as ${BigInt(params.chainId).toString()}.`,
+      );
+    }
+
     await provider.request({ method: 'wallet_addEthereumChain', params: [params] });
     return true;
   } catch (error: any) {
