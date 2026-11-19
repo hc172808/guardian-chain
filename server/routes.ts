@@ -3905,6 +3905,7 @@ export function registerRoutes(expressApp: Express) {
 
   app.get("/api/admin/treasury/wallets", requireAdmin, async (_req, res) => {
     try {
+      res.setHeader("Cache-Control", "no-store");
       const configuration = getReservedWalletConfiguration();
       const wallets = configuration.configured
         ? await reservedWalletBalances(configuration.wallets)
@@ -3923,6 +3924,7 @@ export function registerRoutes(expressApp: Express) {
 
   app.get("/api/admin/treasury/transfers", requireAdmin, async (_req, res) => {
     try {
+      res.setHeader("Cache-Control", "no-store");
       const configuration = getReservedWalletConfiguration();
       if (!configuration.configured) return res.json({ ok: true, configured: false, transfers: [] });
       const addresses = configuration.wallets.map((w) => w.address.toLowerCase());
@@ -4340,6 +4342,7 @@ export function registerRoutes(expressApp: Express) {
   // ── Genesis JSON builder — fixed approved allocations for new chains ────────
   // Existing database balances are intentionally excluded from a fresh genesis.
   app.get("/api/chain/genesis.json", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     const requestedNetwork = String(req.query.network ?? "mainnet");
     const genesisNetwork = ALL_NETWORKS.includes(requestedNetwork as any)
       ? requestedNetwork as (typeof ALL_NETWORKS)[number]
@@ -7468,6 +7471,9 @@ export function registerRoutes(expressApp: Express) {
   // ── Server Config (admin-editable .env vars + gyds-config.env) ────────────
   const SERVER_CONFIG_READABLE: string[] = [
     'ADMIN_WALLET', 'FOUNDER_WALLET', 'REWARD_ADDRESS',
+    'GYDS_TREASURY_FOUNDER_ADDRESS', 'GYDS_TREASURY_MINING_POOL_ADDRESS',
+    'GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS', 'GYDS_TREASURY_STAKING_REWARDS_ADDRESS',
+    'GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS', 'GYDS_TREASURY_TEAM_ADDRESS',
     'VITE_HCAPTCHA_SITE_KEY',
     'TELEGRAM_CHAT_ID',
     'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_FROM',
@@ -7544,11 +7550,33 @@ export function registerRoutes(expressApp: Express) {
         'GYDS_SWAP_ROUTER_ADDRESS', 'GYDS_SWAP_FARM_ADDRESS',
         'GYDS_USDT_TOKEN_ADDRESS', 'GYDS_GYD_TOKEN_ADDRESS',
       ];
+      const treasuryAddressKeys = [
+        'GYDS_TREASURY_FOUNDER_ADDRESS',
+        'GYDS_TREASURY_MINING_POOL_ADDRESS',
+        'GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS',
+        'GYDS_TREASURY_STAKING_REWARDS_ADDRESS',
+        'GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS',
+        'GYDS_TREASURY_TEAM_ADDRESS',
+      ];
       for (const key of contractAddressKeys) {
         const value = toSave[key];
         if (value && !/^0x[a-fA-F0-9]{40}$/.test(value)) {
           return res.status(400).json({ error: `${key} must be a valid EVM contract address.` });
         }
+      }
+      const treasuryRecipients = new Map<string, string>();
+      for (const key of treasuryAddressKeys) {
+        const value = toSave[key];
+        if (!value) continue;
+        if (!/^0x[a-fA-F0-9]{40}$/.test(value)) {
+          return res.status(400).json({ error: `${key} must be a valid EVM wallet address.` });
+        }
+        const normalized = value.toLowerCase();
+        const previous = treasuryRecipients.get(normalized);
+        if (previous) {
+          return res.status(400).json({ error: `${key} must be different from ${previous}.` });
+        }
+        treasuryRecipients.set(normalized, key);
       }
 
       // Write to .env
