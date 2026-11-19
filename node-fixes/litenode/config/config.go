@@ -11,16 +11,17 @@ import (
 // The lite node does NOT produce blocks — it only syncs headers and verifies
 // them against the known validator set.
 type LiteNodeConfig struct {
-	NodeMode      string        // always "lite"
-	DataDir       string        // e.g. ~/.gyds-litenode
-	RPCPort       int           // local HTTP API (default 3000)
-	RPCEndpoints  []string      // full-node / validator RPC endpoints to pull headers from
-	SyncInterval  time.Duration // how often to poll for new headers
-	ValidatorSet  []string      // hex addresses of known validators
-	EnableSPV     bool          // enable Simple Payment Verification
-	EnableMining  bool          // ALWAYS false for lite nodes
-	P2PPort       int           // peer-to-peer port (optional, 0 = disabled)
-	LogLevel      string
+	NodeMode     string        // always "lite"
+	DataDir      string        // e.g. ~/.gyds-litenode
+	RPCPort      int           // local HTTP API (default 3000)
+	RPCEndpoints []string      // full-node / validator RPC endpoints to pull headers from
+	SyncInterval time.Duration // how often to poll for new headers
+	ValidatorSet []string      // hex addresses of known validators
+	EnableSPV    bool          // enable Simple Payment Verification
+	EnableMining bool          // ALWAYS false for lite nodes
+	P2PPort      int           // peer-to-peer port (optional, 0 = disabled)
+	APIHost      string        // local API bind address
+	LogLevel     string
 }
 
 // Default returns the default lite node configuration.
@@ -35,6 +36,7 @@ func Default() LiteNodeConfig {
 		EnableSPV:    defaultEnvBool("LITE_SPV", true),
 		EnableMining: false, // enforced — lite nodes never mine
 		P2PPort:      defaultEnvInt("LITE_P2P_PORT", 0),
+		APIHost:      defaultEnv("LITE_API_HOST", "127.0.0.1"),
 		LogLevel:     defaultEnv("LITE_LOG_LEVEL", "info"),
 	}
 }

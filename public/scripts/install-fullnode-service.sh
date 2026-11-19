@@ -16,6 +16,7 @@ readonly BACKUP_ROOT="${GYDS_BACKUP_DIR:-/var/backups/gyds-fullnode}"
 readonly LOCK_FILE="/run/lock/gyds-fullnode-install.lock"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
 PROJECT_ROOT="${PROJECT_ROOT:-}"
 if [[ -z "$PROJECT_ROOT" ]]; then
   if [[ -f "$SCRIPT_DIR/../../node-fixes/fullnode/go.mod" ]]; then
@@ -48,7 +49,7 @@ Options:
 
 Environment overrides:
   PROJECT_ROOT, GYDS_NODE_SOURCE_DIR, GYDS_BIN, GYDS_DATA_DIR, GYDS_SERVICE_USER,
-  GYDS_HEALTH_TIMEOUT, GYDS_BOOTSTRAP_NODES
+  GYDS_HEALTH_TIMEOUT, GYDS_BOOTSTRAP_NODES, GYDS_P2P_ADVERTISE_HOST
 
 Source is read from the local project bundle; no node repository is cloned or fetched.
 Existing systemd settings and chain data are left in place. For a new service,
@@ -115,6 +116,7 @@ STAGED_BINARY=""
 NEW_UNIT=0
 CREATE_ENV_FILE=0
 APPEND_DATA_DIR=0
+APPEND_P2P_HOST=0
 HAS_EXISTING_UNIT=0
 LOOPBACK_PATCHED=0
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -341,6 +343,16 @@ command -v python3 >/dev/null 2>&1 || die "python3 installation failed"
 command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
 command -v flock >/dev/null 2>&1 || die "flock is required"
 
+configured_p2p_host="${GYDS_P2P_ADVERTISE_HOST:-$(service_env_value GYDS_P2P_ADVERTISE_HOST)}"
+configured_p2p_host="${configured_p2p_host:-$(read_env_value GYDS_P2P_ADVERTISE_HOST "$ENV_FILE")}"
+case "${configured_p2p_host,,}" in
+  localhost|127.*|0.0.0.0) configured_p2p_host="" ;;
+esac
+GYDS_P2P_ADVERTISE_HOST="$configured_p2p_host"
+node_network_resolve_p2p_host ||
+  die "Set GYDS_P2P_ADVERTISE_HOST to a reachable IP or hostname before installing the fullnode."
+export GYDS_P2P_ADVERTISE_HOST
+
 install -d -m 0755 /run/lock
 exec 9>"$LOCK_FILE"
 flock -n 9 || die "Another GYDS fullnode installation is running"
@@ -461,6 +473,7 @@ if [[ -z "$UNIT_TEXT" ]]; then
     fi
     DATA_DIR="${DATA_DIR_OVERRIDE:-${configured_data_dir:-/var/lib/gyds-fullnode}}"
     [[ -n "$configured_data_dir" ]] || APPEND_DATA_DIR=1
+    [[ -n "$(read_env_value GYDS_P2P_ADVERTISE_HOST "$ENV_FILE")" ]] || APPEND_P2P_HOST=1
     [[ "$DATA_DIR" == /* && "$DATA_DIR" =~ ^/[A-Za-z0-9_./-]+$ && "$DATA_DIR" != "/" ]] ||
       die "Data directory in $ENV_FILE must be an absolute path without spaces: $DATA_DIR"
   fi
@@ -485,6 +498,7 @@ GYDS_RPC_HOST=${GYDS_RPC_HOST:-127.0.0.1}
 GYDS_RPC_PORT=${GYDS_RPC_PORT:-8545}
 GYDS_WS_PORT=${GYDS_WS_PORT:-8546}
 GYDS_P2P_PORT=${GYDS_P2P_PORT:-30303}
+GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
 GYDS_DATA_DIR=${DATA_DIR}
 GYDS_LOG_LEVEL=${GYDS_LOG_LEVEL:-info}
 GYDS_LOG_FORMAT=json
@@ -495,10 +509,15 @@ EOF
     chown "root:${SERVICE_GROUP}" "$ENV_TEMP"
     chmod 0640 "$ENV_TEMP"
     mv -- "$ENV_TEMP" "$ENV_FILE"
-  elif ((APPEND_DATA_DIR)); then
+  elif ((APPEND_DATA_DIR || APPEND_P2P_HOST)); then
     install -d -m 0700 "$BACKUP_ROOT"
     cp -a -- "$ENV_FILE" "$BACKUP_ROOT/gyds-fullnode.env-$(date -u +%Y%m%d_%H%M%S).previous"
-    printf '\nGYDS_DATA_DIR=%s\n' "$DATA_DIR" >>"$ENV_FILE"
+    if ((APPEND_DATA_DIR)); then
+      printf '\nGYDS_DATA_DIR=%s\n' "$DATA_DIR" >>"$ENV_FILE"
+    fi
+    if ((APPEND_P2P_HOST)); then
+      printf 'GYDS_P2P_ADVERTISE_HOST=%s\n' "$GYDS_P2P_ADVERTISE_HOST" >>"$ENV_FILE"
+    fi
   fi
 
   install -d -m 0755 "$(dirname "$BINARY_PATH")"
@@ -615,6 +634,11 @@ if (( ! healthy )); then
   die "Initial service did not become healthy. Binary and configuration were kept for diagnosis; check journalctl -u $SERVICE_NAME."
 fi
 
+p2p_port="$(service_env_value GYDS_P2P_PORT)"
+p2p_port="${p2p_port:-$(read_env_value GYDS_P2P_PORT "$ENV_FILE")}"
+p2p_port="${p2p_port:-30303}"
+node_network_report_tcp_listener "$p2p_port"
+node_network_report_p2p "$p2p_port"
 log "Fullnode is healthy at local project source ${NEW_SHA}."
 if ((LOOPBACK_PATCHED)); then
   log "The temporary loopback-only listener hardening was applied only to the build worktree; canonical source stays unmodified."

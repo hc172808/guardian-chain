@@ -4,7 +4,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestIdentityPersistsAcrossLoads(t *testing.T) {
@@ -96,6 +99,35 @@ func TestHandshakeAuthenticatesPeerAndChain(t *testing.T) {
 	if err := <-serverResult; err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestListenerBindsTCPAndAdvertisesConfiguredHost(t *testing.T) {
+	reservation, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := reservation.Addr().(*net.TCPAddr).Port
+	if err := reservation.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	server := NewListener(port, 198282, "lite", t.TempDir(), "node.example.test", func() uint64 {
+		return 12
+	})
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	if got, want := server.EnodeURL(), "@node.example.test:"+strconv.Itoa(port); !strings.Contains(got, want) {
+		t.Fatalf("enode %q does not advertise configured host %q", got, want)
+	}
+
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)
+	if err != nil {
+		t.Fatalf("P2P TCP listener is not reachable locally: %v", err)
+	}
+	_ = conn.Close()
 }
 
 var errUnexpectedPeer = &unexpectedPeerError{}

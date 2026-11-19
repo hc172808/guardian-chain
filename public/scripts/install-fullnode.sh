@@ -15,6 +15,7 @@ GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 GYDS_SHARED_CONFIG_LOADED=0
 [[ -f "$GYDS_CONF" ]] && GYDS_SHARED_CONFIG_LOADED=1
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
 PROJECT_ROOT="${PROJECT_ROOT:-}"
 if [[ -z "$PROJECT_ROOT" ]]; then
   if [[ -f "$SCRIPT_DIR/../../node-fixes/fullnode/go.mod" ]]; then
@@ -25,6 +26,9 @@ if [[ -z "$PROJECT_ROOT" ]]; then
 fi
 source "$SCRIPT_DIR/node-profile.sh"
 load_node_profile
+# Public RPC is served through Nginx over HTTPS, never on the node's raw port.
+GYDS_RPC_HOST="127.0.0.1"
+export GYDS_RPC_HOST
 
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
@@ -175,37 +179,19 @@ mkdir -p "${DATA_DIR}"/{keystore,logs} "${LOG_DIR}"
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${LOG_DIR}"
 chmod 700 "${DATA_DIR}/keystore"
 
-# ── Firewall ──────────────────────────────────────────────────────────────────
-log "[6/7] Configuring firewall..."
-if is_debian && command -v ufw &>/dev/null; then
-  # Preserve CloudPanel rules and the active SSH port.
-  SSH_PORT="${GYDS_SSH_PORT:-${SSH_CONNECTION:-}}"
-  SSH_PORT="${SSH_PORT##* }"
-  [[ "$SSH_PORT" =~ ^[0-9]+$ ]] && ufw allow "${SSH_PORT}/tcp" >/dev/null
-  ufw default deny incoming >/dev/null
-  ufw default allow outgoing >/dev/null
-  ufw limit 22/tcp    comment "SSH (rate-limited)" >/dev/null
-  ufw allow 80/tcp    comment "HTTP"               >/dev/null
-  ufw allow 443/tcp   comment "HTTPS"              >/dev/null
-  ufw allow "${RPC_PORT}/tcp" comment "GYDS RPC"   >/dev/null
-  ufw allow "${WS_PORT}/tcp"  comment "GYDS WS"    >/dev/null
-  ufw allow "${P2P_PORT}/tcp" comment "GYDS P2P"   >/dev/null
-  ufw allow "${P2P_PORT}/udp" comment "GYDS P2P"   >/dev/null
-  ufw allow 51820/udp comment "WireGuard"          >/dev/null
-  ufw --force enable >/dev/null
-  log "    UFW enabled"
-elif is_rhel && command -v firewall-cmd &>/dev/null; then
-  systemctl enable --now firewalld
-  firewall-cmd --permanent --add-port=22/tcp
-  firewall-cmd --permanent --add-port=80/tcp
-  firewall-cmd --permanent --add-port=443/tcp
-  firewall-cmd --permanent --add-port="${RPC_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${WS_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${P2P_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${P2P_PORT}/udp"
-  firewall-cmd --reload
-  log "    firewalld configured"
+if [[ -n "$RPC_DOMAIN" && ! "$RPC_DOMAIN" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+  die "RPC_DOMAIN must be a hostname without a scheme or path."
 fi
+
+# ── Firewall ──────────────────────────────────────────────────────────────────
+log "[6/7] Configuring node network access..."
+node_network_resolve_p2p_host || die "Could not determine a reachable P2P address."
+node_network_allow_p2p_tcp "$P2P_PORT"
+if [[ -n "$RPC_DOMAIN" ]]; then
+  node_network_allow_tcp_port 80 "GYDS RPC HTTP proxy"
+  node_network_allow_tcp_port 443 "GYDS RPC HTTPS proxy"
+fi
+log "    Existing firewall policies were preserved; P2P uses TCP only."
 
 # Fail2ban for SSH + RPC
 if command -v fail2ban-server &>/dev/null; then
@@ -237,9 +223,10 @@ log "[7/7] Installing systemd service..."
 ENV_BLOCK="Environment=GYDS_CHAIN_ID=${CHAIN_ID}
 Environment=GYDS_NODE_MODE=${NODE_ROLE}
 Environment=GYDS_RPC_PORT=${RPC_PORT}
-Environment=GYDS_RPC_HOST=${GYDS_RPC_HOST:-127.0.0.1}
+Environment=GYDS_RPC_HOST=127.0.0.1
 Environment=GYDS_DASHBOARD_ENABLED=false
 Environment=GYDS_P2P_PORT=${P2P_PORT}
+Environment=GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json"
@@ -322,7 +309,7 @@ server {
         if (\$request_method = OPTIONS) { return 204; }
     }
     location /ws {
-        proxy_pass         http://127.0.0.1:${RPC_PORT}/api/ws;
+        proxy_pass         http://127.0.0.1:${RPC_PORT};
         proxy_http_version 1.1;
         proxy_set_header   Upgrade \$http_upgrade;
         proxy_set_header   Connection "Upgrade";
@@ -330,7 +317,7 @@ server {
     }
     location /health {
         access_log off;
-        proxy_pass http://127.0.0.1:${RPC_PORT}/api/health;
+        proxy_pass http://127.0.0.1:${RPC_PORT}/health;
     }
 }
 EOF
@@ -369,13 +356,14 @@ fi
 
 NODE_OK=false
 for i in 1 2 3 4 5; do
-  RESP=$(curl -sf --max-time 4 "http://localhost:${RPC_PORT}/api/health" 2>/dev/null || true)
+  RESP=$(curl -sf --max-time 4 "http://127.0.0.1:${RPC_PORT}/health" 2>/dev/null || true)
   if [[ -n "$RESP" ]]; then NODE_OK=true; break; fi
   warn "    Attempt $i/5: waiting for node... (5s)"
   sleep 5
 done
+node_network_report_tcp_listener "$P2P_PORT"
 
-SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+SERVER_IP="${GYDS_P2P_ADVERTISE_HOST}"
 WIZARD_DOMAIN=""
 [[ -f "$GENERATED_ENV" ]] && WIZARD_DOMAIN=$(grep "^DOMAIN=" "$GENERATED_ENV" | cut -d= -f2 | tr -d ' ' || echo "")
 [[ -n "$WIZARD_DOMAIN" ]] && DOMAIN="$WIZARD_DOMAIN"
@@ -394,10 +382,10 @@ if [[ -n "$RPC_DOMAIN" ]]; then
   echo "  RPC (HTTPS) : https://${RPC_DOMAIN}"
   echo "  WS  (WSS)   : wss://${RPC_DOMAIN}/ws"
 else
-  echo "  RPC (HTTP)  : http://${SERVER_IP}:${RPC_PORT}"
-  echo "  WS  (WS)    : ws://${SERVER_IP}:${RPC_PORT}/api/ws"
+  echo "  RPC/WS      : localhost:${RPC_PORT} (local only; configure an RPC domain for HTTPS access)"
 fi
 echo "  P2P         : tcp://${SERVER_IP}:${P2P_PORT}"
+node_network_report_p2p "$P2P_PORT"
 echo "  Chain ID    : ${CHAIN_ID}"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -418,6 +406,6 @@ echo "  ADD TO METAMASK / WALLET"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Network Name : GYDS Chain"
 echo "  Chain ID     : ${CHAIN_ID}"
-[[ -n "$RPC_DOMAIN" ]] && echo "  RPC URL      : https://${RPC_DOMAIN}" || echo "  RPC URL      : http://${SERVER_IP}:${RPC_PORT}"
+[[ -n "$RPC_DOMAIN" ]] && echo "  RPC URL      : https://${RPC_DOMAIN}" || echo "  RPC URL      : localhost:${RPC_PORT} (local only)"
 echo "  Currency     : GYDS"
 echo ""

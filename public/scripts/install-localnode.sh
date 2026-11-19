@@ -38,6 +38,7 @@ BLOCK_TIME="${BLOCK_TIME:-120}"
 BOOTSTRAP_NODES="${GYDS_BOOTSTRAP_NODES:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
 PROJECT_ROOT="${PROJECT_ROOT:-}"
 if [[ -z "$PROJECT_ROOT" ]]; then
   if [[ -f "$SCRIPT_DIR/../../node-fixes/fullnode/go.mod" ]]; then
@@ -103,6 +104,9 @@ echo -e "${NC}"
 # Detect local IP early (used throughout)
 LOCAL_IP="$(hostname -I | awk '{print $1}')"
 [[ -n "$LOCAL_IP" ]] || { err "Could not detect local IP. Check network interface."; exit 1; }
+GYDS_P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-$LOCAL_IP}"
+node_network_resolve_p2p_host || { err "Invalid P2P advertised address."; exit 1; }
+LAN_CIDR="${LAN_CIDR:-192.168.0.0/16}"
 log "Detected local IP: ${LOCAL_IP}"
 
 # ── Step 1: System packages ───────────────────────────────────────────────────
@@ -174,6 +178,7 @@ GYDS_CHAIN_ID=${CHAIN_ID}
 GYDS_RPC_HOST=127.0.0.1
 GYDS_RPC_PORT=${RPC_PORT}
 GYDS_P2P_PORT=${P2P_PORT}
+GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
 GYDS_DASHBOARD_PORT=5000
 GYDS_BLOCK_TIME=${BLOCK_TIME}
 GYDS_DATA_DIR=${DATA_DIR}
@@ -233,7 +238,7 @@ server {
 
     # Proxy RPC requests so the dashboard can reach the node
     location /rpc {
-        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_pass http://127.0.0.1:${RPC_PORT}/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_http_version 1.1;
@@ -241,7 +246,7 @@ server {
 
     # Proxy WebSocket endpoint
     location /ws {
-        proxy_pass http://127.0.0.1:${RPC_PORT}/api/ws;
+        proxy_pass http://127.0.0.1:${RPC_PORT};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -266,17 +271,10 @@ log "nginx: serving dashboard at http://${LOCAL_IP}"
 
 # ── Firewall (UFW) — LAN-only access ─────────────────────────────────────────
 log "Configuring firewall..."
-ufw --force enable
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw allow 80/tcp     comment 'HTTP dashboard (local network)'
-ufw allow "${RPC_PORT}/tcp"  comment 'GYDS RPC (local network)'
-ufw allow "${P2P_PORT}/tcp"  comment 'GYDS P2P'
-ufw allow "${P2P_PORT}/udp"  comment 'GYDS P2P'
-# Restrict RPC to LAN subnet only (adjust to match your network)
-LAN_CIDR="${LAN_CIDR:-192.168.0.0/16}"
-ufw allow from "${LAN_CIDR}" to any port "${RPC_PORT}" comment 'RPC LAN only'
+if command -v ufw &>/dev/null; then
+  ufw allow from "${LAN_CIDR}" to any port 80 proto tcp comment 'GYDS dashboard LAN only'
+  ufw allow from "${LAN_CIDR}" to any port "${P2P_PORT}" proto tcp comment 'GYDS P2P LAN'
+fi
 
 # ── Logrotate ─────────────────────────────────────────────────────────────────
 cat > "/etc/logrotate.d/gydschain" <<EOF
@@ -313,9 +311,9 @@ cat <<EOF
 
   ── Access (local network) ───────────────────────────────────────────────
   Dashboard:     http://${LOCAL_IP}
-  RPC:           http://${LOCAL_IP}:${RPC_PORT}
-  WebSocket:     ws://${LOCAL_IP}/ws (proxied to RPC /api/ws)
-  P2P:           ${LOCAL_IP}:${P2P_PORT}
+  RPC:           http://${LOCAL_IP}/rpc (LAN proxy; raw RPC port remains private)
+  WebSocket:     ws://${LOCAL_IP}/ws
+  P2P:           tcp://${GYDS_P2P_ADVERTISE_HOST}:${P2P_PORT} (LAN firewall rule)
 
   ── Service management ───────────────────────────────────────────────────
   systemctl status ${SERVICE_NAME}
@@ -342,4 +340,7 @@ cat <<EOF
   Once the tunnel is running your dashboard will be available at
   https://<your-hostname> without any changes to this server.
 EOF
+
+node_network_report_tcp_listener "$P2P_PORT"
+node_network_report_p2p "$P2P_PORT"
 echo ""

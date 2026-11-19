@@ -54,6 +54,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 export PROJECT_ROOT
+source "$SCRIPT_DIR/node-network.sh"
+node_network_resolve_p2p_host || { echo "Could not determine a reachable P2P address." >&2; exit 1; }
 
 # Validate every selected child's dependencies before fetching or installing.
 for dependency in node-profile.sh; do
@@ -152,11 +154,25 @@ if $INSTALL_LITENODE; then
     SKIPPED_NODES+=("litenode: no non-root service account found")
   else
     TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+    LITE_UPSTREAMS="${LITE_RPC_ENDPOINTS:-${GYDS_UPSTREAM_RPC:-}}"
+    if [[ -z "$LITE_UPSTREAMS" && "$RPC_INSTALLED" == "true" ]]; then
+      LITE_UPSTREAMS="http://127.0.0.1:8547"
+    elif [[ -z "$LITE_UPSTREAMS" && "$FULLNODE_INSTALLED" == "true" ]]; then
+      LITE_UPSTREAMS="http://127.0.0.1:8545"
+    fi
+    if [[ -z "$LITE_UPSTREAMS" ]]; then
+      echo "⚠ Skipping litenode: set LITE_RPC_ENDPOINTS or GYDS_UPSTREAM_RPC to a reachable RPC URL."
+      SKIPPED_NODES+=("litenode: reachable HTTP RPC source not configured")
+      LITE_UPSTREAMS=""
+    fi
+    if [[ -n "$LITE_UPSTREAMS" ]]; then
     echo -e "${GREEN}━━━ Installing litenode for user ${TARGET_USER} (HOME=${TARGET_HOME}) ━━━${NC}"
+    node_network_allow_p2p_tcp 30306
     if run_role "litenode" "litenode" sudo -u "$TARGET_USER" -H env GYDS_CONF=/dev/null PROJECT_ROOT="$PROJECT_ROOT" \
         NODE_SOURCE_DIR="$PROJECT_ROOT/node-fixes/litenode" \
         GYDS_BOOTSTRAP_NODES="${GYDS_BOOTSTRAP_NODES:-}" GYDS_ALLOWED_NODES="${GYDS_ALLOWED_NODES:-}" GYDS_PEER_AUTH=true \
-        GYDS_RPC_PORT=8549 GYDS_WS_PORT=8550 GYDS_P2P_PORT=30306 \
+        LITE_RPC_ENDPOINTS="$LITE_UPSTREAMS" GYDS_RPC_PORT=8549 GYDS_P2P_PORT=30306 \
+        GYDS_P2P_ADVERTISE_HOST="$GYDS_P2P_ADVERTISE_HOST" GYDS_P2P_FIREWALL_CONFIGURED=1 \
         bash "$SCRIPT_DIR/install-litenode.sh"; then
       LITENODE_INSTALLED=true
       if command -v loginctl >/dev/null 2>&1 &&
@@ -167,6 +183,7 @@ if $INSTALL_LITENODE; then
         echo "⚠ Lite node is installed, but boot startup needs: sudo loginctl enable-linger ${TARGET_USER}"
         SKIPPED_NODES+=("litenode autostart: enable user lingering for ${TARGET_USER}")
       fi
+    fi
     fi
   fi
 fi

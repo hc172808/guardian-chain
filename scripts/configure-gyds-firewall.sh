@@ -25,7 +25,7 @@ Options:
   --dry-run             Print commands without changing firewall state
   -h, --help            Show this help
 
-This opens TCP and UDP for P2P. It does not open RPC; keep RPC bound to a
+This opens TCP for P2P. It does not open RPC; keep RPC bound to a
 private interface or protect it with an authenticated reverse proxy/VPN.
 EOF
 }
@@ -61,7 +61,7 @@ info() { echo -e "${CYAN}[INFO]${NC} $*"; }
 
 rule_suffix="${SOURCE_CIDR:+ from $SOURCE_CIDR}"
 echo -e "${BOLD}GYDS P2P firewall configuration${NC}"
-info "Opening TCP and UDP port $P2P_PORT${rule_suffix}"
+info "Opening TCP port $P2P_PORT${rule_suffix}"
 
 run() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -76,10 +76,8 @@ run() {
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi 'Status: active'; then
   if [[ -n "$SOURCE_CIDR" ]]; then
     run ufw allow from "$SOURCE_CIDR" to any port "$P2P_PORT" proto tcp
-    run ufw allow from "$SOURCE_CIDR" to any port "$P2P_PORT" proto udp
   else
     run ufw allow "$P2P_PORT/tcp" comment "GYDS P2P"
-    run ufw allow "$P2P_PORT/udp" comment "GYDS P2P"
   fi
   run ufw reload
   ok "UFW rule applied"
@@ -90,12 +88,11 @@ elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 
     exit 2
   fi
   run firewall-cmd --permanent --add-port="${P2P_PORT}/tcp"
-  run firewall-cmd --permanent --add-port="${P2P_PORT}/udp"
   run firewall-cmd --reload
   ok "firewalld rules applied"
 else
   warn "No active UFW or firewalld detected."
-  warn "Open TCP and UDP $P2P_PORT in the cloud provider/security-group firewall."
+  warn "Open TCP $P2P_PORT in the cloud provider/security-group firewall."
   exit 2
 fi
 

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -75,6 +78,14 @@ func (s *Server) Start() error {
 		w.WriteHeader(204)
 	})
 
+	r.Methods("GET").Path("/health").HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok",
+			"node":   "gyds-validatornode",
+		})
+	})
+
 	// Main JSON-RPC endpoint
 	r.Methods("POST").HandlerFunc(s.handleRPC)
 
@@ -125,8 +136,12 @@ func (s *Server) Start() error {
 		}
 	})
 
+	host := os.Getenv("GYDS_RPC_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
 	s.httpSrv = &http.Server{
-		Addr:         fmt.Sprintf("0.0.0.0:%d", s.port),
+		Addr:         net.JoinHostPort(host, strconv.Itoa(s.port)),
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
@@ -301,9 +316,9 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
 		return respond(result)
 	case "validator_getRewards":
 		return respond(map[string]interface{}{
-			"totalRewards":    height * 2,
-			"rewardPerBlock":  2,
-			"pendingRewards":  height % 100 * 2,
+			"totalRewards":     height * 2,
+			"rewardPerBlock":   2,
+			"pendingRewards":   height % 100 * 2,
 			"commissionEarned": float64(height) * 2 * 0.05,
 		})
 	case "validator_register":

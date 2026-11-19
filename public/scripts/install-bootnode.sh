@@ -18,6 +18,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
 
 # ── Load shared config (written by deploy-dashboard.sh — all values skippable) ─
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
@@ -88,6 +89,10 @@ log "Updating apt and installing prerequisites..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y curl wget git build-essential ufw fail2ban openssl ca-certificates
+
+# Never advertise localhost or a private interface to remote peers.
+node_network_resolve_p2p_host || exit 1
+PUBLIC_ADDR="${PUBLIC_ADDR:-${GYDS_P2P_ADVERTISE_HOST}:${P2P_PORT}}"
 
 # ---------------------- 2. Install Go ----------------------
 if ! command -v go >/dev/null 2>&1 || [[ "$(go version | awk '{print $3}')" != "go${GO_VERSION}" ]]; then
@@ -220,12 +225,8 @@ systemctl enable gyds-bootnode.service
 
 # ---------------------- 8. Firewall (ufw) ----------------------
 log "Configuring ufw firewall..."
-ufw --force enable >/dev/null 2>&1 || true
-ufw allow 22/tcp comment 'SSH' >/dev/null 2>&1 || true
-ufw allow "${P2P_PORT}/tcp" comment 'GYDSchain bootnode P2P TCP' >/dev/null 2>&1 || true
-ufw allow "${P2P_PORT}/udp" comment 'GYDSchain bootnode P2P UDP' >/dev/null 2>&1 || true
+node_network_allow_p2p_tcp "$P2P_PORT"
 # NOTE: bootnode does NOT expose RPC. Do not open 8546/8545.
-ufw reload >/dev/null 2>&1 || true
 
 # ---------------------- 9. fail2ban jail ----------------------
 log "Configuring fail2ban..."
@@ -252,11 +253,12 @@ log "Starting gyds-bootnode..."
 systemctl restart gyds-bootnode.service
 sleep 2
 systemctl --no-pager --full status gyds-bootnode.service || true
+node_network_report_tcp_listener "$P2P_PORT"
 
 # ---------------------- 11. Summary ----------------------
 NODE_ID_SHORT="$(head -c 16 "${KEY_FILE}" 2>/dev/null || echo unknown)"
 LOCAL_IP="$(hostname -I | awk '{print $1}')"
-ADVERT="${PUBLIC_ADDR:-${LOCAL_IP}:${P2P_PORT}}"
+ADVERT="${PUBLIC_ADDR}"
 
 cat <<EOF
 
@@ -271,7 +273,8 @@ cat <<EOF
   Logs:         ${LOG_DIR}/bootnode.log
   Node ID:      ${NODE_ID_SHORT}
   Chain ID:     ${CHAIN_ID}
-  P2P port:     ${P2P_PORT} (tcp+udp)
+  P2P port:     ${P2P_PORT} (TCP)
+  P2P address:  ${ADVERT}
 
   Share this bootstrap address with other operators:
 
@@ -283,3 +286,5 @@ cat <<EOF
       tail -f ${LOG_DIR}/bootnode.log
 
 EOF
+
+node_network_report_p2p "$P2P_PORT"

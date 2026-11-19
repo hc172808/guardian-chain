@@ -24,6 +24,13 @@ def make_fixture(root: Path) -> tuple[Path, Path, dict[str, str]]:
         installer_text.replace(ROOT_GUARD, ": # bypass root-only guard in isolated mock test")
     )
     (scripts / "node-profile.sh").write_text("# test dependency\n")
+    (scripts / "node-network.sh").write_text(
+        "node_network_resolve_p2p_host() {\n"
+        "  GYDS_P2P_ADVERTISE_HOST=\"${GYDS_P2P_ADVERTISE_HOST:-203.0.113.10}\"\n"
+        "  export GYDS_P2P_ADVERTISE_HOST\n"
+        "}\n"
+        "node_network_allow_p2p_tcp() { :; }\n"
+    )
     (scripts / "install-fullnode.sh").write_text(
         "#!/usr/bin/env bash\n"
         "printf 'MOCK_ROLE=%s\\n' \"${NODE_ROLE:-missing}\"\n"

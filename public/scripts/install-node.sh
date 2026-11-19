@@ -19,7 +19,7 @@ fi
 
 NODE_TYPE="${1:-fullnode}"
 case "$NODE_TYPE" in
-  fullnode) ;;
+  fullnode) shift || true; exec env PROJECT_ROOT="$PROJECT_ROOT" bash "$SCRIPT_DIR/install-fullnode.sh" "$@" ;;
   bootnode|genesis|boostnode)
     shift || true
     exec bash "$SCRIPT_DIR/install-${NODE_TYPE}.sh" "$@"

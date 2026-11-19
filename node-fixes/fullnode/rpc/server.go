@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 
 	"github.com/gorilla/mux"
@@ -186,7 +189,15 @@ func (s *Server) Start() error {
 	r := mux.NewRouter()
 	r.HandleFunc("/", s.handleRPC).Methods("POST", "OPTIONS")
 	r.HandleFunc("/ws", s.handleWS)
-	addr := fmt.Sprintf("0.0.0.0:%d", s.rpcPort)
+	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok","node":"gyds-fullnode"}`))
+	}).Methods("GET")
+	host := os.Getenv("GYDS_RPC_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(s.rpcPort))
 	s.httpSrv = &http.Server{Addr: addr, Handler: r}
 	return s.httpSrv.ListenAndServe()
 }

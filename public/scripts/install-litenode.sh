@@ -13,6 +13,7 @@ GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
 [[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
 PROJECT_ROOT="${PROJECT_ROOT:-}"
 if [[ -z "$PROJECT_ROOT" ]]; then
   if [[ -f "$SCRIPT_DIR/../../node-fixes/litenode/go.mod" ]]; then
@@ -36,10 +37,12 @@ DATA_DIR="${GYDS_DATA_DIR:-${GYDS_HOME}/data}"
 LOG_DIR="${GYDS_HOME}/logs"
 
 RPC_PORT="${GYDS_RPC_PORT:-8545}"
-WS_PORT="${GYDS_WS_PORT:-8546}"
 P2P_PORT="${GYDS_P2P_PORT:-30303}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
+RPC_ENDPOINTS="${LITE_RPC_ENDPOINTS:-${GYDS_UPSTREAM_RPC:-}}"
+API_HOST="${LITE_API_HOST:-127.0.0.1}"
+RPC_DOMAIN="${GYDS_RPC_DOMAIN:-${DOMAIN:-}}"
 
 NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/litenode}"
 
@@ -65,7 +68,6 @@ require_value() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --rpc-port)        require_value "$@"; RPC_PORT="$2";   shift 2 ;;
-    --ws-port)         require_value "$@"; WS_PORT="$2";    shift 2 ;;
     --p2p-port)        require_value "$@"; P2P_PORT="$2";   shift 2 ;;
     --data-dir)        require_value "$@"; DATA_DIR="$2";   shift 2 ;;
     --log-level)       require_value "$@"; LOG_LEVEL="$2";  shift 2 ;;
@@ -76,16 +78,19 @@ done
 
 [[ -n "$BOOTSTRAP" && -n "${GYDS_ALLOWED_NODES:-}" ]] || die "Lite mode requires trusted bootstrap peers and their approved node IDs"
 [[ -z "${GYDS_NODE_MODE:-}" || "$GYDS_NODE_MODE" == lite ]] || die "Profile role must be lite"
+[[ -n "$RPC_ENDPOINTS" ]] || die "Set LITE_RPC_ENDPOINTS or GYDS_UPSTREAM_RPC to a reachable HTTP RPC endpoint; P2P peers are not RPC endpoints."
+[[ "$API_HOST" == "127.0.0.1" ]] || die "Lite API must bind to 127.0.0.1; use GYDS_RPC_DOMAIN for HTTPS access."
+if [[ -n "$RPC_DOMAIN" && ! "$RPC_DOMAIN" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+  die "GYDS_RPC_DOMAIN must be a hostname without a scheme or path."
+fi
 
 valid_port() {
   [[ "$1" =~ ^[0-9]{1,5}$ ]] || return 1
   (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }
 valid_port "$RPC_PORT" || die "RPC port must be from 1 to 65535."
-valid_port "$WS_PORT" || die "WebSocket port must be from 1 to 65535."
 valid_port "$P2P_PORT" || die "P2P port must be from 1 to 65535."
-[[ "$RPC_PORT" != "$WS_PORT" && "$RPC_PORT" != "$P2P_PORT" && "$WS_PORT" != "$P2P_PORT" ]] \
-  || die "RPC, WebSocket, and P2P ports must be different."
+[[ "$RPC_PORT" != "$P2P_PORT" ]] || die "Lite API and P2P ports must be different."
 
 # ── OS & arch ─────────────────────────────────────────────────────────────────
 OS="$(uname -s)"
@@ -102,15 +107,29 @@ log "[1/6] Installing dependencies..."
 if [[ "$OS" == "Linux" ]]; then
   if command -v apt-get &>/dev/null; then
     sudo apt-get update -qq
-    sudo apt-get install -y --no-install-recommends build-essential git curl wget jq ca-certificates openssl
+    PACKAGES=(build-essential git curl wget jq ca-certificates openssl)
+    [[ -n "$RPC_DOMAIN" ]] && PACKAGES+=(nginx certbot python3-certbot-nginx)
+    sudo apt-get install -y --no-install-recommends "${PACKAGES[@]}"
   elif command -v dnf &>/dev/null; then
-    sudo dnf install -y gcc git curl wget jq ca-certificates openssl
+    PACKAGES=(gcc git curl wget jq ca-certificates openssl)
+    [[ -n "$RPC_DOMAIN" ]] && PACKAGES+=(nginx certbot python3-certbot-nginx)
+    sudo dnf install -y "${PACKAGES[@]}"
   elif command -v yum &>/dev/null; then
-    sudo yum install -y gcc git curl wget jq ca-certificates openssl
+    PACKAGES=(gcc git curl wget jq ca-certificates openssl)
+    [[ -n "$RPC_DOMAIN" ]] && PACKAGES+=(nginx certbot python3-certbot-nginx)
+    sudo yum install -y "${PACKAGES[@]}"
   fi
 elif [[ "$OS" == "Darwin" ]]; then
   command -v brew &>/dev/null || { warn "Homebrew not found. Install: https://brew.sh"; }
   command -v brew &>/dev/null && brew install git curl wget jq openssl 2>/dev/null || true
+fi
+node_network_resolve_p2p_host || die "Could not determine a reachable P2P address."
+if [[ "${GYDS_P2P_FIREWALL_CONFIGURED:-0}" != "1" ]]; then
+  node_network_allow_p2p_tcp "$P2P_PORT"
+fi
+if [[ -n "$RPC_DOMAIN" ]]; then
+  node_network_allow_tcp_port 80 "GYDS lite HTTPS proxy"
+  node_network_allow_tcp_port 443 "GYDS lite HTTPS proxy"
 fi
 
 # ── Go ────────────────────────────────────────────────────────────────────────
@@ -155,36 +174,20 @@ chmod 700 "${GYDS_HOME}"
 # ── Start script & service ────────────────────────────────────────────────────
 log "[6/6] Creating start script and service..."
 
-ENV_VARS="GYDS_CHAIN_ID=${CHAIN_ID} \
-GYDS_NODE_MODE=lite \
-GYDS_RPC_PORT=${RPC_PORT} \
-GYDS_RPC_HOST=127.0.0.1 \
-GYDS_WS_PORT=${WS_PORT} \
-GYDS_P2P_PORT=${P2P_PORT} \
-GYDS_DATA_DIR=${DATA_DIR} \
-GYDS_LOG_LEVEL=${LOG_LEVEL}"
-[[ -n "$BOOTSTRAP" ]] && ENV_VARS="${ENV_VARS} GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}"
-
 cat > "${GYDS_HOME}/start.sh" <<EOF
 #!/usr/bin/env bash
+set -euo pipefail
+while IFS='=' read -r key value; do
+  case "\$key" in
+    GYDS_CHAIN_ID|GYDS_P2P_ADVERTISE_HOST|GYDS_PEER_AUTH|GYDS_ALLOWED_NODES|LITE_RPC_ENDPOINTS|LITE_RPC_PORT|LITE_API_HOST|LITE_P2P_PORT|LITE_DATADIR|LITE_LOG_LEVEL)
+      export "\$key=\$value"
+      ;;
+  esac
+done < "${GYDS_HOME}/config/node.env"
 export PATH="${GYDS_BIN}:\$PATH"
-export GYDS_CHAIN_ID="${CHAIN_ID}"
-export GYDS_NODE_MODE="lite"
-export GYDS_RPC_PORT="${RPC_PORT}"
-export GYDS_RPC_HOST="127.0.0.1"
-export GYDS_WS_PORT="${WS_PORT}"
-export GYDS_P2P_PORT="${P2P_PORT}"
-export GYDS_DATA_DIR="${DATA_DIR}"
-export GYDS_LOG_LEVEL="${LOG_LEVEL}"
-export GYDS_PEER_AUTH=true
-export GYDS_ALLOWED_NODES="${GYDS_ALLOWED_NODES:-}"
-$([ -n "$BOOTSTRAP" ] && echo "export GYDS_BOOTSTRAP_NODES=\"${BOOTSTRAP}\"")
 exec "${GYDS_BIN}/${BINARY}" start
 EOF
 chmod +x "${GYDS_HOME}/start.sh"
-# Append API namespace env vars into the node env file immediately (also written below for systemd)
-grep -qxF "GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug" "${GYDS_HOME}/config/node.env" 2>/dev/null \
-  || printf '\nGYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug\nGYDS_WS_API=eth,net,web3,txpool,admin\n' >> "${GYDS_HOME}/config/node.env"
 
 # User systemd service (no root required)
 if command -v systemctl &>/dev/null && [[ -d "$HOME/.config" ]]; then
@@ -212,19 +215,37 @@ EOF
   # Write env file for systemd
   cat > "${GYDS_HOME}/config/node.env" <<EOF
 GYDS_CHAIN_ID=${CHAIN_ID}
-GYDS_NODE_MODE=lite
-GYDS_RPC_PORT=${RPC_PORT}
-GYDS_RPC_HOST=127.0.0.1
-GYDS_WS_PORT=${WS_PORT}
-GYDS_P2P_PORT=${P2P_PORT}
-GYDS_DATA_DIR=${DATA_DIR}
-GYDS_LOG_LEVEL=${LOG_LEVEL}
+GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
+LITE_RPC_ENDPOINTS=${RPC_ENDPOINTS}
+LITE_RPC_PORT=${RPC_PORT}
+LITE_API_HOST=${API_HOST}
+LITE_P2P_PORT=${P2P_PORT}
+LITE_DATADIR=${DATA_DIR}
+LITE_LOG_LEVEL=${LOG_LEVEL}
 GYDS_PEER_AUTH=true
 GYDS_ALLOWED_NODES=${GYDS_ALLOWED_NODES:-}
-$([ -n "$BOOTSTRAP" ] && echo "GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}")
-GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
-GYDS_WS_API=eth,net,web3,txpool,admin
 EOF
+
+if [[ -n "$RPC_DOMAIN" ]]; then
+  sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+  cat <<EOF | sudo tee /etc/nginx/sites-available/gyds-litenode >/dev/null
+server {
+    listen 80;
+    server_name ${RPC_DOMAIN};
+
+    location / {
+        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+EOF
+  sudo ln -sf /etc/nginx/sites-available/gyds-litenode /etc/nginx/sites-enabled/gyds-litenode
+  sudo nginx -t && sudo systemctl enable nginx && sudo systemctl restart nginx
+  sudo certbot --nginx -d "$RPC_DOMAIN" --non-interactive --agree-tos -m "admin@${RPC_DOMAIN}" 2>/dev/null \
+    || warn "TLS setup failed; check DNS for ${RPC_DOMAIN}, then rerun Certbot."
+fi
   mkdir -p "$HOME/.config/systemd/user/default.target.wants"
   ln -sfn ../gyds-litenode.service "$HOME/.config/systemd/user/default.target.wants/gyds-litenode.service"
 
@@ -274,7 +295,6 @@ fi
 
 # ── Summary & Web Setup Wizard ────────────────────────────────────────────────
 SETUP_PORT="${GYDS_SETUP_PORT:-8888}"
-LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "YOUR_SERVER_IP")
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -286,6 +306,12 @@ echo "║  Data dir : ${DATA_DIR}"
 echo "║  Config   : ${GYDS_HOME}/config/node.env"
 echo "║  Chain ID : ${CHAIN_ID}"
 echo "║                                                              ║"
+echo "║  API      : ${API_HOST}:${RPC_PORT} (local only)"
+echo "║  RPC sync : ${RPC_ENDPOINTS}"
+echo "║  P2P      : ${GYDS_P2P_ADVERTISE_HOST}:${P2P_PORT} (TCP)"
+if [[ -n "$RPC_DOMAIN" ]]; then
+  echo "║  HTTPS    : https://${RPC_DOMAIN}"
+fi
 echo "╠══════════════════════════════════════════════════════════════╣"
 echo "║   🌐  WEB SETUP WIZARD                                       ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
@@ -294,7 +320,7 @@ echo "║  A browser-based setup wizard is available.                 ║"
 echo "║  It will help you configure your node via a simple UI.      ║"
 echo "║                                                              ║"
 echo "║  ➜  http://localhost:${SETUP_PORT}                                 ║"
-echo "║  ➜  http://${LOCAL_IP}:${SETUP_PORT}  (from another machine)       ║"
+echo "║  Remote access: use an SSH tunnel; wizard is local-only.      ║"
 echo "║                                                              ║"
 echo "║  The wizard will:                                           ║"
 echo "║    • Ask for RPC endpoints, ports, sync settings            ║"
@@ -336,6 +362,9 @@ else
   echo "  Log file       : tail -f ${LOG_DIR}/litenode.log"
   echo ""
   echo "  RPC test:"
-  echo "  curl -s http://localhost:${RPC_PORT}/health"
+  [[ -n "$RPC_DOMAIN" ]] && echo "  HTTPS API      : https://${RPC_DOMAIN}/health" || true
+  echo "  Local API test : curl http://127.0.0.1:${RPC_PORT}/health"
   echo ""
 fi
+node_network_report_tcp_listener "$P2P_PORT"
+node_network_report_p2p "$P2P_PORT"

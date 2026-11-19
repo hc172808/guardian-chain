@@ -13,6 +13,7 @@ GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
 [[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
 PROJECT_ROOT="${PROJECT_ROOT:-}"
 if [[ -z "$PROJECT_ROOT" ]]; then
   if [[ -f "$SCRIPT_DIR/../../node-fixes/rpcnode/go.mod" ]]; then
@@ -152,26 +153,11 @@ mkdir -p "${DATA_DIR}"/{state.db,logs} "${LOG_DIR}"
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${LOG_DIR}"
 
 # ── Firewall ──────────────────────────────────────────────────────────────────
-log "[6/7] Configuring firewall..."
-if is_debian && command -v ufw &>/dev/null; then
-  ufw default deny incoming >/dev/null 2>&1 || true
-  ufw default allow outgoing >/dev/null 2>&1 || true
-  ufw limit 22/tcp    comment "SSH"      >/dev/null 2>&1 || true
-  ufw allow 80/tcp    comment "HTTP"     >/dev/null 2>&1 || true
-  ufw allow 443/tcp   comment "HTTPS"    >/dev/null 2>&1 || true
-  ufw allow "${P2P_PORT}/tcp" comment "GYDS P2P" >/dev/null 2>&1 || true
-  ufw allow "${P2P_PORT}/udp" comment "GYDS P2P" >/dev/null 2>&1 || true
-  # RPC port bound to 127.0.0.1 — no need to open externally (nginx proxies it)
-  ufw --force enable >/dev/null 2>&1 || true
-elif is_rhel && command -v firewall-cmd &>/dev/null; then
-  systemctl enable --now firewalld
-  firewall-cmd --permanent --add-port=22/tcp
-  firewall-cmd --permanent --add-port=80/tcp
-  firewall-cmd --permanent --add-port=443/tcp
-  firewall-cmd --permanent --add-port="${P2P_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${P2P_PORT}/udp"
-  firewall-cmd --reload
-fi
+log "[6/7] Configuring node network access..."
+node_network_resolve_p2p_host || die "Could not determine a reachable P2P address."
+node_network_allow_p2p_tcp "$P2P_PORT"
+node_network_allow_tcp_port 80 "GYDS RPC HTTP proxy"
+node_network_allow_tcp_port 443 "GYDS RPC HTTPS proxy"
 
 # Fail2ban
 if command -v fail2ban-server &>/dev/null; then
@@ -222,7 +208,7 @@ server {
 
     # WebSocket endpoint
     location /ws {
-        proxy_pass         http://127.0.0.1:${WS_PORT};
+        proxy_pass         http://127.0.0.1:${RPC_PORT};
         proxy_http_version 1.1;
         proxy_set_header   Upgrade \$http_upgrade;
         proxy_set_header   Connection "Upgrade";
@@ -270,6 +256,7 @@ Environment=GYDS_NODE_MODE=rpc
 Environment=GYDS_RPC_PORT=${RPC_PORT}
 Environment=GYDS_RPC_HOST=127.0.0.1
 Environment=GYDS_P2P_PORT=${P2P_PORT}
+Environment=GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json
@@ -308,7 +295,8 @@ for i in 1 2 3 4 5; do
   sleep 5
 done
 
-SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+node_network_report_tcp_listener "$P2P_PORT"
+SERVER_IP="${GYDS_P2P_ADVERTISE_HOST}"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -330,6 +318,7 @@ echo "  WebSocket (WSS)  : wss://${DOMAIN}/ws"
 echo "  Health check     : https://${DOMAIN}/health"
 echo "  Internal RPC     : http://127.0.0.1:${RPC_PORT}"
 echo "  P2P              : tcp://${SERVER_IP}:${P2P_PORT}"
+node_network_report_p2p "$P2P_PORT"
 echo "  Rate limit       : ${RATE_LIMIT} req/s per IP"
 echo "  Chain ID         : ${CHAIN_ID}"
 echo ""
