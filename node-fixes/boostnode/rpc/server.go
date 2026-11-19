@@ -195,6 +195,16 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
                 return "GYDS-Boostnode/1.0.0"
         case "net_listening":
                 return true
+        case "net_enode":
+                if s.p2pSrv == nil {
+                        return nil
+                }
+                return s.p2pSrv.EnodeURL()
+        case "admin_nodeInfo":
+                if s.p2pSrv == nil {
+                        return nil
+                }
+                return map[string]interface{}{"enode": s.p2pSrv.EnodeURL()}
         case "net_peerCount":
                 return s.peerCount()
         case "eth_syncing":

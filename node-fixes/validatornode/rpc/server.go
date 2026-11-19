@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/gydschain/validatornode/consensus"
 	"github.com/gydschain/validatornode/core"
+	nodep2p "github.com/gydschain/validatornode/p2p"
 )
 
 type Server struct {
@@ -23,7 +24,10 @@ type Server struct {
 	mu         sync.Mutex
 	clients    map[*websocket.Conn]struct{}
 	httpSrv    *http.Server
+	p2pSrv     *nodep2p.Server
 }
+
+func (s *Server) SetP2P(p2pSrv *nodep2p.Server) { s.p2pSrv = p2pSrv }
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -193,7 +197,20 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
 	case "eth_maxPriorityFeePerGas":
 		return respond("0x3B9ACA00")
 	case "net_peerCount":
-		return respond("0x5")
+		if s.p2pSrv == nil {
+			return respond("0x0")
+		}
+		return respond(fmt.Sprintf("0x%x", s.p2pSrv.PeerCount()))
+	case "net_enode":
+		if s.p2pSrv == nil {
+			return respond(nil)
+		}
+		return respond(s.p2pSrv.EnodeURL())
+	case "admin_nodeInfo":
+		if s.p2pSrv == nil {
+			return respond(nil)
+		}
+		return respond(map[string]interface{}{"enode": s.p2pSrv.EnodeURL()})
 	case "web3_clientVersion":
 		return respond("GYDSchain/validator-node/v1.0.0")
 	case "eth_syncing":

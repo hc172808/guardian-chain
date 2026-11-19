@@ -3,12 +3,15 @@ module github.com/gydschain/fullnode
 go 1.21
 
 require (
+	github.com/gydschain/node-common v0.0.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/cobra v1.8.1
 	github.com/syndtr/goleveldb v1.0.0
 )
+
+replace github.com/gydschain/node-common => ../common
 
 require (
 	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db // indirect

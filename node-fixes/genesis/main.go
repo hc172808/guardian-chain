@@ -176,21 +176,26 @@ func runNode() error {
 		rpcSrv.NotifyNewBlock(b)
 	})
 
-	// Genesis node is the bootstrap peer — accept all incoming connections
 	p2pSrv := p2p.NewServer(cfg.P2PPort, cfg.ChainID, chain.Height)
 
 	if err := p2pSrv.Start(); err != nil {
-		log.Warn().Err(err).Msg("P2P server failed to start")
-	} else {
-		log.Info().Int("port", cfg.P2PPort).Msg("Bootstrap P2P server ready — other nodes should connect here")
+	return fmt.Errorf("start P2P server: %w", err)
+}
+rpcSrv.SetP2P(p2pSrv)
+for _, addr := range cfg.P2PBootstrap {
+	if err := p2pSrv.ConnectTo(addr); err != nil {
+		log.Warn().Err(err).Str("addr", addr).Msg("Failed to connect to bootstrap peer")
 	}
+	}
+log.Info().Str("enode", p2pSrv.EnodeURL()).Msg("GYDS peer address")
+log.Info().Int("port", cfg.P2PPort).Msg("Bootstrap P2P server ready — other nodes should connect here")
 
 	engine.Start()
 	log.Info().Dur("blockTime", cfg.BlockTime).Msg("PoS engine started")
 
 	log.Info().
 		Str("rpc", fmt.Sprintf("http://0.0.0.0:%d", cfg.RPCPort)).
-		Str("p2p", fmt.Sprintf("tcp://0.0.0.0:%d", cfg.P2PPort)).
+	Str("p2p", p2pSrv.EnodeURL()).
 		Msg("Genesis node is running — distribute this P2P address as GYDS_BOOTSTRAP_NODES to other nodes")
 
 	errCh := make(chan error, 1)

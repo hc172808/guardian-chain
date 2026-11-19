@@ -117,14 +117,16 @@ func runNode() error {
 
         p2pSrv := p2p.NewServer(cfg.P2PPort, cfg.ChainID, chain.Height)
 
+        if err := p2pSrv.Start(); err != nil {
+                return fmt.Errorf("start P2P server: %w", err)
+        }
+        rpcSrv.SetP2P(p2pSrv)
         for _, addr := range cfg.P2PBootstrap {
                 if err := p2pSrv.ConnectTo(addr); err != nil {
                         log.Warn().Err(err).Str("addr", addr).Msg("Failed to connect to bootstrap peer")
                 }
         }
-        if err := p2pSrv.Start(); err != nil {
-                log.Warn().Err(err).Msg("P2P server failed to start (continuing without P2P)")
-        }
+        log.Info().Str("enode", p2pSrv.EnodeURL()).Msg("GYDS peer address")
 
         engine.Start()
         log.Info().Dur("blockTime", 120*time.Second).Msg("PoS engine started")

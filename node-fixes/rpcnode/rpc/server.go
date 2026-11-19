@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/gydschain/rpcnode/core"
+	nodep2p "github.com/gydschain/rpcnode/p2p"
 )
 
 type Server struct {
@@ -24,7 +25,10 @@ type Server struct {
 	mu         sync.Mutex
 	clients    map[*websocket.Conn]struct{}
 	httpSrv    *http.Server
+	p2pSrv     *nodep2p.Server
 }
+
+func (s *Server) SetP2P(p2pSrv *nodep2p.Server) { s.p2pSrv = p2pSrv }
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -152,7 +156,20 @@ return strconv.FormatInt(s.chainID, 10)
 	case "net_listening":
 		return true
 	case "net_peerCount":
-		return "0x4"
+		if s.p2pSrv == nil {
+			return "0x0"
+		}
+		return fmt.Sprintf("0x%x", s.p2pSrv.PeerCount())
+	case "net_enode":
+		if s.p2pSrv == nil {
+			return nil
+		}
+		return s.p2pSrv.EnodeURL()
+	case "admin_nodeInfo":
+		if s.p2pSrv == nil {
+			return nil
+		}
+		return map[string]interface{}{"enode": s.p2pSrv.EnodeURL()}
 	case "eth_syncing":
 		return false
 	case "eth_getTransactionReceipt":

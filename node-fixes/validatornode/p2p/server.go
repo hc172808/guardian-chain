@@ -4,8 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
+
+	gysp2p "github.com/gydschain/node-common/p2p"
 )
 
 type Peer struct {
@@ -23,6 +27,8 @@ type Server struct {
 	peers    map[string]*Peer
 	mu       sync.RWMutex
 	listener net.Listener
+	identity *gysp2p.Identity
+	enode    string
 }
 
 func NewServer(port int, chainID int64, getHeight func() uint64) *Server {
@@ -35,6 +41,23 @@ func NewServer(port int, chainID int64, getHeight func() uint64) *Server {
 }
 
 func (s *Server) Start() error {
+	dataDir := os.Getenv("GYDS_DATA_DIR")
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+	identity, err := gysp2p.LoadOrCreateIdentity(filepath.Join(dataDir, "node.key"))
+	if err != nil {
+		return err
+	}
+	host := os.Getenv("GYDS_P2P_ADVERTISE_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	s.enode, err = identity.EnodeURL(host, s.port)
+	if err != nil {
+		return err
+	}
+	s.identity = identity
 	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", s.port))
 	if err != nil {
 		return err
@@ -54,28 +77,38 @@ func (s *Server) Start() error {
 	return nil
 }
 
+func (s *Server) ConnectTo(addr string) error {
+	endpoint, err := gysp2p.ParsePeerAddress(addr)
+	if err != nil {
+		return err
+	}
+	conn, err := net.DialTimeout("tcp", endpoint, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	go s.handleConn(conn)
+	return nil
+}
+
+func (s *Server) EnodeURL() string { return s.enode }
+
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(30 * time.Second))
-
-	// Simple handshake: send chain info
-	handshake := map[string]interface{}{
-		"chainId": s.chainID,
-		"height":  s.getHeight(),
-		"node":    "GYDSchain/validator-node/v1.0.0",
-		"mode":    "validator",
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	remote, err := s.identity.ExchangeHello(conn, uint64(s.chainID), s.getHeight(), "validator")
+	if err != nil {
+		return
 	}
-	data, _ := json.Marshal(handshake)
-	conn.Write(append(data, '\n'))
+	_ = conn.SetDeadline(time.Time{})
 
 	// Register as peer
-	peerID := conn.RemoteAddr().String()
+	peerID := remote.NodeID
 	s.mu.Lock()
 	s.peers[peerID] = &Peer{
 		ID:        peerID,
-		Addr:      peerID,
+		Addr:      conn.RemoteAddr().String(),
 		ChainID:   s.chainID,
-		Height:    s.getHeight(),
+		Height:    remote.Height,
 		ConnectAt: time.Now(),
 	}
 	s.mu.Unlock()
@@ -86,8 +119,13 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.mu.Unlock()
 	}()
 
-	// Keep connection alive briefly
-	time.Sleep(5 * time.Second)
+	decoder := json.NewDecoder(conn)
+	for {
+		var message map[string]interface{}
+		if err := decoder.Decode(&message); err != nil {
+			return
+		}
+	}
 }
 
 func (s *Server) PeerCount() int {

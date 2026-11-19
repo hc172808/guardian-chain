@@ -85,7 +85,7 @@ func FromEnv() *Config {
 		cfg.LogLevel = v
 	}
 	if v := os.Getenv("GYDS_BOOTSTRAP_NODES"); v != "" {
-		cfg.P2PBootstrap = []string{v}
+                cfg.P2PBootstrap = strings.Split(v, ",")
 	}
 	if v := os.Getenv("GYDS_BLOCK_TIME"); v != "" {
 		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {

@@ -179,8 +179,9 @@ func runNode() error {
 		}
 	}
 	if err := p2pSrv.Start(); err != nil {
-		log.Warn().Err(err).Msg("P2P server failed to start (continuing without P2P)")
+	return fmt.Errorf("start P2P server: %w", err)
 	}
+log.Info().Str("enode", p2pSrv.EnodeURL()).Msg("GYDS peer address")
 
 	engine.Start()
 	log.Info().Dur("blockTime", cfg.BlockTime).Msg("PoS engine started")
