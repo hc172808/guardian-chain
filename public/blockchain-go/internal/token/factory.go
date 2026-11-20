@@ -22,27 +22,27 @@ type TokenFactory struct {
 
 // Token represents a user-created token with authorities
 type Token struct {
-	ID              string         `json:"id"`
-	Name            string         `json:"name"`
-	Symbol          string         `json:"symbol"`
-	Decimals        uint8          `json:"decimals"`
-	TotalSupply     *big.Int       `json:"totalSupply"`
-	CirculatingSupply *big.Int     `json:"circulatingSupply"`
-	BurnedSupply    *big.Int       `json:"burnedSupply"`
-	Creator         string         `json:"creator"`
-	CreatedAt       time.Time      `json:"createdAt"`
-	Metadata        TokenMetadata  `json:"metadata"`
-	Authorities     TokenAuthorities `json:"authorities"`
-	LPInfo          LPInfo         `json:"lpInfo"`
-	IsLocked        bool           `json:"isLocked"` // If true, all authorities permanently revoked
-	IsPaused        bool           `json:"isPaused"` // Emergency pause
+	ID                string           `json:"id"`
+	Name              string           `json:"name"`
+	Symbol            string           `json:"symbol"`
+	Decimals          uint8            `json:"decimals"`
+	TotalSupply       *big.Int         `json:"totalSupply"`
+	CirculatingSupply *big.Int         `json:"circulatingSupply"`
+	BurnedSupply      *big.Int         `json:"burnedSupply"`
+	Creator           string           `json:"creator"`
+	CreatedAt         time.Time        `json:"createdAt"`
+	Metadata          TokenMetadata    `json:"metadata"`
+	Authorities       TokenAuthorities `json:"authorities"`
+	LPInfo            LPInfo           `json:"lpInfo"`
+	IsLocked          bool             `json:"isLocked"` // If true, all authorities permanently revoked
+	IsPaused          bool             `json:"isPaused"` // Emergency pause
 }
 
 // TokenMetadata contains updateable token information
 type TokenMetadata struct {
-	Description string `json:"description"`
-	LogoURI     string `json:"logoUri"`
-	Website     string `json:"website"`
+	Description string            `json:"description"`
+	LogoURI     string            `json:"logoUri"`
+	Website     string            `json:"website"`
 	Social      map[string]string `json:"social"`
 }
 
@@ -56,9 +56,9 @@ type TokenAuthorities struct {
 // AuthorityInfo tracks an individual authority
 type AuthorityInfo struct {
 	Enabled   bool      `json:"enabled"`
-	Holder    string    `json:"holder"`    // Address of authority holder, empty if revoked
-	Locked    bool      `json:"locked"`    // If true, permanently revoked
-	PaidFee   *big.Int  `json:"paidFee"`   // GYDS paid for this authority
+	Holder    string    `json:"holder"`  // Address of authority holder, empty if revoked
+	Locked    bool      `json:"locked"`  // If true, permanently revoked
+	PaidFee   *big.Int  `json:"paidFee"` // GYDS paid for this authority
 	GrantedAt time.Time `json:"grantedAt"`
 }
 
@@ -66,8 +66,8 @@ type AuthorityInfo struct {
 type LPInfo struct {
 	GYDSLiquidity  *big.Int  `json:"gydsLiquidity"`
 	TokenLiquidity *big.Int  `json:"tokenLiquidity"`
-	LPTokensBurned bool      `json:"lpTokensBurned"`    // If true, LP is permanently locked
-	UnlockTime     time.Time `json:"unlockTime"`        // If not burned, when LP unlocks
+	LPTokensBurned bool      `json:"lpTokensBurned"` // If true, LP is permanently locked
+	UnlockTime     time.Time `json:"unlockTime"`     // If not burned, when LP unlocks
 	IsLocked       bool      `json:"isLocked"`
 }
 
@@ -80,17 +80,17 @@ type CreateTokenRequest struct {
 	Creator        string
 	Metadata       TokenMetadata
 	GYDSLiquidity  *big.Int
-	LPBurnOrLock   string    // "burn" or "lock"
+	LPBurnOrLock   string        // "burn" or "lock"
 	LPLockDuration time.Duration // Only used if LPBurnOrLock is "lock"
 	Authorities    AuthorityPurchase
 }
 
 // AuthorityPurchase defines which authorities to purchase
 type AuthorityPurchase struct {
-	PurchaseFreeze bool
-	PurchaseUpdate bool
-	PurchaseMint   bool
-	MintExtraLiquidity *big.Int // Additional liquidity for mint authority
+	PurchaseFreeze     bool
+	PurchaseUpdate     bool
+	PurchaseMint       bool
+	MintExtraLiquidity *big.Int      // Additional liquidity for mint authority
 	MintLockDuration   time.Duration // Required lock for mint authority
 }
 
@@ -333,11 +333,11 @@ func (tf *TokenFactory) getAuthorityFee(authorityType string) *big.Int {
 	// Fee structure in GYDS (wei)
 	switch authorityType {
 	case "freeze":
-		return big.NewInt(100e18) // 100 GYDS
+		return new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000_000_000_000)) // 100 GYDS
 	case "update":
-		return big.NewInt(50e18) // 50 GYDS
+		return new(big.Int).Mul(big.NewInt(50), big.NewInt(1_000_000_000_000_000_000)) // 50 GYDS
 	case "mint":
-		return big.NewInt(500e18) // 500 GYDS
+		return new(big.Int).Mul(big.NewInt(500), big.NewInt(1_000_000_000_000_000_000)) // 500 GYDS
 	default:
 		return big.NewInt(0)
 	}

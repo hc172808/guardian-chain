@@ -1,12 +1,16 @@
 module github.com/gydschain/litenode
 
-go 1.21
+go 1.25.0
+
+require github.com/ethereum/go-ethereum v1.17.7
+
+require github.com/gydschain/node-common v0.0.0
+
+replace github.com/gydschain/node-common => ../common
 
 require (
-	github.com/ethereum/go-ethereum v1.13.0
-	github.com/syndtr/goleveldb v1.0.0
-)
-
-require (
-	github.com/golang/snappy v0.0.5-0.20220116050046-d9c8e7b4d4c1 // indirect
+	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
+	github.com/holiman/uint256 v1.3.2 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )

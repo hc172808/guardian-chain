@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { parseHiddenComponents } from '@/lib/componentVisibilityConfig';
 
 const CONFIG_KEY = 'hidden_components';
 
@@ -68,16 +69,17 @@ export const KNOWN_COMPONENTS: Array<{ key: string; label: string; group: string
 
 let hiddenCache: string[] | null = null;
 let userFeaturesCache: string[] | null = null;
+let hiddenRevision = 0;
+let pendingHiddenWrites = 0;
 const hiddenSubs: Array<(v: string[]) => void> = [];
 const userFeatureSubs: Array<(v: string[]) => void> = [];
 
-const fetchHidden = async (): Promise<string[]> => {
+const fetchHidden = async (): Promise<string[] | null> => {
   try {
     const row = await api.get(`/api/config/${CONFIG_KEY}`);
-    const v = row?.config_value as { hidden?: string[] } | null;
-    return Array.isArray(v?.hidden) ? v!.hidden! : [];
+    return parseHiddenComponents(row);
   } catch {
-    return [];
+    return null;
   }
 };
 
@@ -105,9 +107,12 @@ export const useComponentVisibility = () => {
 
     const init = async () => {
       if (hiddenCache === null) {
+        const revisionAtFetchStart = hiddenRevision;
         const hv = await fetchHidden();
-        hiddenCache = hv;
-        hiddenSubs.forEach((s) => s(hv));
+        if (hv !== null && revisionAtFetchStart === hiddenRevision) {
+          hiddenCache = hv;
+          hiddenSubs.forEach((s) => s(hv));
+        }
       }
       if (userFeaturesCache === null) {
         const fv = await fetchUserFeatures();
@@ -120,9 +125,12 @@ export const useComponentVisibility = () => {
 
     // Poll every 30s
     const interval = setInterval(async () => {
+      const revisionAtFetchStart = hiddenRevision;
       const hv = await fetchHidden();
-      hiddenCache = hv;
-      hiddenSubs.forEach((s) => s(hv));
+      if (hv !== null && revisionAtFetchStart === hiddenRevision && pendingHiddenWrites === 0) {
+        hiddenCache = hv;
+        hiddenSubs.forEach((s) => s(hv));
+      }
       const fv = await fetchUserFeatures();
       userFeaturesCache = fv;
       userFeatureSubs.forEach((s) => s(fv));
@@ -167,14 +175,29 @@ export const useComponentVisibility = () => {
   );
 
   const setHiddenList = useCallback(async (next: string[]) => {
+    const previous = hiddenCache ?? [];
+    const writeRevision = ++hiddenRevision;
+    pendingHiddenWrites += 1;
     hiddenCache = next;
     hiddenSubs.forEach((s) => s(next));
-    await api.post('/api/config', { key: CONFIG_KEY, value: { hidden: next } });
+    try {
+      await api.post('/api/config', { key: CONFIG_KEY, value: { hidden: next } });
+    } catch (error) {
+      if (writeRevision === hiddenRevision) {
+        hiddenRevision += 1;
+        hiddenCache = previous;
+        hiddenSubs.forEach((s) => s(previous));
+      }
+      throw error;
+    } finally {
+      pendingHiddenWrites = Math.max(0, pendingHiddenWrites - 1);
+    }
   }, []);
 
   const toggle = useCallback(
     async (key: string) => {
-      const next = hidden.includes(key) ? hidden.filter((k) => k !== key) : [...hidden, key];
+      const current = hiddenCache ?? hidden;
+      const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
       await setHiddenList(next);
     },
     [hidden, setHiddenList]

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GlassCard } from '../ui/GlassCard';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -11,7 +11,6 @@ import {
   Coins, Loader2, Pickaxe, ChevronDown, ChevronUp,
   Copy, Download, AlertTriangle, Info, Smartphone, CheckCircle,
 } from 'lucide-react';
-import { RESERVED_WALLETS } from '@/config/wallets';
 import { useNetwork, NetworkKind, NETWORK_BADGE } from '@/contexts/NetworkContext';
 
 const CHAIN_ID = 198282;
@@ -23,6 +22,22 @@ const RPC_URLS = {
 
 const copyText = (text: string, toast: any) =>
   navigator.clipboard.writeText(text).then(() => toast({ title: 'Copied!' }));
+
+interface TreasuryWallet {
+  key: string;
+  name: string;
+  address: string;
+  allocation: number;
+  description: string;
+  balance: number;
+}
+
+interface WalletConfigurationIssue {
+  key: string;
+  envVar: string;
+  reason: 'missing' | 'invalid' | 'duplicate';
+  message: string;
+}
 
 const downloadFile = (content: string, filename: string) => {
   const blob = new Blob([content], { type: 'application/json' });
@@ -40,11 +55,39 @@ export const PremineManager = () => {
   const networkBadge = NETWORK_BADGE[network];
   const [gydsAmount, setGydsAmount] = useState('1000000');
   const [gydAmount, setGydAmount] = useState('10000');
-  const [targetAddress, setTargetAddress] = useState(RESERVED_WALLETS.founder.address);
+  const [targetAddress, setTargetAddress] = useState('');
   const [loading, setLoading] = useState(false);
   const [showGenesis, setShowGenesis] = useState(false);
   const [showWalletGuide, setShowWalletGuide] = useState(false);
   const [customRpc, setCustomRpc] = useState('');
+  const [treasuryWallets, setTreasuryWallets] = useState<TreasuryWallet[]>([]);
+  const [treasuryConfigured, setTreasuryConfigured] = useState(false);
+  const [treasuryIssues, setTreasuryIssues] = useState<WalletConfigurationIssue[]>([]);
+  const [treasuryLoading, setTreasuryLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/api/admin/treasury/wallets')
+      .then((result) => {
+        if (cancelled) return;
+        const wallets = Array.isArray(result?.wallets) ? result.wallets : [];
+        const founder = wallets.find((wallet: TreasuryWallet) => wallet.key === 'founder');
+        setTreasuryWallets(wallets);
+        setTreasuryConfigured(result?.configured === true);
+        setTreasuryIssues(Array.isArray(result?.issues) ? result.issues : []);
+        setTargetAddress((current) => current || founder?.address || '');
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTreasuryConfigured(false);
+          setTreasuryIssues([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTreasuryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const handlePremine = async () => {
     if (!user) return;
@@ -89,16 +132,14 @@ export const PremineManager = () => {
     return '0x' + wei.toString(16);
   };
   const genesisAlloc: Record<string, { balance: string }> = {};
-  const g = parseFloat(gydsAmount) || 0;
-  const gd = parseFloat(gydAmount) || 0;
+  for (const wallet of treasuryWallets) {
+    const address = wallet.address.toLowerCase();
+    if (treasuryConfigured && /^0x[a-f0-9]{40}$/.test(address) && wallet.allocation > 0) {
+      genesisAlloc[address] = { balance: weiHex(wallet.allocation) };
+    }
+  }
   const addr = targetAddress.toLowerCase();
-  if (/^0x[a-f0-9]{40}$/.test(addr) && (g > 0 || gd > 0)) {
-    genesisAlloc[addr] = { balance: weiHex(g + gd) };
-  }
-  const founderAddr = RESERVED_WALLETS.founder.address.toLowerCase();
-  if (founderAddr !== addr) {
-    genesisAlloc[founderAddr] = { balance: weiHex(1_000_000_000) };
-  }
+  const founderAddr = treasuryWallets.find((wallet) => wallet.key === 'founder')?.address.toLowerCase() ?? '';
   const genesisJson = JSON.stringify({
     config: {
       chainId: CHAIN_ID,
@@ -143,6 +184,18 @@ export const PremineManager = () => {
         </div>
       </GlassCard>
 
+      {!treasuryConfigured && !treasuryLoading && (
+        <GlassCard className="p-4 border-amber-500/30 bg-amber-500/5 space-y-2">
+          <p className="font-medium text-amber-300">Genesis recipients are not configured</p>
+          <p className="text-sm text-muted-foreground">Set all six treasury recipient addresses on the server to enable canonical genesis exports. Dashboard ledger pre-mines remain separate.</p>
+          {treasuryIssues.length > 0 && (
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {treasuryIssues.map((issue) => <li key={`${issue.key}:${issue.reason}`}>{issue.message}</li>)}
+            </ul>
+          )}
+        </GlassCard>
+      )}
+
       {/* Pre-mine form */}
       <GlassCard className="p-6">
         <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
@@ -157,7 +210,7 @@ export const PremineManager = () => {
           <div>
             <Label>Target Wallet Address</Label>
             <Input value={targetAddress} onChange={e => setTargetAddress(e.target.value)} placeholder="0x..." className="font-mono text-sm" />
-            <Button variant="link" size="sm" className="px-0 text-xs" onClick={() => setTargetAddress(RESERVED_WALLETS.founder.address)}>
+            <Button variant="link" size="sm" className="px-0 text-xs" onClick={() => setTargetAddress(founderAddr)} disabled={!founderAddr}>
               Use founder address
             </Button>
           </div>
@@ -189,34 +242,37 @@ export const PremineManager = () => {
             {/* Live DB genesis — primary method */}
             <div className="p-3 rounded-lg bg-green-500/5 border border-green-500/20 space-y-2">
               <p className="text-xs font-semibold text-green-300 flex items-center gap-1.5">
-                <CheckCircle className="h-3.5 w-3.5" /> Live genesis.json — built from ALL dashboard balances
+                <CheckCircle className="h-3.5 w-3.5" /> Canonical genesis.json — fixed treasury allocations
               </p>
               <p className="text-xs text-muted-foreground">
-                This reads every confirmed token operation from the database and generates a genesis.json
-                with the correct <strong>on-chain</strong> pre-mine allocations. Use this file to initialize
-                your Geth node — balances will appear in any EVM wallet.
+                This exports the fixed 3 billion GYDS genesis allocation to the six addresses configured on this server. It does not read or alter existing dashboard balances.
               </p>
               <div className="flex gap-2">
-                <Button size="sm" className="gap-1.5 text-xs flex-1" asChild>
-                  <a href="/api/chain/genesis.json" download="genesis.json">
-                    <Download className="h-3 w-3" /> Download genesis.json (from DB)
-                  </a>
+                <Button
+                  size="sm"
+                  className="gap-1.5 text-xs flex-1"
+                  disabled={!treasuryConfigured || treasuryLoading}
+                  onClick={() => { window.location.href = '/api/chain/genesis.json'; }}
+                >
+                  <Download className="h-3 w-3" /> Download canonical genesis.json
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => copyText('/api/chain/genesis.json', toast)}>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => copyText('/api/chain/genesis.json', toast)} disabled={!treasuryConfigured || treasuryLoading}>
                   <Copy className="h-3 w-3" /> Copy URL
                 </Button>
               </div>
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Preview (current form values only — download above uses live DB data):
+              Preview of the six fixed genesis allocations:
             </p>
-            <pre className="text-xs font-mono bg-background rounded-lg p-3 border border-border/50 max-h-52 overflow-y-auto whitespace-pre-wrap">{genesisJson}</pre>
+            {treasuryConfigured
+              ? <pre className="text-xs font-mono bg-background rounded-lg p-3 border border-border/50 max-h-52 overflow-y-auto whitespace-pre-wrap">{genesisJson}</pre>
+              : <div className="text-xs text-muted-foreground bg-background rounded-lg p-3 border border-border/50">The genesis preview will appear after all six treasury addresses are configured.</div>}
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs flex-1" onClick={() => downloadFile(genesisJson, 'genesis.json')}>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs flex-1" onClick={() => downloadFile(genesisJson, 'genesis.json')} disabled={!treasuryConfigured || treasuryLoading}>
                 <Download className="h-3 w-3" /> Download (preview only)
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => copyText(genesisJson, toast)}>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => copyText(genesisJson, toast)} disabled={!treasuryConfigured || treasuryLoading}>
                 <Copy className="h-3 w-3" /> Copy
               </Button>
             </div>

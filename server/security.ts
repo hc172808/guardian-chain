@@ -72,9 +72,13 @@ const REFRESH_MS     = 5 * 60_000;
 // falsely IP-blocked. Re-enable from the admin firewall panel once tuned.
 let ipBlockEnabled = false;
 export function isIpBlockEnforcementEnabled() { return ipBlockEnabled; }
+export function setApplicationFirewallEnabled(enabled: boolean) {
+  firewallEnabled = !!enabled;
+}
 export async function setIpBlockEnforcement(enabled: boolean) {
-  ipBlockEnabled = !!enabled;
-  await storage.upsertConfig("ip_block_enforcement", { enabled: ipBlockEnabled } as any).catch(() => {});
+  const next = !!enabled;
+  await storage.upsertConfig("ip_block_enforcement", { enabled: next } as any);
+  ipBlockEnabled = next;
 }
 function monitorLog(reason: string, ip: string) {
   console.log(`[Security][monitor-only] would have blocked ${ip} — ${reason} (IP blocking disabled, request allowed)`);

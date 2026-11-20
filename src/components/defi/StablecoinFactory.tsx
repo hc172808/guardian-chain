@@ -36,6 +36,7 @@ interface UserStablecoin {
   stability_fee: string;
   minting_fee: string;
   total_supply: string;
+  creation_fee_paid?: string;
   status: StablecoinStatus;
   is_approved: boolean;
   deployment_tx_hash?: string | null;
@@ -315,25 +316,16 @@ export const StablecoinFactory = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Creation failed');
 
-      const activatedImmediately = data.status === 'active';
-      const deploymentPending = data.status === 'deployment_pending';
+      const feeTxHash = data.creationTransaction?.txHash;
       toast({
-        title: activatedImmediately
-          ? `${params.symbol} created`
-          : deploymentPending
-            ? `${params.symbol} deployment submitted`
-            : `${params.symbol} submitted`,
-        description: activatedImmediately
-          ? 'Its contract is confirmed and it is active in the Stablecoin Factory.'
-          : deploymentPending
-            ? 'It will become active after GYDS Chain confirms the deployment.'
-            : isPrivileged
-              ? 'It is waiting for wallet or deployment configuration before activation.'
-              : 'An admin will review and deploy the contract before activation.',
+        title: `${params.symbol} submitted for review`,
+        description: feeTxHash
+          ? `Creation fee confirmed on-chain (${feeTxHash.slice(0, 14)}…). Admin and founder reviewers were notified; deployment follows approval.`
+          : 'Admin and founder reviewers were notified. The contract is deployed only after approval.',
       });
       logAuditEvent(user.id, user.email ?? null, { action: 'stablecoin_create', category: 'token', target_type: 'stablecoin', details: { symbol: params.symbol, peg: params.pegType } });
       setDialogOpen(false);
-      loadData();
+      await loadData();
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally {
@@ -771,7 +763,7 @@ export const StablecoinFactory = () => {
                 </p>
                 {!isPrivileged && (
                   <p className={cn('text-xs mt-1', userGydsBalance >= creationFee ? 'text-emerald-400' : 'text-destructive')}>
-                    Available: {userGydsBalance.toLocaleString()} GYDS
+                    Linked-wallet total: {userGydsBalance.toLocaleString()} GYDS. One wallet must cover the full fee.
                   </p>
                 )}
               </GlassCard>
@@ -780,7 +772,7 @@ export const StablecoinFactory = () => {
                 <p className="text-xs text-amber-400 flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   {isPrivileged
-                    ? 'Admin and founder submissions go straight to on-chain deployment; activation waits for chain confirmation.'
+                    ? 'Admin and founder submissions are fee-exempt but still require reviewer approval. Deployment starts only after approval.'
                     : 'An admin will review and deploy your contract before it becomes active.'}
                 </p>
               </GlassCard>

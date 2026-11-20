@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/gydschain/validatornode/consensus"
 	"github.com/gydschain/validatornode/core"
+	nodep2p "github.com/gydschain/validatornode/p2p"
 )
 
 type Server struct {
@@ -23,7 +27,10 @@ type Server struct {
 	mu         sync.Mutex
 	clients    map[*websocket.Conn]struct{}
 	httpSrv    *http.Server
+	p2pSrv     *nodep2p.Server
 }
+
+func (s *Server) SetP2P(p2pSrv *nodep2p.Server) { s.p2pSrv = p2pSrv }
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -69,6 +76,14 @@ func (s *Server) Start() error {
 	r.Methods("OPTIONS").HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		cors(w)
 		w.WriteHeader(204)
+	})
+
+	r.Methods("GET").Path("/health").HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok",
+			"node":   "gyds-validatornode",
+		})
 	})
 
 	// Main JSON-RPC endpoint
@@ -121,8 +136,12 @@ func (s *Server) Start() error {
 		}
 	})
 
+	host := os.Getenv("GYDS_RPC_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
 	s.httpSrv = &http.Server{
-		Addr:         fmt.Sprintf("0.0.0.0:%d", s.port),
+		Addr:         net.JoinHostPort(host, strconv.Itoa(s.port)),
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
@@ -193,7 +212,20 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
 	case "eth_maxPriorityFeePerGas":
 		return respond("0x3B9ACA00")
 	case "net_peerCount":
-		return respond("0x5")
+		if s.p2pSrv == nil {
+			return respond("0x0")
+		}
+		return respond(fmt.Sprintf("0x%x", s.p2pSrv.PeerCount()))
+	case "net_enode":
+		if s.p2pSrv == nil {
+			return respond(nil)
+		}
+		return respond(s.p2pSrv.EnodeURL())
+	case "admin_nodeInfo":
+		if s.p2pSrv == nil {
+			return respond(nil)
+		}
+		return respond(map[string]interface{}{"enode": s.p2pSrv.EnodeURL()})
 	case "web3_clientVersion":
 		return respond("GYDSchain/validator-node/v1.0.0")
 	case "eth_syncing":
@@ -284,9 +316,9 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
 		return respond(result)
 	case "validator_getRewards":
 		return respond(map[string]interface{}{
-			"totalRewards":    height * 2,
-			"rewardPerBlock":  2,
-			"pendingRewards":  height % 100 * 2,
+			"totalRewards":     height * 2,
+			"rewardPerBlock":   2,
+			"pendingRewards":   height % 100 * 2,
 			"commissionEarned": float64(height) * 2 * 0.05,
 		})
 	case "validator_register":

@@ -7,7 +7,7 @@ import { Badge } from '../ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { RESERVED_WALLETS, TOKENOMICS } from '@/config/wallets';
+import { BURN_ADDRESS, TOKENOMICS } from '@/config/wallets';
 import { 
   Flame, 
   Coins, 
@@ -40,6 +40,22 @@ interface TokenPrice {
   burned_total: number;
 }
 
+interface TreasuryWallet {
+  key: string;
+  name: string;
+  address: string;
+  allocation: number;
+  description: string;
+  balance: number;
+}
+
+interface WalletConfigurationIssue {
+  key: string;
+  envVar: string;
+  reason: 'missing' | 'invalid' | 'duplicate';
+  message: string;
+}
+
 export const BurnMintManager = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -47,6 +63,9 @@ export const BurnMintManager = () => {
   const network: NetworkKind = selectedNetwork === 'all' ? 'mainnet' : selectedNetwork;
   const [operations, setOperations] = useState<TokenOperation[]>([]);
   const [tokenPrice, setTokenPrice] = useState<TokenPrice | null>(null);
+  const [reservedWallets, setReservedWallets] = useState<TreasuryWallet[]>([]);
+  const [walletsConfigured, setWalletsConfigured] = useState(false);
+  const [walletConfigIssues, setWalletConfigIssues] = useState<WalletConfigurationIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   
@@ -63,12 +82,16 @@ export const BurnMintManager = () => {
 
   const fetchData = async () => {
     try {
-      const [ops, price] = await Promise.all([
+      const [ops, price, walletConfig] = await Promise.all([
         api.get('/api/token-operations'),
         api.get('/api/token-price'),
+        api.get('/api/admin/treasury/wallets'),
       ]);
       setOperations(Array.isArray(ops) ? ops : []);
       if (price) setTokenPrice(price);
+      setReservedWallets(Array.isArray(walletConfig?.wallets) ? walletConfig.wallets : []);
+      setWalletsConfigured(walletConfig?.configured === true);
+      setWalletConfigIssues(Array.isArray(walletConfig?.issues) ? walletConfig.issues : []);
     } catch {
       // ignore
     }
@@ -105,6 +128,11 @@ export const BurnMintManager = () => {
       toast({ title: 'Invalid amount', variant: 'destructive' });
       return;
     }
+    const miningPoolAddress = reservedWallets.find((wallet) => wallet.key === 'miningPool')?.address;
+    if (!walletsConfigured || !miningPoolAddress) {
+      toast({ title: 'Treasury addresses are not configured', description: 'Configure all six recipient addresses on the server before using reserved-wallet burn and mint operations.', variant: 'destructive' });
+      return;
+    }
     setProcessing(true);
     const gydsToMint = calculateMintFromBurn(usdtNum);
     const txHash = '0x' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '').slice(0, 32);
@@ -113,7 +141,7 @@ export const BurnMintManager = () => {
         operation_type: 'burn',
         amount: usdtNum,
         usdt_amount: usdtNum,
-        wallet_address: RESERVED_WALLETS.burn.address,
+        wallet_address: BURN_ADDRESS,
         tx_hash: txHash,
         status: 'confirmed',
           network,
@@ -122,7 +150,7 @@ export const BurnMintManager = () => {
         operation_type: 'mint',
         amount: gydsToMint,
         usdt_amount: usdtNum,
-        wallet_address: RESERVED_WALLETS.miningPool.address,
+        wallet_address: miningPoolAddress,
         tx_hash: txHash + '-mint',
         status: 'confirmed',
           network,
@@ -213,6 +241,18 @@ export const BurnMintManager = () => {
 
   return (
     <div className="space-y-6">
+      {!walletsConfigured && (
+        <GlassCard className="p-4 border-amber-500/30 bg-amber-500/5 space-y-2">
+          <p className="font-medium text-amber-300">Treasury recipient addresses are not configured</p>
+          <p className="text-sm text-muted-foreground">Reserved-wallet burn/mint operations and wallet shortcuts are disabled until all six deployment addresses are valid.</p>
+          {walletConfigIssues.length > 0 && (
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {walletConfigIssues.map((issue) => <li key={`${issue.key}:${issue.reason}`}>{issue.message}</li>)}
+            </ul>
+          )}
+        </GlassCard>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <GlassCard className="p-4 text-center">
           <DollarSign className="h-6 w-6 mx-auto text-primary mb-2" />
@@ -266,7 +306,7 @@ export const BurnMintManager = () => {
                   </p>
                 </div>
               )}
-              <Button onClick={handleBurnUsdt} disabled={processing} className="w-full gap-2 bg-destructive hover:bg-destructive/80">
+              <Button onClick={handleBurnUsdt} disabled={processing || !walletsConfigured} className="w-full gap-2 bg-destructive hover:bg-destructive/80">
                 {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Flame className="h-4 w-4" />}
                 Burn & Mint
               </Button>
@@ -289,8 +329,8 @@ export const BurnMintManager = () => {
                 <Label>Destination Address</Label>
                 <Input value={mintAddress} onChange={(e) => setMintAddress(e.target.value)} placeholder="0x..." />
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {Object.entries(RESERVED_WALLETS).map(([key, wallet]) => (
-                    <Button key={key} variant="outline" size="sm" onClick={() => setMintAddress(wallet.address)} className="text-xs">
+                  {reservedWallets.filter((wallet) => wallet.address).map((wallet) => (
+                    <Button key={wallet.key} variant="outline" size="sm" onClick={() => setMintAddress(wallet.address)} className="text-xs">
                       {wallet.name}
                     </Button>
                   ))}
@@ -322,8 +362,8 @@ export const BurnMintManager = () => {
                 <Label>Destination Address</Label>
                 <Input value={gusdMintAddress} onChange={(e) => setGusdMintAddress(e.target.value)} placeholder="0x..." />
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {Object.entries(RESERVED_WALLETS).map(([key, wallet]) => (
-                    <Button key={key} variant="outline" size="sm" onClick={() => setGusdMintAddress(wallet.address)} className="text-xs">
+                  {reservedWallets.filter((wallet) => wallet.address).map((wallet) => (
+                    <Button key={wallet.key} variant="outline" size="sm" onClick={() => setGusdMintAddress(wallet.address)} className="text-xs">
                       {wallet.name}
                     </Button>
                   ))}

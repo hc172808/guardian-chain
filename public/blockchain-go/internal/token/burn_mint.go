@@ -35,13 +35,13 @@ type Operation struct {
 
 // TokenManager handles all token operations
 type TokenManager struct {
-	config         *genesis.GenesisConfig
-	currentPrice   *big.Float
-	totalSupply    *big.Int
+	config            *genesis.GenesisConfig
+	currentPrice      *big.Float
+	totalSupply       *big.Int
 	circulatingSupply *big.Int
-	burnedTotal    *big.Int
-	operations     []Operation
-	mu             sync.RWMutex
+	burnedTotal       *big.Int
+	operations        []Operation
+	mu                sync.RWMutex
 }
 
 // NewTokenManager creates a new token manager
@@ -68,7 +68,7 @@ func (tm *TokenManager) BurnUSDTForMint(usdtAmount *big.Int, recipientAddress [2
 	// Calculate GYDS to mint: amount / price
 	usdtFloat := new(big.Float).SetInt(usdtAmount)
 	gydsFloat := new(big.Float).Quo(usdtFloat, tm.currentPrice)
-	
+
 	gydsToMint := new(big.Int)
 	gydsFloat.Int(gydsToMint)
 

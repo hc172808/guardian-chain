@@ -40,6 +40,7 @@ export const profiles = pgTable("profiles", {
   notificationPrefs: jsonb("notification_prefs"),
   metadata: jsonb("metadata"),
   preferredCurrency: text("preferred_currency").default("USD"),
+  isPublic: boolean("is_public").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -61,6 +62,7 @@ export const nodeInstallations = pgTable("node_installations", {
   ipAddress: text("ip_address"),
   hostname: text("hostname"),
   rpcPort: integer("rpc_port").default(8545),
+  network: text("network").default("mainnet"),
   wireguardPublicKey: text("wireguard_public_key"),
   wireguardPrivateKey: text("wireguard_private_key"),
   isSynced: boolean("is_synced").default(false),
@@ -136,7 +138,7 @@ export const tokenOperations = pgTable("token_operations", {
 export const tokenPrice = pgTable("token_price", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   price: numeric("price").notNull().default("0.0000001"),
-  totalSupply: numeric("total_supply").notNull().default("1000000000"),
+  totalSupply: numeric("total_supply").notNull().default("3000000000"),
   circulatingSupply: numeric("circulating_supply").notNull().default("0"),
   burnedTotal: numeric("burned_total").notNull().default("0"),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -167,6 +169,15 @@ export const tokens = pgTable("tokens", {
   tokenStandard: text("token_standard").notNull().default("GRC-20"),
   isActive: boolean("is_active").notNull().default(true),
   networkType: text("network_type").notNull().default("mainnet"),
+  creatorWallet: text("creator_wallet"),
+  initialSupplyBaseUnits: text("initial_supply_base_units"),
+  deploymentTxHash: text("deployment_tx_hash"),
+  deploymentChainId: integer("deployment_chain_id"),
+  deploymentStatus: text("deployment_status").notNull().default("legacy_unverified"),
+  deploymentBlockNumber: text("deployment_block_number"),
+  deploymentConfirmedAt: timestamp("deployment_confirmed_at", { withTimezone: true }),
+  verifiedInitialBalance: text("verified_initial_balance"),
+  tokenOwnerAddress: text("token_owner_address"),
   mainnetPromotedAt: timestamp("mainnet_promoted_at"),
   marketCapUsd: numeric("market_cap_usd").notNull().default("0"),
   extraAuthorities: jsonb("extra_authorities").notNull().default(sql`'{}'::jsonb`),
@@ -277,7 +288,7 @@ export const firewallRules = pgTable("firewall_rules", {
 export const fail2banJails = pgTable("fail2ban_jails", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   jailName: text("jail_name").notNull(),
-  isEnabled: boolean("is_enabled").notNull().default(true),
+  isEnabled: boolean("is_enabled").notNull().default(false),
   maxRetries: integer("max_retries").notNull().default(5),
   banTime: integer("ban_time").notNull().default(3600),
   findTime: integer("find_time").notNull().default(600),
@@ -662,11 +673,15 @@ export const rwaHoldings = pgTable("rwa_holdings", {
 
 export const networkSnapshots = pgTable("network_snapshots", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  network: text("network").notNull().default("mainnet"),
+  blockHeight: bigint("block_height", { mode: "number" }),
   activeValidators: integer("active_validators").notNull().default(0),
   activeNodes: integer("active_nodes").notNull().default(0),
   totalTransactions: bigint("total_transactions", { mode: "number" }).notNull().default(0),
   totalTokens: integer("total_tokens").notNull().default(0),
   tps: numeric("tps").notNull().default("0"),
+  totalStake: numeric("total_stake").notNull().default("0"),
+  timestamp: timestamp("timestamp").defaultNow(),
   capturedAt: timestamp("captured_at").defaultNow(),
 });
 

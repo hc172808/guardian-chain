@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { DelegateModal } from '@/components/validators/DelegateModal';
 import { MyDelegations } from '@/components/validators/MyDelegations';
 import { StakingCalculator } from '@/components/validators/StakingCalculator';
+import { useNetwork } from '@/contexts/NetworkContext';
 
 interface Validator {
   id: string;
@@ -22,6 +23,7 @@ interface Validator {
   is_jailed: boolean;
   uptime: number;
   blocks_proposed: number;
+  is_registered: boolean;
 }
 
 interface NetSnapshot {
@@ -32,39 +34,105 @@ interface NetSnapshot {
   captured_at: string;
 }
 
+const normalizeValidator = (row: any, network: string, isRegistered: boolean): Validator | null => {
+  const address = String(row?.address ?? '').trim();
+  if (!address) return null;
+  const rawUptime = Number(row.uptime ?? 0);
+  return {
+    id: String(row.id ?? `live:${network}:${address.toLowerCase()}`),
+    address,
+    name: row.name ?? null,
+    stake: Number(row.stake ?? row.staked ?? 0),
+    commission: Number(row.commission ?? 0),
+    is_active: row.is_active ?? row.isActive ?? row.active ?? true,
+    is_jailed: row.is_jailed ?? row.isJailed ?? row.jailed ?? false,
+    uptime: rawUptime <= 1 ? rawUptime * 100 : rawUptime,
+    blocks_proposed: Number(row.blocks_proposed ?? row.blocksProposed ?? 0),
+    is_registered: isRegistered,
+  };
+};
+
 const Validators = () => {
   const { user } = useAuth();
+  const { selectedNetwork } = useNetwork();
+  const network = selectedNetwork === 'mainnet' ? 'mainnet' : 'testnet';
   const [validators, setValidators] = useState<Validator[]>([]);
+  const [consensusValidators, setConsensusValidators] = useState<Validator[]>([]);
+  const [liveNodeOnline, setLiveNodeOnline] = useState(false);
   const [loading, setLoading] = useState(true);
   const [delegateTarget, setDelegateTarget] = useState<Validator | null>(null);
   const [delegateOpen, setDelegateOpen] = useState(false);
   const [snapshots, setSnapshots] = useState<NetSnapshot[]>([]);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
 
-  const fetchValidators = async () => {
-    const { data } = await supabase
-      .from('network_validators')
-      .select('*')
-      .order('stake', { ascending: false });
-    if (data) setValidators(data as unknown as Validator[]);
-    setLoading(false);
-  };
+  const fetchValidators = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('network_validators')
+        .select('*')
+        .order('stake', { ascending: false });
+      if (error) throw new Error(error.message);
+      setValidators(Array.isArray(data)
+        ? data.map((row: any) => normalizeValidator(row, network, true)).filter(Boolean) as Validator[]
+        : []);
+    } catch {
+      setValidators([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [network]);
+
+  const fetchLiveValidators = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/validators/live?network=${network}`);
+      if (!response.ok) throw new Error('Live validator node is unavailable');
+      const payload = await response.json();
+      const rows = Array.isArray(payload?.validators) ? payload.validators : [];
+      setConsensusValidators(rows
+        .map((row: any) => normalizeValidator(row, network, false))
+        .filter(Boolean) as Validator[]);
+      setLiveNodeOnline(Boolean(payload?.online));
+    } catch {
+      setConsensusValidators([]);
+      setLiveNodeOnline(false);
+    }
+  }, [network]);
 
   const fetchSnapshots = useCallback(async () => {
     setSnapshotLoading(true);
     try {
-      const res = await fetch('/api/network-snapshots?hours=720', { credentials: 'include' });
+      const res = await fetch(`/api/network-snapshots?hours=720&network=${network}`, { credentials: 'include' });
       if (res.ok) setSnapshots(await res.json());
+      else setSnapshots([]);
+    } catch {
+      setSnapshots([]);
     } finally { setSnapshotLoading(false); }
-  }, []);
+  }, [network]);
 
-  useEffect(() => { fetchValidators(); }, []);
+  useEffect(() => { fetchValidators(); }, [fetchValidators]);
+  useEffect(() => {
+    fetchLiveValidators();
+    const interval = window.setInterval(fetchLiveValidators, 30_000);
+    return () => window.clearInterval(interval);
+  }, [fetchLiveValidators]);
   useEffect(() => { fetchSnapshots(); }, [fetchSnapshots]);
 
-  const totalStake = validators.reduce((acc, v) => acc + Number(v.stake), 0);
-  const activeValidators = validators.filter(v => v.is_active);
-  const avgUptime = validators.length > 0
-    ? validators.reduce((acc, v) => acc + Number(v.uptime), 0) / validators.length
+  const validatorByAddress = new Map(validators.map(validator => [validator.address.toLowerCase(), validator]));
+  const displayedValidators = [
+    ...consensusValidators.map(validator => {
+      const registered = validatorByAddress.get(validator.address.toLowerCase());
+      return registered
+        ? { ...validator, ...registered, is_active: validator.is_active, is_jailed: validator.is_jailed, blocks_proposed: validator.blocks_proposed }
+        : validator;
+    }),
+    ...validators.filter(validator => !consensusValidators.some(
+      live => live.address.toLowerCase() === validator.address.toLowerCase(),
+    )),
+  ].sort((a, b) => b.stake - a.stake);
+  const totalStake = displayedValidators.reduce((acc, v) => acc + Number(v.stake), 0);
+  const activeValidators = displayedValidators.filter(v => v.is_active && !v.is_jailed);
+  const avgUptime = displayedValidators.length > 0
+    ? displayedValidators.reduce((acc, v) => acc + Number(v.uptime), 0) / displayedValidators.length
     : 0;
 
   return (
@@ -75,7 +143,10 @@ const Validators = () => {
             <Users className="w-8 h-8 text-primary" />
             Validators
           </h1>
-          <p className="text-muted-foreground mt-2">PoS validators securing the network — delegate GYDS to earn rewards</p>
+          <p className="text-muted-foreground mt-2">PoS validators for {network} — delegate through registered validators</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {liveNodeOnline ? 'Live validator-node data is connected.' : 'Live validator-node data is currently unavailable.'}
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -83,7 +154,7 @@ const Validators = () => {
             <div className="p-3 rounded-lg bg-primary/10"><Users className="w-5 h-5 text-primary" /></div>
             <div>
               <p className="text-sm text-muted-foreground">Total Validators</p>
-              <p className="text-2xl font-bold font-mono">{validators.length}</p>
+              <p className="text-2xl font-bold font-mono">{displayedValidators.length}</p>
             </div>
           </GlassCard>
           <GlassCard className="flex items-center gap-4">
@@ -110,7 +181,7 @@ const Validators = () => {
         </div>
 
         {/* Staking Rewards Calculator */}
-        <StakingCalculator validators={validators} />
+        <StakingCalculator validators={displayedValidators} />
 
         {/* My Delegations - only for logged-in users */}
         {user && (
@@ -125,11 +196,11 @@ const Validators = () => {
 
           {loading ? (
             <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-          ) : validators.length === 0 ? (
+          ) : displayedValidators.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>No validators registered yet</p>
-              <p className="text-xs mt-1">Validators are managed by network administrators</p>
+              <p>No validators are reported for {network}</p>
+              <p className="text-xs mt-1">Registered and live validator data will appear here when available.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -147,7 +218,7 @@ const Validators = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {validators.map((validator, index) => (
+                  {displayedValidators.map((validator, index) => (
                     <motion.tr
                       key={validator.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -215,11 +286,16 @@ const Validators = () => {
                             size="sm"
                             variant="outline"
                             className="gap-1 text-xs"
-                            disabled={!validator.is_active || validator.is_jailed}
-                            onClick={() => { setDelegateTarget(validator); setDelegateOpen(true); }}
+                            disabled={!validator.is_registered || !validator.is_active || validator.is_jailed}
+                            title={!validator.is_registered ? 'This validator is visible on-chain but is not registered for in-app delegation.' : undefined}
+                            onClick={() => {
+                              if (!validator.is_registered) return;
+                              setDelegateTarget(validator);
+                              setDelegateOpen(true);
+                            }}
                           >
                             <ArrowUpRight className="h-3 w-3" />
-                            Delegate
+                            {validator.is_registered ? 'Delegate' : 'View only'}
                           </Button>
                         </td>
                       )}
@@ -244,7 +320,7 @@ const Validators = () => {
           </div>
           {snapshots.length === 0 ? (
             <p className="text-xs text-muted-foreground py-4 text-center">
-              {snapshotLoading ? 'Loading…' : 'No snapshot data yet — data accumulates as the chain cron runs.'}
+              {snapshotLoading ? 'Loading…' : `No valid ${network} snapshots yet — the chain snapshot job runs every 15 minutes.`}
             </p>
           ) : (
             <div className="space-y-4">
@@ -314,7 +390,7 @@ const Validators = () => {
               })()}
             </div>
           )}
-          <p className="text-xs text-muted-foreground">{snapshots.length} snapshots · last 30 days · populated by the DB pruner cron every hour.</p>
+          <p className="text-xs text-muted-foreground">{snapshots.length} valid {network} snapshots · last 30 days · refreshed every 15 minutes.</p>
         </GlassCard>
 
         <GlassCard className="border-primary/30">
@@ -341,7 +417,7 @@ const Validators = () => {
         <DelegateModal
           open={delegateOpen}
           onOpenChange={setDelegateOpen}
-          validator={delegateTarget}
+          validator={delegateTarget?.is_registered ? delegateTarget : null}
           onSuccess={fetchValidators}
         />
       </motion.div>

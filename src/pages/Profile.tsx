@@ -70,14 +70,22 @@ const PrivacyToggle = () => {
   const [isPublic, setIsPublic] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/profile/privacy', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setIsPublic(d.is_public ?? false); })
-      .catch(() => {})
+      .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error ?? 'Could not load profile privacy setting');
+        if (typeof data.is_public !== 'boolean') throw new Error('Invalid privacy setting response');
+        setIsPublic(data.is_public);
+      })
+      .catch((e: Error) => {
+        setLoadError(e.message);
+        toast({ title: 'Privacy setting unavailable', description: e.message, variant: 'destructive' });
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [toast]);
 
   const toggle = async () => {
     setSaving(true);
@@ -89,9 +97,11 @@ const PrivacyToggle = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_public: next }),
       });
-      if (!r.ok) throw new Error('Failed to update privacy setting');
-      setIsPublic(next);
-      toast({ title: next ? 'Profile is now public' : 'Profile is now private', description: next ? 'Others can view your public profile.' : 'Only you can see your profile.' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error ?? 'Failed to update privacy setting');
+      if (typeof data.is_public !== 'boolean') throw new Error('Invalid privacy setting response');
+      setIsPublic(data.is_public);
+      toast({ title: data.is_public ? 'Profile is now public' : 'Profile is now private', description: data.is_public ? 'Others can view your public profile.' : 'Only you can see your profile.' });
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally { setSaving(false); }
@@ -104,16 +114,18 @@ const PrivacyToggle = () => {
           {isPublic ? <Eye className="w-4 h-4 text-green-400 mt-0.5 shrink-0" /> : <EyeOff className="w-4 h-4 text-primary mt-0.5 shrink-0" />}
           <div>
             <p className="font-medium text-foreground text-sm">
-              {loading ? 'Loading…' : isPublic ? 'Profile is Public' : 'Profile is Private'}
+              {loading ? 'Loading…' : loadError ? 'Privacy setting unavailable' : isPublic ? 'Profile is Public' : 'Profile is Private'}
             </p>
             <p className="text-muted-foreground text-xs mt-0.5">
-              {isPublic
+              {loadError
+                ? 'Could not confirm your current privacy setting. Refresh the page to try again.'
+                : isPublic
                 ? 'Your display name, bio, and wallet address are visible to other users.'
                 : 'Your profile is hidden from everyone. Only you can see it.'}
             </p>
           </div>
         </div>
-        <Switch checked={isPublic} onCheckedChange={toggle} disabled={loading || saving} className="shrink-0" />
+        <Switch checked={isPublic} onCheckedChange={toggle} disabled={loading || saving || !!loadError} className="shrink-0" />
       </div>
     </GlassCard>
   );

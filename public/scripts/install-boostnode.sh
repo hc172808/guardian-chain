@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Boost Node Installer
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Source:   local node-fixes/boostnode bundle
 #  A high-performance relay/boost node for GYDSchain.
 #  Target OS: Ubuntu 20.04/22.04/24.04 | Debian 11/12  |  Chain ID 198282
 #  Run:  sudo bash install-boostnode.sh
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/boostnode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
 
 # ── Load shared config (written by deploy-dashboard.sh — all values skippable) ─
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
@@ -20,16 +31,16 @@ APP_DIR="${APP_DIR:-/opt/gyds-boostnode}"
 DATA_DIR="${DATA_DIR:-/var/lib/gyds-boostnode}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
-GO_VERSION="${GO_VERSION:-1.21.13}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 RPC_PORT="${GYDS_RPC_PORT:-8547}"
 P2P_PORT="${GYDS_P2P_PORT:-30304}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
+RPC_DOMAIN="${GYDS_RPC_DOMAIN:-${DOMAIN:-}}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="$APP_DIR"
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/boostnode}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
@@ -40,7 +51,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain BOOST NODE Installer v${GYDS_VERSION}                   ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/fullnode                         ║"
+echo "║   Source: local node-fixes/boostnode                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -57,7 +68,7 @@ esac
 log "[1/6] Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y --no-install-recommends build-essential git curl wget jq ufw fail2ban ca-certificates openssl
+apt-get install -y --no-install-recommends build-essential git curl wget jq ufw fail2ban nginx certbot python3-certbot-nginx ca-certificates openssl
 
 # ─── 2. Go ───────────────────────────────────────────────────────────────────
 log "[2/6] Installing Go ${GO_VERSION}..."
@@ -71,17 +82,14 @@ if [[ "$CURRENT_GO" != "$GO_VERSION" ]]; then
 fi
 log "    $(go version)"
 
-# ─── 3. Clone / build ────────────────────────────────────────────────────────
-log "[3/6] Fetching source from ${REPO_URL}..."
-if [[ -d "$REPO_DIR/.git" ]]; then
-  git -C "$REPO_DIR" fetch origin main && git -C "$REPO_DIR" reset --hard origin/main
-else
-  git clone --depth=1 "$REPO_URL" "$REPO_DIR"
-fi
-[[ -f "$REPO_DIR/go.mod" ]] || die "go.mod not found in $REPO_DIR"
+# ─── 3. Validate local source ─────────────────────────────────────────────────
+log "[3/6] Checking local boostnode source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module github.com/gydschain/boostnode" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 log "[4/6] Building ${BINARY}..."
-( cd "$REPO_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
 rm -f "/tmp/${BINARY}"
@@ -96,20 +104,55 @@ mkdir -p "${DATA_DIR}"/{state.db,logs} "${LOG_DIR}"
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${LOG_DIR}"
 
 # ─── 5. Firewall ─────────────────────────────────────────────────────────────
-ufw default deny incoming >/dev/null 2>&1 || true
-ufw default allow outgoing >/dev/null 2>&1 || true
-ufw limit 22/tcp            comment "SSH"            >/dev/null 2>&1 || true
-ufw allow "${RPC_PORT}/tcp" comment "GYDS Boost RPC" >/dev/null 2>&1 || true
-ufw allow "${P2P_PORT}/tcp" comment "GYDS Boost P2P" >/dev/null 2>&1 || true
-ufw allow "${P2P_PORT}/udp" comment "GYDS Boost P2P" >/dev/null 2>&1 || true
-ufw --force enable >/dev/null 2>&1 || true
+node_network_resolve_p2p_host || { err "Could not determine a reachable P2P address."; exit 1; }
+node_network_allow_p2p_tcp "$P2P_PORT"
+if [[ -n "$RPC_DOMAIN" ]]; then
+  [[ "$RPC_DOMAIN" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || { err "GYDS_RPC_DOMAIN must be a hostname without a scheme or path."; exit 1; }
+  node_network_allow_tcp_port 80 "GYDS RPC HTTP proxy"
+  node_network_allow_tcp_port 443 "GYDS RPC HTTPS proxy"
+fi
+
+if [[ -n "$RPC_DOMAIN" ]]; then
+  mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+  cat > /etc/nginx/sites-available/gyds-boostnode <<EOF
+server {
+    listen 80;
+    server_name ${RPC_DOMAIN};
+
+    location /ws {
+        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host \$host;
+        proxy_read_timeout 86400s;
+    }
+    location /health {
+        proxy_pass http://127.0.0.1:${RPC_PORT}/health;
+        access_log off;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 60s;
+    }
+}
+EOF
+  ln -sf /etc/nginx/sites-available/gyds-boostnode /etc/nginx/sites-enabled/gyds-boostnode
+  nginx -t && systemctl enable nginx && systemctl restart nginx
+  certbot --nginx -d "$RPC_DOMAIN" --non-interactive --agree-tos -m "admin@${RPC_DOMAIN}" 2>/dev/null \
+    || warn "TLS setup failed; check DNS for ${RPC_DOMAIN}, then rerun Certbot."
+fi
 
 # ─── 6. systemd service ──────────────────────────────────────────────────────
 log "[6/6] Installing systemd service..."
 cat > /etc/systemd/system/gyds-boostnode.service <<EOF
 [Unit]
 Description=GYDSchain Boost Node v${GYDS_VERSION}
-After=network-online.target
+After=network-online.target nginx.service
 Wants=network-online.target
 
 [Service]
@@ -120,8 +163,9 @@ WorkingDirectory=${DATA_DIR}
 Environment=GYDS_CHAIN_ID=${CHAIN_ID}
 Environment=GYDS_NODE_MODE=boost
 Environment=GYDS_RPC_PORT=${RPC_PORT}
-Environment=GYDS_RPC_HOST=0.0.0.0
+Environment=GYDS_RPC_HOST=127.0.0.1
 Environment=GYDS_P2P_PORT=${P2P_PORT}
+Environment=GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json
@@ -157,7 +201,8 @@ for _ in 1 2 3; do
   sleep 4
 done
 
-SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+node_network_report_tcp_listener "$P2P_PORT"
+SERVER_IP="${GYDS_P2P_ADVERTISE_HOST}"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -170,8 +215,14 @@ echo "  Binary  : ${GYDS_BIN}/${BINARY}"
 echo "  Service : gyds-boostnode.service"
 echo "  Data    : ${DATA_DIR}"
 echo "  Logs    : ${LOG_DIR}/boostnode.log"
-echo "  RPC     : http://${SERVER_IP}:${RPC_PORT}"
+  if [[ -n "$RPC_DOMAIN" ]]; then
+    echo "  RPC     : https://${RPC_DOMAIN}"
+    echo "  WS      : wss://${RPC_DOMAIN}/ws"
+  else
+    echo "  RPC/WS  : localhost:${RPC_PORT} (local only; set GYDS_RPC_DOMAIN for HTTPS access)"
+  fi
 echo "  P2P     : tcp://${SERVER_IP}:${P2P_PORT}"
+node_network_report_p2p "$P2P_PORT"
 echo "  Chain ID: ${CHAIN_ID}  |  Mode: boost"
 echo ""
 echo "  systemctl status gyds-boostnode"

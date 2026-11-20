@@ -36,7 +36,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { BurnMintManager } from '@/components/admin/BurnMintManager';
 import { StablecoinManager } from '@/components/admin/StablecoinManager';
 import { StablecoinReviewQueue } from '@/components/admin/StablecoinReviewQueue';
@@ -73,7 +73,6 @@ import { TestNodeManager } from '@/components/admin/TestNodeManager';
 import { GrantAchievementPanel } from '@/components/admin/GrantAchievementPanel';
 import { FlaskConical, Trophy, Rocket as RocketIcon, ArrowRightLeft, RotateCcw, ExternalLink, ToggleLeft, ToggleRight, Zap, Timer, TrendingUp } from 'lucide-react';
 import { CronJobManager } from '@/components/admin/CronJobManager';
-import { NodeRepoSync } from '@/components/admin/NodeRepoSync';
 import { PaymentMethodsManager } from '@/components/admin/PaymentMethodsManager';
 import { WalletReleaseManager } from '@/components/layout/WalletDownloadButton';
 import { ServerConfigManager } from '@/components/admin/ServerConfigManager';
@@ -87,19 +86,42 @@ import { Download } from 'lucide-react';
 
 function GitSyncPanel({ toast }: { toast: any }) {
   const [pulling, setPulling] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; stdout: string; stderr: string } | null>(null);
+  const [phase, setPhase] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const completed = ['succeeded', 'rolled_back', 'failed', 'rollback_failed'];
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch('/api/admin/git-pull/status', { credentials: 'same-origin', cache: 'no-store' });
+        if (!res.ok || !res.headers.get('content-type')?.includes('application/json')) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setPhase(data.phase);
+        setPulling(Boolean(data.phase && !completed.includes(data.phase)));
+        setError(null);
+      } catch { /* The serving process is briefly unavailable during restart. */ }
+    };
+    void check();
+    const timer = window.setInterval(check, 3000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
 
   const doPull = async () => {
     setPulling(true);
-    setResult(null);
+    setError(null);
     try {
-      const res = await fetch('/api/admin/git-pull', { method: 'POST' });
+      const res = await fetch('/api/admin/git-pull', { method: 'POST', credentials: 'same-origin' });
+      if (!res.headers.get('content-type')?.includes('application/json')) throw new Error('The server is unavailable. Please try again shortly.');
       const data = await res.json();
-      setResult(data);
-      toast({ title: data.ok ? 'Git pull succeeded' : 'Git pull failed', description: data.stdout?.slice(0, 100) || data.stderr?.slice(0, 100), variant: data.ok ? 'default' : 'destructive' });
-    } catch (e: any) {
-      toast({ title: 'Git pull error', description: e.message, variant: 'destructive' });
-    } finally {
+      if (!res.ok && res.status !== 409) throw new Error(data.error || 'The update could not start.');
+      setPhase(data.phase);
+      toast({ title: res.status === 409 ? 'Update already running' : 'Server update started' });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'The update could not start.';
+      setError(message);
+      toast({ title: 'Update unavailable', description: message, variant: 'destructive' });
       setPulling(false);
     }
   };
@@ -112,45 +134,25 @@ function GitSyncPanel({ toast }: { toast: any }) {
         </div>
         <div>
           <h3 className="font-semibold text-lg">GitHub Sync</h3>
-          <p className="text-sm text-muted-foreground">Pull latest code from GitHub and restart services</p>
+          <p className="text-sm text-muted-foreground">Dashboard deployment</p>
         </div>
       </div>
       <div className="space-y-4">
         <div className="p-4 rounded-lg bg-secondary/30 space-y-3">
-          <h4 className="font-medium">Pull from GitHub</h4>
-          <p className="text-sm text-muted-foreground">
-            Runs <code className="bg-black/30 px-1 rounded">git pull --ff-only</code> in the dashboard directory.
-            After pulling, rebuild and restart:
-            <code className="block bg-black/30 px-2 py-1 rounded mt-1 text-xs">npm run build && pm2 restart gydschain-api && nginx -s reload</code>
-          </p>
+          <h4 className="font-medium">GitHub update</h4>
           <Button variant="outline" className="gap-2" onClick={doPull} disabled={pulling}>
             <RefreshCw className={`h-4 w-4 ${pulling ? 'animate-spin' : ''}`} />
-            {pulling ? 'Pulling…' : 'Git Pull'}
+            {pulling ? 'Updating…' : 'Pull, rebuild & restart'}
           </Button>
-          {result && (
-            <div className={`p-3 rounded text-xs font-mono whitespace-pre-wrap ${result.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-              {result.stdout || result.stderr || (result.ok ? 'Already up to date.' : 'Unknown error')}
-            </div>
-          )}
+          {phase && <p role="status" className="text-sm text-foreground">{({ queued: 'Update queued', checking: 'Checking deployment', backing_up: 'Saving previous version', pulling: 'Pulling GitHub changes', installing: 'Installing dependencies', building: 'Rebuilding application', restarting: 'Restarting application', verifying: 'Checking application health', rolling_back: 'Restoring previous version', succeeded: 'Update completed', rolled_back: 'Update failed; previous version restored', failed: 'Update failed before deployment', rollback_failed: 'Recovery needs attention; contact your server administrator' } as Record<string, string>)[phase] || 'Update status unavailable'}</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </div>
         <div className="p-4 rounded-lg bg-secondary/30 space-y-2">
-          <h4 className="font-medium">All Repositories</h4>
+          <h4 className="font-medium">Dashboard repository</h4>
           <div className="text-xs text-muted-foreground space-y-1">
-            {[
-              ['Dashboard',  'hc172808/guardian-chain'],
-              ['Full Node',  'hc172808/fullnode'],
-              ['Lite Node',  'hc172808/litenode'],
-              ['Boost Node', 'hc172808/boostnode'],
-              ['RPC Node',   'hc172808/rpcnode'],
-              ['Genesis',    'hc172808/genesis'],
-            ].map(([name, repo]) => (
-              <div key={repo} className="flex items-center justify-between">
-                <span className="text-foreground">{name}</span>
-                <a href={`https://github.com/${repo}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                  github.com/{repo}
-                </a>
-              </div>
-            ))}
+            <a href="https://github.com/hc172808/guardian-chain" target="_blank" rel="noreferrer" className="text-primary hover:underline">
+              github.com/hc172808/guardian-chain
+            </a>
           </div>
         </div>
       </div>
@@ -330,41 +332,84 @@ function OracleAdmin({ toast }: { toast: any }) {
   const [feeds, setFeeds] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newSymbol, setNewSymbol] = useState('');
-  const [newSource, setNewSource] = useState('');
+  const [newFeedId, setNewFeedId] = useState('');
+  const [newProvider, setNewProvider] = useState('manual');
+  const [newDescription, setNewDescription] = useState('');
+  const [newDecimals, setNewDecimals] = useState('8');
+  const [newValue, setNewValue] = useState('0');
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);
+  const [savingFeed, setSavingFeed] = useState<string | null>(null);
   const [selectedFeed, setSelectedFeed] = useState<string | null>(null);
 
   const fetchFeeds = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/oracle/feeds', { credentials: 'include' });
-      if (res.ok) setFeeds(await res.json());
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      const data = await res.json();
+      setFeeds(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      toast({ title: 'Could not load oracle feeds', description: e.message, variant: 'destructive' });
     } finally { setLoading(false); }
   };
 
   const fetchSubmissions = async (feedId: string) => {
     setSelectedFeed(feedId);
-    const res = await fetch(`/api/admin/oracle/feeds/${feedId}`, { credentials: 'include' });
-    if (res.ok) setSubmissions(await res.json());
+    try {
+      const res = await fetch(`/api/admin/oracle/submissions?feedId=${encodeURIComponent(feedId)}`, { credentials: 'include' });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      setSubmissions(await res.json());
+    } catch (e: any) {
+      toast({ title: 'Could not load feed history', description: e.message, variant: 'destructive' });
+    }
   };
 
   const addFeed = async () => {
-    if (!newSymbol.trim()) return;
+    if (!newFeedId.trim()) return;
     setAdding(true);
     try {
-      const res = await fetch('/api/oracle/feeds', {
+      const res = await fetch('/api/admin/oracle/feeds', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: newSymbol.trim().toUpperCase(), source: newSource.trim() || 'manual', heartbeat_seconds: 300 }),
+        body: JSON.stringify({
+          feedId: newFeedId.trim().toUpperCase(),
+          provider: newProvider.trim() || 'manual',
+          description: newDescription.trim(),
+          decimals: Number(newDecimals),
+          value: newValue,
+          active: true,
+        }),
       });
-      if (!res.ok) throw new Error((await res.json()).error);
-      toast({ title: `Oracle feed ${newSymbol.toUpperCase()} created` });
-      setNewSymbol(''); setNewSource('');
-      fetchFeeds();
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      toast({ title: `Oracle feed ${newFeedId.toUpperCase()} created` });
+      setNewFeedId('');
+      setNewProvider('manual');
+      setNewDescription('');
+      setNewDecimals('8');
+      setNewValue('0');
+      await fetchFeeds();
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally { setAdding(false); }
+  };
+
+  const updateFeed = async (feedId: string, patch: Record<string, unknown>) => {
+    setSavingFeed(feedId);
+    try {
+      const res = await fetch('/api/admin/oracle/feeds', {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedId, ...patch }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      await fetchFeeds();
+      if (selectedFeed === feedId) await fetchSubmissions(feedId);
+      return true;
+    } catch (e: any) {
+      toast({ title: 'Could not update feed', description: e.message, variant: 'destructive' });
+      return false;
+    } finally { setSavingFeed(null); }
   };
 
   useEffect(() => { fetchFeeds(); }, []);
@@ -378,13 +423,21 @@ function OracleAdmin({ toast }: { toast: any }) {
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
-        <div className="flex gap-2">
-          <input value={newSymbol} onChange={e => setNewSymbol(e.target.value)} placeholder="Symbol (e.g. GYDS)" className="flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
-          <input value={newSource} onChange={e => setNewSource(e.target.value)} placeholder="Source (e.g. coingecko)" className="flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
-          <Button onClick={addFeed} disabled={adding || !newSymbol.trim()} className="gap-1 shrink-0">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <input value={newFeedId} onChange={e => setNewFeedId(e.target.value)} placeholder="Feed ID (e.g. GYDS/USD)" className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+          <input value={newProvider} onChange={e => setNewProvider(e.target.value)} placeholder="Source label (e.g. manual)" className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+          <input value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Description (optional)" className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+          <div className="flex gap-2">
+            <input type="number" min="0" max="18" step="1" value={newDecimals} onChange={e => setNewDecimals(e.target.value)} aria-label="Feed decimals" placeholder="Decimals" className="w-28 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+            <input type="text" inputMode="decimal" value={newValue} onChange={e => setNewValue(e.target.value)} aria-label="Initial feed value" placeholder="Initial price (0 if unset)" className="min-w-0 flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
+            <Button onClick={addFeed} disabled={adding || !newFeedId.trim()} className="gap-1 shrink-0">
             {adding ? <RefreshCw className="h-4 w-4 animate-spin" /> : '+'} Add
-          </Button>
+            </Button>
+          </div>
         </div>
+        <p className="text-xs text-amber-400/90">
+          Source labels are configuration only. Values are manually entered by an administrator; automatic provider polling and independent price verification are not enabled.
+        </p>
         {loading ? (
           <div className="text-muted-foreground text-sm py-4 text-center"><RefreshCw className="inline w-4 h-4 animate-spin mr-2" />Loading feeds…</div>
         ) : feeds.length === 0 ? (
@@ -392,20 +445,47 @@ function OracleAdmin({ toast }: { toast: any }) {
         ) : (
           <div className="space-y-2">
             {feeds.map((f: any) => (
-              <div key={f.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-xl text-sm">
-                <div>
-                  <span className="font-mono font-bold text-primary">{f.symbol}</span>
-                  <span className="text-muted-foreground ml-2">·</span>
-                  <span className="text-muted-foreground ml-2">source: {f.source}</span>
+              <div key={f.id} className="flex flex-col gap-3 rounded-xl bg-muted/20 p-3 text-sm lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono font-bold text-primary">{f.feed_id}</span>
+                    <Badge variant={f.active ? 'default' : 'secondary'} className="text-xs">
+                      {f.active ? 'Active' : 'Inactive'}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">source label: {f.provider || 'manual'} · {f.decimals} decimals</span>
+                  </div>
+                  {f.description && <p className="mt-1 text-xs text-muted-foreground">{f.description}</p>}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Current value: {f.has_submission && Number(f.value) > 0 ? Number(f.value).toLocaleString(undefined, { maximumFractionDigits: 12 }) : 'unset'}
+                    {f.last_updated ? ` · feed configuration updated ${new Date(f.last_updated).toLocaleString()}` : ''}
+                  </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  {f.latest_price && (
-                    <span className="font-mono text-emerald-400">${Number(f.latest_price).toFixed(6)}</span>
-                  )}
-                  <Badge variant={f.is_active ? 'default' : 'secondary'} className="text-xs">
-                    {f.is_active ? 'Active' : 'Inactive'}
-                  </Badge>
-                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fetchSubmissions(f.id)}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label={`New value for ${f.feed_id}`}
+                    value={priceDrafts[f.feed_id] ?? String(f.value ?? '')}
+                    onChange={e => setPriceDrafts(current => ({ ...current, [f.feed_id]: e.target.value }))}
+                    className="w-32 rounded-lg border border-border/40 bg-muted/30 px-2 py-1.5 font-mono text-xs outline-none focus:ring-1 ring-primary"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={savingFeed === f.feed_id}
+                    onClick={() => void updateFeed(f.feed_id, { value: priceDrafts[f.feed_id] ?? String(f.value ?? '0') })}
+                  >
+                    Save value
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={savingFeed === f.feed_id}
+                    onClick={() => void updateFeed(f.feed_id, { active: !f.active })}
+                  >
+                    {f.active ? 'Disable' : 'Enable'}
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void fetchSubmissions(f.feed_id)}>
                     History
                   </Button>
                 </div>
@@ -427,8 +507,8 @@ function OracleAdmin({ toast }: { toast: any }) {
             <div className="space-y-1 max-h-64 overflow-y-auto">
               {submissions.map((s: any, i: number) => (
                 <div key={i} className="flex items-center justify-between text-xs p-2 bg-muted/20 rounded-lg">
-                  <span className="font-mono text-primary">${Number(s.price).toFixed(6)}</span>
-                  <span className="text-muted-foreground">{s.submitter_address?.slice(0, 12) || 'system'}…</span>
+                  <span className="font-mono text-primary">{Number(s.value).toLocaleString(undefined, { maximumFractionDigits: 12 })}</span>
+                  <span className="text-muted-foreground">{s.submitter || 'admin'}</span>
                   <span className="text-muted-foreground">{s.submitted_at ? new Date(s.submitted_at).toLocaleString() : '—'}</span>
                 </div>
               ))}
@@ -804,12 +884,19 @@ const AdminContent = () => {
   const { user, isFounder, isAdmin } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState(() => {
     const requestedTab = new URLSearchParams(window.location.search).get('tab');
     return ADMIN_TABS.some(({ tabs }) => tabs.some(({ value }) => value === requestedTab))
       ? requestedTab!
       : 'activity';
   });
+  useEffect(() => {
+    const requestedTab = new URLSearchParams(location.search).get('tab');
+    if (requestedTab && ADMIN_TABS.some(({ tabs }) => tabs.some(({ value }) => value === requestedTab))) {
+      setActiveTab(requestedTab);
+    }
+  }, [location.search]);
   const [nodes, setNodes] = useState<NodeInstallation[]>([]);
   const [loading, setLoading] = useState(true);
   const [mainNodeId, setMainNodeId] = useState<string | null>(null);
@@ -1162,9 +1249,6 @@ const AdminContent = () => {
 
         <TabsContent value="github" className="space-y-4">
           <GitSyncPanel toast={toast} />
-          <GlassCard className="p-6">
-            <NodeRepoSync />
-          </GlassCard>
         </TabsContent>
 
         <TabsContent value="firewall">
@@ -1222,8 +1306,9 @@ const AdminContent = () => {
               {showAddNodeForm && (
                 <div className="space-y-3 pt-1">
                   <p className="text-xs text-muted-foreground">
-                    Enter the node's RPC URL. <code className="bg-background/50 px-1 rounded">0.0.0.0</code> is auto-resolved to{' '}
-                    <code className="bg-background/50 px-1 rounded">127.0.0.1</code> (localhost).
+                    For a node on this same server, use <code className="bg-background/50 px-1 rounded">127.0.0.1:8545</code>.
+                    <code className="bg-background/50 px-1 rounded ml-1">0.0.0.0</code> is a bind address and is resolved to localhost here.
+                    For remote nodes, use an IP or hostname that this server can reach.
                   </p>
 
                   {/* Quick-fill shortcuts */}
@@ -1297,7 +1382,7 @@ const AdminContent = () => {
                     <p className="text-xs text-muted-foreground font-mono">
                       Will connect to:{' '}
                       <span className="text-primary">
-                        {addNodeUrl.replace(/^(https?:\/\/)?(0\.0\.0\.0|::)/, 'http://127.0.0.1')}
+                        {addNodeUrl.replace(/^(https?:\/\/)?(0\.0\.0\.0|::)(?=[:/]|$)/, 'http://127.0.0.1')}
                       </span>
                     </p>
                   )}
@@ -1348,14 +1433,21 @@ const AdminContent = () => {
             nodes.map((node, nodeIndex) => {
               const isLocalNode = node.wireguardPublicKey?.startsWith('LOCAL:');
               const localPort = isLocalNode ? node.wireguardPublicKey!.split(':')[1] : null;
-              const localRpcUrl = localPort ? `http://${window.location.hostname}:${localPort}` : null;
+              const localRpcUrl = localPort ? `http://127.0.0.1:${localPort}` : null;
               const isMain = node.id === mainNodeId;
               const isPinging = pingingNodes.has(node.id);
-              // VPN tunnel IP assigned in order (matches WireGuardPeerManager: 10.0.0.2, .3, …)
-              const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
+              // Keep detected peers on their actual VPN address; use the ordered
+              // assignment only for older registrations without a tunnel IP.
+              const approvedNonLocal = nodes
+                .filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'))
+                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id.localeCompare(b.id));
               const vpnIndex = approvedNonLocal.findIndex(n => n.id === node.id);
+              const savedTunnelIp = typeof node.ipAddress === 'string'
+                && /^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(node.ipAddress)
+                ? node.ipAddress
+                : null;
               const vpnTunnelIp = !isLocalNode && node.isApproved && vpnIndex >= 0
-                ? `10.0.0.${vpnIndex + 2}`
+                ? savedTunnelIp || `10.0.0.${vpnIndex + 2}`
                 : null;
               const displayHost = node.ipAddress || node.hostname;
               const rpcPort = node.rpcPort || 8545;
@@ -1579,9 +1671,16 @@ const AdminContent = () => {
           <NodeDetailsDrawer
             nodeId={selectedNodeId}
             vpnTunnelIp={(() => {
-              const approvedNonLocal = nodes.filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'));
+              const approvedNonLocal = nodes
+                .filter(n => n.isApproved && !n.wireguardPublicKey?.startsWith('LOCAL:'))
+                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id.localeCompare(b.id));
               const idx = approvedNonLocal.findIndex(n => n.id === selectedNodeId);
-              return idx >= 0 ? `10.0.0.${idx + 2}` : null;
+              const node = approvedNonLocal[idx];
+              const savedIp = typeof node?.ipAddress === 'string'
+                && /^10\.0\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-3])$/.test(node.ipAddress)
+                ? node.ipAddress
+                : null;
+              return idx >= 0 ? savedIp || `10.0.0.${idx + 2}` : null;
             })()}
             isMain={selectedNodeId === mainNodeId}
             onClose={() => setSelectedNodeId(null)}

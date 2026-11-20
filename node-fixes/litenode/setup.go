@@ -1,17 +1,17 @@
 package main
 
 import (
-        "encoding/json"
-        "fmt"
-        "html/template"
-        "net"
-        "net/http"
-        "os"
-        "os/exec"
-        "path/filepath"
-        "runtime"
-        "strings"
-        "time"
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
 )
 
 const setupHTML = `<!DOCTYPE html>
@@ -290,183 +290,180 @@ function cp(el){const t=el.querySelector('span.copy-hint');const txt=el.textCont
 
 // SetupServer holds state for the wizard HTTP server
 type SetupServer struct {
-        port    int
-        dataDir string
-        version string
+	port    int
+	dataDir string
+	version string
 }
 
 // startSetupWizard launches the embedded setup web server
 func startSetupWizard(wizardPort int, nodeVersion string) {
-        home, _ := os.UserHomeDir()
-        defaultDataDir := filepath.Join(home, ".gyds-litenode")
+	home, _ := os.UserHomeDir()
+	defaultDataDir := filepath.Join(home, ".gyds-litenode")
 
-        srv := &SetupServer{port: wizardPort, dataDir: defaultDataDir, version: nodeVersion}
+	srv := &SetupServer{port: wizardPort, dataDir: defaultDataDir, version: nodeVersion}
 
-        mux := http.NewServeMux()
-        mux.HandleFunc("/", srv.handleIndex)
-        mux.HandleFunc("/api/configure", srv.handleConfigure)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", srv.handleIndex)
+	mux.HandleFunc("/api/configure", srv.handleConfigure)
 
-        // Detect local IP for helpful display
-        localIP := getLocalIP()
-        url := fmt.Sprintf("http://localhost:%d", wizardPort)
-        localURL := fmt.Sprintf("http://%s:%d", localIP, wizardPort)
+	url := fmt.Sprintf("http://localhost:%d", wizardPort)
 
-        fmt.Printf("\n")
-        fmt.Printf("╔══════════════════════════════════════════════════════════════╗\n")
-        fmt.Printf("║   GYDS Lite Node — Web Setup Wizard                         ║\n")
-        fmt.Printf("╠══════════════════════════════════════════════════════════════╣\n")
-        fmt.Printf("║                                                              ║\n")
-        fmt.Printf("║  Open this URL in your browser to configure the node:       ║\n")
-        fmt.Printf("║                                                              ║\n")
-        fmt.Printf("║  ➜  %-55s ║\n", url)
-        fmt.Printf("║  ➜  %-55s ║\n", localURL+" (network)")
-        fmt.Printf("║                                                              ║\n")
-        fmt.Printf("║  Press Ctrl+C to stop the wizard server.                    ║\n")
-        fmt.Printf("╚══════════════════════════════════════════════════════════════╝\n\n")
+	fmt.Printf("\n")
+	fmt.Printf("╔══════════════════════════════════════════════════════════════╗\n")
+	fmt.Printf("║   GYDS Lite Node — Web Setup Wizard                         ║\n")
+	fmt.Printf("╠══════════════════════════════════════════════════════════════╣\n")
+	fmt.Printf("║                                                              ║\n")
+	fmt.Printf("║  Open this URL in your browser to configure the node:       ║\n")
+	fmt.Printf("║                                                              ║\n")
+	fmt.Printf("║  ➜  %-55s ║\n", url)
+	fmt.Printf("║  Wizard listens on localhost only. Use an SSH tunnel if remote.║\n")
+	fmt.Printf("║                                                              ║\n")
+	fmt.Printf("║  Press Ctrl+C to stop the wizard server.                    ║\n")
+	fmt.Printf("╚══════════════════════════════════════════════════════════════╝\n\n")
 
-        // Try to auto-open browser on Linux/macOS
-        go tryOpenBrowser(url)
+	// Try to auto-open browser on Linux/macOS
+	go tryOpenBrowser(url)
 
-        server := &http.Server{Addr: fmt.Sprintf(":%d", wizardPort), Handler: mux}
-        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-                fmt.Fprintf(os.Stderr, "Setup server error: %v\n", err)
-                os.Exit(1)
-        }
+	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", wizardPort), Handler: mux}
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		fmt.Fprintf(os.Stderr, "Setup server error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func (s *SetupServer) handleIndex(w http.ResponseWriter, r *http.Request) {
-        tmpl, _ := template.New("setup").Parse(setupHTML)
-        w.Header().Set("Content-Type", "text/html; charset=utf-8")
-        tmpl.Execute(w, nil)
+	tmpl, _ := template.New("setup").Parse(setupHTML)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl.Execute(w, nil)
 }
 
 type liteSetupRequest struct {
-        RPCEndpoints []string `json:"rpc_endpoints"`
-        RPCPort      int      `json:"rpc_port"`
-        P2PPort      int      `json:"p2p_port"`
-        SyncInterval string   `json:"sync_interval"`
-        SPVEnabled   bool     `json:"spv_enabled"`
-        Validators   []string `json:"validators"`
-        DataDir      string   `json:"data_dir"`
-        LogLevel     string   `json:"log_level"`
+	RPCEndpoints []string `json:"rpc_endpoints"`
+	RPCPort      int      `json:"rpc_port"`
+	P2PPort      int      `json:"p2p_port"`
+	SyncInterval string   `json:"sync_interval"`
+	SPVEnabled   bool     `json:"spv_enabled"`
+	Validators   []string `json:"validators"`
+	DataDir      string   `json:"data_dir"`
+	LogLevel     string   `json:"log_level"`
 }
 
 func (s *SetupServer) handleConfigure(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Content-Type", "application/json")
-        if r.Method != http.MethodPost {
-                w.WriteHeader(405)
-                json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-                return
-        }
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(405)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
 
-        var req liteSetupRequest
-        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-                w.WriteHeader(400)
-                json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-                return
-        }
+	var req liteSetupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
 
-        // Defaults
-        if len(req.RPCEndpoints) == 0 {
-                req.RPCEndpoints = []string{"http://localhost:8545"}
-        }
-        if req.RPCPort == 0 {
-                req.RPCPort = 8555
-        }
-        if req.SyncInterval == "" {
-                req.SyncInterval = "5s"
-        }
-        if req.LogLevel == "" {
-                req.LogLevel = "info"
-        }
-        dataDir := req.DataDir
-        if dataDir == "" {
-                dataDir = s.dataDir
-        }
-        // Expand ~ manually
-        if strings.HasPrefix(dataDir, "~") {
-                home, _ := os.UserHomeDir()
-                dataDir = strings.Replace(dataDir, "~", home, 1)
-        }
+	// Defaults
+	if len(req.RPCEndpoints) == 0 {
+		req.RPCEndpoints = []string{"http://localhost:8545"}
+	}
+	if req.RPCPort == 0 {
+		req.RPCPort = 8555
+	}
+	if req.SyncInterval == "" {
+		req.SyncInterval = "5s"
+	}
+	if req.LogLevel == "" {
+		req.LogLevel = "info"
+	}
+	dataDir := req.DataDir
+	if dataDir == "" {
+		dataDir = s.dataDir
+	}
+	// Expand ~ manually
+	if strings.HasPrefix(dataDir, "~") {
+		home, _ := os.UserHomeDir()
+		dataDir = strings.Replace(dataDir, "~", home, 1)
+	}
 
-        // Build env file content
-        lines := []string{
-                "# GYDS Lite Node Configuration",
-                "# Generated by setup wizard on " + time.Now().Format("2006-01-02 15:04:05"),
-                "",
-                "LITE_RPC_ENDPOINTS=" + strings.Join(req.RPCEndpoints, ","),
-                fmt.Sprintf("LITE_RPC_PORT=%d", req.RPCPort),
-                fmt.Sprintf("LITE_P2P_PORT=%d", req.P2PPort),
-                "LITE_SYNC_INTERVAL=" + req.SyncInterval,
-                fmt.Sprintf("LITE_SPV=%v", req.SPVEnabled),
-                "LITE_DATADIR=" + dataDir,
-                "LITE_LOG_LEVEL=" + req.LogLevel,
-        }
-        if len(req.Validators) > 0 {
-                lines = append(lines, "LITE_VALIDATORS="+strings.Join(req.Validators, ","))
-        }
-        envContent := strings.Join(lines, "\n") + "\n"
+	// Build env file content
+	lines := []string{
+		"# GYDS Lite Node Configuration",
+		"# Generated by setup wizard on " + time.Now().Format("2006-01-02 15:04:05"),
+		"",
+		"LITE_RPC_ENDPOINTS=" + strings.Join(req.RPCEndpoints, ","),
+		fmt.Sprintf("LITE_RPC_PORT=%d", req.RPCPort),
+		fmt.Sprintf("LITE_P2P_PORT=%d", req.P2PPort),
+		"LITE_SYNC_INTERVAL=" + req.SyncInterval,
+		fmt.Sprintf("LITE_SPV=%v", req.SPVEnabled),
+		"LITE_DATADIR=" + dataDir,
+		"LITE_LOG_LEVEL=" + req.LogLevel,
+	}
+	if len(req.Validators) > 0 {
+		lines = append(lines, "LITE_VALIDATORS="+strings.Join(req.Validators, ","))
+	}
+	envContent := strings.Join(lines, "\n") + "\n"
 
-        // Write config directory and env file
-        configDir := filepath.Join(dataDir, "config")
-        if err := os.MkdirAll(configDir, 0700); err != nil {
-                w.WriteHeader(500)
-                json.NewEncoder(w).Encode(map[string]string{"error": "cannot create config dir: " + err.Error()})
-                return
-        }
+	// Write config directory and env file
+	configDir := filepath.Join(dataDir, "config")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": "cannot create config dir: " + err.Error()})
+		return
+	}
 
-        configFile := filepath.Join(configDir, "node.env")
-        if err := os.WriteFile(configFile, []byte(envContent), 0600); err != nil {
-                w.WriteHeader(500)
-                json.NewEncoder(w).Encode(map[string]string{"error": "cannot write config: " + err.Error()})
-                return
-        }
+	configFile := filepath.Join(configDir, "node.env")
+	if err := os.WriteFile(configFile, []byte(envContent), 0600); err != nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": "cannot write config: " + err.Error()})
+		return
+	}
 
-        // Also write a start.sh helper
-        exePath, _ := os.Executable()
-        if exePath == "" {
-                exePath = "gyds-litenode"
-        }
-        startScript := fmt.Sprintf(`#!/usr/bin/env bash
+	// Also write a start.sh helper
+	exePath, _ := os.Executable()
+	if exePath == "" {
+		exePath = "gyds-litenode"
+	}
+	startScript := fmt.Sprintf(`#!/usr/bin/env bash
 set -a; source "%s"; set +a
 exec "%s" start
 `, configFile, exePath)
 
-        startScriptPath := filepath.Join(dataDir, "start.sh")
-        _ = os.WriteFile(startScriptPath, []byte(startScript), 0755)
+	startScriptPath := filepath.Join(dataDir, "start.sh")
+	_ = os.WriteFile(startScriptPath, []byte(startScript), 0755)
 
-        startCmd := fmt.Sprintf("set -a && source %s && set +a && %s start", configFile, exePath)
-        serviceCmd := ""
-        if _, err := os.Stat("/run/systemd"); err == nil {
-                serviceCmd = "systemctl --user start gyds-litenode   # (if service was installed by installer)"
-        }
+	startCmd := fmt.Sprintf("set -a && source %s && set +a && %s start", configFile, exePath)
+	serviceCmd := ""
+	if _, err := os.Stat("/run/systemd"); err == nil {
+		serviceCmd = "systemctl --user start gyds-litenode   # (if service was installed by installer)"
+	}
 
-        json.NewEncoder(w).Encode(map[string]interface{}{
-                "ok":          true,
-                "config_file": configFile,
-                "start_cmd":   startCmd,
-                "service_cmd": serviceCmd,
-                "env":         envContent,
-        })
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":          true,
+		"config_file": configFile,
+		"start_cmd":   startCmd,
+		"service_cmd": serviceCmd,
+		"env":         envContent,
+	})
 }
 
 func getLocalIP() string {
-        conn, err := net.Dial("udp", "8.8.8.8:80")
-        if err != nil {
-                return "localhost"
-        }
-        defer conn.Close()
-        return conn.LocalAddr().(*net.UDPAddr).IP.String()
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "localhost"
+	}
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).IP.String()
 }
 
 func tryOpenBrowser(url string) {
-        time.Sleep(800 * time.Millisecond)
-        switch runtime.GOOS {
-        case "linux":
-                _ = exec.Command("xdg-open", url).Start()
-        case "darwin":
-                _ = exec.Command("open", url).Start()
-        case "windows":
-                _ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-        }
+	time.Sleep(800 * time.Millisecond)
+	switch runtime.GOOS {
+	case "linux":
+		_ = exec.Command("xdg-open", url).Start()
+	case "darwin":
+		_ = exec.Command("open", url).Start()
+	case "windows":
+		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	}
 }

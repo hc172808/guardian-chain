@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, CheckCheck, X, Zap, ArrowRightLeft, Shield, TrendingUp, Megaphone, RefreshCw, Coins } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
@@ -42,6 +43,7 @@ const fmtRelative = (d: string) => {
 
 export function NotificationBell() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -80,6 +82,16 @@ export function NotificationBell() {
   const markRead = async (id: string) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
     await fetch(`/api/notifications/${id}/read`, { method: 'PATCH', credentials: 'include' });
+  };
+
+  const openNotification = async (notification: Notification) => {
+    try {
+      await markRead(notification.id);
+    } catch {
+      // Keep notification navigation available if marking it read fails.
+    }
+    setOpen(false);
+    if (notification.link?.startsWith('/')) navigate(notification.link);
   };
 
   const markAllRead = async () => {
@@ -155,7 +167,13 @@ export function NotificationBell() {
                       <div className={cn('w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5', TYPE_COLOR[type])}>
                         <Icon className="w-3.5 h-3.5" />
                       </div>
-                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => markRead(n.id)}>
+                      <button
+                        type="button"
+                        data-testid={`notification-item-${n.id}`}
+                        aria-label={n.link ? `Open notification: ${n.title}` : `Mark notification read: ${n.title}`}
+                        className="flex-1 min-w-0 text-left bg-transparent border-0 p-0 cursor-pointer"
+                        onClick={() => void openNotification(n)}
+                      >
                         <div className="flex items-start justify-between gap-1">
                           <p className={cn('text-xs font-semibold', !n.read && 'text-foreground')}>{n.title}</p>
                           {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 mt-1" />}
@@ -163,11 +181,9 @@ export function NotificationBell() {
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.body}</p>
                         <p className="text-[10px] text-muted-foreground/60 mt-0.5">{fmtRelative(n.created_at)}</p>
                         {n.link && (
-                          <a href={n.link} className="text-[10px] text-primary hover:underline mt-0.5 block" onClick={e => e.stopPropagation()}>
-                            View →
-                          </a>
+                          <span className="text-[10px] text-primary mt-0.5 block">Open →</span>
                         )}
-                      </div>
+                      </button>
                       <button onClick={() => dismiss(n.id)} className="text-muted-foreground hover:text-foreground p-0.5 shrink-0 mt-0.5">
                         <X className="w-3 h-3" />
                       </button>

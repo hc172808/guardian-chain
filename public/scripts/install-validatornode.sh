@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Validator Node Installer
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Source:   local node-fixes/validatornode bundle
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
 #  Chain ID: 198282  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      sudo bash install-validatornode.sh [--domain validator.netlifegy.com]
@@ -11,6 +11,17 @@
 #              means losing your stake and validator identity.
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/validatornode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
 
 # ── Load shared config (written by deploy-dashboard.sh — all values skippable) ─
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
@@ -26,22 +37,20 @@ DATA_DIR="${DATA_DIR:-/var/lib/gyds-validatornode}"
 KEY_DIR="${KEY_DIR:-${DATA_DIR}/keystore}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
-GO_VERSION="${GO_VERSION:-1.21.13}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
-RPC_PORT="${GYDS_VALIDATOR_RPC_PORT:-8552}"
-WS_PORT="${GYDS_VALIDATOR_WS_PORT:-8553}"
-P2P_PORT="${GYDS_VALIDATOR_P2P_PORT:-30307}"
+RPC_PORT="${GYDS_RPC_PORT:-8547}"
+WS_PORT="${GYDS_WS_PORT:-8548}"
+P2P_PORT="${GYDS_P2P_PORT:-30306}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
-P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
 REWARD_ADDRESS="${GYDS_REWARD_ADDRESS:-}"
 STAKE_AMOUNT="${GYDS_STAKE_AMOUNT:-10000}"
 UPSTREAM_RPC="${GYDS_UPSTREAM_RPC:-https://rpc.netlifegy.com}"
 DOMAIN="${DOMAIN:-}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-BRANCH="main"
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/validatornode}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -53,7 +62,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  GYDSchain VALIDATOR NODE Installer v${GYDS_VERSION}               ║"
 echo "║  Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║  Repo: github.com/hc172808/fullnode                            ║"
+echo "║  Source: local node-fixes/validatornode                        ║"
 echo "║  Stake required: ${STAKE_AMOUNT} GYDS                              ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -76,6 +85,9 @@ while [[ $# -gt 0 ]]; do
     *) warn "Unknown flag: $1"; shift ;;
   esac
 done
+if [[ -n "$DOMAIN" && ! "$DOMAIN" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+  die "DOMAIN must be a hostname without a scheme or path."
+fi
 
 # ── OS detection ──────────────────────────────────────────────────────────────
 . /etc/os-release 2>/dev/null || die "Cannot read /etc/os-release"
@@ -98,9 +110,6 @@ esac
 
 # ── Pre-flight: reward address ────────────────────────────────────────────────
 if [[ -z "$REWARD_ADDRESS" ]]; then
-  if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
-    die "GYDS_REWARD_ADDRESS is required for non-interactive validator installation."
-  fi
   warn "GYDS_REWARD_ADDRESS not set. Enter your GYDS wallet address for staking rewards:"
   read -r REWARD_ADDRESS
   [[ -n "$REWARD_ADDRESS" ]] || die "Reward address is required"
@@ -121,9 +130,6 @@ elif is_rhel; then
     ca-certificates openssl net-tools lsof wireguard-tools 2>/dev/null || \
   yum install -y gcc git curl wget jq firewalld fail2ban nginx ca-certificates openssl net-tools lsof
 fi
-if [[ -z "$P2P_ADVERTISE_HOST" ]]; then
-  P2P_ADVERTISE_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
-fi
 
 # ── Go ────────────────────────────────────────────────────────────────────────
 log "[2/8] Installing Go ${GO_VERSION}..."
@@ -142,20 +148,15 @@ if [[ "$CURRENT_GO" != "$GO_VERSION" ]]; then
 fi
 log "    $(go version)"
 
-# ── Clone / update repo ───────────────────────────────────────────────────────
-log "[3/8] Fetching source from ${REPO_URL}..."
-if [[ -d "$APP_DIR/.git" ]]; then
-  log "    Existing install found — pulling latest..."
-  git -C "$APP_DIR" fetch origin "$BRANCH"
-  git -C "$APP_DIR" reset --hard "origin/$BRANCH"
-else
-  git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
-fi
-[[ -f "$APP_DIR/go.mod" ]] || die "go.mod not found in $APP_DIR — check repo layout"
+# ── Validate bundled local source ─────────────────────────────────────────────
+log "[3/8] Checking local validator source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module github.com/gydschain/validatornode" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 # ── Build binary ──────────────────────────────────────────────────────────────
 log "[4/8] Building $BINARY..."
-( cd "$APP_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" \
     -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
@@ -194,33 +195,14 @@ else
 fi
 
 # ── Firewall ──────────────────────────────────────────────────────────────────
-log "[7/8] Configuring firewall..."
-if is_debian && command -v ufw &>/dev/null; then
-  ufw default deny incoming >/dev/null
-  ufw default allow outgoing >/dev/null
-  ufw limit 22/tcp             comment "SSH (rate-limited)" >/dev/null
-  ufw allow 80/tcp             comment "HTTP"               >/dev/null
-  ufw allow 443/tcp            comment "HTTPS"              >/dev/null
-  ufw allow "${RPC_PORT}/tcp"  comment "GYDS Validator RPC" >/dev/null
-  ufw allow "${WS_PORT}/tcp"   comment "GYDS Validator WS"  >/dev/null
-  ufw allow "${P2P_PORT}/tcp"  comment "GYDS P2P"           >/dev/null
-  ufw allow "${P2P_PORT}/udp"  comment "GYDS P2P"           >/dev/null
-  ufw allow 51820/udp          comment "WireGuard VPN"      >/dev/null
-  ufw --force enable >/dev/null
-  log "    UFW enabled"
-elif is_rhel && command -v firewall-cmd &>/dev/null; then
-  systemctl enable --now firewalld
-  firewall-cmd --permanent --add-port=22/tcp
-  firewall-cmd --permanent --add-port=80/tcp
-  firewall-cmd --permanent --add-port=443/tcp
-  firewall-cmd --permanent --add-port="${RPC_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${WS_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${P2P_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${P2P_PORT}/udp"
-  firewall-cmd --permanent --add-port=51820/udp
-  firewall-cmd --reload
-  log "    firewalld configured"
+log "[7/8] Configuring node network access..."
+node_network_resolve_p2p_host || die "Could not determine a reachable P2P address."
+node_network_allow_p2p_tcp "$P2P_PORT"
+if [[ -n "$DOMAIN" ]]; then
+  node_network_allow_tcp_port 80 "GYDS RPC HTTP proxy"
+  node_network_allow_tcp_port 443 "GYDS RPC HTTPS proxy"
 fi
+log "    Existing firewall policies were preserved; P2P uses TCP only."
 
 # Fail2ban for SSH + RPC
 if command -v fail2ban-server &>/dev/null; then
@@ -254,6 +236,7 @@ Environment=GYDS_RPC_PORT=${RPC_PORT}
 Environment=GYDS_RPC_HOST=127.0.0.1
 Environment=GYDS_WS_PORT=${WS_PORT}
 Environment=GYDS_P2P_PORT=${P2P_PORT}
+Environment=GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
 Environment=GYDS_DATA_DIR=${DATA_DIR}/data
 Environment=GYDS_KEY_DIR=${KEY_DIR}
 Environment=GYDS_UPSTREAM_RPC=${UPSTREAM_RPC}
@@ -263,8 +246,6 @@ Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json"
 [[ -n "$BOOTSTRAP" ]] && ENV_BLOCK+="
 Environment=GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}"
-[[ -n "$P2P_ADVERTISE_HOST" ]] && ENV_BLOCK+="
-Environment=GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}"
 
 cat > /etc/systemd/system/gyds-validatornode.service <<EOF
 [Unit]
@@ -325,7 +306,7 @@ server {
         proxy_read_timeout 30s;
     }
     location /ws {
-        proxy_pass         http://127.0.0.1:${WS_PORT};
+        proxy_pass         http://127.0.0.1:${RPC_PORT};
         proxy_http_version 1.1;
         proxy_set_header   Upgrade \$http_upgrade;
         proxy_set_header   Connection "Upgrade";
@@ -362,14 +343,8 @@ for i in 1 2 3 4 5; do
   sleep 5
 done
 
-if [[ "$NODE_OK" != "true" ]]; then
-  err "Validator node did not pass its RPC health check on port ${RPC_PORT}."
-  systemctl --no-pager --full status gyds-validatornode >&2 || true
-  journalctl -u gyds-validatornode -n 50 --no-pager >&2 || true
-  exit 1
-fi
-
-SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+node_network_report_tcp_listener "$P2P_PORT"
+SERVER_IP="${GYDS_P2P_ADVERTISE_HOST}"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -383,7 +358,7 @@ echo "  Service        : gyds-validatornode.service"
 echo "  Data           : ${DATA_DIR}"
 echo "  Validator key  : ${KEY_FILE}  ← BACK THIS UP!"
 echo "  Logs           : ${LOG_DIR}/validatornode.log"
-echo "  Repo           : ${REPO_URL}"
+echo "  Source         : ${NODE_SOURCE_DIR}"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  STAKING"
@@ -400,9 +375,10 @@ if [[ -n "$DOMAIN" ]]; then
   echo "  WS   : wss://${DOMAIN}/ws"
 else
   echo "  RPC  : http://127.0.0.1:${RPC_PORT}  (local only — use nginx for external)"
-  echo "  WS   : ws://127.0.0.1:${WS_PORT}"
+  echo "  WS   : ws://127.0.0.1:${RPC_PORT}/ws"
 fi
-echo "  P2P  : tcp/udp ${SERVER_IP}:${P2P_PORT}  ← open on your firewall!"
+echo "  P2P  : tcp://${SERVER_IP}:${P2P_PORT}"
+node_network_report_p2p "$P2P_PORT"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  MANAGEMENT"
@@ -425,5 +401,5 @@ echo -e "${YELLOW}  ⚠  Remember to:"
 echo    "     1. Stake ${STAKE_AMOUNT} GYDS to activate your validator slot"
 echo    "     2. Register your node at: https://app.netlifegy.com/validators"
 echo    "     3. Back up your key:  ${KEY_FILE}"
-echo -e "     4. Open port ${P2P_PORT} TCP+UDP on your firewall/router${NC}"
+echo -e "     4. Open inbound TCP ${P2P_PORT} in your cloud/security-group firewall${NC}"
 echo ""

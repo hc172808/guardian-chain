@@ -64,9 +64,9 @@
 - **Files:** `src/pages/Profile.tsx`
 - **Change:** SMS notification option replaced with Telegram alerts (@GYDSChainBot) — no carrier dependency
 
-### NodeRepoSync — Admin GitHub Tab
-- **Files:** `src/components/admin/NodeRepoSync.tsx` (new), `src/pages/Admin.tsx`
-- **Change:** New component checks each of 4 node repos via GitHub API; validates module name, binary name, block time vs expected values; wired into Admin → GitHub tab alongside GitSyncPanel
+### Node source policy
+- **Current policy:** Node installers use the source bundles and install scripts tracked in this project. The Admin GitHub tab only updates the dashboard; node-repository checks and webhooks have been removed.
+- **Reference:** `nodes-requirements.md` documents the local source inventory, current audit gaps, and what a future standalone node repository must provide.
 
 ### Node Fixes Prepared
 - **Directory:** `node-fixes/`
@@ -127,18 +127,17 @@
 
 ## 🔧 Known Issues / In Progress
 
-### Node Repos — Fixes Ready But Not Pushed
-- `node-fixes/rpcnode/`, `node-fixes/boostnode/`, `node-fixes/fullnode/`, `node-fixes/genesis/` all have corrected source
-- **Action required:** Push each directory's contents to the corresponding GitHub repo
-- **Instructions:** See `node-fixes/README.md`
+### Node sources — local bundles
+- Node code and install scripts are maintained inside this project; pushing separate node repositories is not required.
+- **Current requirements and audit:** See `nodes-requirements.md`.
 
 ### Notification Bell — Demo Data
 - `NotificationBell.tsx` reads from demo data, not live `user_notifications` table
 - **Fix needed:** Wire to GET `/api/notifications` + mark-read endpoint; server-side push on tx confirm / governance / price alert
 
-### validatornode — Empty Repo
-- `github.com/hc172808/validatornode` has no go.mod, no main.go, cannot compile
-- **Fix needed:** Full Go implementation (see todo.md validatornode section)
+### validatornode — Local source present
+- `node-fixes/validatornode/` contains a Go module and the project installer builds from it.
+- **Remaining work:** Verify production chain compatibility and security; see `nodes-requirements.md`.
 
 ### litenode — Architectural Issue
 - Litenode runs a full PoS consensus engine and produces blocks — it should only sync headers

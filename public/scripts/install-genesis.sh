@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Genesis Node Installer — FOUNDER ONLY
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Source:   local node-fixes/genesis bundle
 #  Sets up the genesis/bootstrap node that starts the GYDSchain network.
 #  Target OS: Ubuntu 20.04/22.04/24.04 | Debian 11/12  |  Chain ID 198282
 #  Run:  sudo bash install-genesis.sh
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/genesis/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
 
 # ── Load shared config (written by deploy-dashboard.sh) ───────────────────────
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
@@ -23,70 +34,35 @@ APP_DIR="${APP_DIR:-/opt/gyds-genesis}"
 DATA_DIR="${DATA_DIR:-/var/lib/gyds-genesis}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
-GO_VERSION="${GO_VERSION:-1.21.13}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 GENESIS_PORT="${GENESIS_PORT:-30300}"
 RPC_PORT="${GYDS_RPC_PORT:-8544}"
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 STORAGE_SIZE="${STORAGE_SIZE:-500}"
-P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
+RPC_DOMAIN="${GYDS_RPC_DOMAIN:-${DOMAIN:-}}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="$APP_DIR"
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/genesis}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 err()  { echo -e "${RED}[✗]${NC} $*" >&2; }
-die()  { err "$*"; exit 1; }
 
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain GENESIS NODE Installer v${GYDS_VERSION} — FOUNDER       ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/fullnode                       ║"
+echo "║   Source: local node-fixes/genesis                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --rpc-port|--p2p-port|--data-dir)
-      [[ $# -ge 2 && "$2" != --* ]] || { err "$1 requires a value"; exit 2; }
-      case "$1" in
-        --rpc-port) RPC_PORT="$2" ;;
-        --p2p-port) GENESIS_PORT="$2" ;;
-        --data-dir) DATA_DIR="$2" ;;
-      esac
-      shift 2
-      ;;
-    --rpc-port=*|--p2p-port=*|--data-dir=*)
-      option="${1%%=*}"
-      value="${1#*=}"
-      [[ -n "$value" ]] || { err "$option requires a value"; exit 2; }
-      case "$option" in
-        --rpc-port) RPC_PORT="$value" ;;
-        --p2p-port) GENESIS_PORT="$value" ;;
-        --data-dir) DATA_DIR="$value" ;;
-      esac
-      shift
-      ;;
-    *) warn "Unknown flag: $1"; shift ;;
-  esac
-done
-
 warn "This is the GENESIS node — it creates the blockchain from block 0."
 warn "Only run this ONCE on your primary genesis server."
-if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
-  [[ "${GYDS_CONFIRM_GENESIS:-0}" == "1" ]] || {
-    err "Non-interactive genesis setup requires GYDS_CONFIRM_GENESIS=1. This node initializes the chain."
-    exit 2
-  }
-else
-  read -rp "Proceed? (yes/no) " confirm
-  [[ "$confirm" == "yes" ]] || { echo "Aborted."; exit 0; }
-fi
+read -rp "Proceed? (yes/no) " confirm
+[[ "$confirm" == "yes" ]] || { echo "Aborted."; exit 0; }
 
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -99,10 +75,7 @@ esac
 log "[1/7] Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y --no-install-recommends build-essential git curl wget jq ufw fail2ban ca-certificates openssl
-if [[ -z "$P2P_ADVERTISE_HOST" ]]; then
-  P2P_ADVERTISE_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
-fi
+apt-get install -y --no-install-recommends build-essential git curl wget jq ufw fail2ban nginx certbot python3-certbot-nginx ca-certificates openssl
 
 # ─── 2. Go ───────────────────────────────────────────────────────────────────
 log "[2/7] Installing Go ${GO_VERSION}..."
@@ -116,17 +89,14 @@ if [[ "$CURRENT_GO" != "$GO_VERSION" ]]; then
 fi
 log "    $(go version)"
 
-# ─── 3. Clone / build ────────────────────────────────────────────────────────
-log "[3/7] Fetching source from ${REPO_URL}..."
-if [[ -d "$REPO_DIR/.git" ]]; then
-  git -C "$REPO_DIR" fetch origin main && git -C "$REPO_DIR" reset --hard origin/main
-else
-  git clone --depth=1 "$REPO_URL" "$REPO_DIR"
-fi
-[[ -f "$REPO_DIR/go.mod" ]] || die "go.mod not found in $REPO_DIR"
+# ─── 3. Validate local source ─────────────────────────────────────────────────
+log "[3/7] Checking local genesis source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module github.com/gydschain/genesis" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 log "[4/7] Building ${BINARY}..."
-( cd "$REPO_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
 rm -f "/tmp/${BINARY}"
@@ -171,13 +141,45 @@ EOF
 chown "${APP_USER}:${APP_USER}" "$GENESIS_FILE"
 
 # ─── 6. Firewall ─────────────────────────────────────────────────────────────
-ufw default deny incoming >/dev/null 2>&1 || true
-ufw default allow outgoing >/dev/null 2>&1 || true
-ufw limit 22/tcp              comment "SSH"           >/dev/null 2>&1 || true
-ufw allow "${RPC_PORT}/tcp"   comment "GYDS RPC"      >/dev/null 2>&1 || true
-ufw allow "${GENESIS_PORT}/tcp" comment "GYDS P2P"   >/dev/null 2>&1 || true
-ufw allow "${GENESIS_PORT}/udp" comment "GYDS P2P"   >/dev/null 2>&1 || true
-ufw --force enable >/dev/null 2>&1 || true
+node_network_resolve_p2p_host || { err "Could not determine a reachable P2P address."; exit 1; }
+node_network_allow_p2p_tcp "$GENESIS_PORT"
+if [[ -n "$RPC_DOMAIN" ]]; then
+  [[ "$RPC_DOMAIN" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || { err "GYDS_RPC_DOMAIN must be a hostname without a scheme or path."; exit 1; }
+  node_network_allow_tcp_port 80 "GYDS RPC HTTP proxy"
+  node_network_allow_tcp_port 443 "GYDS RPC HTTPS proxy"
+  mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+  cat > /etc/nginx/sites-available/gyds-genesis <<EOF
+server {
+    listen 80;
+    server_name ${RPC_DOMAIN};
+
+    location /ws {
+        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host \$host;
+        proxy_read_timeout 86400s;
+    }
+    location /health {
+        proxy_pass http://127.0.0.1:${RPC_PORT}/health;
+        access_log off;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 60s;
+    }
+}
+EOF
+  ln -sf /etc/nginx/sites-available/gyds-genesis /etc/nginx/sites-enabled/gyds-genesis
+  nginx -t && systemctl enable nginx && systemctl restart nginx
+  certbot --nginx -d "$RPC_DOMAIN" --non-interactive --agree-tos -m "admin@${RPC_DOMAIN}" 2>/dev/null \
+    || warn "TLS setup failed; check DNS for ${RPC_DOMAIN}, then rerun Certbot."
+fi
 
 # ─── 7. systemd service ──────────────────────────────────────────────────────
 log "[7/7] Installing systemd service..."
@@ -195,9 +197,9 @@ WorkingDirectory=${DATA_DIR}
 Environment=GYDS_CHAIN_ID=${CHAIN_ID}
 Environment=GYDS_NODE_MODE=genesis
 Environment=GYDS_RPC_PORT=${RPC_PORT}
-Environment=GYDS_RPC_HOST=0.0.0.0
+Environment=GYDS_RPC_HOST=127.0.0.1
 Environment=GYDS_P2P_PORT=${GENESIS_PORT}
-Environment=GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}
+Environment=GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=info
 Environment=GYDS_LOG_FORMAT=json
@@ -232,14 +234,8 @@ for _ in 1 2 3; do
   sleep 4
 done
 
-if [[ "$NODE_OK" != "true" ]]; then
-  err "Genesis node did not pass its RPC health check on port ${RPC_PORT}."
-  systemctl --no-pager --full status gyds-genesis >&2 || true
-  journalctl -u gyds-genesis -n 50 --no-pager >&2 || true
-  exit 1
-fi
-
-SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+node_network_report_tcp_listener "$GENESIS_PORT"
+SERVER_IP="${GYDS_P2P_ADVERTISE_HOST}"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -256,8 +252,14 @@ echo "  Founder key  : ${FOUNDER_KEY}  ⚠️  CRITICAL — BACK THIS UP"
 echo "  Genesis JSON : ${GENESIS_FILE}"
 echo "  Founder addr : ${GENESIS_ADDR}"
 echo ""
-echo "  RPC          : http://${SERVER_IP}:${RPC_PORT}"
+if [[ -n "$RPC_DOMAIN" ]]; then
+  echo "  RPC          : https://${RPC_DOMAIN}"
+  echo "  WS           : wss://${RPC_DOMAIN}/ws"
+else
+  echo "  RPC/WS       : localhost:${RPC_PORT} (local only; set GYDS_RPC_DOMAIN for HTTPS access)"
+fi
 echo "  P2P          : tcp://${SERVER_IP}:${GENESIS_PORT}"
+node_network_report_p2p "$GENESIS_PORT"
 echo "  Chain ID     : ${CHAIN_ID}  |  Block time: 5s"
 echo ""
 echo "  Set this as GYDS_BOOTSTRAP_NODES for all other nodes:"

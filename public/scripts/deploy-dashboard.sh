@@ -11,8 +11,8 @@
 # ║      SUBDOMAIN=app DOMAIN=netlifegy.com \                              ║
 # ║      CF_TUNNEL_TOKEN=<token> bash deploy-dashboard.sh                  ║
 # ║                                                                         ║
-# ║    Main domain + certbot SSL (no Cloudflare):                          ║
-# ║      DOMAIN=netlifegy.com USE_CERTBOT=1 bash deploy-dashboard.sh       ║
+# ║    Root domain + certbot SSL (no Cloudflare):                          ║
+# ║      SUBDOMAIN="" DOMAIN=netlifegy.com USE_CERTBOT=1 bash deploy-dashboard.sh ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
@@ -24,8 +24,9 @@ info()   { echo -e "${CYAN}[→]${NC} $*"; }
 step()   { echo ""; echo -e "${BOLD}${GREEN}━━━ $* ━━━${NC}"; }
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-SUBDOMAIN="${SUBDOMAIN:-}"                          # e.g. "app" → app.netlifegy.com (empty = use DOMAIN directly)
+SUBDOMAIN="${SUBDOMAIN-app}"                        # defaults to "app"; set empty explicitly to use DOMAIN directly
 DOMAIN="${DOMAIN:-netlifegy.com}"
+GYDS_RPC_DOMAIN="${GYDS_RPC_DOMAIN:-rpc.${DOMAIN}}"
 FQDN="${SUBDOMAIN:+${SUBDOMAIN}.}${DOMAIN}"        # app.netlifegy.com or netlifegy.com
 USE_CERTBOT="${USE_CERTBOT:-0}"                     # set to 1 for direct SSL (non-Cloudflare)
 SSL_EMAIL="${GYDS_SSL_EMAIL:-${EMAIL:-}}"
@@ -41,9 +42,17 @@ SESSION_SECRET="${SESSION_SECRET:-$(openssl rand -hex 32)}"
 NODE_ENV="${NODE_ENV:-production}"
 
 # ── Optional extras (skippable) ───────────────────────────────────────────────
+# For an unattended deployment against a populated database, set
+# ALLOW_EXISTING_DB_MIGRATIONS=1 only after reviewing the migration warning and taking a backup.
 ADMIN_WALLET="${ADMIN_WALLET:-}"
 FOUNDER_WALLET="${FOUNDER_WALLET:-}"
 REWARD_ADDRESS="${REWARD_ADDRESS:-}"
+GYDS_TREASURY_FOUNDER_ADDRESS="${GYDS_TREASURY_FOUNDER_ADDRESS:-}"
+GYDS_TREASURY_MINING_POOL_ADDRESS="${GYDS_TREASURY_MINING_POOL_ADDRESS:-}"
+GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS="${GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS:-}"
+GYDS_TREASURY_STAKING_REWARDS_ADDRESS="${GYDS_TREASURY_STAKING_REWARDS_ADDRESS:-}"
+GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS="${GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS:-}"
+GYDS_TREASURY_TEAM_ADDRESS="${GYDS_TREASURY_TEAM_ADDRESS:-}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 HCAPTCHA_SITE_KEY="${HCAPTCHA_SITE_KEY:-}"
 HCAPTCHA_SECRET_KEY="${HCAPTCHA_SECRET_KEY:-}"
@@ -81,6 +90,14 @@ if [[ "${NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
   prompt_opt ADMIN_WALLET        "Admin wallet address    (0x...)"
   prompt_opt FOUNDER_WALLET      "Founder wallet address  (0x...)"
   prompt_opt REWARD_ADDRESS      "Mining/reward wallet    (0x...)"
+  echo ""
+  echo -e "${YELLOW}  ▸ Genesis treasury recipients  (leave all blank to configure later)${NC}"
+  prompt_opt GYDS_TREASURY_FOUNDER_ADDRESS        "Genesis founder recipient       (0x...)"
+  prompt_opt GYDS_TREASURY_MINING_POOL_ADDRESS    "Mining pool recipient            (0x...)"
+  prompt_opt GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS "Liquidity pool recipient         (0x...)"
+  prompt_opt GYDS_TREASURY_STAKING_REWARDS_ADDRESS "Staking rewards recipient        (0x...)"
+  prompt_opt GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS "Development fund recipient       (0x...)"
+  prompt_opt GYDS_TREASURY_TEAM_ADDRESS           "Team recipient                   (0x...)"
 
   echo ""
   echo -e "${YELLOW}  ▸ Repository access${NC}"
@@ -129,12 +146,17 @@ echo -e "${NC}"
 
 if [[ "$USE_CERTBOT" == "1" && -z "$SSL_EMAIL" ]]; then
     warn "USE_CERTBOT=1 requires SSL_EMAIL"
+    if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
+        err "Set GYDS_SSL_EMAIL (or EMAIL) when using USE_CERTBOT=1 in non-interactive mode."
+        exit 1
+    fi
     read -rp "Email for SSL cert: " SSL_EMAIL
     [[ -n "$SSL_EMAIL" ]] || { err "Email required for certbot"; exit 1; }
 fi
 
 info "Deployment configuration:"
 echo "  Domain (FQDN):  $FQDN"
+echo "  RPC domain:     $GYDS_RPC_DOMAIN"
 echo "  Subdomain:      ${SUBDOMAIN:-<root domain>}"
 echo "  App dir:        $APP_DIR"
 echo "  Repo:           $REPO_URL"
@@ -143,16 +165,21 @@ echo "  API port:       $PORT_API"
 echo "  CF Tunnel:      ${CF_TUNNEL_TOKEN:+yes}${CF_TUNNEL_TOKEN:-no}"
 echo "  Certbot SSL:    ${USE_CERTBOT}"
 echo ""
-read -rp "Continue? (y/N) " -n 1 reply; echo
-[[ "$reply" =~ ^[Yy]$ ]] || exit 0
+if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
+    info "Non-interactive mode — continuing with the supplied configuration and defaults."
+else
+    read -rp "Continue? (y/N) " -n 1 reply; echo
+    [[ "$reply" =~ ^[Yy]$ ]] || exit 0
+fi
 
 # ─── Step 1: System packages ──────────────────────────────────────────────────
 step "1/8 — System packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-PKGS="git curl wget build-essential nginx postgresql postgresql-contrib ufw fail2ban jq"
+PKGS="git curl wget build-essential nginx postgresql postgresql-contrib ufw fail2ban jq cron"
 [[ "$USE_CERTBOT" == "1" ]] && PKGS="$PKGS certbot python3-certbot-nginx"
 apt-get install -y -qq $PKGS
+systemctl enable --now cron
 
 if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
     info "Installing Node.js 22 LTS..."
@@ -173,18 +200,26 @@ echo "  [2] Use an existing database (provide connection details)"
 echo ""
 if [[ -n "${DATABASE_URL:-}" ]]; then
     echo -e "${YELLOW}DATABASE_URL is already set in environment — using it.${NC}"
-    echo "  DATABASE_URL: ${DATABASE_URL}"
-    read -rp "  Use this existing value? (Y/n) " -n 1 _use_existing; echo
-    if [[ ! "$_use_existing" =~ ^[Nn]$ ]]; then
+    if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
         PG_MODE="existing_url"
     else
-        unset DATABASE_URL
-        PG_MODE=""
+        read -rp "  Use this existing value? (Y/n) " -n 1 _use_existing; echo
+        if [[ ! "$_use_existing" =~ ^[Nn]$ ]]; then
+            PG_MODE="existing_url"
+        else
+            unset DATABASE_URL
+            PG_MODE=""
+        fi
     fi
 fi
 
 if [[ -z "${PG_MODE:-}" ]]; then
-    read -rp "Choice [1/2]: " -n 1 PG_CHOICE; echo
+    if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
+        PG_CHOICE="1"
+        info "Non-interactive mode — creating a new local database with generated credentials."
+    else
+        read -rp "Choice [1/2]: " -n 1 PG_CHOICE; echo
+    fi
     if [[ "$PG_CHOICE" == "2" ]]; then
         PG_MODE="existing"
         echo ""
@@ -216,7 +251,10 @@ if [[ -z "${PG_MODE:-}" ]]; then
         echo "  User:     $PG_USER"
         echo "  Password: $PG_PASS"
         echo ""
-        read -rp "  Customise these values? (y/N) " -n 1 _custom; echo
+        _custom="n"
+        if [[ "${NONINTERACTIVE:-0}" != "1" && -t 0 ]]; then
+            read -rp "  Customise these values? (y/N) " -n 1 _custom; echo
+        fi
         if [[ "$_custom" =~ ^[Yy]$ ]]; then
             read -rp "  Database name [$PG_DBNAME]: " _in; [[ -n "$_in" ]] && PG_DBNAME="$_in"
             read -rp "  Username      [$PG_USER]:   " _in; [[ -n "$_in" ]] && PG_USER="$_in"
@@ -245,9 +283,18 @@ if [[ "$_EXISTING_TABLES" -gt 0 ]]; then
     echo -e "${YELLOW}│                                                                   │${NC}"
     echo -e "${YELLOW}│  Your existing data is safe UNLESS you chose to wipe the DB.     │${NC}"
     echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────┘${NC}"
-    echo ""
-    read -rp "Continue and apply migrations to the existing database? (y/N) " -n 1 _mig_ok; echo
-    [[ "$_mig_ok" =~ ^[Yy]$ ]] || { warn "Aborted — no changes made to the database."; exit 0; }
+    if [[ "${NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
+        if [[ "${ALLOW_EXISTING_DB_MIGRATIONS:-0}" != "1" ]]; then
+            err "Refusing to migrate an existing database in non-interactive mode."
+            err "Back up the database, then rerun with ALLOW_EXISTING_DB_MIGRATIONS=1 to approve additive migrations."
+            exit 1
+        fi
+        warn "ALLOW_EXISTING_DB_MIGRATIONS=1 — applying the documented additive migrations."
+    else
+        echo ""
+        read -rp "Continue and apply migrations to the existing database? (y/N) " -n 1 _mig_ok; echo
+        [[ "$_mig_ok" =~ ^[Yy]$ ]] || { warn "Aborted — no changes made to the database."; exit 0; }
+    fi
 fi
 
 log "Database ready: ${PG_DBNAME:-${DATABASE_URL%%@*}@...} (${_EXISTING_TABLES} existing tables)"
@@ -350,6 +397,12 @@ APP_URL="${APP_URL:-https://${FQDN}}"
   [[ -n "$ADMIN_WALLET"         ]] && echo "ADMIN_WALLET=${ADMIN_WALLET}"
   [[ -n "$FOUNDER_WALLET"       ]] && echo "FOUNDER_WALLET=${FOUNDER_WALLET}"
   [[ -n "$REWARD_ADDRESS"       ]] && echo "REWARD_ADDRESS=${REWARD_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_FOUNDER_ADDRESS"         ]] && echo "GYDS_TREASURY_FOUNDER_ADDRESS=${GYDS_TREASURY_FOUNDER_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_MINING_POOL_ADDRESS"     ]] && echo "GYDS_TREASURY_MINING_POOL_ADDRESS=${GYDS_TREASURY_MINING_POOL_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS"  ]] && echo "GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS=${GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_STAKING_REWARDS_ADDRESS" ]] && echo "GYDS_TREASURY_STAKING_REWARDS_ADDRESS=${GYDS_TREASURY_STAKING_REWARDS_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS" ]] && echo "GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS=${GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS}"
+  [[ -n "$GYDS_TREASURY_TEAM_ADDRESS" ]] && echo "GYDS_TREASURY_TEAM_ADDRESS=${GYDS_TREASURY_TEAM_ADDRESS}"
   [[ -n "$GITHUB_TOKEN"         ]] && echo "GITHUB_TOKEN=${GITHUB_TOKEN}"
   [[ -n "$HCAPTCHA_SITE_KEY"    ]] && echo "VITE_HCAPTCHA_SITE_KEY=${HCAPTCHA_SITE_KEY}"
   [[ -n "$HCAPTCHA_SECRET_KEY"  ]] && echo "HCAPTCHA_SECRET_KEY=${HCAPTCHA_SECRET_KEY}"
@@ -380,6 +433,7 @@ id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" 
   echo "GYDS_CHAIN_ID=198282"
   echo "DOMAIN=${DOMAIN}"
   echo "FQDN=${FQDN}"
+  echo "GYDS_RPC_DOMAIN=${GYDS_RPC_DOMAIN}"
   [[ -n "$ADMIN_WALLET"         ]] && echo "GYDS_ADMIN_WALLET=${ADMIN_WALLET}"
   [[ -n "$FOUNDER_WALLET"       ]] && echo "GYDS_FOUNDER_WALLET=${FOUNDER_WALLET}"
   [[ -n "$REWARD_ADDRESS"       ]] && echo "GYDS_REWARD_ADDRESS=${REWARD_ADDRESS}"
@@ -396,7 +450,7 @@ id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/.env" 
   [[ -n "$WA_PHONE_ID"          ]] && echo "WHATSAPP_PHONE_ID=${WA_PHONE_ID}"
   [[ -n "$GYDS_BOOTSTRAP_NODES" ]] && echo "GYDS_BOOTSTRAP_NODES=${GYDS_BOOTSTRAP_NODES}"
 } > "$APP_DIR/gyds-config.env"
-chmod 644 "$APP_DIR/gyds-config.env"
+chmod 600 "$APP_DIR/gyds-config.env"
 id -u "$NODE_USER" &>/dev/null && chown "$NODE_USER:$NODE_USER" "$APP_DIR/gyds-config.env" || true
 log "Shared config written → $APP_DIR/gyds-config.env"
 
@@ -473,9 +527,18 @@ step "4b/8 — DB schema migrations"
 info "Applying DB migrations via psql (non-interactive, idempotent)..."
 cd "$APP_DIR"
 export DATABASE_URL
+MIGRATION_SAFETY_CHECKER="$APP_DIR/public/scripts/check-migration-identity-safety.py"
+if [[ ! -f "$MIGRATION_SAFETY_CHECKER" ]]; then
+    err "Account-safety migration checker is missing; refusing to run database migrations."
+    exit 1
+fi
 migration_ok=0
 migration_fail=0
 for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
+    if ! python3 "$MIGRATION_SAFETY_CHECKER" "$f"; then
+        err "Migration $(basename "$f") is unsafe or could not be checked; refusing to continue."
+        exit 1
+    fi
     if psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f "$f" > /tmp/mig-last.log 2>&1; then
         log "  ✓  $(basename "$f")"
         (( migration_ok++ )) || true
@@ -536,14 +599,58 @@ $(
 PM2CFG
 
 if id -u "$NODE_USER" &>/dev/null; then
-    su - "$NODE_USER" -c "pm2 delete gydschain-api 2>/dev/null; pm2 start '$APP_DIR/ecosystem.config.cjs'; pm2 save --force" || true
-    env PATH="$PATH:/usr/bin:/usr/local/bin" pm2 startup systemd -u "$NODE_USER" --hp "/home/$NODE_USER" 2>/dev/null | tail -1 | bash 2>/dev/null || true
+    if ! su - "$NODE_USER" -c "pm2 delete gydschain-api >/dev/null 2>&1 || true; pm2 start '$APP_DIR/ecosystem.config.cjs' && pm2 save --force"; then
+        err "PM2 could not start gydschain-api as ${NODE_USER}."
+        exit 1
+    fi
+    PM2_RUN_USER="$NODE_USER"
 else
     pm2 delete gydschain-api 2>/dev/null || true
     pm2 start "$APP_DIR/ecosystem.config.cjs"
     pm2 save --force
+    PM2_RUN_USER="root"
 fi
+if [[ ! -f "$APP_DIR/public/scripts/ensure-api-boot.sh" ]]; then
+    err "Missing PM2 boot setup helper: $APP_DIR/public/scripts/ensure-api-boot.sh"
+    exit 1
+fi
+bash "$APP_DIR/public/scripts/ensure-api-boot.sh" "$PM2_RUN_USER"
 log "PM2: gydschain-api → port $PORT_API"
+
+# Install an independent API/database watchdog. PM2 restarts crashed processes;
+# this also catches a hung API or lost database connection.
+install -m 755 "$APP_DIR/public/scripts/gyds-watchdog.sh" /usr/local/bin/gyds-watchdog
+cat > /etc/cron.d/gyds-watchdog <<CRON
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root APP_PORT=${PORT_API} PM2_APP=gydschain-api PM2_USER=${NODE_USER} LOG_FILE=/var/log/gydschain/watchdog.log /usr/bin/flock -n /run/gyds-watchdog.lock /usr/local/bin/gyds-watchdog
+CRON
+chmod 644 /etc/cron.d/gyds-watchdog
+log "API/database watchdog installed (minute checks; 5-minute restart cooldown)"
+
+# Confirm the API is alive before configuring the public site.
+API_HEALTH=""
+for attempt in $(seq 1 30); do
+    API_HEALTH=$(curl -fsS --max-time 3 "http://127.0.0.1:${PORT_API}/api/auth/captcha/health" 2>/dev/null || true)
+    if grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<< "$API_HEALTH"; then
+        break
+    fi
+    sleep 2
+done
+if ! grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<< "$API_HEALTH"; then
+    err "Dashboard API did not become healthy on port ${PORT_API}."
+    err "Check: pm2 status && pm2 logs gydschain-api --lines 80"
+    exit 1
+fi
+log "Auth API health check passed"
+
+BOOTSTRAP_USERS=$(psql "$DATABASE_URL" -Atc "SELECT COUNT(DISTINCT username) FROM users WHERE username IN ('founder','admin')" 2>/dev/null || echo "0")
+if [[ "$BOOTSTRAP_USERS" != "2" ]]; then
+    warn "Founder/admin bootstrap accounts were not both found after startup."
+    warn "Check PM2 logs for [seed] errors. Public registration can still be used at ${APP_URL%/}/auth."
+else
+    log "Founder/admin bootstrap accounts are present in the database."
+fi
 
 # ─── Step 6: Nginx ────────────────────────────────────────────────────────────
 step "6/8 — Nginx"
@@ -628,8 +735,41 @@ NGINXEOF
 
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/gydschain
-nginx -t && systemctl reload nginx || systemctl restart nginx
+if ! nginx -t; then
+    err "Nginx configuration is invalid; refusing to report a successful dashboard deployment."
+    exit 1
+fi
+systemctl reload nginx || systemctl restart nginx
+systemctl enable nginx
 log "Nginx: $FQDN → $APP_DIR/dist"
+
+# Verify the configured virtual host serves the app, not Ubuntu's default page.
+# Give Nginx workers time to finish a graceful reload before treating a stale
+# response from the previous config as a deployment failure.
+NGINX_RESPONSE=""
+for attempt in {1..10}; do
+    NGINX_RESPONSE=$(curl -fsS --max-time 10 -H "Host: ${FQDN}" http://127.0.0.1/ 2>/dev/null || true)
+    if [[ -n "$NGINX_RESPONSE" ]] && ! grep -qi "Welcome to nginx" <<< "$NGINX_RESPONSE"; then
+        break
+    fi
+    [[ "$attempt" -eq 10 ]] || sleep 1
+done
+if [[ -z "$NGINX_RESPONSE" ]]; then
+    warn "Could not verify the dashboard over local HTTP; check Nginx and the server logs."
+elif grep -qi "Welcome to nginx" <<< "$NGINX_RESPONSE"; then
+    err "Nginx is still serving its default welcome page. Inspect enabled sites with: nginx -T"
+    exit 1
+else
+    log "Nginx virtual host serves the dashboard for ${FQDN}"
+fi
+
+AUTH_HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 -H "Host: ${FQDN}" http://127.0.0.1/auth 2>/dev/null || true)
+if [[ "$AUTH_HTTP_CODE" != "200" ]]; then
+    err "The login route /auth returned HTTP ${AUTH_HTTP_CODE:-no response} through Nginx."
+    err "The dashboard is not ready for sign-in; inspect the enabled Nginx site and PM2 logs."
+    exit 1
+fi
+log "Login/register route verified: ${APP_URL%/}/auth"
 
 # ─── Step 7: UFW Firewall ──────────────────────────────────────────────────────
 step "7/8 — Firewall"
@@ -671,118 +811,25 @@ fi
 # Install redeploy helper
 cat > /usr/local/bin/gyds-redeploy <<RDEPLOY
 #!/usr/bin/env bash
-# GYDSchain Redeploy Helper — installed by deploy-dashboard.sh
+# Compatibility wrapper — all updates use the account-safe updater.
 # Usage: gyds-redeploy [--skip-db] [--skip-build]
 set -euo pipefail
 
 APP_DIR="${APP_DIR}"
-SKIP_DB=0
-SKIP_BUILD=0
+UPDATE_SCRIPT="\${APP_DIR}/public/scripts/gyds-update.sh"
+if [[ ! -f "\$UPDATE_SCRIPT" ]]; then
+    echo "Missing account-safe updater: \$UPDATE_SCRIPT" >&2
+    exit 1
+fi
+UPDATE_ARGS=()
 for arg in "\$@"; do
   case "\$arg" in
-    --skip-db)    SKIP_DB=1 ;;
-    --skip-build) SKIP_BUILD=1 ;;
+    --skip-db)    UPDATE_ARGS+=(--no-db) ;;
+    --skip-build) UPDATE_ARGS+=(--no-build) ;;
+    *)            UPDATE_ARGS+=("\$arg") ;;
   esac
 done
-
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-log()  { echo -e "\${GREEN}[✓]\${NC} \$*"; }
-warn() { echo -e "\${YELLOW}[!]\${NC} \$*"; }
-info() { echo -e "\${CYAN}[→]\${NC} \$*"; }
-
-# Load env
-set -a; source "\$APP_DIR/.env" 2>/dev/null || true; set +a
-
-echo ""
-echo -e "\${CYAN}━━━ GYDSchain Redeploy — \$(date '+%Y-%m-%d %H:%M:%S') ━━━\${NC}"
-echo ""
-
-# ── 1. Pull latest code ────────────────────────────────────────────────────
-info "Pulling latest code..."
-BRANCH=\$(git -C "\$APP_DIR" branch --show-current 2>/dev/null || echo main)
-git -C "\$APP_DIR" fetch origin
-CURRENT=\$(git -C "\$APP_DIR" rev-parse HEAD)
-REMOTE=\$(git -C "\$APP_DIR" rev-parse "origin/\$BRANCH" 2>/dev/null || echo "")
-
-if [[ "\$CURRENT" == "\$REMOTE" ]]; then
-    warn "Already up-to-date — will still run migrations and reload PM2"
-else
-    git -C "\$APP_DIR" pull --ff-only origin "\$BRANCH"
-    log "Updated to: \$(git -C \"\$APP_DIR\" log -1 --format='%h %s')"
-fi
-
-# ── 2. Install deps if package.json changed ────────────────────────────────
-PKG_CHANGED=\$(git -C "\$APP_DIR" diff "\$CURRENT" HEAD -- package.json 2>/dev/null | wc -l || echo 1)
-if [[ "\$PKG_CHANGED" -gt 0 ]]; then
-    info "package.json changed — installing dependencies..."
-    cd "\$APP_DIR"
-    npm config set registry https://registry.npmjs.org/
-    rm -f package-lock.json
-    npm install --legacy-peer-deps 2>&1 | tail -5
-    log "Dependencies updated"
-fi
-
-# ── 3. Schema migration (always runs — idempotent IF NOT EXISTS) ───────────
-if [[ "\$SKIP_DB" == "0" ]]; then
-    DB_URL="\${DATABASE_URL:-}"
-    if [[ -z "\$DB_URL" ]]; then
-        warn "DATABASE_URL not set — skipping schema migration"
-    else
-        info "Running schema migration..."
-        migrated=0
-
-        # Numbered migration files
-        if [[ -d "\${APP_DIR}/migrations" ]]; then
-            for f in \$(ls "\${APP_DIR}/migrations/"*.sql 2>/dev/null | sort); do
-                [[ -f "\$f" ]] || continue
-                info "  Applying: \$(basename \"\$f\")"
-                psql "\$DB_URL" -v ON_ERROR_STOP=0 -f "\$f" 2>&1 | grep -i "error\|warning" || true
-                log "  ✓ \$(basename \"\$f\")"
-                (( migrated++ )) || true
-            done
-        fi
-
-        # Full schema — ONLY use the idempotent complete schema (IF NOT EXISTS everywhere).
-        # Do NOT apply gydschain-schema.sql — it has DROP TABLE CASCADE which wipes data.
-        safe_schema="\${APP_DIR}/public/scripts/gydschain-complete-schema.sql"
-        if [[ -f "\$safe_schema" ]]; then
-            info "  Full schema: \$(basename \"\$safe_schema\")"
-            psql "\$DB_URL" -v ON_ERROR_STOP=0 -f "\$safe_schema" 2>&1 | grep -i "error\|warning" || true
-            log "  ✓ \$(basename \"\$safe_schema\")"
-        fi
-
-        TABLE_COUNT=\$(psql "\$DB_URL" -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' ' || echo "?")
-        log "Schema migration complete — \${TABLE_COUNT} tables in database"
-    fi
-else
-    warn "--skip-db passed — skipping schema migration"
-fi
-
-# ── 4. Build (skip with --skip-build for config-only changes) ─────────────
-if [[ "\$SKIP_BUILD" == "0" ]]; then
-    info "Building frontend (NODE_OPTIONS=--max-old-space-size=2048)..."
-    cd "\$APP_DIR"
-    if ! NODE_OPTIONS="--max-old-space-size=2048" npm run build; then
-        warn "Build failed with 2 GB — retrying with 3 GB..."
-        NODE_OPTIONS="--max-old-space-size=3072" npm run build 2>&1 | tail -20 || { err "Build failed"; exit 1; }
-    fi
-    log "Build complete"
-else
-    warn "--skip-build passed — skipping Vite build"
-fi
-
-# ── 5. Reload PM2 (zero-downtime) ─────────────────────────────────────────
-info "Reloading PM2..."
-pm2 reload gydschain-api --update-env
-pm2 save --force 2>/dev/null || true
-log "PM2 reloaded"
-
-# ── 6. Reload Nginx ───────────────────────────────────────────────────────
-nginx -t 2>/dev/null && { nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || true; log "Nginx reloaded"; }
-
-echo ""
-log "Redeploy complete! \$(date '+%Y-%m-%d %H:%M:%S')"
-echo -e "\${CYAN}Logs:\${NC} pm2 logs gydschain-api --lines 30"
+exec bash "\$UPDATE_SCRIPT" "\${UPDATE_ARGS[@]}"
 RDEPLOY
 chmod +x /usr/local/bin/gyds-redeploy
 
@@ -811,6 +858,7 @@ echo -e "${GREEN}║  ✅  ChainCore deployed!                                  
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${CYAN}URL:${NC}        http://${FQDN}  (HTTPS via Cloudflare)"
+echo -e "${CYAN}Login:${NC}      ${APP_URL%/}/auth  (Sign In / Register)"
 echo -e "${CYAN}API:${NC}        http://${FQDN}/api/"
 echo -e "${CYAN}Health:${NC}     http://${FQDN}/health"
 echo -e "${CYAN}Server IP:${NC}  ${PUBLIC_IP}"
@@ -825,8 +873,9 @@ else
 fi
 echo ""
 echo -e "${CYAN}Manage:${NC}"
-echo -e "  pm2 status"
-echo -e "  pm2 logs gydschain-api --lines 50"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 status"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 logs gydschain-api --lines 50"
+echo -e "  systemctl status pm2-${PM2_RUN_USER}.service  (enabled at boot)"
 echo -e "  gyds-redeploy          ← pull + build + reload"
 echo ""
 echo -e "${YELLOW}⚠  Save these credentials (also in ${APP_DIR}/.env):${NC}"

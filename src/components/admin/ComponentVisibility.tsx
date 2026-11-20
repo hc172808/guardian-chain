@@ -4,10 +4,12 @@ import { Badge } from '@/components/ui/badge';
 import { useComponentVisibility, KNOWN_COMPONENTS } from '@/hooks/useComponentVisibility';
 import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff } from 'lucide-react';
+import { useState } from 'react';
 
 export const ComponentVisibility = () => {
   const { hidden, toggle, loading } = useComponentVisibility();
   const { toast } = useToast();
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
 
   const groups = KNOWN_COMPONENTS.reduce<Record<string, typeof KNOWN_COMPONENTS>>(
     (acc, c) => {
@@ -18,14 +20,25 @@ export const ComponentVisibility = () => {
   );
 
   const handleToggle = async (key: string, label: string) => {
-    await toggle(key);
-    const nowHidden = !hidden.includes(key);
-    toast({
-      title: nowHidden ? 'Component hidden' : 'Component visible',
-      description: nowHidden
-        ? `${label} is now hidden from non-admin users.`
-        : `${label} is now visible to everyone.`,
-    });
+    const willHide = !hidden.includes(key);
+    setSaving((current) => ({ ...current, [key]: true }));
+    try {
+      await toggle(key);
+      toast({
+        title: willHide ? 'Component hidden' : 'Component visible',
+        description: willHide
+          ? `${label} is now hidden from non-admin users.`
+          : `${label} is now visible to everyone.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Visibility setting was not saved',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSaving((current) => ({ ...current, [key]: false }));
+    }
   };
 
   return (
@@ -78,6 +91,7 @@ export const ComponentVisibility = () => {
                       <Switch
                         checked={!isHidden}
                         onCheckedChange={() => handleToggle(item.key, item.label)}
+                        disabled={loading || Boolean(saving[item.key])}
                         data-testid={`switch-visibility-${item.key}`}
                       />
                     </div>

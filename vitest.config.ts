@@ -8,7 +8,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     globals: true,
-    exclude: [...configDefaults.exclude, 'contracts/test/**'],
+    // Solidity/Hardhat tests run through the contracts package's own scripts.
+    // Keep Vitest focused on the root app tests; these suites require Hardhat.
+    exclude: [...configDefaults.exclude, 'contracts/test/**', 'contracts/token-test/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json'],

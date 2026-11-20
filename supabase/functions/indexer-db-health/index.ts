@@ -1,7 +1,7 @@
 // Admin-only health check for the saved GYDS_INDEXER_DB_URL secret.
 // Never returns or logs the connection string, host, user or password.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import postgres from 'npm:postgres@3.4.4';
+import postgres from 'https://esm.sh/postgres@3.4.4?target=deno';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

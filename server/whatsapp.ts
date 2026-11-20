@@ -18,6 +18,10 @@
 import { pool as pgPool } from "./db";
 
 const GRAPH_API = "https://graph.facebook.com/v20.0";
+interface WhatsAppApiResponse {
+  error?: { message?: string };
+  messages?: Array<{ id?: string }>;
+}
 // ── Config helpers ───────────────────────────────────────────────────────────
 
 export interface WhatsAppConfig {
@@ -113,7 +117,7 @@ export async function sendWhatsAppMessage(
       }
     );
 
-    const data = await res.json();
+    const data = await res.json() as WhatsAppApiResponse;
 
     if (!res.ok || data.error) {
       const msg = data.error?.message ?? `HTTP ${res.status}`;

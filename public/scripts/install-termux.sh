@@ -1,25 +1,52 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #═══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Mobile (Termux/Android) Lite Node Installer
-#  Builds the REAL gyds-litenode binary from public/blockchain-go/ source.
+#  Builds the bundled local node-fixes/litenode source.
 #  Run inside Termux on Android:  bash install-termux.sh
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
 GYDS_VERSION="2.1.0"
 CHAIN_ID="${CHAIN_ID:-198282}"
+RPC_PORT="${GYDS_RPC_PORT:-8545}"
+P2P_PORT="${GYDS_P2P_PORT:-30303}"
+P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
+LITE_P2P_PORT=0
+[[ -n "$P2P_ADVERTISE_HOST" ]] && LITE_P2P_PORT="$P2P_PORT"
+DASHBOARD_PORT="${GYDS_DASHBOARD_PORT:-5000}"
+BOOTSTRAP_NODES="${GYDS_BOOTSTRAP_NODES:-}"
 GYDS_HOME="${GYDS_HOME:-$HOME/.gyds}"
 BIN="$GYDS_HOME/bin"
-DATA="$GYDS_HOME/data"
+DATA="${GYDS_DATA_DIR:-$GYDS_HOME/data-fullnode}"
 LOGS="$GYDS_HOME/logs"
 WALLET="$GYDS_HOME/wallet"
 
-RPC_PRIMARY="https://rpc.netlifegy.com"
-RPC_FAILOVER="https://rpc2.netlifegy.com,https://rpc3.netlifegy.com"
-WS_ENDPOINT="wss://ws.netlifegy.com"
 EXPLORER_URL="https://explorer.netlifegy.com"
 
-SRC_DIR="${SRC_DIR:-$(cd "$(dirname "$0")/../blockchain-go" 2>/dev/null && pwd || echo "")}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/litenode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
+SRC_DIR="${SRC_DIR:-${PROJECT_ROOT}/node-fixes/litenode}"
+
+case "$CHAIN_ID" in
+  198282) NETWORK="mainnet" ;;
+  198281) NETWORK="testnet" ;;
+  *)
+    echo "❌ Unsupported CHAIN_ID '$CHAIN_ID'. Use 198282 (mainnet) or 198281 (testnet)." >&2
+    exit 1
+    ;;
+esac
+
+if [[ -n "$BOOTSTRAP_NODES" && ! "$BOOTSTRAP_NODES" =~ ^[A-Za-z0-9:./,_-]+$ ]]; then
+  echo "❌ GYDS_BOOTSTRAP_NODES may contain only host:port entries separated by commas." >&2
+  exit 1
+fi
 
 echo "╔═══════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain MOBILE Installer v${GYDS_VERSION}                    ║"
@@ -29,8 +56,8 @@ echo "╚═══════════════════════�
 # ─── 1. Termux packages ────────────────────────────────────────────
 echo "📦 [1/6] Installing Termux packages..."
 pkg update -y
-pkg install -y golang git curl jq openssl openssl-tool nodejs tmux build-essential
-for b in go git curl jq openssl tmux; do
+pkg install -y golang curl jq openssl openssl-tool nodejs tmux build-essential
+for b in go curl jq openssl tmux; do
   command -v "$b" >/dev/null || { echo "❌ Missing $b after install"; exit 1; }
 done
 echo "    $(go version)"
@@ -39,29 +66,27 @@ echo "    $(go version)"
 echo "📂 [2/6] Creating directories..."
 mkdir -p "$BIN" "$DATA" "$DATA/blocks" "$LOGS" "$WALLET"
 chmod 700 "$GYDS_HOME"
-
-# ─── 3. Source ─────────────────────────────────────────────────────
-if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR/cmd/litenode" ]]; then
-  echo "🌐 [3/6] Source not provided locally — cloning from GitHub..."
-  REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
-  REPO_DIR="$GYDS_HOME/repo"
-  if [[ -d "$REPO_DIR/.git" ]]; then
-    ( cd "$REPO_DIR" && git pull --ff-only )
-  else
-    git clone --depth=1 "$REPO_URL" "$REPO_DIR"
-  fi
-  SRC_DIR="$REPO_DIR/public/blockchain-go"
-  [[ -d "$SRC_DIR/cmd/litenode" ]] || { echo "❌ Source missing in repo"; exit 1; }
-else
-  echo "📁 [3/6] Using local source: $SRC_DIR"
+if [[ -d "$GYDS_HOME/data" && "$DATA" != "$GYDS_HOME/data" ]]; then
+  echo "⚠️  Legacy data at $GYDS_HOME/data is untouched; canonical node data will sync in $DATA."
 fi
 
-# ─── 4. Build litenode ─────────────────────────────────────────────
-echo "🔨 [4/6] Building gyds-litenode (this can take a few minutes on phone)..."
+# ─── 3. Local source ───────────────────────────────────────────────
+echo "📁 [3/6] Using bundled local source: $SRC_DIR"
+if [[ ! -f "$SRC_DIR/go.mod" ]] || ! grep -Fqx 'module github.com/gydschain/litenode' "$SRC_DIR/go.mod"; then
+  echo "❌ Expected bundled module github.com/gydschain/litenode at $SRC_DIR" >&2
+  exit 1
+fi
+
+# ─── 4. Build local lite node binary ────────────────────────────────
+echo "🔨 [4/6] Building the local lite node (this can take a few minutes on phone)..."
 BUILD_TMP="$(mktemp -d)"
-cp -r "$SRC_DIR" "$BUILD_TMP/blockchain-go"
-( cd "$BUILD_TMP/blockchain-go" && go mod download && go build -ldflags "-s -w" -o "$BIN/gyds-litenode" ./cmd/litenode )
+trap 'rm -rf "${BUILD_TMP:-}"' EXIT
+( cd "$SRC_DIR" && GOTOOLCHAIN=auto go mod download && \
+  GOTOOLCHAIN=auto go build -ldflags "-s -w -X main.version=${GYDS_VERSION}" \
+    -o "$BUILD_TMP/gyds-litenode" . )
+install -m 0755 "$BUILD_TMP/gyds-litenode" "$BIN/gyds-litenode"
 rm -rf "$BUILD_TMP"
+trap - EXIT
 echo "    Built: $BIN/gyds-litenode"
 
 # ─── 5. Wallet ─────────────────────────────────────────────────────
@@ -81,25 +106,41 @@ echo "    Wallet: $NODE_ADDRESS"
 echo "🚀 [6/6] Creating scripts..."
 cat > "$GYDS_HOME/node.env" <<EOF
 CHAIN_ID=$CHAIN_ID
+NETWORK=$NETWORK
 DATA_DIR=$DATA
+GYDS_NODE_MODE=lite
+GYDS_NETWORK=$NETWORK
+GYDS_CHAIN_ID=$CHAIN_ID
+GYDS_DATA_DIR=$DATA
+GYDS_RPC_HOST=127.0.0.1
+GYDS_RPC_PORT=$RPC_PORT
+GYDS_P2P_PORT=$P2P_PORT
+GYDS_DASHBOARD_PORT=$DASHBOARD_PORT
+GYDS_BOOTSTRAP_NODES=$BOOTSTRAP_NODES
+GYDS_LOG_FORMAT=json
 WALLET_FILE=$KEYFILE
-RPC_PRIMARY=$RPC_PRIMARY
-RPC_FAILOVER=$RPC_FAILOVER
-WS_ENDPOINT=$WS_ENDPOINT
 EXPLORER_URL=$EXPLORER_URL
+LITE_DATADIR=$DATA
+LITE_RPC_PORT=$RPC_PORT
+LITE_API_HOST=127.0.0.1
+LITE_P2P_PORT=$LITE_P2P_PORT
+GYDS_P2P_ADVERTISE_HOST=$P2P_ADVERTISE_HOST
+LITE_RPC_ENDPOINTS=${GYDS_LITE_RPC_ENDPOINTS:-https://rpc.netlifegy.com}
+LITE_LOG_LEVEL=info
 EOF
 
 cat > "$HOME/start-gyds.sh" <<EOF
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
+set -a
+source "$GYDS_HOME/node.env"
+set +a
+if [[ -z "\${GYDS_BOOTSTRAP_NODES:-}" ]]; then
+    echo "❌ Set GYDS_BOOTSTRAP_NODES in $GYDS_HOME/node.env before starting; otherwise the lite node cannot sync."
+    exit 1
+fi
 mkdir -p "$LOGS"
 nohup "$BIN/gyds-litenode" \\
-    --rpc="$RPC_PRIMARY" \\
-    --rpc-failover="$RPC_FAILOVER" \\
-    --ws="$WS_ENDPOINT" \\
-    --datadir="$DATA" \\
-    --chain-id=$CHAIN_ID \\
-    --wallet="$KEYFILE" \\
     > "$LOGS/node.log" 2>&1 &
 echo \$! > "$GYDS_HOME/pid.node"
 echo "✅ Lite node started (PID: \$(cat "$GYDS_HOME/pid.node"))"
@@ -133,6 +174,9 @@ cat <<EOF
   Data:      $DATA
   Logs:      $LOGS/node.log
   Chain ID:  $CHAIN_ID
+  Lite API:  http://127.0.0.1:$RPC_PORT (local only; HTTP API, no WebSocket)
+  P2P:       ${P2P_ADVERTISE_HOST:-disabled (set GYDS_P2P_ADVERTISE_HOST and forward TCP $P2P_PORT)}
+  Bootstrap: ${BOOTSTRAP_NODES:-not configured}
 
   Start:  bash ~/start-gyds.sh
   Stop:   bash ~/stop-gyds.sh

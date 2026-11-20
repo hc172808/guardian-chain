@@ -1,7 +1,7 @@
 import { api, extractTransactionRows } from '@/lib/api';
 
 export const getUserAddresses = async (
-  userId: string,
+  _userId: string,
   connectedAddress?: string,
   _email?: string | null,
 ): Promise<Set<string>> => {
@@ -13,12 +13,9 @@ export const getUserAddresses = async (
     (userWallets || []).forEach((w: any) => myAddresses.add(w.address.toLowerCase()));
   } catch {}
 
-  try {
-    const founderConfig = await api.get('/api/config/founder_wallet');
-    const fcVal = founderConfig?.configValue ?? founderConfig?.config_value;
-    if (fcVal?.address) myAddresses.add(fcVal.address.toLowerCase());
-  } catch {}
-
+  // A server-wide founder/treasury address is not owned by every signed-in
+  // user. Only include addresses explicitly linked to this user or connected
+  // in their browser.
   return myAddresses;
 };
 

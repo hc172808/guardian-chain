@@ -23,7 +23,7 @@ const CHAIN_STATS = [
   { label: 'Consensus', value: 'Proof of Stake (PoS)' },
   { label: 'Block Time', value: '~120 seconds (2 min)' },
   { label: 'Max TPS', value: '3,000+' },
-  { label: 'Total Supply', value: '1,000,000,000 GYDS' },
+  { label: 'Max Supply', value: '3,000,000,000 GYDS' },
   { label: 'Native Currency', value: 'GYDS (18 decimals)' },
   { label: 'EVM Compatible', value: 'Yes (Chain ID 198282)' },
   { label: 'Genesis Date', value: 'TBD (Mainnet)' },

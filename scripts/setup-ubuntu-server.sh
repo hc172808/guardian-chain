@@ -19,7 +19,7 @@ set -euo pipefail
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
 GYDS_VERSION="2.1.0"
-GO_VERSION="1.22.5"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 GYDS_USER="${GYDS_USER:-gydschain}"
 GYDS_HOME="${GYDS_HOME:-/var/lib/gydschain}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
@@ -89,16 +89,10 @@ echo ""
 # ─── Locate source dir ───────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SRC_DIR="${SRC_DIR:-$REPO_ROOT/public/blockchain-go}"
-
-if [[ ! -d "$SRC_DIR/cmd/fullnode" ]]; then
-  warn "blockchain-go source not found at: $SRC_DIR"
-  warn "Binary build will be skipped. Set SRC_DIR=/path/to/blockchain-go to override."
-  BUILD_BINARY=false
-else
-  BUILD_BINARY=true
-  log "Source found: $SRC_DIR"
-fi
+SRC_DIR_OVERRIDE="${SRC_DIR:-}"
+SRC_DIR="${SRC_DIR_OVERRIDE:-$REPO_ROOT/node-fixes/fullnode}"
+BUILD_BINARY=true
+log "Bundled local fullnode source path: $SRC_DIR"
 
 # ═════════════════════════════════════════════════════════════════════════════
 header "Step 1/8 — System Update & Core Packages"
@@ -161,27 +155,35 @@ log "Directories ready: $GYDS_HOME"
 header "Step 4/8 — Build Binary"
 # ═════════════════════════════════════════════════════════════════════════════
 if [[ "$BUILD_BINARY" == "true" ]]; then
-  info "Building gyds-fullnode from $SRC_DIR ..."
+  if [[ ! -f "$SRC_DIR/go.mod" ]] || ! grep -Fqx 'module github.com/gydschain/fullnode' "$SRC_DIR/go.mod"; then
+    err "Expected bundled local module github.com/gydschain/fullnode at $SRC_DIR."
+    exit 1
+  fi
+  info "Building local gyds-fullnode from $SRC_DIR ..."
   BUILD_TMP="$(mktemp -d)"
-  cp -r "$SRC_DIR" "$BUILD_TMP/blockchain-go"
+  trap 'rm -rf "${BUILD_TMP:-}"' EXIT
+  cp -r "$SRC_DIR" "$BUILD_TMP/fullnode"
   chown -R "$GYDS_USER:$GYDS_USER" "$BUILD_TMP"
 
   sudo -u "$GYDS_USER" -H env HOME="$GYDS_HOME" PATH="$PATH" \
-    bash -c "cd '$BUILD_TMP/blockchain-go' && go mod download && \
-             go build -ldflags '-s -w -X main.Version=${GYDS_VERSION}' \
-             -o '$BUILD_TMP/gyds-fullnode' ./cmd/fullnode && \
-             go build -ldflags '-s -w' \
-             -o '$BUILD_TMP/gyds-litenode' ./cmd/litenode && \
-             go build -ldflags '-s -w' \
-             -o '$BUILD_TMP/gyds-bootnode' ./cmd/bootnode"
+    bash -c "cd '$BUILD_TMP/fullnode' && go mod download && \
+             go build -ldflags '-s -w -X main.version=${GYDS_VERSION}' \
+             -o '$BUILD_TMP/gyds-fullnode' ."
 
-  install -m 0755 -o root -g root "$BUILD_TMP/gyds-fullnode"  "$GYDS_BIN/gyds-fullnode"
-  install -m 0755 -o root -g root "$BUILD_TMP/gyds-litenode"  "$GYDS_BIN/gyds-litenode"
-  install -m 0755 -o root -g root "$BUILD_TMP/gyds-bootnode"  "$GYDS_BIN/gyds-bootnode"
+  install -m 0755 -o root -g root "$BUILD_TMP/gyds-fullnode" "$GYDS_BIN/gyds-fullnode"
+  cat > "$GYDS_BIN/gyds-litenode" <<EOF
+#!/usr/bin/env bash
+export GYDS_NODE_MODE=lite
+exec "${GYDS_BIN}/gyds-fullnode" "\$@"
+EOF
+  chmod 0755 "$GYDS_BIN/gyds-litenode"
   rm -rf "$BUILD_TMP"
-  log "Binaries installed to $GYDS_BIN"
+  trap - EXIT
+  log "Canonical binaries installed to $GYDS_BIN"
+  warn "The local setup flow installs the fullnode only; use install-bootnode.sh for a bootnode."
 else
-  warn "Skipping binary build (source not found). Install binaries manually."
+  err "Canonical node binary build was disabled unexpectedly."
+  exit 1
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -304,7 +306,7 @@ server {
     server_name ws.${DOMAIN};
 
     location / {
-        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_pass http://127.0.0.1:${RPC_PORT}/api/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade          \$http_upgrade;
         proxy_set_header Connection       "upgrade";
@@ -398,7 +400,7 @@ server {
     ssl_protocols       TLSv1.2 TLSv1.3;
 
     location / {
-        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_pass http://127.0.0.1:${RPC_PORT}/api/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";

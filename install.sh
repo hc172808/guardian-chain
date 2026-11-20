@@ -15,7 +15,7 @@
 # ║    sudo bash install.sh --requirements       # system deps only             ║
 # ║    sudo bash install.sh --fullnode           # full blockchain node         ║
 # ║    sudo bash install.sh --all                # everything                   ║
-# ║    NONINTERACTIVE=1 sudo bash install.sh --dashboard  # unattended          ║
+# ║    sudo bash install.sh --dashboard --noninteractive # unattended          ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
@@ -30,9 +30,6 @@ err()    { echo -e "${RED}[✗]${NC} $*" >&2; }
 info()   { echo -e "${CYAN}[→]${NC} $*"; }
 step()   { echo ""; echo -e "${BOLD}${GREEN}━━━ $* ━━━${NC}"; }
 
-# ─── Root check ───────────────────────────────────────────────────────────────
-[[ $EUID -eq 0 ]] || { err "Run as root:  sudo bash install.sh $*"; exit 1; }
-
 # ─── OS detection ─────────────────────────────────────────────────────────────
 if [[ -f /etc/os-release ]]; then
   # shellcheck disable=SC1091
@@ -45,55 +42,54 @@ fi
 # ─── Argument parsing ─────────────────────────────────────────────────────────
 MODE=""
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
-NODE_INSTALL_ARGS=()
-REQ_ARGS=()
+REQUIREMENT_ARGS=()
 
-while [[ $# -gt 0 ]]; do
-  arg="$1"
+select_mode() {
+  if [[ -n "$MODE" && "$MODE" != "$1" ]]; then
+    err "Choose only one installation mode (received $MODE and $1)."
+    exit 1
+  fi
+  MODE="$1"
+}
+
+for arg in "$@"; do
   case "$arg" in
-    --requirements|-r) MODE="requirements"; shift ;;
-    --dashboard|-d)    MODE="dashboard"; shift ;;
-    --fullnode)        MODE="fullnode"; shift ;;
-    --litenode)        MODE="litenode"; shift ;;
-    --validator)       MODE="validator"; shift ;;
-    --rpc)             MODE="rpc"; shift ;;
-    --bootnode)        MODE="bootnode"; shift ;;
-    --genesis)         MODE="genesis"; shift ;;
-    --all|-a)          MODE="all"; shift ;;
-    --noninteractive|--non-interactive) NONINTERACTIVE=1; shift ;;
-    --no-docker|--no-wireguard|--minimal)
-      REQ_ARGS+=("$arg")
-      shift
-      ;;
-    --no-wizard)
-      NODE_INSTALL_ARGS+=("$arg")
-      shift
-      ;;
-    --rpc-port|--ws-port|--p2p-port|--data-dir|--domain|--log-level|--bootstrap-nodes|--reward-address|--stake-amount|--upstream-rpc|--public-addr|--max-peers)
-      [[ $# -ge 2 && "$2" != --* ]] || { err "$arg requires a value"; exit 2; }
-      NODE_INSTALL_ARGS+=("$arg" "$2")
-      shift 2
-      ;;
-    --rpc-port=*|--ws-port=*|--p2p-port=*|--data-dir=*|--domain=*|--log-level=*|--bootstrap-nodes=*|--reward-address=*|--stake-amount=*|--upstream-rpc=*|--public-addr=*|--max-peers=*)
-      [[ -n "${arg#*=}" ]] || { err "$arg requires a value"; exit 2; }
-      NODE_INSTALL_ARGS+=("${arg%%=*}" "${arg#*=}")
-      shift
-      ;;
+    --requirements|-r) select_mode requirements ;;
+    --dashboard|-d)    select_mode dashboard ;;
+    --fullnode)        select_mode fullnode ;;
+    --litenode)        select_mode litenode ;;
+    --validator)       select_mode validator ;;
+    --rpc)             select_mode rpc ;;
+    --bootnode)        select_mode bootnode ;;
+    --genesis)         select_mode genesis ;;
+    --all|-a)          select_mode all ;;
+    --redeploy)        select_mode redeploy ;;
+    --minimal|--no-docker|--no-go|--no-wireguard|--certbot|--pg-client-only)
+      REQUIREMENT_ARGS+=("$arg") ;;
+    --noninteractive|--non-interactive) NONINTERACTIVE=1 ;;
     -h|--help)
       sed -n '3,18p' "$0" | sed 's/^# //' | sed 's/^#//'
-      exit 0
-      ;;
-    *)
-      warn "Unknown flag: $arg"
-      shift
-      ;;
+      echo "  --redeploy                 Update an existing installation"
+      echo "  --noninteractive           Skip prompts (requires a mode)"
+      echo "  --requirements options: --minimal --no-docker --no-go --no-wireguard --certbot --pg-client-only"
+      exit 0 ;;
+    *) err "Unknown flag: $arg. Use --help for supported options."; exit 1 ;;
   esac
 done
 
-if [[ "$MODE" == "all" && ${#NODE_INSTALL_ARGS[@]} -gt 0 ]]; then
-  err "Per-node options cannot be applied to the all-install bundle. Use GYDS_*_PORT environment variables for role-specific ports."
-  exit 2
+[[ "$NONINTERACTIVE" =~ ^[01]$ ]] || { err "NONINTERACTIVE must be 0 or 1."; exit 1; }
+export NONINTERACTIVE
+if [[ "$NONINTERACTIVE" == "1" && -z "$MODE" ]]; then
+  err "No mode selected. Use --help for usage."
+  exit 1
 fi
+if [[ "$NONINTERACTIVE" != "1" && ! -t 0 ]]; then
+  err "No interactive terminal. Supply a mode and --noninteractive."
+  exit 1
+fi
+
+# ─── Root check (help is available without sudo) ───────────────────────────────
+[[ $EUID -eq 0 ]] || { err "Run as root:  sudo bash install.sh $*"; exit 1; }
 
 # ─── Banner ───────────────────────────────────────────────────────────────────
 clear 2>/dev/null || true
@@ -116,7 +112,8 @@ echo ""
 if [[ -z "$MODE" && "$NONINTERACTIVE" != "1" ]]; then
   echo -e "  ${BOLD}What would you like to install?${NC}"
   echo ""
-  echo -e "  ${GREEN}[1]${NC}  System requirements only"
+  echo -e "  ${GREEN}[1]${NC}  System requirements only — does not deploy the dashboard"
+  echo -e "       (The default Nginx welcome page remains until you choose option 2)"
   echo -e "       (Node.js, npm, PM2, PostgreSQL, Nginx, UFW, fail2ban, Go, Docker, WireGuard)"
   echo ""
   echo -e "  ${GREEN}[2]${NC}  ChainCore Dashboard"
@@ -162,7 +159,11 @@ if [[ -z "$MODE" && "$NONINTERACTIVE" != "1" ]]; then
   esac
 fi
 
-[[ -z "$MODE" ]] && { err "No mode selected. Use --help for usage."; exit 1; }
+[[ -n "$MODE" ]] || { err "No mode selected. Use --help for usage."; exit 1; }
+if (( ${#REQUIREMENT_ARGS[@]} > 0 )) && [[ "$MODE" != "requirements" ]]; then
+  err "Requirements options can only be used with --requirements."
+  exit 1
+fi
 
 # ─── Helper: resolve script path ──────────────────────────────────────────────
 find_script() {
@@ -177,12 +178,23 @@ find_script() {
     [[ -f "$loc" ]] && { echo "$loc"; return 0; }
   done
   echo ""
+  return 1
+}
+
+require_script() {
+  local path
+  path=$(find_script "$1") || {
+    err "Script not found: $1"
+    err "Expected in: ${SCRIPT_DIR}/public/scripts/ or ${SCRIPT_DIR}/scripts/"
+    return 1
+  }
+  printf '%s\n' "$path"
 }
 
 run_script() {
   local script="$1"; shift
   local path
-  path=$(find_script "$script")
+  path=$(find_script "$script" || true)
   if [[ -z "$path" ]]; then
     err "Script not found: $script"
     err "Expected in: ${SCRIPT_DIR}/public/scripts/ or ${SCRIPT_DIR}/scripts/"
@@ -192,15 +204,38 @@ run_script() {
   bash "$path" "$@"
 }
 
+# Validate every dependency before installing packages or changing services.
+case "$MODE" in
+  requirements) require_script "requirements.sh" >/dev/null ;;
+  dashboard)
+    require_script "requirements.sh" >/dev/null
+    require_script "deploy-dashboard.sh" >/dev/null ;;
+  all)
+    require_script "requirements.sh" >/dev/null
+    require_script "deploy-dashboard.sh" >/dev/null
+    require_script "install-all-nodes.sh" >/dev/null ;;
+  fullnode|litenode|validator|rpc|bootnode|genesis)
+    require_script "requirements.sh" >/dev/null
+    NODE_SCRIPT="install-${MODE}.sh"
+    case "$MODE" in
+      validator) NODE_SCRIPT="install-validatornode.sh" ;;
+      rpc) NODE_SCRIPT="install-rpcnode.sh" ;;
+    esac
+    require_script "$NODE_SCRIPT" >/dev/null ;;
+  redeploy)
+    require_script "gyds-update.sh" >/dev/null ;;
+esac
+REQ_SCRIPT=$(find_script "requirements.sh" || true)
+# Do not print the failing command: it could contain credentials.
+trap 'status=$?; err "Installation failed during $MODE (line $LINENO, exit $status). Review the preceding error; installation is incomplete."; exit "$status"' ERR
+
 # ─── Execute chosen mode ──────────────────────────────────────────────────────
 case "$MODE" in
 
   # ── 1. Requirements only ───────────────────────────────────────────────────
   requirements)
     step "Installing system requirements"
-    REQ_SCRIPT="${SCRIPT_DIR}/scripts/requirements.sh"
-    [[ -f "$REQ_SCRIPT" ]] || { err "requirements.sh not found at $REQ_SCRIPT"; exit 1; }
-    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" "${REQ_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" "${REQUIREMENT_ARGS[@]}"
     ;;
 
   # ── 2. Dashboard ───────────────────────────────────────────────────────────
@@ -208,7 +243,6 @@ case "$MODE" in
     step "Installing requirements + ChainCore Dashboard"
 
     # Install requirements first
-    REQ_SCRIPT="${SCRIPT_DIR}/scripts/requirements.sh"
     if [[ -f "$REQ_SCRIPT" ]]; then
       info "Step 1/2 — System requirements"
       NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --minimal
@@ -223,44 +257,44 @@ case "$MODE" in
   # ── 3. Individual node types ───────────────────────────────────────────────
   fullnode)
     step "Installing requirements + Full Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker "${REQ_ARGS[@]}"
-    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-fullnode.sh" "${NODE_INSTALL_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --no-docker
+    run_script "install-fullnode.sh"
     ;;
 
   litenode)
     step "Installing requirements + Lite Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker --no-wireguard "${REQ_ARGS[@]}"
-    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-all-nodes.sh" --litenode "${NODE_INSTALL_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --no-docker --no-wireguard
+    run_script "install-all-nodes.sh" --litenode
     ;;
 
   validator)
     step "Installing requirements + Validator Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" "${REQ_ARGS[@]}"
-    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-validatornode.sh" "${NODE_INSTALL_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT"
+    run_script "install-validatornode.sh"
     ;;
 
   rpc)
     step "Installing requirements + RPC Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker "${REQ_ARGS[@]}"
-    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-rpcnode.sh" "${NODE_INSTALL_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --no-docker
+    run_script "install-rpcnode.sh"
     ;;
 
   bootnode)
     step "Installing requirements + Bootnode"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" --no-docker "${REQ_ARGS[@]}"
-    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-bootnode.sh" "${NODE_INSTALL_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT" --no-docker
+    run_script "install-bootnode.sh"
     ;;
 
   genesis)
     step "Installing requirements + Genesis Node"
-    NONINTERACTIVE="$NONINTERACTIVE" bash "${SCRIPT_DIR}/scripts/requirements.sh" "${REQ_ARGS[@]}"
-    NONINTERACTIVE="$NONINTERACTIVE" run_script "install-genesis.sh" "${NODE_INSTALL_ARGS[@]}"
+    NONINTERACTIVE="$NONINTERACTIVE" bash "$REQ_SCRIPT"
+    run_script "install-genesis.sh"
     ;;
 
   # ── 4. Everything ──────────────────────────────────────────────────────────
   all)
-    step "Full installation — requirements + dashboard + core node bundle"
-    warn "This installs the dashboard, bootnode, full node, and lite node. It may take 15-30 minutes."
+    step "Full installation — requirements + dashboard + all node types"
+    warn "This will install ALL components. This may take 15-30 minutes."
 
     if [[ "$NONINTERACTIVE" != "1" ]]; then
       read -rp "Continue? (y/N) " -n 1 _all_ok; echo
@@ -268,46 +302,33 @@ case "$MODE" in
     fi
 
     info "1/3 — System requirements"
-    NONINTERACTIVE=1 bash "${SCRIPT_DIR}/scripts/requirements.sh"
-
-    ALL_INSTALL_FAILED=0
+    NONINTERACTIVE=1 bash "$REQ_SCRIPT"
 
     info "2/3 — ChainCore Dashboard"
     DEPLOY_SCRIPT=$(find_script "deploy-dashboard.sh")
-    if [[ -z "$DEPLOY_SCRIPT" ]]; then
-      err "deploy-dashboard.sh not found"
-      ALL_INSTALL_FAILED=1
-    elif ! NONINTERACTIVE=1 bash "$DEPLOY_SCRIPT"; then
-      err "Dashboard deployment failed; continuing with node installation."
-      ALL_INSTALL_FAILED=1
+    if [[ -n "$DEPLOY_SCRIPT" ]]; then
+      NONINTERACTIVE=1 bash "$DEPLOY_SCRIPT"
+    else
+      err "deploy-dashboard.sh not found — cannot complete the dashboard installation"
+      exit 1
     fi
 
-    info "3/3 — Bootnode, full node, and lite node"
+    info "3/3 — All node types"
     ALL_NODES_SCRIPT=$(find_script "install-all-nodes.sh")
     if [[ -z "$ALL_NODES_SCRIPT" ]]; then
-      err "install-all-nodes.sh not found"
-      ALL_INSTALL_FAILED=1
-    elif ! NONINTERACTIVE=1 bash "$ALL_NODES_SCRIPT" --all; then
-      err "One or more node installations failed."
-      ALL_INSTALL_FAILED=1
+      err "install-all-nodes.sh was not found; the dashboard is installed, but node installation did not run."
+      exit 1
     fi
-
-    if [[ "$ALL_INSTALL_FAILED" -eq 1 ]]; then
-      err "Full installation incomplete. Review the errors above before retrying."
+    if ! NONINTERACTIVE=1 bash "$ALL_NODES_SCRIPT" --all; then
+      err "Some node roles were skipped or failed. Other selected roles were attempted; check the node installer output and logs."
       exit 1
     fi
     ;;
 
   # ── 5. Redeploy / update ────────────────────────────────────────────────────
   redeploy)
-    step "Redeploying / updating existing installation"
-    if command -v gyds-redeploy &>/dev/null; then
-      gyds-redeploy
-    else
-      REDEPLOY_SCRIPT=$(find_script "redeploy.sh")
-      [[ -n "$REDEPLOY_SCRIPT" ]] || { err "redeploy.sh not found and gyds-redeploy not installed"; exit 1; }
-      bash "$REDEPLOY_SCRIPT"
-    fi
+    step "Updating existing installation — preserving user accounts"
+    run_script "gyds-update.sh"
     ;;
 
   *)
@@ -316,5 +337,21 @@ case "$MODE" in
     ;;
 esac
 
+# Register services installed on this host in the dashboard database.
+# The all/lite installers perform this after installing their user/system units.
+if [[ "$MODE" != "requirements" && "$MODE" != "all" && "$MODE" != "litenode" ]]; then
+  REGISTER_SCRIPT=$(find_script "register-local-nodes.sh" || true)
+  if [[ -n "$REGISTER_SCRIPT" ]]; then
+    APP_DIR="${APP_DIR:-/var/www/gydschain}" bash "$REGISTER_SCRIPT" || \
+      warn "Local node registration did not complete; the dashboard may still show zero nodes."
+  fi
+fi
+
 echo ""
-log "Installation complete — $(date '+%Y-%m-%d %H:%M:%S')"
+if [[ "$MODE" == "requirements" ]]; then
+  log "System requirements installed — the dashboard has NOT been deployed."
+  info "To install the dashboard and replace the Nginx welcome page, run:"
+  echo "  sudo bash \"$SCRIPT_DIR/install.sh\" --dashboard"
+else
+  log "Installation complete — $(date '+%Y-%m-%d %H:%M:%S')"
+fi

@@ -175,8 +175,6 @@ func verifyECDSASignature(h *Header) bool {
 		return false
 	}
 	// Ethereum-style signature: r[0:32], s[32:64], v[64]
-	r := new(big.Int).SetBytes(sig[:32])
-	s := new(big.Int).SetBytes(sig[32:64])
 	v := sig[64]
 	if v < 27 {
 		v += 27

@@ -2,6 +2,10 @@
 
 > ✅ = Done | 🔲 = To Do | 🔴 = Critical | 🟡 = Important | 🟢 = Nice to Have
 > Last updated: 2026-06-17
+>
+> This is a historical checklist. The former remote node-repository work is retired;
+> current local-source inventory and future repository requirements are in
+> `nodes-requirements.md`.
 
 ---
 
@@ -70,27 +74,17 @@
 | M1 | ✅ | 🟡 | No `.env.production` template — added as `public/scripts/.env.production.template` |
 | M2 | ✅ | 🟡 | `public/scripts/gydschain-schema.sql` referenced by `setup-gydschain.sh` was missing |
 | M3 | ✅ | 🟢 | No `DEPLOYMENT.md` guide — added at project root |
-| M4 | 🔲 | 🔴 | `validatornode` repo is completely empty — no go.mod, no main.go — full Go implementation needed |
-| M5 | 🔲 | 🟡 | `genesis` repo at hc172808/genesis is empty — `node-fixes/genesis/` ready to push |
+| M4 | ✅ | 🔴 | Local `node-fixes/validatornode` source bundle exists; production readiness still requires the audit in `nodes-requirements.md` |
+| M5 | ✅ | 🟡 | Local `node-fixes/genesis` source bundle exists; production readiness still requires the audit in `nodes-requirements.md` |
 | M6 | 🔲 | 🟡 | `public/scripts/install-rpc-proxy.sh` — missing reverse-proxy installer |
 
 ---
 
-## 🔌 Node Repos — GitHub Push Required
+## 🔌 Node sources
 
-| # | Status | Priority | Issue | Fix Location |
-|---|--------|----------|-------|--------------|
-| N1 | 🔲 | 🔴 | `rpcnode` go.mod module is `gydschain/litenode` — must be `gydschain/rpcnode` | `node-fixes/rpcnode/` |
-| N2 | 🔲 | 🔴 | `rpcnode` main.go imports from `gydschain/litenode/...` — must use own module | `node-fixes/rpcnode/` |
-| N3 | 🔲 | 🔴 | `rpcnode` binary name `gyds-litenode` — must be `gyds-rpcnode` | `node-fixes/rpcnode/` |
-| N4 | 🔲 | 🔴 | `rpcnode` `NewServer` call has wrong arg count (2 args, needs 5) | `node-fixes/rpcnode/` |
-| N5 | 🔲 | 🔴 | `boostnode` go.mod module is `gydschain/litenode` — must be `gydschain/boostnode` | `node-fixes/boostnode/` |
-| N6 | 🔲 | 🔴 | `boostnode` main.go imports from `gydschain/litenode/...` — must use own module | `node-fixes/boostnode/` |
-| N7 | 🔲 | 🔴 | `boostnode` config NodeMode is `lite` — must be `boost`; BlockTime 5s → 1s | `node-fixes/boostnode/` |
-| N8 | 🔲 | 🟡 | `fullnode` binary name `gyds-litenode` in versionCmd — must be `gyds-fullnode` | `node-fixes/fullnode/` |
-| N9 | 🔲 | 🔴 | `genesis` repo is completely empty — full implementation ready to push | `node-fixes/genesis/` |
-| N10 | 🔲 | 🔴 | `validatornode` repo has no go.mod, no main.go — cannot build | needs full build |
-| N11 | 🔲 | 🟡 | All repos: genesis validator addresses are `0x000...001/002/003` placeholders — need real addresses | all repos |
+Node source is maintained in local project bundles; pushing or cloning separate
+node repositories is not required. See `nodes-requirements.md` for the current
+role inventory, audit gaps, and the checklist for any future standalone repos.
 
 ---
 
@@ -138,10 +132,9 @@
 | Docker | 8 | 8 | 0 | 0 |
 | Shell Scripts | 15 | 15 | 0 | 0 |
 | Frontend | 14 | 14 | 0 | 0 |
-| Missing Files | 6 | 3 | 3 | 1 (validatornode) |
-| Node Repos | 11 | 0 | 11 | 7 |
+| Missing Files | 6 | 5 | 1 | 0 |
 | Security | 9 | 7 | 2 | 0 |
 | Blockchain Core | 14 | 10 | 4 | 0 |
-| **Total** | **77** | **57** | **20** | **8** |
+| **Total** | **66** | **59** | **7** | **0** |
 
-> **Most critical:** Push `node-fixes/` to GitHub repos (N1–N9), implement `validatornode` (M4, N10).
+> **Current node guidance:** Use the local bundles and follow `nodes-requirements.md`; the counts above are from this historical checklist.

@@ -25,6 +25,13 @@ contract MockERC20 {
         emit Transfer(address(0), to, amount);
     }
 
+    function burn(uint256 amount) external {
+        require(balanceOf[msg.sender] >= amount, "ERC20: insufficient");
+        balanceOf[msg.sender] -= amount;
+        totalSupply -= amount;
+        emit Transfer(msg.sender, address(0), amount);
+    }
+
     function transfer(address to, uint256 value) external returns (bool) {
         require(balanceOf[msg.sender] >= value, "ERC20: insufficient");
         balanceOf[msg.sender] -= value;

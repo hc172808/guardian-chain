@@ -17,6 +17,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
+
 # ── Load shared config (written by deploy-dashboard.sh — all values skippable) ─
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
@@ -36,13 +39,19 @@ P2P_PORT="${P2P_PORT:-30303}"
 MAX_PEERS="${MAX_PEERS:-100}"
 PUBLIC_ADDR="${PUBLIC_ADDR:-}"           # e.g. bootnode1.netlifegy.com:30303
 BOOTSTRAP_PEERS="${BOOTSTRAP_PEERS:-}"   # comma-separated host:port list
+GENESIS_HASH="${GYDS_GENESIS_HASH:-}"
 
-# Source location: all supported node modes are built from the canonical repo.
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-REPO_DIR="${REPO_DIR:-/opt/gyds-fullnode}"
-SRC_DIR="${SRC_DIR:-}"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../public/blockchain-go/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
+SRC_DIR="${SRC_DIR:-${PROJECT_ROOT}/public/blockchain-go}"
 
-GO_VERSION="${GO_VERSION:-1.22.0}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 # ---------------------- Helpers ----------------------
 log()  { echo -e "\033[1;32m[+]\033[0m $*"; }
@@ -56,41 +65,34 @@ require_root() {
   fi
 }
 
-require_root
+require_mainnet_genesis_hash() {
+  if [[ -n "${GENESIS_HASH}" ]] &&
+    { [[ ! "${GENESIS_HASH}" =~ ^0x[[:xdigit:]]{64}$ ]] ||
+      [[ "${GENESIS_HASH,,}" =~ ^0x0{64}$ ]]; }; then
+    err "GYDS_GENESIS_HASH must be a non-zero 0x-prefixed 32-byte hash."
+    return 1
+  fi
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --p2p-port|--public-addr|--bootstrap-peers|--max-peers)
-      [[ $# -ge 2 && "$2" != --* ]] || { err "$1 requires a value"; exit 2; }
-      case "$1" in
-        --p2p-port) P2P_PORT="$2" ;;
-        --public-addr) PUBLIC_ADDR="$2" ;;
-        --bootstrap-peers) BOOTSTRAP_PEERS="$2" ;;
-        --max-peers) MAX_PEERS="$2" ;;
-      esac
-      shift 2
-      ;;
-    --p2p-port=*|--public-addr=*|--bootstrap-peers=*|--max-peers=*)
-      option="${1%%=*}"
-      value="${1#*=}"
-      [[ -n "$value" ]] || { err "$option requires a value"; exit 2; }
-      case "$option" in
-        --p2p-port) P2P_PORT="$value" ;;
-        --public-addr) PUBLIC_ADDR="$value" ;;
-        --bootstrap-peers) BOOTSTRAP_PEERS="$value" ;;
-        --max-peers) MAX_PEERS="$value" ;;
-      esac
-      shift
-      ;;
-    *) warn "Unknown flag: $1"; shift ;;
-  esac
-done
+  if [[ "${CHAIN_ID}" == "198282" && -z "${GENESIS_HASH}" ]]; then
+    err "A verified mainnet genesis hash is required for chain ID 198282."
+    err "Set GYDS_GENESIS_HASH to the exact hash from a trusted production node or approved deployment record."
+    err "The installer will not derive a mainnet hash from the bundled source."
+    return 1
+  fi
+}
+
+require_mainnet_genesis_hash || exit 1
+require_root
 
 # ---------------------- 1. System packages ----------------------
 log "Updating apt and installing prerequisites..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y curl wget git build-essential ufw fail2ban openssl ca-certificates
+
+# Never advertise localhost or a private interface to remote peers.
+node_network_resolve_p2p_host || exit 1
+PUBLIC_ADDR="${PUBLIC_ADDR:-${GYDS_P2P_ADVERTISE_HOST}:${P2P_PORT}}"
 
 # ---------------------- 2. Install Go ----------------------
 if ! command -v go >/dev/null 2>&1 || [[ "$(go version | awk '{print $3}')" != "go${GO_VERSION}" ]]; then
@@ -105,11 +107,6 @@ if ! command -v go >/dev/null 2>&1 || [[ "$(go version | awk '{print $3}')" != "
 fi
 log "Go: $(go version)"
 
-if [[ -z "$PUBLIC_ADDR" ]]; then
-  PUBLIC_IP="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
-  [[ -n "$PUBLIC_IP" ]] && PUBLIC_ADDR="${PUBLIC_IP}:${P2P_PORT}"
-fi
-
 # ---------------------- 3. System user & directories ----------------------
 if ! id -u "${GYDS_USER}" >/dev/null 2>&1; then
   log "Creating system user ${GYDS_USER}..."
@@ -122,35 +119,27 @@ chown -R "${GYDS_USER}:${GYDS_USER}" "${GYDS_HOME}" "${LOG_DIR}"
 chmod 750 "${BOOTNODE_DIR}"
 
 # ---------------------- 4. Build the binary ----------------------
-if [[ -z "${SRC_DIR}" || ! -d "${SRC_DIR}" ]]; then
-  warn "SRC_DIR not set — cloning from ${REPO_URL}..."
-  if [[ -d "${REPO_DIR}/.git" ]]; then
-    log "Repo already exists at ${REPO_DIR} — pulling latest..."
-    git -C "${REPO_DIR}" pull --ff-only
-  else
-    git clone --depth=1 "${REPO_URL}" "${REPO_DIR}"
-  fi
-  SRC_DIR="${REPO_DIR}"
-fi
-
 if [[ ! -d "${SRC_DIR}" ]]; then
   err "Source not found at ${SRC_DIR}"
-  err "Example: SRC_DIR=/opt/gyds-fullnode sudo -E bash $0"
+  err "Set PROJECT_ROOT to a checked-out project or SRC_DIR to its local public/blockchain-go directory."
   exit 1
 fi
 
 if [[ ! -d "${SRC_DIR}/cmd/bootnode" ]]; then
-  err "bootnode mode is not implemented in fullnode.git yet."
-  err "This installer intentionally stops rather than using a different node repository."
+  err "Local ChainCore source is missing cmd/bootnode."
   exit 1
 fi
+grep -Fqx "module chaincore" "${SRC_DIR}/go.mod" || {
+  err "Unexpected module in ${SRC_DIR}/go.mod; refusing to build another node source."
+  exit 1
+}
 
 log "Building gyds-bootnode from ${SRC_DIR}..."
 BUILD_TMP="$(mktemp -d)"
 cp -r "${SRC_DIR}" "${BUILD_TMP}/blockchain-go"
 pushd "${BUILD_TMP}/blockchain-go" >/dev/null
 sudo -u "${GYDS_USER}" -H env HOME="${GYDS_HOME}" PATH="$PATH" \
-  go build -ldflags "-s -w" -o "${BUILD_TMP}/gyds-bootnode" ./cmd/bootnode
+  sh -c 'cd "$1" && go mod download && go build -ldflags "-s -w" -o "$2" ./cmd/bootnode' sh "${SRC_DIR}" "${BUILD_TMP}/gyds-bootnode"
 popd >/dev/null
 
 install -m 0755 -o root -g root "${BUILD_TMP}/gyds-bootnode" "${BIN_PATH}"
@@ -177,6 +166,7 @@ p2p_port    = ${P2P_PORT}
 max_peers   = ${MAX_PEERS}
 data_dir    = "${BOOTNODE_DIR}"
 node_key    = "${KEY_FILE}"
+genesis_hash = "${GENESIS_HASH}"
 public_addr = "${PUBLIC_ADDR}"
 bootstrap   = "${BOOTSTRAP_PEERS}"
 EOF
@@ -204,11 +194,13 @@ Type=simple
 User=${GYDS_USER}
 Group=${GYDS_USER}
 ExecStart=${BIN_PATH} \\
+  --config=${CONFIG_FILE} \\
   --datadir=${BOOTNODE_DIR} \\
   --p2pport=${P2P_PORT} \\
   --maxpeers=${MAX_PEERS} \\
   --node-key=${KEY_FILE} \\
   --chain-id=${CHAIN_ID} \\
+  --genesis-hash=${GENESIS_HASH} \\
   ${PUBLIC_FLAG} ${BOOTSTRAP_FLAG}
 Restart=always
 RestartSec=10
@@ -233,12 +225,8 @@ systemctl enable gyds-bootnode.service
 
 # ---------------------- 8. Firewall (ufw) ----------------------
 log "Configuring ufw firewall..."
-ufw --force enable >/dev/null 2>&1 || true
-ufw allow 22/tcp comment 'SSH' >/dev/null 2>&1 || true
-ufw allow "${P2P_PORT}/tcp" comment 'GYDSchain bootnode P2P TCP' >/dev/null 2>&1 || true
-ufw allow "${P2P_PORT}/udp" comment 'GYDSchain bootnode P2P UDP' >/dev/null 2>&1 || true
+node_network_allow_p2p_tcp "$P2P_PORT"
 # NOTE: bootnode does NOT expose RPC. Do not open 8546/8545.
-ufw reload >/dev/null 2>&1 || true
 
 # ---------------------- 9. fail2ban jail ----------------------
 log "Configuring fail2ban..."
@@ -264,19 +252,13 @@ systemctl restart fail2ban || warn "fail2ban restart failed (non-fatal)"
 log "Starting gyds-bootnode..."
 systemctl restart gyds-bootnode.service
 sleep 2
-if ! systemctl is-active --quiet gyds-bootnode.service; then
-  err "Bootnode service did not become active."
-  systemctl --no-pager --full status gyds-bootnode.service >&2 || true
-  journalctl -u gyds-bootnode.service -n 50 --no-pager >&2 || true
-  exit 1
-fi
 systemctl --no-pager --full status gyds-bootnode.service || true
+node_network_report_tcp_listener "$P2P_PORT"
 
 # ---------------------- 11. Summary ----------------------
 NODE_ID_SHORT="$(head -c 16 "${KEY_FILE}" 2>/dev/null || echo unknown)"
 LOCAL_IP="$(hostname -I | awk '{print $1}')"
-ADVERT="${PUBLIC_ADDR:-${LOCAL_IP}:${P2P_PORT}}"
-[[ -n "$PUBLIC_ADDR" ]] || warn "Public address could not be detected; set PUBLIC_ADDR to a publicly reachable host:port and forward this P2P port."
+ADVERT="${PUBLIC_ADDR}"
 
 cat <<EOF
 
@@ -291,7 +273,8 @@ cat <<EOF
   Logs:         ${LOG_DIR}/bootnode.log
   Node ID:      ${NODE_ID_SHORT}
   Chain ID:     ${CHAIN_ID}
-  P2P port:     ${P2P_PORT} (tcp+udp)
+  P2P port:     ${P2P_PORT} (TCP)
+  P2P address:  ${ADVERT}
 
   Share this bootstrap address with other operators:
 
@@ -303,3 +286,5 @@ cat <<EOF
       tail -f ${LOG_DIR}/bootnode.log
 
 EOF
+
+node_network_report_p2p "$P2P_PORT"

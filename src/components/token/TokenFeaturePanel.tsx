@@ -14,7 +14,6 @@ import {
   CheckCircle,
   XCircle
 } from 'lucide-react';
-import { Progress } from '@/components/ui/progress';
 
 interface TokenAuthorities {
   freeze: { enabled: boolean; holder: string | null; locked: boolean };
@@ -27,9 +26,10 @@ interface TokenData {
   symbol: string;
   address: string;
   totalSupply: string;
+  supplyVerifiedOnchain: boolean;
   burnedSupply: string;
   gydsLiquidity: string;
-  lpLockType: 'burned' | 'timelocked';
+  lpLockType: 'burned' | 'timelocked' | 'not_created';
   lpUnlockTime?: number;
   authorities: TokenAuthorities;
   backingCoin: string;
@@ -49,8 +49,6 @@ export const TokenFeaturePanel = ({ token }: TokenFeaturePanelProps) => {
   };
 
   const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-
-  const burnedPercent = (parseFloat(token.burnedSupply) / parseFloat(token.totalSupply)) * 100;
 
   const AuthorityStatus = ({ 
     label, 
@@ -120,21 +118,16 @@ export const TokenFeaturePanel = ({ token }: TokenFeaturePanelProps) => {
           <div className="space-y-3">
             <div className="p-3 rounded-lg bg-secondary/30">
               <div className="flex justify-between mb-1">
-                <span className="text-sm text-muted-foreground">Total Supply</span>
-                <span className="font-medium">{formatSupply(token.totalSupply)}</span>
-              </div>
-            </div>
-            
-            <div className="p-3 rounded-lg bg-secondary/30">
-              <div className="flex justify-between mb-2">
-                <span className="text-sm text-muted-foreground flex items-center gap-1">
-                  <Flame className="h-3 w-3 text-orange-500" />
-                  Burned (Locked)
+                <span className="text-sm text-muted-foreground">On-chain total supply</span>
+                <span className="font-medium">
+                  {token.supplyVerifiedOnchain ? formatSupply(token.totalSupply) : 'Mainnet data unavailable'}
                 </span>
-                <span className="font-medium">{formatSupply(token.burnedSupply)}</span>
-              </div>
-              <Progress value={burnedPercent} className="h-1.5" />
-              <p className="text-xs text-muted-foreground mt-1">{burnedPercent.toFixed(2)}% of supply</p>
+            </div>
+              {!token.supplyVerifiedOnchain && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Cached supply is not shown when the mainnet contract cannot be verified.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -149,7 +142,7 @@ export const TokenFeaturePanel = ({ token }: TokenFeaturePanelProps) => {
           <div className="space-y-3">
             <div className="p-3 rounded-lg bg-secondary/30">
               <div className="flex justify-between mb-1">
-                <span className="text-sm text-muted-foreground">GYDS Locked</span>
+                <span className="text-sm text-muted-foreground">Recorded GYDS liquidity</span>
                 <span className="font-medium text-primary">{formatSupply(token.gydsLiquidity)} GYDS</span>
               </div>
             </div>
@@ -162,11 +155,13 @@ export const TokenFeaturePanel = ({ token }: TokenFeaturePanelProps) => {
                     <Flame className="h-3 w-3" />
                     BURNED (Permanent)
                   </Badge>
-                ) : (
+                ) : token.lpLockType === 'timelocked' ? (
                   <Badge className="gap-1 bg-blue-500/20 text-blue-400 border-blue-500/30">
                     <Clock className="h-3 w-3" />
                     Time-Locked
                   </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-muted-foreground">Not created</Badge>
                 )}
               </div>
               {token.lpLockType === 'timelocked' && token.lpUnlockTime && (

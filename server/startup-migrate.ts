@@ -96,6 +96,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       metadata          JSONB,
       email_verified    BOOLEAN DEFAULT false,
       preferred_currency TEXT DEFAULT 'USD',
+      is_public         BOOLEAN NOT NULL DEFAULT false,
       created_at        TIMESTAMPTZ DEFAULT NOW(),
       updated_at        TIMESTAMPTZ DEFAULT NOW()
     )
@@ -104,6 +105,7 @@ export async function startupMigrate(pool: Pool): Promise<void> {
   for (const col of [
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false`,
     `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS preferred_currency TEXT DEFAULT 'USD'`,
+    `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT false`,
   ]) {
     await run("profiles-cols", col);
   }
@@ -244,6 +246,15 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       token_standard      TEXT DEFAULT 'GRC-20' NOT NULL,
       is_active           BOOLEAN DEFAULT true NOT NULL,
        network_type        TEXT DEFAULT 'mainnet' NOT NULL,
+      creator_wallet      TEXT,
+      initial_supply_base_units TEXT,
+      deployment_tx_hash  TEXT,
+      deployment_chain_id INTEGER,
+      deployment_status   TEXT DEFAULT 'legacy_unverified' NOT NULL,
+      deployment_block_number TEXT,
+      deployment_confirmed_at TIMESTAMPTZ,
+      verified_initial_balance TEXT,
+      token_owner_address TEXT,
       mainnet_promoted_at TIMESTAMPTZ,
       market_cap_usd      NUMERIC DEFAULT '0' NOT NULL,
       extra_authorities   JSONB DEFAULT '{}' NOT NULL,
@@ -532,11 +543,16 @@ export async function startupMigrate(pool: Pool): Promise<void> {
     CREATE TABLE IF NOT EXISTS token_price (
       id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       price              NUMERIC DEFAULT '0.0000001' NOT NULL,
-      total_supply       NUMERIC DEFAULT '1000000000' NOT NULL,
+      total_supply       NUMERIC DEFAULT '3000000000' NOT NULL,
       circulating_supply NUMERIC DEFAULT '0' NOT NULL,
       burned_total       NUMERIC DEFAULT '0' NOT NULL,
       updated_at         TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+  // Set the default for future rows without changing the supply recorded on
+  // any existing network.
+  await run("token_price-total-supply-default", `
+    ALTER TABLE token_price ALTER COLUMN total_supply SET DEFAULT '3000000000'
   `);
 
   await run("token_price_alerts", `
@@ -629,14 +645,22 @@ export async function startupMigrate(pool: Pool): Promise<void> {
   await run("network_snapshots", `
     CREATE TABLE IF NOT EXISTS network_snapshots (
       id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      network       TEXT NOT NULL DEFAULT 'mainnet',
       block_height  BIGINT,
       tx_count      INTEGER DEFAULT 0,
       active_wallets INTEGER DEFAULT 0,
       token_count   INTEGER DEFAULT 0,
       validator_count INTEGER DEFAULT 0,
       tps           NUMERIC DEFAULT '0',
+      total_stake   NUMERIC DEFAULT '0',
+      timestamp     TIMESTAMPTZ DEFAULT NOW(),
+      active_validators INTEGER DEFAULT 0,
+      active_nodes  INTEGER DEFAULT 0,
+      total_transactions BIGINT DEFAULT 0,
+      total_tokens  INTEGER DEFAULT 0,
       snapshot_data JSONB DEFAULT '{}',
-      created_at    TIMESTAMPTZ DEFAULT NOW()
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      captured_at   TIMESTAMPTZ DEFAULT NOW()
     )
   `);
 
@@ -883,6 +907,9 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       type       TEXT NOT NULL,
       title      TEXT NOT NULL,
       body       TEXT,
+      read       BOOLEAN DEFAULT false,
+      dismissed  BOOLEAN DEFAULT false,
+      link       TEXT,
       is_read    BOOLEAN DEFAULT false,
       data       JSONB DEFAULT '{}',
       created_at TIMESTAMPTZ DEFAULT NOW()
@@ -1239,10 +1266,14 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // network_snapshots — code uses active_validators, active_nodes, total_transactions, captured_at
   for (const col of [
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS network              TEXT NOT NULL DEFAULT 'mainnet'`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS block_height         BIGINT`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS active_validators  INTEGER DEFAULT 0`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS active_nodes       INTEGER DEFAULT 0`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS total_transactions BIGINT  DEFAULT 0`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS total_tokens       INTEGER DEFAULT 0`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS total_stake         NUMERIC DEFAULT 0`,
+    `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS timestamp           TIMESTAMPTZ DEFAULT NOW()`,
     `ALTER TABLE network_snapshots ADD COLUMN IF NOT EXISTS captured_at        TIMESTAMPTZ DEFAULT NOW()`,
   ]) await run("network_snapshots-cols", col);
   await run("network_snapshots-idx", `CREATE INDEX IF NOT EXISTS network_snapshots_captured_idx ON network_snapshots(captured_at DESC)`);
@@ -1281,6 +1312,22 @@ export async function startupMigrate(pool: Pool): Promise<void> {
 
   // ── tokens — add token_standard column for GRC-20 / GRC-721 / GRC-1155 ────
   await run("tokens-token_standard", `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS token_standard TEXT DEFAULT 'GRC-20' NOT NULL`);
+  for (const col of [
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS creator_wallet TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS initial_supply_base_units TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_tx_hash TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_chain_id INTEGER`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_status TEXT DEFAULT 'legacy_unverified' NOT NULL`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_block_number TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS deployment_confirmed_at TIMESTAMPTZ`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS verified_initial_balance TEXT`,
+    `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS token_owner_address TEXT`,
+  ]) await run("tokens-deployment-cols", col);
+  await run(
+    "tokens-confirmed-address-unique",
+    `CREATE UNIQUE INDEX IF NOT EXISTS tokens_confirmed_address_unique
+       ON tokens (lower(address)) WHERE deployment_status = 'confirmed'`,
+  );
   await run("orders-pair", `ALTER TABLE orders ADD COLUMN IF NOT EXISTS pair TEXT NOT NULL DEFAULT 'GYDS/USDT'`);
 
   const elapsed = Date.now() - start;

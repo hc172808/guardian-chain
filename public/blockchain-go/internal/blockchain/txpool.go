@@ -221,8 +221,8 @@ func (tp *TxPool) removeFromPriceHeap(tx *Transaction) {
 
 // TransferValue represents a value transfer for double-spend detection
 type TransferValue struct {
-	From   [20]byte
-	To     [20]byte
-	Value  *big.Int
-	Nonce  uint64
+	From  [20]byte
+	To    [20]byte
+	Value *big.Int
+	Nonce uint64
 }

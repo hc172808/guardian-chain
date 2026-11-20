@@ -3,8 +3,8 @@
 # ║  GYDSchain — Safe Code Update Script v1.0                                  ║
 # ║                                                                             ║
 # ║  Pulls the latest code and rebuilds the app.                               ║
-# ║  ✅ NEVER touches user accounts, passwords, wallets, or balances.          ║
-# ║  ✅ Only adds new tables/columns — never drops or clears existing data.    ║
+# ║  ✅ Never overwrites existing usernames or password hashes.              ║
+# ║  ✅ Checks migration files before applying database changes.              ║
 # ║  ✅ Zero-downtime PM2 reload (users stay connected while it updates).      ║
 # ║                                                                             ║
 # ║  Usage:                                                                     ║
@@ -38,6 +38,7 @@ ruler() { echo -e "${DIM}──────────────────�
 # ── Defaults ─────────────────────────────────────────────────────────────────
 APP_DIR="${APP_DIR:-/var/www/gydschain}"
 PM2_APP="${PM2_APP:-gydschain-api}"
+APP_PORT="${APP_PORT:-${PORT:-5001}}"
 DO_BUILD=1
 DO_DB=1
 FORCE=0
@@ -83,6 +84,80 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
 fi
 
+APP_USER="${PM2_USER:-$(stat -c '%U' "$APP_DIR" 2>/dev/null || echo root)}"
+PM2_USER="${PM2_USER:-$APP_USER}"
+
+pm2_as_app_user() {
+    if [[ "$EUID" -eq 0 && "$PM2_USER" != "root" ]]; then
+        local user_home user_pm2 user_path
+        user_home="$(getent passwd "$PM2_USER" | cut -d: -f6)"
+        [[ -n "$user_home" ]] || { err "Could not find PM2 user's home: $PM2_USER"; return 1; }
+        user_pm2="$(su - "$PM2_USER" -c 'command -v pm2' 2>/dev/null || true)"
+        [[ -n "$user_pm2" && -x "$user_pm2" ]] || { err "PM2 is not available to $PM2_USER"; return 1; }
+        user_path="$(dirname "$user_pm2"):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        runuser -u "$PM2_USER" -- env HOME="$user_home" PM2_HOME="$user_home/.pm2" PATH="$user_path" "$user_pm2" "$@"
+    else
+        pm2 "$@"
+    fi
+}
+
+install_watchdog() {
+    local watchdog_source="${APP_DIR}/public/scripts/gyds-watchdog.sh"
+    [[ -f "$watchdog_source" ]] || return 0
+    if [[ "$EUID" -ne 0 ]]; then
+        warn "Watchdog update skipped (run as root to install /etc/cron.d/gyds-watchdog)"
+        return 0
+    fi
+
+    if ! command -v cron >/dev/null 2>&1; then
+        command -v apt-get >/dev/null 2>&1 || { warn "Cron is missing and apt-get is unavailable; watchdog not installed"; return 0; }
+        apt-get install -y -qq cron
+    fi
+    systemctl enable --now cron
+    install -m 755 "$watchdog_source" /usr/local/bin/gyds-watchdog
+    cat > /etc/cron.d/gyds-watchdog <<CRON
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root APP_PORT=${APP_PORT} PM2_APP=${PM2_APP} PM2_USER=${APP_USER} LOG_FILE=/var/log/gydschain/watchdog.log /usr/bin/flock -n /run/gyds-watchdog.lock /usr/local/bin/gyds-watchdog
+CRON
+    chmod 644 /etc/cron.d/gyds-watchdog
+    ok "Installed API/database watchdog (every minute; restart cooldown 5 minutes)"
+}
+
+install_redeploy_compat() {
+    [[ "$EUID" -eq 0 ]] || return 0
+    local update_script="${APP_DIR}/public/scripts/gyds-update.sh"
+    [[ -f "$update_script" ]] || return 0
+
+    cat > /usr/local/bin/gyds-redeploy <<RDEPLOY
+#!/usr/bin/env bash
+set -euo pipefail
+APP_DIR="${APP_DIR}"
+UPDATE_SCRIPT="\${APP_DIR}/public/scripts/gyds-update.sh"
+UPDATE_ARGS=()
+for arg in "\$@"; do
+    case "\$arg" in
+        --skip-db) UPDATE_ARGS+=(--no-db) ;;
+        --skip-build) UPDATE_ARGS+=(--no-build) ;;
+        *) UPDATE_ARGS+=("\$arg") ;;
+    esac
+done
+exec bash "\$UPDATE_SCRIPT" "\${UPDATE_ARGS[@]}"
+RDEPLOY
+    chmod 755 /usr/local/bin/gyds-redeploy
+    ok "Updated gyds-redeploy to use the account-safe updater"
+}
+
+check_migration_identity_safety() {
+    local migration="$1"
+    local checker="${APP_DIR}/public/scripts/check-migration-identity-safety.py"
+    [[ -f "$checker" ]] || {
+        err "Account-safety migration checker is missing: $checker"
+        return 2
+    }
+    python3 "$checker" "$migration"
+}
+
 # Resolve branch
 if [[ -z "$BRANCH" ]]; then
     BRANCH=$(git -C "$APP_DIR" branch --show-current 2>/dev/null || echo "main")
@@ -98,8 +173,8 @@ if [[ "$STATUS_ONLY" -eq 1 ]]; then
     echo -e "  Commit:    $(git -C "$APP_DIR" log -1 --format='%h  %s  (%cr)' 2>/dev/null || echo 'unknown')"
     echo -e "  Remote:    $(git -C "$APP_DIR" log -1 --format='%h  %s' origin/"$BRANCH" 2>/dev/null || echo 'unknown')"
     echo ""
-    if pm2 list 2>/dev/null | grep -q "$PM2_APP"; then
-        pm2 show "$PM2_APP" 2>/dev/null | grep -E "status|uptime|memory|restarts" | head -6 || true
+    if pm2_as_app_user list 2>/dev/null | grep -q "$PM2_APP"; then
+        pm2_as_app_user show "$PM2_APP" 2>/dev/null | grep -E "status|uptime|memory|restarts" | head -6 || true
     else
         warn "PM2 process '$PM2_APP' not found"
     fi
@@ -126,8 +201,8 @@ echo -e "  ${DIM}App:${NC}  $APP_DIR"
 echo -e "  ${DIM}Branch:${NC} $BRANCH"
 echo -e "  ${DIM}Log:${NC}  $LOG_FILE"
 echo ""
-echo -e "${GREEN}  This script NEVER deletes or modifies user accounts,${NC}"
-echo -e "${GREEN}  passwords, wallets, balances, or any existing data.${NC}"
+echo -e "${GREEN}  This script preserves existing usernames and password hashes.${NC}"
+echo -e "${GREEN}  Migrations are checked before they are applied.${NC}"
 ruler
 
 # ── Step 1: Git pull ──────────────────────────────────────────────────────────
@@ -147,9 +222,20 @@ if [[ "$CURRENT" == "$REMOTE" ]] && [[ "$FORCE" -eq 0 ]]; then
     if [[ "$DO_DB" -eq 1 ]] && [[ -n "${DATABASE_URL:-}" ]]; then
         info "Running schema migration anyway (in case it was interrupted)..."
         _do_migrate() {
-            local migrated=0 failed=0
+            local migrated=0 failed=0 safety_status
             for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
                 [[ -f "$f" ]] || continue
+                if check_migration_identity_safety "$f"; then
+                    :
+                else
+                    safety_status=$?
+                    if [[ "$safety_status" -eq 1 ]]; then
+                        err "  Rejected $(basename "$f") — it changes a users username or password; update stopped."
+                        return 1
+                    fi
+                    err "Could not verify migration safety; refusing to continue."
+                    return 1
+                fi
                 if psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f "$f" >> "$LOG_FILE" 2>&1; then
                     ok "  $(basename "$f")"; (( migrated++ )) || true
                 else
@@ -158,8 +244,12 @@ if [[ "$CURRENT" == "$REMOTE" ]] && [[ "$FORCE" -eq 0 ]]; then
             done
             ok "Migrations: $migrated files processed, $failed with warnings"
         }
-        _do_migrate
+        if ! _do_migrate; then
+            exit 1
+        fi
     fi
+    install_redeploy_compat
+    install_watchdog
     exit 0
 fi
 
@@ -178,6 +268,8 @@ fi
 git -C "$APP_DIR" pull --ff-only origin "$BRANCH" 2>&1 | tee_log
 
 [[ $STASHED -eq 1 ]] && { git -C "$APP_DIR" stash pop >> "$LOG_FILE" 2>&1 || warn "Could not restore stash — check git stash list"; }
+install_watchdog
+install_redeploy_compat
 
 NEW_COMMIT=$(git -C "$APP_DIR" log -1 --format='%h %s')
 ok "Pulled: $NEW_COMMIT"
@@ -214,14 +306,26 @@ if [[ "$DO_DB" -eq 0 ]]; then
 elif [[ -z "${DATABASE_URL:-}" ]]; then
     warn "DATABASE_URL not set — skipping schema migration"
 else
-    echo -e "  ${DIM}Running migrations/*.sql — only adds new tables/columns.${NC}"
-    echo -e "  ${DIM}Existing data is NEVER deleted or modified.${NC}"
+    echo -e "  ${DIM}Running migrations/*.sql — adds schema and checks account identity fields.${NC}"
+    echo -e "  ${DIM}Existing usernames and password hashes are not updated by migrations.${NC}"
     echo ""
 
     migrated=0; skipped=0; failed=0
     for f in $(ls "$APP_DIR"/migrations/*.sql 2>/dev/null | sort); do
         [[ -f "$f" ]] || continue
         fname=$(basename "$f")
+
+        if check_migration_identity_safety "$f"; then
+            :
+        else
+            safety_status=$?
+            if [[ "$safety_status" -eq 1 ]]; then
+                err "  REJECTED $fname — it changes a users username or password; update stopped."
+                exit 1
+            fi
+            err "Could not verify migration safety; refusing to continue."
+            exit 1
+        fi
 
         # Quick check: does this file contain any destructive statements?
         # If so, warn loudly and skip it (safety guard)
@@ -288,14 +392,14 @@ fi
 # ── Step 5: PM2 reload (zero-downtime) ───────────────────────────────────────
 step "5/5  Restart server (zero-downtime)"
 
-if pm2 list 2>/dev/null | grep -q "$PM2_APP"; then
+if pm2_as_app_user list 2>/dev/null | grep -q "$PM2_APP"; then
     info "Reloading $PM2_APP with updated env..."
-    pm2 reload "$PM2_APP" --update-env 2>&1 | tee_log
+    pm2_as_app_user reload "$PM2_APP" --update-env 2>&1 | tee_log
     ok "PM2 reload complete — server is live"
 else
     warn "$PM2_APP not found in PM2 — starting fresh..."
     if [[ -f "$APP_DIR/ecosystem.config.cjs" ]]; then
-        pm2 start "$APP_DIR/ecosystem.config.cjs" 2>&1 | tee_log
+        pm2_as_app_user start "$APP_DIR/ecosystem.config.cjs" 2>&1 | tee_log
         ok "PM2 started"
     else
         err "No ecosystem.config.cjs found — start PM2 manually:"
@@ -307,7 +411,12 @@ fi
 # Reload nginx if config is valid
 nginx -t 2>/dev/null && { nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || true; ok "Nginx reloaded"; } || true
 
-pm2 save --force 2>/dev/null || true
+pm2_as_app_user save --force 2>&1 | tee_log
+if [[ "$EUID" -eq 0 && -f "$APP_DIR/public/scripts/ensure-api-boot.sh" ]]; then
+    bash "$APP_DIR/public/scripts/ensure-api-boot.sh" "$PM2_USER" 2>&1 | tee_log
+elif [[ "$EUID" -ne 0 ]]; then
+    warn "Run the boot-service check as root: sudo bash $APP_DIR/public/scripts/ensure-api-boot.sh $PM2_USER"
+fi
 
 # ── Cloudflare false-positive ban cleanup ─────────────────────────────────────
 # If this deployment is behind Cloudflare and was previously running without
@@ -343,9 +452,10 @@ ruler
 echo -e "${GREEN}${BOLD}  ✓  Update complete!${NC}"
 ruler
 echo -e "  ${DIM}Commit:${NC}   $NEW_COMMIT"
-echo -e "  ${DIM}Accounts:${NC} $(psql "${DATABASE_URL:-}" -t -c 'SELECT count(*) FROM users;' 2>/dev/null | tr -d ' ' || echo '?') users — untouched"
+echo -e "  ${DIM}Accounts:${NC} $(psql "${DATABASE_URL:-}" -t -c 'SELECT count(*) FROM users;' 2>/dev/null | tr -d ' ' || echo '?') users — preserved"
 echo ""
 echo -e "  ${DIM}Check logs:${NC}    pm2 logs $PM2_APP --lines 40"
-echo -e "  ${DIM}Check status:${NC}  pm2 status"
+echo -e "  ${DIM}Check status:${NC}  sudo -u $PM2_USER pm2 status"
+echo -e "  ${DIM}Boot service:${NC}  systemctl status pm2-$PM2_USER"
 echo -e "  ${DIM}Full log:${NC}      tail -f $LOG_FILE"
 echo ""

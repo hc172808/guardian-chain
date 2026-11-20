@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,9 +23,9 @@ type Config struct {
 	WSPort    int
 	WSEnabled bool
 
-	DataDir    string
-	LogLevel   string
-	LogFormat  string
+	DataDir   string
+	LogLevel  string
+	LogFormat string
 
 	BlockTime time.Duration
 
@@ -41,7 +42,7 @@ func DefaultConfig() *Config {
 		P2PBootstrap: []string{},
 		MaxPeers:     50,
 		RPCPort:      8547,
-		RPCHost:      "0.0.0.0",
+		RPCHost:      "127.0.0.1",
 		RPCEnabled:   true,
 		WSPort:       8548,
 		WSEnabled:    true,
@@ -85,7 +86,7 @@ func FromEnv() *Config {
 		cfg.LogLevel = v
 	}
 	if v := os.Getenv("GYDS_BOOTSTRAP_NODES"); v != "" {
-		cfg.P2PBootstrap = []string{v}
+		cfg.P2PBootstrap = strings.Split(v, ",")
 	}
 	if v := os.Getenv("GYDS_BLOCK_TIME"); v != "" {
 		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {

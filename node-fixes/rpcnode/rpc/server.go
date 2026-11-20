@@ -12,26 +12,32 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/gydschain/rpcnode/core"
+	nodep2p "github.com/gydschain/rpcnode/p2p"
 )
 
 type Server struct {
-	chain      *core.Chain
-	rpcPort    int
-	wsPort     int
-	host       string
+	chain       *core.Chain
+	chainID     int64
+	rpcPort     int
+	wsPort      int
+	host        string
 	corsOrigins []string
-	mu         sync.Mutex
-	clients    map[*websocket.Conn]struct{}
-	httpSrv    *http.Server
+	mu          sync.Mutex
+	clients     map[*websocket.Conn]struct{}
+	httpSrv     *http.Server
+	p2pSrv      *nodep2p.Server
 }
+
+func (s *Server) SetP2P(p2pSrv *nodep2p.Server) { s.p2pSrv = p2pSrv }
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-func NewServer(chain *core.Chain, rpcPort int, wsPort int, host string, corsOrigins []string) *Server {
+func NewServer(chain *core.Chain, rpcPort int, wsPort int, host string, corsOrigins []string, chainID int64) *Server {
 	return &Server{
 		chain:       chain,
+		chainID:     chainID,
 		rpcPort:     rpcPort,
 		wsPort:      wsPort,
 		host:        host,
@@ -119,9 +125,9 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
 	chain := s.chain
 	switch method {
 	case "eth_chainId":
-		return fmt.Sprintf("0x%x", 198282)
+		return fmt.Sprintf("0x%x", s.chainID)
 	case "net_version":
-		return "198282"
+		return strconv.FormatInt(s.chainID, 10)
 	case "eth_blockNumber":
 		return fmt.Sprintf("0x%x", chain.Height())
 	case "eth_getBlockByNumber":
@@ -150,7 +156,20 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
 	case "net_listening":
 		return true
 	case "net_peerCount":
-		return "0x4"
+		if s.p2pSrv == nil {
+			return "0x0"
+		}
+		return fmt.Sprintf("0x%x", s.p2pSrv.PeerCount())
+	case "net_enode":
+		if s.p2pSrv == nil {
+			return nil
+		}
+		return s.p2pSrv.EnodeURL()
+	case "admin_nodeInfo":
+		if s.p2pSrv == nil {
+			return nil
+		}
+		return map[string]interface{}{"enode": s.p2pSrv.EnodeURL()}
 	case "eth_syncing":
 		return false
 	case "eth_getTransactionReceipt":
@@ -168,6 +187,10 @@ func (s *Server) Start() error {
 	r := mux.NewRouter()
 	r.HandleFunc("/", s.handleRPC).Methods("POST", "OPTIONS")
 	r.HandleFunc("/ws", s.handleWS)
+	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok","node":"gyds-rpcnode"}`))
+	}).Methods("GET")
 	// Serve both RPC and WS on the same port for simplicity
 	addr := fmt.Sprintf("%s:%d", s.host, s.rpcPort)
 	s.httpSrv = &http.Server{Addr: addr, Handler: r}

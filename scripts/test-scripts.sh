@@ -71,7 +71,7 @@ check_contains() {
   local file="$1"
   local pattern="$2"
   local label="$3"
-  if grep -q "$pattern" "$file" 2>/dev/null; then
+  if grep -q -- "$pattern" "$file" 2>/dev/null; then
     [[ "$VERBOSE" == "true" ]] && pass "$label: $(basename "$file")"
     return 0
   else
@@ -84,7 +84,7 @@ check_no_pattern() {
   local file="$1"
   local pattern="$2"
   local label="$3"
-  if grep -q "$pattern" "$file" 2>/dev/null; then
+  if grep -q -- "$pattern" "$file" 2>/dev/null; then
     fail "Found dangerous pattern '$label' in $(basename "$file")"
     grep -n "$pattern" "$file" | head -3 | sed 's/^/    /'
     return 1
@@ -101,6 +101,8 @@ echo -e "${BOLD}[ 1 ] Locate scripts${NC}"
 SCRIPTS=(
   "$SCRIPT_DIR/setup-ubuntu-server.sh"
   "$SCRIPT_DIR/setup-validator-node.sh"
+  "$REPO_ROOT/public/scripts/install-fullnode-service.sh"
+  "$REPO_ROOT/install.sh"
 )
 
 # Also include legacy scripts in public/scripts/
@@ -212,7 +214,262 @@ if [[ -f "$S" ]]; then
 fi
 
 echo ""
-echo -e "${BOLD}[ 7 ] Security checks${NC}"
+echo -e "${BOLD}[ 7 ] Installer regression checks${NC}"
+# ═════════════════════════════════════════════════════════════════════════════
+if command -v python3 >/dev/null 2>&1; then
+  if python3 "$SCRIPT_DIR/test-install.py"; then
+    pass "Master installer isolated execution regressions"
+  else
+    fail "Master installer isolated execution regressions"
+  fi
+  if python3 "$SCRIPT_DIR/test-node-registration.py"; then
+    pass "Local node registration isolation regression"
+  else
+    fail "Local node registration isolation regression"
+  fi
+  if python3 "$SCRIPT_DIR/test-install-all-nodes.py"; then
+    pass "Independent node installation failure regression"
+  else
+    fail "Independent node installation failure regression"
+  fi
+else
+  warn "Python 3 unavailable; skipping isolated installer and node-registration checks"
+fi
+check_contains "$REPO_ROOT/install.sh" "does not deploy the dashboard" "requirements-only warning"
+check_contains "$REPO_ROOT/install.sh" "dashboard has NOT been deployed" "requirements-only completion notice"
+check_contains "$REPO_ROOT/install.sh" "cannot complete the dashboard installation" "dashboard install failure is not masked"
+check_contains "$REPO_ROOT/install.sh" "Some node roles were skipped or failed" "partial node installation is reported accurately"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "Skipping bootnode" "unsupported bootnode skipped during all-nodes install"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "BOOTNODE_INSTALLED" "only report bootnode service when installed"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "FAILED_NODES" "failed node roles are recorded without aborting other roles"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "continuing with other selected node roles" "node install failure does not stop remaining roles"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "SKIPPED_NODES" "ineligible node roles are reported as skipped"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "GYDS_RPC_PORT=8547" "lite/RPC nodes use a non-conflicting port"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "register-local-nodes.sh" "all-nodes installation registers local services"
+check_contains "$REPO_ROOT/public/scripts/install-litenode.sh" "systemctl --user start gyds-litenode" "lite-node installer starts its service"
+check_contains "$REPO_ROOT/public/scripts/register-local-nodes.sh" "INSERT INTO node_installations" "local node registration writes dashboard rows"
+check_contains "$REPO_ROOT/server/routes.ts" "Math.max(netNodes.length, registeredRunningNodes)" "network stats include registered services"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" 'GO_VERSION="${GO_VERSION:-1.25.0}"' "bootnode Go version matches canonical source"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "require_mainnet_genesis_hash" "bootnode mainnet hash preflight"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "GYDS_GENESIS_HASH" "bootnode hash comes from explicit config"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "--config=\${CONFIG_FILE}" "bootnode systemd uses its generated config"
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "--genesis-hash=\${GENESIS_HASH}" "bootnode passes the genesis hash"
+check_contains "$REPO_ROOT/public/scripts/ensure-api-boot.sh" 'ExecStart=${PM2_BIN} resurrect' "dashboard PM2 process list restores at boot"
+check_contains "$REPO_ROOT/public/scripts/ensure-api-boot.sh" "systemctl enable" "dashboard API boot service is enabled"
+check_contains "$REPO_ROOT/public/scripts/ensure-api-boot.sh" "systemctl is-active" "dashboard API boot service is verified"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "ensure-api-boot.sh" "dashboard deployment configures API boot startup"
+check_contains "$REPO_ROOT/public/scripts/setup-server.sh" "ensure-api-boot.sh" "server setup configures API boot startup"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "pm2_as_app_user" "safe updates control PM2 as the app owner"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "ensure-api-boot.sh" "safe updates repair API boot startup"
+check_no_pattern "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "pm2 startup systemd.*tail -1" "unchecked PM2 startup pipeline"
+check_no_pattern "$REPO_ROOT/public/scripts/setup-server.sh" "pm2 startup systemd.*tail -1" "unchecked PM2 startup pipeline"
+check_contains "$REPO_ROOT/public/scripts/install-litenode.sh" "loginctl enable-linger" "lite-node user service is configured for boot"
+check_contains "$REPO_ROOT/public/scripts/install-litenode.sh" "default.target.wants/gyds-litenode.service" "lite-node user unit is enabled for the default target"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" "loginctl enable-linger" "bulk lite-node install enables boot startup"
+check_contains "$REPO_ROOT/public/scripts/uninstall-node.sh" "Type UNINSTALL to continue" "node uninstall requires explicit confirmation"
+check_contains "$REPO_ROOT/public/scripts/uninstall-node.sh" "chain data, validator keys, wallets" "node uninstall preserves node data"
+check_no_pattern "$REPO_ROOT/public/scripts/uninstall-node.sh" "rm -rf" "recursive node-data deletion"
+if output="$(bash "$REPO_ROOT/public/scripts/uninstall-node.sh" --dry-run fullnode rpcnode 2>&1)"; then
+  if [[ "$output" == *"gyds-fullnode.service"* && "$output" == *"gyds-rpcnode.service"* && "$output" == *"chain data, wallets, validator keys, configs, and logs are not removed"* ]]; then
+    pass "Node uninstaller dry-run lists selected services and preserves data"
+  else
+    fail "Node uninstaller dry-run did not show the expected safe plan: $output"
+  fi
+else
+  fail "Node uninstaller dry-run failed: $output"
+fi
+if output="$(CHAIN_ID=198282 GYDS_GENESIS_HASH= GYDS_CONF=/dev/null bash "$REPO_ROOT/public/scripts/install-bootnode.sh" 2>&1)"; then
+  fail "Bootnode installer accepted a missing mainnet genesis hash"
+elif [[ "$output" == *"verified mainnet genesis hash is required"* ]]; then
+  pass "Bootnode installer rejects missing mainnet genesis hash before setup"
+else
+  fail "Bootnode missing-hash rejection was unclear: $output"
+fi
+if output="$(CHAIN_ID=198282 GYDS_GENESIS_HASH=0x123 GYDS_CONF=/dev/null bash "$REPO_ROOT/public/scripts/install-bootnode.sh" 2>&1)"; then
+  fail "Bootnode installer accepted a malformed mainnet genesis hash"
+elif [[ "$output" == *"must be a non-zero 0x-prefixed 32-byte hash"* ]]; then
+  pass "Bootnode installer rejects malformed genesis hash before setup"
+else
+  fail "Bootnode malformed-hash rejection was unclear: $output"
+fi
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Non-interactive mode" "non-interactive deploy path"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "ALLOW_EXISTING_DB_MIGRATIONS" "existing DB migration approval"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Welcome to nginx" "default Nginx page verification"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "/api/auth/captcha/health" "dashboard auth API health check"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "Login/register route verified" "dashboard login route verification"
+check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "/api/auth/captcha" "watchdog checks the API process"
+check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "/api/health/db" "watchdog checks database connectivity"
+check_contains "$REPO_ROOT/public/scripts/gyds-watchdog.sh" "RESTART_COOLDOWN_SECONDS" "watchdog prevents restart loops"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "install_watchdog" "git updater installs/refreshes the watchdog"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "gyds-watchdog" "dashboard deploy installs the watchdog"
+check_contains "$REPO_ROOT/install.sh" 'run_script "gyds-update.sh"' "menu update uses the account-safe updater"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "check_migration_identity_safety" "database updates guard account identity"
+check_contains "$REPO_ROOT/public/scripts/gyds-update.sh" "install_redeploy_compat" "installed redeploy alias uses safe update path"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "account-safe updater" "redeploy command uses the guarded updater"
+check_contains "$REPO_ROOT/public/scripts/deploy-dashboard.sh" "check-migration-identity-safety.py" "dashboard setup guards account identity migrations"
+check_contains "$REPO_ROOT/public/scripts/redeploy.sh" "check-migration-identity-safety.py" "legacy redeploy checks account identity"
+check_contains "$REPO_ROOT/public/scripts/setup-server.sh" "account-safe updater" "server setup installs the safe update command"
+check_contains "$REPO_ROOT/server/seed.ts" "ON CONFLICT (username) DO NOTHING" "bootstrap seeding preserves existing credentials"
+check_no_pattern "$REPO_ROOT/server/seed.ts" "DO UPDATE SET password_hash" "bootstrap password reset"
+for migration in "$REPO_ROOT"/migrations/*.sql; do
+  if python3 "$REPO_ROOT/public/scripts/check-migration-identity-safety.py" "$migration" >/dev/null 2>&1; then
+    pass "Migration preserves usernames and passwords: $(basename "$migration")"
+  else
+    fail "Migration changes usernames or passwords: $(basename "$migration")"
+  fi
+done
+check_contains "$REPO_ROOT/public/scripts/setup-server.sh" "cron" "fresh server setup installs cron"
+check_contains "$REPO_ROOT/server/routes.ts" 'app.get("/api/health/db"' "dedicated database health endpoint"
+
+echo ""
+echo -e "${BOLD}[ 7a ] Local node source and mode checks${NC}"
+# ═════════════════════════════════════════════════════════════════════════════
+for spec in \
+  "fullnode|install-fullnode.sh|github.com/gydschain/fullnode" \
+  "rpcnode|install-rpcnode.sh|github.com/gydschain/rpcnode" \
+  "litenode|install-litenode.sh|github.com/gydschain/litenode" \
+  "boostnode|install-boostnode.sh|github.com/gydschain/boostnode" \
+  "genesis|install-genesis.sh|github.com/gydschain/genesis" \
+  "validatornode|install-validatornode.sh|github.com/gydschain/validatornode"; do
+  IFS='|' read -r role installer module <<< "$spec"
+  check_contains "$REPO_ROOT/public/scripts/$installer" "node-fixes/$role" "$role installer uses its bundled source"
+  check_contains "$REPO_ROOT/node-fixes/$role/go.mod" "$module" "$role local Go module"
+done
+check_contains "$REPO_ROOT/public/scripts/install-bootnode.sh" "public/blockchain-go" "bootnode installer uses bundled source"
+check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "198282)" "RPC installer accepts mainnet chain ID"
+check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "198281)" "RPC installer accepts testnet chain ID"
+check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" "Unrecognized chain ID" "RPC installer rejects unknown chain IDs clearly"
+check_contains "$REPO_ROOT/node-fixes/rpcnode/rpc/server.go" 'fmt.Sprintf("0x%x", s.chainID)' "RPC endpoint reports configured chain ID"
+check_contains "$REPO_ROOT/node-fixes/rpcnode/rpc/server.go" 'strconv.FormatInt(s.chainID, 10)' "RPC net_version reports configured chain ID"
+for installer in install-fullnode.sh install-rpcnode.sh install-boostnode.sh install-validatornode.sh install-genesis.sh install-litenode.sh; do
+  check_contains "$REPO_ROOT/public/scripts/$installer" "node_network_resolve_p2p_host" "$installer resolves the advertised P2P host"
+done
+check_contains "$REPO_ROOT/public/scripts/node-network.sh" 'node_network_allow_p2p_tcp' "shared firewall helper opens P2P TCP"
+check_contains "$REPO_ROOT/public/scripts/install-litenode.sh" 'LITE_P2P_PORT=' "lite installer passes its actual P2P setting"
+check_contains "$REPO_ROOT/public/scripts/install-all-nodes.sh" 'LITE_RPC_ENDPOINTS=' "multi-node lite install uses an RPC sync source"
+check_contains "$REPO_ROOT/node-fixes/litenode/main.go" 'nodep2p.NewListener' "lite node starts its P2P listener"
+check_contains "$REPO_ROOT/node-fixes/fullnode/rpc/server.go" 'host = "127.0.0.1"' "fullnode RPC defaults to loopback"
+check_contains "$REPO_ROOT/node-fixes/validatornode/rpc/server.go" 'host = "127.0.0.1"' "validator RPC defaults to loopback"
+check_contains "$REPO_ROOT/public/scripts/install-rpcnode.sh" 'proxy_pass         http://127.0.0.1:${RPC_PORT};' "RPC node WS proxy uses the shared RPC listener"
+check_contains "$REPO_ROOT/public/scripts/install-validatornode.sh" 'proxy_pass         http://127.0.0.1:${RPC_PORT};' "validator WS proxy uses the shared RPC listener"
+check_no_pattern "$REPO_ROOT/public/scripts/install-validatornode.sh" 'ufw --force reset' "validator installer preserves existing firewall policy"
+check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode.sh" 'ufw --force reset' "fullnode installer preserves existing firewall policy"
+check_contains "$REPO_ROOT/public/scripts/install-node.sh" 'install-fullnode.sh' "universal fullnode install uses the shared fullnode installer"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "raw.githubusercontent.com/hc172808/guardian-chain/main/public/scripts" "admin installer fetches scripts from the project GitHub path"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "fetch_node_script" "admin installer downloads scripts before running them"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" 'fetch_node_script node-network.sh' "admin installer fetches the shared network helper"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "GitHub unavailable; using local" "admin installer falls back to local scripts"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" 'bash "$SCRIPT_PATH"' "admin installer runs the downloaded or fallback script"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "uninstall-node.sh" "admin installer offers node uninstallation"
+if grep -Eq 'github\.com/hc172808/(fullnode|genesis|rpcnode|boostnode|litenode|validatornode|bootnode)(\.git)?' \
+  "$REPO_ROOT"/public/scripts/install-*.sh; then
+  fail "Node installers reference separate remote node repositories"
+else
+  pass "Node installers do not reference separate remote node repositories"
+fi
+check_no_pattern "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "NodeRepoSync" "node repository sync UI"
+check_no_pattern "$REPO_ROOT/src/pages/Admin.tsx" "NodeRepoSync" "node repository sync UI"
+check_no_pattern "$REPO_ROOT/server/routes.ts" "/api/webhooks/github" "node repository webhook endpoint"
+check_no_pattern "$REPO_ROOT/src/pages/Setup.tsx" "GITHUB_WEBHOOK_SECRET" "node repository webhook setup"
+check_contains "$REPO_ROOT/shared/schema.ts" 'isPublic: boolean("is_public")' "profile privacy schema column"
+check_contains "$REPO_ROOT/server/startup-migrate.ts" "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_public" "profile privacy startup migration"
+check_contains "$REPO_ROOT/server/routes.ts" 'UPDATE profiles SET is_public=\$1, updated_at=NOW() WHERE user_id=\$2' "profile privacy updates do not require a unique index"
+check_contains "$REPO_ROOT/server/routes.ts" "INSERT INTO profiles (user_id, is_public)" "profile privacy creates a missing profile"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "prepare_local_source()" "fullnode installer uses the checked-out source"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "Using local project source" "fullnode installer identifies local source"
+check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "git clone" "remote node repository clone"
+check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "git pull" "remote node repository pull"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "test ./..." "installer tests source before replacing binary"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "SetLoopbackOnly()" "fresh fullnode listeners bind to loopback"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "Existing native service found; its current listener binding will be preserved." "existing service binding is preserved"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "apply_new_service_loopback_hardening" "fresh service loopback hardening"
+check_contains "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "other GYDS_RPC_HOST values are not supported" "reject unsafe new-service RPC binds"
+check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "reset --hard" "destructive source reset"
+check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode-service.sh" "ufw --force reset" "firewall reset"
+if command -v python3 >/dev/null 2>&1; then
+  if python3 - "$REPO_ROOT/public/scripts/install-fullnode-service.sh" <<'PY'
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+offset = 0
+count = 0
+blocks = []
+marker = "<<'PY'\n"
+while True:
+    heredoc = source.find(marker, offset)
+    if heredoc < 0:
+        break
+    start = heredoc + len(marker)
+    end = source.find("\nPY\n", start)
+    if end < 0:
+        raise SystemExit("unterminated embedded Python heredoc")
+    block = source[start:end]
+    count += 1
+    compile(block, f"fullnode-installer-python-{count}", "exec")
+    blocks.append(block)
+    offset = end + len("\nPY\n")
+if count == 0:
+    raise SystemExit("no embedded Python heredocs found")
+
+patcher = next((block for block in blocks if "func runFullNode(" in block), None)
+if patcher is None:
+    raise SystemExit("loopback build-worktree patcher was not found")
+fixture = """package main
+func runFullNode(cfg *Config) error {
+    rpcSrv.SetNodeMode(cfg.NodeMode)
+    return nil
+}
+func runLiteNode() {}
+"""
+with tempfile.TemporaryDirectory() as directory:
+    main_go = pathlib.Path(directory) / "main.go"
+    main_go.write_text(fixture, encoding="utf-8")
+    subprocess.run([sys.executable, "-c", patcher, str(main_go)], check=True)
+    patched = main_go.read_text(encoding="utf-8")
+    loopback = patched.find("rpcSrv.SetLoopbackOnly()")
+    node_mode = patched.find("rpcSrv.SetNodeMode(cfg.NodeMode)")
+    if loopback < 0 or node_mode < 0 or loopback > node_mode:
+        raise SystemExit("loopback patch was not inserted before node-mode setup")
+    if patched.count("rpcSrv.SetLoopbackOnly()") != 1:
+        raise SystemExit("loopback patch was inserted more than once")
+PY
+  then
+    pass "Embedded Python blocks compile and loopback overlay is scoped correctly"
+  else
+    fail "Invalid embedded Go download metadata parser"
+  fi
+else
+  warn "Python 3 unavailable; skipping embedded metadata parser syntax check"
+fi
+check_contains "$REPO_ROOT/public/scripts/install-localnode.sh" 'GYDS_NODE_MODE=${NODE_MODE}' "role-based localnode mode"
+check_contains "$REPO_ROOT/public/scripts/install-termux.sh" "GYDS_NODE_MODE=lite" "Termux lite mode"
+check_contains "$REPO_ROOT/public/scripts/install-node.sh" 'MODE="lite"' "universal installer lite mode"
+check_contains "$SCRIPT_DIR/setup-ubuntu-server.sh" "GYDS_NODE_MODE=lite" "Ubuntu lite wrapper"
+check_contains "$REPO_ROOT/public/scripts/install-localnode.sh" "/api/ws" "canonical WebSocket endpoint"
+check_contains "$SCRIPT_DIR/setup-ubuntu-server.sh" "/api/ws" "canonical WebSocket endpoint"
+check_no_pattern "$REPO_ROOT/public/scripts/install-localnode.sh" "public/blockchain-go" "legacy blockchain-go source"
+check_no_pattern "$REPO_ROOT/public/scripts/install-termux.sh" "public/blockchain-go" "legacy blockchain-go source"
+check_no_pattern "$SCRIPT_DIR/setup-ubuntu-server.sh" "public/blockchain-go" "legacy blockchain-go source"
+if output="$(bash "$REPO_ROOT/public/scripts/install-node.sh" bootnode 2>&1)"; then
+  fail "Universal bootnode installer unexpectedly completed without configuration"
+elif [[ "$output" == *"verified mainnet genesis hash is required"* ]]; then
+  pass "Universal installer dispatches bootnode to its local hash preflight"
+else
+  fail "Universal bootnode installer did not reach its local preflight: $output"
+fi
+if output="$(NODE_TYPE=validator bash "$REPO_ROOT/public/scripts/install-localnode.sh" 2>&1)"; then
+  fail "Local-network installer accepted validator mode"
+elif [[ "$output" == *"remains on the dedicated setup script"* ]]; then
+  pass "Local-network installer leaves validator setup on its dedicated path"
+else
+  fail "Local-network validator rejection was unclear: $output"
+fi
+
+echo ""
+echo -e "${BOLD}[ 8 ] Security checks${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
 for s in "${SCRIPTS[@]}"; do
   [[ ! -f "$s" ]] && continue
@@ -226,7 +483,7 @@ for s in "${SCRIPTS[@]}"; do
 done
 
 echo ""
-echo -e "${BOLD}[ 8 ] Legacy scripts in public/scripts/${NC}"
+echo -e "${BOLD}[ 9 ] Legacy scripts in public/scripts/${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
 for s in "${LEGACY_SCRIPTS[@]}"; do
   [[ ! -f "$s" ]] && continue
@@ -240,7 +497,7 @@ for s in "${LEGACY_SCRIPTS[@]}"; do
 done
 
 echo ""
-echo -e "${BOLD}[ 9 ] Chain ID consistency${NC}"
+echo -e "${BOLD}[ 10 ] Chain ID consistency${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
 info "Checking all scripts reference chain ID 198282 (not other IDs)..."
 WRONG_ID=0
@@ -260,7 +517,7 @@ done
 [[ "$WRONG_ID" -eq 0 ]] && pass "All chain IDs are 198282"
 
 echo ""
-echo -e "${BOLD}[ 10 ] Help flag smoke test${NC}"
+echo -e "${BOLD}[ 11 ] Help flag smoke test${NC}"
 # ═════════════════════════════════════════════════════════════════════════════
 for s in "${SCRIPTS[@]}"; do
   [[ ! -f "$s" ]] && continue

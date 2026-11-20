@@ -123,7 +123,6 @@ src/
 │   │   └── DeFiBottomNav.tsx       # 13-tab bottom nav for DeFi page
 │   │
 │   ├── admin/
-│   │   ├── NodeRepoSync.tsx        # Checks 4 node repos via GitHub API (module/binary/blocktime)
 │   │   ├── AIFirewallTab.tsx       # AI firewall — blocked IPs, lockdown, rate limits
 │   │   ├── WireGuardPeerManager.tsx# WireGuard — tunnel IPs, wg0.conf, per-peer client configs
 │   │   ├── CronJobManager.tsx      # 7-job in-memory cron registry; run/pause/configure
@@ -401,7 +400,7 @@ Four collapsible `NavSection` groups (Framer Motion AnimatePresence):
 | `premine` | `PremineManager` | Pre-mine allocation management |
 | `logos` | `CoinLogoUpload` | Upload/replace coin icons |
 | `database` | `DatabaseSettings` | DB connection settings |
-| `github` | `GitSyncPanel` + `NodeRepoSync` | Git pull + node repo health check |
+| `github` | `GitSyncPanel` | Dashboard repository pull and update |
 | `firewall` | `AIFirewallTab` + `FirewallManager` | AI firewall + IP rules |
 | `audit` | `AuditLogViewer` | System audit log |
 | `health` | `HealthCheck` | Node + system health monitor |

@@ -21,7 +21,11 @@ async function deployFixture() {
 
   // Deploy Factory
   const Factory = await ethers.getContractFactory("GydsSwapFactory");
-  const factory = await Factory.deploy(owner.address);
+  const factory = await Factory.deploy(
+    owner.address,
+    await tokenA.getAddress(),
+    await tokenB.getAddress(),
+  );
 
   // Create a pair
   const tx = await factory.createPair(

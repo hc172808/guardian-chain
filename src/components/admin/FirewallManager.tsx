@@ -59,6 +59,22 @@ interface IpAccessEntry {
   created_at: string;
 }
 
+interface FirewallRuntimeStatus {
+  enabled: boolean;
+  ipBlockEnabled: boolean;
+  lockdown: boolean;
+  sensitivity: number;
+  blockedCount: number;
+  tempBannedCount: number;
+  blocked: number;
+  rateBlocked: number;
+  payloadBlocked: number;
+  burstBlocked: number;
+  honeypotBlocked: number;
+  uaBlocked: number;
+  tempBanned: number;
+}
+
 // ─── UFW Rules Tab ───
 const UfwRulesTab = () => {
   const { user } = useAuth();
@@ -261,18 +277,20 @@ const Fail2BanTab = () => {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600',
-    log_path: '', filter_name: '', description: '',
+    log_path: '', filter_name: '', action: 'iptables-multiport', description: '',
   });
 
-  const fetchJails = async () => {
+  const fetchJails = async (seedDefaults = false) => {
     try {
-      const data = await api.get('/api/firewall/jails');
+      const data = seedDefaults
+        ? await api.post('/api/firewall/jails/seed-defaults', {})
+        : await api.get('/api/firewall/jails');
       setJails(Array.isArray(data) ? data : []);
     } catch { setJails([]); }
     setLoading(false);
   };
 
-  useEffect(() => { fetchJails(); }, []);
+  useEffect(() => { void fetchJails(true); }, []);
 
   const handleAdd = async () => {
     if (!user || !form.jail_name) return;
@@ -285,15 +303,17 @@ const Fail2BanTab = () => {
         find_time: parseInt(form.find_time),
         log_path: form.log_path || null,
         filter_name: form.filter_name || null,
+        action: form.action,
+        is_enabled: false,
         description: form.description || null,
       });
-      toast({ title: 'Fail2Ban jail added' });
+      toast({ title: 'Fail2Ban jail added disabled' });
       logAuditEvent(user.id, user.email || null, {
         action: 'Added Fail2Ban jail', category: 'firewall', target_type: 'fail2ban_jails',
         details: { jail_name: form.jail_name, max_retries: form.max_retries, ban_time: form.ban_time },
       });
       setDialogOpen(false);
-      setForm({ jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600', log_path: '', filter_name: '', description: '' });
+      setForm({ jail_name: '', max_retries: '5', ban_time: '3600', find_time: '600', log_path: '', filter_name: '', action: 'iptables-multiport', description: '' });
       fetchJails();
     } catch (e: any) {
       toast({ title: 'Failed', description: e.message, variant: 'destructive' });
@@ -330,6 +350,10 @@ const Fail2BanTab = () => {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-border/60 bg-secondary/10 p-3 text-xs text-muted-foreground">
+        Standard SSH, Nginx, PostgreSQL, and repeat-offender jail settings are preloaded disabled.
+        These are saved dashboard settings only; they do not write to the VPS or start its Fail2Ban service.
+      </div>
       <div className="flex items-center justify-between">
         <h4 className="font-medium flex items-center gap-2">
           <Ban className="h-4 w-4 text-primary" />
@@ -369,6 +393,17 @@ const Fail2BanTab = () => {
                 <Input placeholder="e.g. sshd, nginx-http-auth" value={form.filter_name} onChange={(e) => setForm({ ...form, filter_name: e.target.value })} />
               </div>
               <div className="space-y-2">
+                <Label>Ban Action</Label>
+                <Select value={form.action} onValueChange={(action) => setForm({ ...form, action })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="iptables-multiport">iptables-multiport</SelectItem>
+                    <SelectItem value="iptables-allports">iptables-allports</SelectItem>
+                    <SelectItem value="nftables-multiport">nftables-multiport</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
                 <Label>Description</Label>
                 <Input placeholder="What this jail protects" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               </div>
@@ -404,7 +439,14 @@ const Fail2BanTab = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Switch checked={jail.is_enabled} onCheckedChange={() => toggleJail(jail.id, jail.is_enabled)} />
+                  <Badge variant={jail.is_enabled ? 'default' : 'outline'}>
+                    {jail.is_enabled ? 'Enabled' : 'Disabled'}
+                  </Badge>
+                  <Switch
+                    aria-label={`${jail.is_enabled ? 'Disable' : 'Enable'} ${jail.jail_name} jail`}
+                    checked={jail.is_enabled}
+                    onCheckedChange={() => toggleJail(jail.id, jail.is_enabled)}
+                  />
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteJail(jail.id)}>
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -417,6 +459,13 @@ const Fail2BanTab = () => {
                 {jail.banned_ips && jail.banned_ips.length > 0 && (
                   <span className="text-destructive">🚫 {jail.banned_ips.length} banned</span>
                 )}
+              </div>
+              <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                <span>Filter: <code className="text-foreground">{jail.filter_name || '—'}</code></span>
+                <span>Action: <code className="text-foreground">{jail.action || '—'}</code></span>
+                <span className="break-all sm:col-span-2">
+                  Log path: <code className="text-foreground">{jail.log_path || '—'}</code>
+                </span>
               </div>
             </div>
           ))}
@@ -950,6 +999,57 @@ const DDoSProtectionTab = () => {
 export const FirewallManager = () => {
   const { isAdmin, isFounder } = useAuth();
   const canControl = isAdmin || isFounder;
+  const [runtimeStatus, setRuntimeStatus] = useState<FirewallRuntimeStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [savingToggle, setSavingToggle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadStatus = async () => {
+      try {
+        const data = await api.get('/api/security/status');
+        if (active) {
+          setRuntimeStatus(data);
+          setStatusError(null);
+        }
+      } catch (error: any) {
+        if (active) setStatusError(error?.message ?? 'Could not load firewall status.');
+      } finally {
+        if (active) setStatusLoading(false);
+      }
+    };
+    void loadStatus();
+    const timer = window.setInterval(() => void loadStatus(), 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const updateRuntimeToggle = async (
+    key: 'firewallEnabled' | 'ipBlockEnabled',
+    enabled: boolean,
+  ) => {
+    setSavingToggle(key);
+    try {
+      const data = await api.patch('/api/security/toggles', { [key]: enabled });
+      setRuntimeStatus(data.status);
+      setStatusError(null);
+      toast({
+        title: enabled ? 'Protection enabled' : 'Protection disabled',
+        description: key === 'firewallEnabled'
+          ? 'Application firewall changes are live.'
+          : enabled
+            ? 'IP blocking is now enforcing detected bans.'
+            : 'IP blocking is now monitor-only; requests will not be rejected by IP enforcement.',
+      });
+    } catch (error: any) {
+      toast({ title: 'Could not update protection', description: error?.message, variant: 'destructive' });
+    } finally {
+      setSavingToggle(null);
+    }
+  };
 
   return (
     <GlassCard className="p-6">
@@ -990,6 +1090,93 @@ export const FirewallManager = () => {
           Read-only access. Admin or Founder role required to create, modify, or delete firewall rules.
         </div>
       )}
+
+      <div className="mb-5 rounded-lg border border-border/60 bg-secondary/10 p-4 space-y-4" data-testid="firewall-runtime-controls">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h4 className="font-medium">Dashboard protection controls</h4>
+            <p className="mt-1 text-xs text-muted-foreground">
+              These switches control the application’s live request firewall. UFW, Fail2Ban, and custom rate-limit/DDoS rows below are stored settings only; this dashboard does not apply them to the Linux host.
+            </p>
+          </div>
+          {runtimeStatus && (
+            <Badge variant={runtimeStatus.lockdown ? 'destructive' : 'secondary'} data-testid="status-firewall-lockdown">
+              {runtimeStatus.lockdown ? 'Lockdown active' : 'Normal operation'}
+            </Badge>
+          )}
+        </div>
+
+        {statusError && (
+          <p className="text-sm text-destructive" role="alert" data-testid="error-firewall-status">
+            {statusError}
+          </p>
+        )}
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/50 bg-background/40 p-3">
+            <div>
+              <p className="text-sm font-medium">Application firewall</p>
+              <p className="text-xs text-muted-foreground">Request inspection and middleware protections</p>
+            </div>
+            {runtimeStatus ? (
+              <Switch
+                aria-label="Application firewall"
+                data-testid="switch-application-firewall"
+                checked={runtimeStatus.enabled}
+                disabled={!canControl || statusLoading || savingToggle !== null}
+                onCheckedChange={(enabled) => void updateRuntimeToggle('firewallEnabled', enabled)}
+              />
+            ) : (
+              <Badge variant="outline">{statusLoading ? 'Loading' : 'Unavailable'}</Badge>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/50 bg-background/40 p-3">
+            <div>
+              <p className="text-sm font-medium">IP-block enforcement</p>
+              <p className="text-xs text-muted-foreground">
+                {!runtimeStatus?.enabled
+                  ? runtimeStatus?.ipBlockEnabled
+                    ? 'Saved on, but paused while the application firewall is off'
+                    : 'Turn on the application firewall before enabling enforcement'
+                  : runtimeStatus.ipBlockEnabled
+                    ? 'Detected bans are enforced'
+                    : 'Monitor-only; requests are not rejected'}
+              </p>
+            </div>
+            {runtimeStatus ? (
+              <Switch
+                aria-label="IP-block enforcement"
+                data-testid="switch-ip-block-enforcement"
+                checked={runtimeStatus.ipBlockEnabled}
+                disabled={!canControl || statusLoading || savingToggle !== null || !runtimeStatus.enabled}
+                onCheckedChange={(enabled) => void updateRuntimeToggle('ipBlockEnabled', enabled)}
+              />
+            ) : (
+              <Badge variant="outline">{statusLoading ? 'Loading' : 'Unavailable'}</Badge>
+            )}
+          </div>
+        </div>
+
+        {runtimeStatus && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="firewall-runtime-counters">
+            {[
+              { label: 'Blocked', value: runtimeStatus.blocked },
+              { label: 'Rate flags', value: runtimeStatus.rateBlocked },
+              { label: 'Payload flags', value: runtimeStatus.payloadBlocked },
+              { label: 'Burst flags', value: runtimeStatus.burstBlocked },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-md bg-background/50 p-2 text-center">
+                <p className="text-lg font-semibold tabular-nums">{value.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">{label}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Counters reset when the application process restarts. Host firewall status is not available from this dashboard.
+        </p>
+      </div>
 
       <Tabs defaultValue="ai" className="space-y-4">
         <TabsList className="grid grid-cols-7 w-full">

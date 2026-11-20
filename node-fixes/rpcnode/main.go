@@ -71,6 +71,9 @@ func versionCmd() *cobra.Command {
 
 func runNode() error {
         cfg := config.FromEnv()
+        if err := cfg.Validate(); err != nil {
+                return err
+        }
 
         zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
         if cfg.LogFormat == "pretty" {
@@ -88,14 +91,17 @@ func runNode() error {
                 Int64("chainId", cfg.ChainID).
                 Msg("Starting GYDS rpcnode")
 
-        chain := core.NewChain(core.GydsGenesis)
+        genesis := *core.GydsGenesis
+        genesis.ChainID = cfg.ChainID
+        genesis.NetworkName = cfg.NetworkName
+        chain := core.NewChain(&genesis)
         log.Info().Uint64("height", chain.Height()).Msg("Chain initialised from genesis")
 
         vs := consensus.NewValidatorSet(core.GydsGenesis.Validators)
         engine := consensus.NewPoSEngine(chain, vs, 120*time.Second)
 
         // rpc/server.go NewServer signature: (chain, port, wsPort, host, corsOrigins)
-        rpcSrv := rpc.NewServer(chain, cfg.RPCPort, cfg.WSPort, cfg.RPCHost, []string{"*"})
+        rpcSrv := rpc.NewServer(chain, cfg.RPCPort, cfg.WSPort, cfg.RPCHost, []string{"*"}, cfg.ChainID)
         engine.OnNewBlock(func(b *core.Block) {
                 log.Info().
                         Uint64("number", b.Header.Number).
@@ -111,14 +117,16 @@ func runNode() error {
 
         p2pSrv := p2p.NewServer(cfg.P2PPort, cfg.ChainID, chain.Height)
 
+        if err := p2pSrv.Start(); err != nil {
+                return fmt.Errorf("start P2P server: %w", err)
+        }
+        rpcSrv.SetP2P(p2pSrv)
         for _, addr := range cfg.P2PBootstrap {
                 if err := p2pSrv.ConnectTo(addr); err != nil {
                         log.Warn().Err(err).Str("addr", addr).Msg("Failed to connect to bootstrap peer")
                 }
         }
-        if err := p2pSrv.Start(); err != nil {
-                log.Warn().Err(err).Msg("P2P server failed to start (continuing without P2P)")
-        }
+        log.Info().Str("enode", p2pSrv.EnodeURL()).Msg("GYDS peer address")
 
         engine.Start()
         log.Info().Dur("blockTime", 120*time.Second).Msg("PoS engine started")

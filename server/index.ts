@@ -282,12 +282,6 @@ await (storage as any).setAdminConfig('bridge_fee_percent', '0.3').catch(() => {
 // Add is_visible column to token_launches if missing
 (storage as any).updateLaunchVisibility('00000000-0000-0000-0000-000000000000', true).catch(() => {});
 
-// Hourly network snapshot cron
-setInterval(() => {
-  storage.captureNetworkSnapshot().catch(e => console.warn("snapshot cron:", e.message));
-}, 60 * 60 * 1000);
-storage.captureNetworkSnapshot().catch(() => {});
-
 // 90-day DB pruner cron — runs once daily at startup + every 24h
 async function runDbPruner() {
   const pgPool = dbPool;

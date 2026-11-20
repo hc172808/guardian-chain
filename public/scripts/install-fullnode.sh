@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain Full Node Installer — FOUNDER ONLY
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Source:   local node-fixes/fullnode or node-fixes/rpcnode bundle
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
 #  Chain ID: 198282  |  Block time: 5s  |  Domain: netlifegy.com
 #  Run:      sudo bash install-fullnode.sh
@@ -12,28 +12,60 @@ set -euo pipefail
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
 [[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
+GYDS_SHARED_CONFIG_LOADED=0
+[[ -f "$GYDS_CONF" ]] && GYDS_SHARED_CONFIG_LOADED=1
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/fullnode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
+source "$SCRIPT_DIR/node-profile.sh"
+load_node_profile
+# Public RPC is served through Nginx over HTTPS, never on the node's raw port.
+GYDS_RPC_HOST="127.0.0.1"
+export GYDS_RPC_HOST
 
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
-BINARY="gyds-fullnode"
+NODE_ROLE="${NODE_ROLE:-full}"
+case "$NODE_ROLE" in full|rpc) ;; *) echo "Unsupported node role" >&2; exit 1;; esac
+SERVICE_NAME="gyds-${NODE_ROLE}node"
+BINARY="$SERVICE_NAME"
 APP_USER="${APP_USER:-gyds}"
-APP_DIR="${APP_DIR:-/opt/gyds-fullnode}"
-DATA_DIR="${DATA_DIR:-/var/lib/gyds-fullnode}"
+APP_DIR="${APP_DIR:-/opt/${SERVICE_NAME}}"
+DATA_DIR="${GYDS_DATA_DIR:-/var/lib/${SERVICE_NAME}}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
-GO_VERSION="${GO_VERSION:-1.21.13}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
-RPC_PORT="${GYDS_FULLNODE_RPC_PORT:-${GYDS_RPC_PORT:-8545}}"
-WS_PORT="${GYDS_FULLNODE_WS_PORT:-${GYDS_WS_PORT:-8546}}"
-P2P_PORT="${GYDS_FULLNODE_P2P_PORT:-${GYDS_P2P_PORT:-30304}}"
+RPC_PORT="${GYDS_RPC_PORT:-8545}"
+WS_PORT="${GYDS_WS_PORT:-8546}"
+P2P_PORT="${GYDS_P2P_PORT:-30303}"
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
-P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
 DOMAIN="${DOMAIN:-}"
+RPC_DOMAIN="${GYDS_RPC_DOMAIN:-}"
+if [[ -z "$RPC_DOMAIN" && -n "$DOMAIN" ]]; then
+  if [[ "$GYDS_SHARED_CONFIG_LOADED" == "1" ]]; then
+    RPC_DOMAIN="rpc.${DOMAIN}"
+  else
+    RPC_DOMAIN="$DOMAIN"
+  fi
+fi
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-BRANCH="main"
+SOURCE_ROLE="fullnode"
+SOURCE_MODULE="github.com/gydschain/fullnode"
+if [[ "$NODE_ROLE" == "rpc" ]]; then
+  SOURCE_ROLE="rpcnode"
+  SOURCE_MODULE="github.com/gydschain/rpcnode"
+fi
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/${SOURCE_ROLE}}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -45,7 +77,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain FULL NODE Installer v${GYDS_VERSION} — FOUNDER          ║"
 echo "║   Chain ID: ${CHAIN_ID}  |  Block time: 5s  |  netlifegy.com  ║"
-echo "║   Repo: github.com/hc172808/fullnode                            ║"
+echo "║   Source: local node-fixes/${SOURCE_ROLE}                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -58,14 +90,19 @@ while [[ $# -gt 0 ]]; do
     --ws-port)         WS_PORT="$2";     shift 2 ;;
     --p2p-port)        P2P_PORT="$2";    shift 2 ;;
     --data-dir)        DATA_DIR="$2";    shift 2 ;;
-    --domain)          DOMAIN="$2";      shift 2 ;;
+    --domain)          DOMAIN="$2"; RPC_DOMAIN="$2"; shift 2 ;;
     --log-level)       LOG_LEVEL="$2";   shift 2 ;;
     --bootstrap-nodes) BOOTSTRAP="$2";   shift 2 ;;
-    --advertise-host)  P2P_ADVERTISE_HOST="$2"; shift 2 ;;
-    --no-wizard)       GYDS_SKIP_WIZARD=1; shift ;;
+    --no-wizard)       shift ;;
     *) warn "Unknown flag: $1"; shift ;;
   esac
 done
+
+[[ -z "${GYDS_NODE_MODE:-}" || "$GYDS_NODE_MODE" == "$NODE_ROLE" ]] || die "Profile role does not match $NODE_ROLE"
+for port in "$RPC_PORT" "$WS_PORT" "$P2P_PORT"; do
+  [[ "$port" =~ ^[0-9]{1,5}$ ]] && (( 10#$port >= 1 && 10#$port <= 65535 )) || die "Invalid node port"
+done
+[[ "$RPC_PORT" != "$P2P_PORT" ]] || die "RPC and P2P ports must differ"
 
 # ── OS detection ──────────────────────────────────────────────────────────────
 . /etc/os-release 2>/dev/null || die "Cannot read /etc/os-release"
@@ -100,9 +137,6 @@ elif is_rhel; then
     ca-certificates openssl net-tools lsof 2>/dev/null || \
   yum install -y gcc git curl wget jq firewalld fail2ban nginx ca-certificates openssl net-tools lsof
 fi
-if [[ -z "$P2P_ADVERTISE_HOST" ]]; then
-  P2P_ADVERTISE_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
-fi
 
 # ── Go ────────────────────────────────────────────────────────────────────────
 log "[2/7] Installing Go ${GO_VERSION}..."
@@ -121,20 +155,15 @@ if [[ "$CURRENT_GO" != "$GO_VERSION" ]]; then
 fi
 log "    $(go version)"
 
-# ── Clone / update repo ───────────────────────────────────────────────────────
-log "[3/7] Fetching source from ${REPO_URL}..."
-if [[ -d "$APP_DIR/.git" ]]; then
-  log "    Existing install found — pulling latest..."
-  git -C "$APP_DIR" fetch origin "$BRANCH"
-  git -C "$APP_DIR" reset --hard "origin/$BRANCH"
-else
-  git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
-fi
-[[ -f "$APP_DIR/go.mod" ]] || die "go.mod not found in $APP_DIR — check repo layout"
+# ── Validate bundled local source ─────────────────────────────────────────────
+log "[3/7] Checking local ${SOURCE_ROLE} source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module ${SOURCE_MODULE}" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 # ── Build binary ──────────────────────────────────────────────────────────────
 log "[4/7] Building $BINARY..."
-( cd "$APP_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
 rm -f "/tmp/${BINARY}"
@@ -146,37 +175,23 @@ id "$APP_USER" &>/dev/null || \
   useradd --system --no-create-home --shell /usr/sbin/nologin "$APP_USER" 2>/dev/null || \
   adduser --system --no-create-home --shell /usr/sbin/nologin "$APP_USER"
 
-mkdir -p "${DATA_DIR}"/{state.db,keystore,logs} "${LOG_DIR}"
+mkdir -p "${DATA_DIR}"/{keystore,logs} "${LOG_DIR}"
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${LOG_DIR}"
 chmod 700 "${DATA_DIR}/keystore"
 
-# ── Firewall ──────────────────────────────────────────────────────────────────
-log "[6/7] Configuring firewall..."
-if is_debian && command -v ufw &>/dev/null; then
-  ufw default deny incoming >/dev/null
-  ufw default allow outgoing >/dev/null
-  ufw limit 22/tcp    comment "SSH (rate-limited)" >/dev/null
-  ufw allow 80/tcp    comment "HTTP"               >/dev/null
-  ufw allow 443/tcp   comment "HTTPS"              >/dev/null
-  ufw allow "${RPC_PORT}/tcp" comment "GYDS RPC"   >/dev/null
-  ufw allow "${WS_PORT}/tcp"  comment "GYDS WS"    >/dev/null
-  ufw allow "${P2P_PORT}/tcp" comment "GYDS P2P"   >/dev/null
-  ufw allow "${P2P_PORT}/udp" comment "GYDS P2P"   >/dev/null
-  ufw allow 51820/udp comment "WireGuard"          >/dev/null
-  ufw --force enable >/dev/null
-  log "    UFW enabled"
-elif is_rhel && command -v firewall-cmd &>/dev/null; then
-  systemctl enable --now firewalld
-  firewall-cmd --permanent --add-port=22/tcp
-  firewall-cmd --permanent --add-port=80/tcp
-  firewall-cmd --permanent --add-port=443/tcp
-  firewall-cmd --permanent --add-port="${RPC_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${WS_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${P2P_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${P2P_PORT}/udp"
-  firewall-cmd --reload
-  log "    firewalld configured"
+if [[ -n "$RPC_DOMAIN" && ! "$RPC_DOMAIN" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+  die "RPC_DOMAIN must be a hostname without a scheme or path."
 fi
+
+# ── Firewall ──────────────────────────────────────────────────────────────────
+log "[6/7] Configuring node network access..."
+node_network_resolve_p2p_host || die "Could not determine a reachable P2P address."
+node_network_allow_p2p_tcp "$P2P_PORT"
+if [[ -n "$RPC_DOMAIN" ]]; then
+  node_network_allow_tcp_port 80 "GYDS RPC HTTP proxy"
+  node_network_allow_tcp_port 443 "GYDS RPC HTTPS proxy"
+fi
+log "    Existing firewall policies were preserved; P2P uses TCP only."
 
 # Fail2ban for SSH + RPC
 if command -v fail2ban-server &>/dev/null; then
@@ -206,19 +221,22 @@ log "[7/7] Installing systemd service..."
 
 # Build environment block
 ENV_BLOCK="Environment=GYDS_CHAIN_ID=${CHAIN_ID}
-Environment=GYDS_NODE_MODE=full
+Environment=GYDS_NODE_MODE=${NODE_ROLE}
 Environment=GYDS_RPC_PORT=${RPC_PORT}
-Environment=GYDS_RPC_HOST=0.0.0.0
+Environment=GYDS_RPC_HOST=127.0.0.1
+Environment=GYDS_DASHBOARD_ENABLED=false
 Environment=GYDS_P2P_PORT=${P2P_PORT}
+Environment=GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json"
 [[ -n "$BOOTSTRAP" ]] && ENV_BLOCK+="
 Environment=GYDS_BOOTSTRAP_NODES=${BOOTSTRAP}"
-[[ -n "$P2P_ADVERTISE_HOST" ]] && ENV_BLOCK+="
-Environment=GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}"
 
-cat > /etc/systemd/system/gyds-fullnode.service <<EOF
+PROFILE_FILE="/etc/${SERVICE_NAME}.env"
+write_node_profile "$PROFILE_FILE"
+
+cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
 Description=GYDSchain Full Node v${GYDS_VERSION}
 After=network-online.target
@@ -230,6 +248,7 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${DATA_DIR}
 ${ENV_BLOCK}
+EnvironmentFile=${PROFILE_FILE}
 Environment=GYDS_HTTP_API=eth,net,web3,txpool,admin,miner,personal,debug
 Environment=GYDS_WS_API=eth,net,web3,txpool,admin
 ExecStart=${GYDS_BIN}/${BINARY} start
@@ -250,17 +269,32 @@ ReadWritePaths=${DATA_DIR} ${LOG_DIR}
 WantedBy=multi-user.target
 EOF
 
-# Nginx reverse proxy (optional domain)
-if [[ -n "$DOMAIN" ]]; then
-  cat > /etc/nginx/sites-available/gyds-fullnode <<EOF
-limit_req_zone \$binary_remote_addr zone=rpc_limit:10m rate=100r/s;
+# Nginx reverse proxy (optional RPC domain)
+if [[ -n "$RPC_DOMAIN" ]]; then
+  mkdir -p /etc/nginx/conf.d
+
+  # limit_req_zone is only valid in nginx's http context, not inside a server
+  # vhost. conf.d/*.conf is included from http{} by the standard distro configs.
+  cat > /etc/nginx/conf.d/gyds-fullnode-ratelimit.conf <<'EOF'
+limit_req_zone $binary_remote_addr zone=gyds_fullnode_rpc_limit:10m rate=100r/s;
+EOF
+
+  # Ubuntu/Debian enable sites-enabled; RHEL/Fedora use conf.d directly.
+  if grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\*;' /etc/nginx/nginx.conf 2>/dev/null; then
+    mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+    NGINX_SITE="/etc/nginx/sites-available/${SERVICE_NAME}"
+  else
+    NGINX_SITE="/etc/nginx/conf.d/${SERVICE_NAME}.conf"
+  fi
+
+  cat > "$NGINX_SITE" <<EOF
 
 server {
     listen 80;
-    server_name ${DOMAIN};
+    server_name ${RPC_DOMAIN};
 
     location / {
-        limit_req zone=rpc_limit burst=200 nodelay;
+        limit_req zone=gyds_fullnode_rpc_limit burst=200 nodelay;
         proxy_pass         http://127.0.0.1:${RPC_PORT};
         proxy_http_version 1.1;
         proxy_set_header   Upgrade \$http_upgrade;
@@ -275,7 +309,7 @@ server {
         if (\$request_method = OPTIONS) { return 204; }
     }
     location /ws {
-        proxy_pass         http://127.0.0.1:${WS_PORT};
+        proxy_pass         http://127.0.0.1:${RPC_PORT};
         proxy_http_version 1.1;
         proxy_set_header   Upgrade \$http_upgrade;
         proxy_set_header   Connection "Upgrade";
@@ -287,84 +321,30 @@ server {
     }
 }
 EOF
-  rm -f /etc/nginx/sites-enabled/default
-  ln -sf /etc/nginx/sites-available/gyds-fullnode /etc/nginx/sites-enabled/
+  if [[ "$NGINX_SITE" == /etc/nginx/sites-available/* ]]; then
+    rm -f /etc/nginx/sites-enabled/default
+    ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/${SERVICE_NAME}
+  fi
   nginx -t && systemctl enable nginx && systemctl restart nginx
 
   # TLS via certbot
-  if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@${DOMAIN}" 2>/dev/null; then
-    log "    TLS certificate issued for ${DOMAIN}"
+  if certbot --nginx -d "$RPC_DOMAIN" --non-interactive --agree-tos -m "admin@${RPC_DOMAIN}" 2>/dev/null; then
+    log "    TLS certificate issued for ${RPC_DOMAIN}"
   else
     warn "    Certbot failed — HTTP only for now. Re-run after DNS is configured."
   fi
 fi
 
 systemctl daemon-reload
-systemctl enable gyds-fullnode
+systemctl enable "$SERVICE_NAME"
 
-# ── Web Setup Wizard — run BEFORE starting the service ────────────────────────
-SETUP_PORT="${GYDS_SETUP_PORT:-8888}"
-LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "YOUR_SERVER_IP")
-
-echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║         GYDSchain FULL NODE — INSTALLED ✓                   ║"
-echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║                                                              ║"
-echo "║  Binary  : ${GYDS_BIN}/${BINARY}"
-echo "║  Service : gyds-fullnode.service"
-echo "║  Data    : ${DATA_DIR}"
-echo "║  Logs    : ${LOG_DIR}/fullnode.log"
-echo "║                                                              ║"
-echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║   🌐  WEB SETUP WIZARD                                       ║"
-echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║                                                              ║"
-echo "║  A browser-based setup wizard is available.                 ║"
-echo "║  It will help you configure your node via a simple UI.      ║"
-echo "║                                                              ║"
-echo "║  ➜  http://localhost:${SETUP_PORT}                                 ║"
-echo "║  ➜  http://${LOCAL_IP}:${SETUP_PORT}  (from another machine)       ║"
-echo "║                                                              ║"
-echo "║  The wizard will help you configure:                        ║"
-echo "║    • RPC / WS / P2P ports                                   ║"
-echo "║    • Bootstrap peer addresses                               ║"
-echo "║    • Data directory, logging, domain/SSL                    ║"
-echo "║    • Generate node.env and start commands                   ║"
-echo "║                                                              ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
-echo ""
-
-# ── Ask user if they want the web setup wizard ────────────────────────────────
-LAUNCH_WIZARD="${GYDS_SKIP_WIZARD:-}"
-[[ "${NONINTERACTIVE:-0}" == "1" ]] && LAUNCH_WIZARD="n"
-if [[ -z "$LAUNCH_WIZARD" ]]; then
-  read -r -p "  Launch web setup wizard now? [Y/n]: " WIZARD_REPLY
-  case "${WIZARD_REPLY,,}" in
-    n|no) LAUNCH_WIZARD="n" ;;
-    *)    LAUNCH_WIZARD="y" ;;
-  esac
-fi
-
-if [[ "$LAUNCH_WIZARD" != "n" && "$LAUNCH_WIZARD" != "1" ]]; then
-  log "Starting web setup wizard on port ${SETUP_PORT}..."
-  echo "  Open → http://localhost:${SETUP_PORT}"
-  echo "  Press Ctrl+C when finished to continue and start the service."
-  echo ""
-  "${GYDS_BIN}/${BINARY}" setup --port "${SETUP_PORT}" 2>&1 || true
-  log "Wizard completed — applying configuration and starting node..."
-fi
-
-# Load generated config if it exists, then start the service
-GENERATED_ENV="${DATA_DIR}/config/node.env"
-if [[ -f "$GENERATED_ENV" ]]; then
-  log "Loading wizard-generated config from ${GENERATED_ENV}..."
-  # Merge wizard env into the systemd env file
-  cp "$GENERATED_ENV" "/etc/gyds-fullnode.env" 2>/dev/null || true
-fi
+# setup-node.sh is a terminal-only profile generator, not a binary command.
+echo "Installed ${SERVICE_NAME}. Profile: ${PROFILE_FILE}"
+echo "To reconfigure: run upstream setup-node.sh --output, then set GYDS_NODE_ENV and rerun."
+GENERATED_ENV="${PROFILE_FILE}"
 
 # Start the systemd service
-systemctl restart gyds-fullnode
+systemctl restart "$SERVICE_NAME"
 sleep 3
 
 # ── Health check ──────────────────────────────────────────────────────────────
@@ -376,20 +356,14 @@ fi
 
 NODE_OK=false
 for i in 1 2 3 4 5; do
-  RESP=$(curl -sf --max-time 4 "http://localhost:${RPC_PORT}/health" 2>/dev/null || true)
+  RESP=$(curl -sf --max-time 4 "http://127.0.0.1:${RPC_PORT}/health" 2>/dev/null || true)
   if [[ -n "$RESP" ]]; then NODE_OK=true; break; fi
   warn "    Attempt $i/5: waiting for node... (5s)"
   sleep 5
 done
+node_network_report_tcp_listener "$P2P_PORT"
 
-if [[ "$NODE_OK" != "true" ]]; then
-  err "Full node did not pass its RPC health check on port ${RPC_PORT}."
-  systemctl --no-pager --full status gyds-fullnode >&2 || true
-  journalctl -u gyds-fullnode -n 50 --no-pager >&2 || true
-  exit 1
-fi
-
-SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+SERVER_IP="${GYDS_P2P_ADVERTISE_HOST}"
 WIZARD_DOMAIN=""
 [[ -f "$GENERATED_ENV" ]] && WIZARD_DOMAIN=$(grep "^DOMAIN=" "$GENERATED_ENV" | cut -d= -f2 | tr -d ' ' || echo "")
 [[ -n "$WIZARD_DOMAIN" ]] && DOMAIN="$WIZARD_DOMAIN"
@@ -404,22 +378,22 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  ENDPOINTS"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-if [[ -n "$DOMAIN" ]]; then
-  echo "  RPC (HTTPS) : https://${DOMAIN}"
-  echo "  WS  (WSS)   : wss://${DOMAIN}/ws"
+if [[ -n "$RPC_DOMAIN" ]]; then
+  echo "  RPC (HTTPS) : https://${RPC_DOMAIN}"
+  echo "  WS  (WSS)   : wss://${RPC_DOMAIN}/ws"
 else
-  echo "  RPC (HTTP)  : http://${SERVER_IP}:${RPC_PORT}"
-  echo "  WS  (WS)    : ws://${SERVER_IP}:${WS_PORT}"
+  echo "  RPC/WS      : localhost:${RPC_PORT} (local only; configure an RPC domain for HTTPS access)"
 fi
 echo "  P2P         : tcp://${SERVER_IP}:${P2P_PORT}"
+node_network_report_p2p "$P2P_PORT"
 echo "  Chain ID    : ${CHAIN_ID}"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  MANAGEMENT"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Reconfigure    : ${GYDS_BIN}/${BINARY} setup"
-echo "  Service status : systemctl status gyds-fullnode"
-echo "  Live logs      : journalctl -u gyds-fullnode -f"
+echo "  Reconfigure    : run setup-node.sh --output, then set GYDS_NODE_ENV and rerun installer"
+echo "  Service status : systemctl status ${SERVICE_NAME}"
+echo "  Live logs      : journalctl -u ${SERVICE_NAME} -f"
 echo "  Log file       : tail -f ${LOG_DIR}/fullnode.log"
 echo ""
 echo "  RPC test:"
@@ -432,6 +406,6 @@ echo "  ADD TO METAMASK / WALLET"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Network Name : GYDS Chain"
 echo "  Chain ID     : ${CHAIN_ID}"
-[[ -n "$DOMAIN" ]] && echo "  RPC URL      : https://${DOMAIN}" || echo "  RPC URL      : http://${SERVER_IP}:${RPC_PORT}"
+[[ -n "$RPC_DOMAIN" ]] && echo "  RPC URL      : https://${RPC_DOMAIN}" || echo "  RPC URL      : localhost:${RPC_PORT} (local only)"
 echo "  Currency     : GYDS"
 echo ""

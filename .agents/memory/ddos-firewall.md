@@ -22,6 +22,8 @@ Three files:
 
 **Sustained rate = per sensitivityLevel** — sensitivity 6 = ~53 req/min limit.
 
+**Dashboard rule records are not host firewall rules** — UFW, Fail2Ban, and custom rate-limit/DDoS entries stored by the dashboard do not configure Linux or node hosts. Do not describe them as active enforcement or execute arbitrary host commands from a web route. **Why:** the dashboard has no bounded, authenticated host-firewall agent, and remote rule changes could lock out operators. **How to apply:** keep the distinction visible; host-level controls require a separately designed, least-privilege agent.
+
 ## CORS Allowlist
 
 Known origins get credentials: netlifegy.com, www.netlifegy.com, rpc.netlifegy.com, app.netlifegy.com, localhost:5001/3000, Replit dev domain (from REPLIT_DEV_DOMAIN env).

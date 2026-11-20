@@ -1,0 +1,331 @@
+import {
+  BrowserProvider,
+  Contract,
+  ContractFactory,
+  formatEther,
+  formatUnits,
+  getAddress,
+  isAddress,
+  parseUnits,
+  type TransactionReceipt,
+} from "ethers";
+import tokenArtifact from "./contracts/gydsTokenArtifact.json";
+import { getEthereumProvider, NETWORK_CONFIG, switchToNetwork } from "@/config/network";
+
+export const GYDS_CHAIN_ID = 198282;
+export const GYDS_CHAIN_NAME = NETWORK_CONFIG.chainName;
+export const GYDS_BLOCK_EXPLORER = NETWORK_CONFIG.blockExplorerUrls[0];
+
+export interface Grc20TokenInput {
+  name: string;
+  symbol: string;
+  decimals: number;
+  initialSupply: string;
+}
+
+export interface DeploymentEstimate {
+  gasLimit: string;
+  maxFeePerGas: string;
+  estimatedFeeWei: string;
+  estimatedFeeGyds: string;
+}
+
+export interface PreparedGrc20Deployment {
+  provider: BrowserProvider;
+  signer: ReturnType<BrowserProvider["getSigner"]> extends Promise<infer S> ? S : never;
+  creatorWallet: string;
+  input: Grc20TokenInput;
+  initialSupplyBaseUnits: string;
+  factory: ContractFactory;
+  estimate: DeploymentEstimate | null;
+  estimateWarning: string | null;
+}
+
+export interface Grc20DeploymentResult {
+  name: string;
+  symbol: string;
+  decimals: number;
+  initialSupply: string;
+  initialSupplyBaseUnits: string;
+  verifiedInitialBalanceBaseUnits: string;
+  creatorWallet: string;
+  contractAddress: string;
+  deploymentTxHash: string;
+  deploymentBlockNumber: string;
+  chainId: number;
+}
+
+export type DeploymentStep =
+  | "awaiting_wallet_approval"
+  | "deployment_pending"
+  | "deployment_confirmed"
+  | "verification_failed"
+  | "deployment_failed";
+
+function normalizeInput(input: Grc20TokenInput): Grc20TokenInput {
+  const name = input.name.trim();
+  const symbol = input.symbol.trim().toUpperCase();
+  if (!name || name.length > 64) throw new Error("Token name must be 1–64 characters.");
+  if (!/^[A-Z0-9][A-Z0-9._-]{0,9}$/.test(symbol)) {
+    throw new Error("Symbol must be 1–10 letters, numbers, dots, underscores, or hyphens.");
+  }
+  if (!Number.isInteger(input.decimals) || input.decimals < 0 || input.decimals > 18) {
+    throw new Error("Decimals must be a whole number from 0 to 18.");
+  }
+
+  const initialSupply = input.initialSupply.trim();
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(initialSupply)) {
+    throw new Error("Initial supply must be a positive decimal number.");
+  }
+  const baseUnits = parseUnits(initialSupply, input.decimals);
+  if (baseUnits <= 0n) throw new Error("Initial supply must be greater than zero.");
+
+  return { ...input, name, symbol, initialSupply };
+}
+
+async function requireMainnet(eth: NonNullable<ReturnType<typeof getEthereumProvider>>) {
+  let chainId = Number(BigInt(await eth.request({ method: "eth_chainId" })));
+  if (chainId !== GYDS_CHAIN_ID) {
+    await switchToNetwork("mainnet");
+    chainId = Number(BigInt(await eth.request({ method: "eth_chainId" })));
+  }
+  if (chainId !== GYDS_CHAIN_ID) {
+    throw new Error(`Connect your wallet to ${GYDS_CHAIN_NAME} (chain ID ${GYDS_CHAIN_ID}) before continuing.`);
+  }
+}
+
+export async function prepareGrc20Deployment(input: Grc20TokenInput): Promise<PreparedGrc20Deployment> {
+  const normalized = normalizeInput(input);
+  const eth = getEthereumProvider();
+  if (!eth) throw new Error("No EVM wallet was found. Open this page in an EVM wallet browser or install a wallet extension.");
+
+  const accounts = await eth.request({ method: "eth_requestAccounts" });
+  if (!Array.isArray(accounts) || !accounts[0] || !isAddress(accounts[0])) {
+    throw new Error("Your wallet did not provide a valid account.");
+  }
+  await requireMainnet(eth);
+
+  const provider = new BrowserProvider(eth as unknown as ConstructorParameters<typeof BrowserProvider>[0]);
+  const signer = await provider.getSigner(getAddress(accounts[0]));
+  const creatorWallet = getAddress(await signer.getAddress());
+  const initialSupplyBaseUnits = parseUnits(normalized.initialSupply, normalized.decimals).toString();
+  const factory = new ContractFactory(tokenArtifact.abi, tokenArtifact.bytecode, signer);
+  const args = [
+    normalized.name,
+    normalized.symbol,
+    normalized.decimals,
+    BigInt(initialSupplyBaseUnits),
+  ];
+
+  let estimate: DeploymentEstimate | null = null;
+  let estimateWarning: string | null = null;
+  try {
+    const deployTransaction = await factory.getDeployTransaction(...args);
+    const [gasLimit, feeData] = await Promise.all([
+      provider.estimateGas({ ...deployTransaction, from: creatorWallet }),
+      provider.getFeeData(),
+    ]);
+    const maxFeePerGas = feeData.maxFeePerGas ?? feeData.gasPrice;
+    if (maxFeePerGas && maxFeePerGas > 0n) {
+      estimate = {
+        gasLimit: gasLimit.toString(),
+        maxFeePerGas: maxFeePerGas.toString(),
+        estimatedFeeWei: (gasLimit * maxFeePerGas).toString(),
+        estimatedFeeGyds: formatEther(gasLimit * maxFeePerGas),
+      };
+    } else {
+      estimateWarning = "This wallet's RPC did not return a gas price. Review the final fee in your wallet before approving.";
+    }
+  } catch (error) {
+    estimateWarning = error instanceof Error
+      ? `Fee estimate unavailable (${error.message}). Your wallet will show the final fee before approval.`
+      : "Fee estimate unavailable. Your wallet will show the final fee before approval.";
+  }
+
+  return {
+    provider,
+    signer,
+    creatorWallet,
+    input: normalized,
+    initialSupplyBaseUnits,
+    factory,
+    estimate,
+    estimateWarning,
+  };
+}
+
+export async function submitGrc20Deployment(
+  prepared: PreparedGrc20Deployment,
+  onStep: (step: DeploymentStep, transactionHash?: string) => void,
+): Promise<Grc20DeploymentResult> {
+  const eth = getEthereumProvider();
+  if (!eth) throw new Error("Wallet connection was lost before deployment.");
+  await requireMainnet(eth);
+  const currentAccounts = await eth.request({ method: "eth_accounts" });
+  if (!Array.isArray(currentAccounts) || getAddress(currentAccounts[0] ?? "") !== prepared.creatorWallet) {
+    throw new Error("The active wallet account changed after the estimate. Reconnect the intended creator wallet.");
+  }
+
+  let transactionHash: string | undefined;
+  let confirmed = false;
+  let failedOnChain = false;
+  try {
+    onStep("awaiting_wallet_approval");
+    const contract = await prepared.factory.deploy(
+      prepared.input.name,
+      prepared.input.symbol,
+      prepared.input.decimals,
+      BigInt(prepared.initialSupplyBaseUnits),
+    );
+    const transaction = contract.deploymentTransaction();
+    if (!transaction?.hash) throw new Error("The wallet did not return a deployment transaction hash.");
+    transactionHash = transaction.hash;
+    onStep("deployment_pending", transactionHash);
+
+    const receipt = await transaction.wait();
+    if (!receipt) {
+      onStep("deployment_pending", transactionHash);
+      throw new Error(`Deployment transaction ${transactionHash} is still waiting for a mainnet receipt.`);
+    }
+    if (receipt.status !== 1) {
+      failedOnChain = true;
+      onStep("deployment_failed", transactionHash);
+      throw new Error(`Deployment transaction ${transactionHash} failed on-chain.`);
+    }
+    confirmed = true;
+    onStep("deployment_confirmed", transactionHash);
+
+    const contractAddress = getAddress(await contract.getAddress());
+    const receiptAddress = receipt.contractAddress ? getAddress(receipt.contractAddress) : "";
+    if (receiptAddress !== contractAddress) {
+      throw new Error("The confirmed receipt contract address does not match the deployed token.");
+    }
+
+    return await verifyDeploymentReceipt(prepared, transactionHash, receipt, contractAddress);
+  } catch (error) {
+    if (failedOnChain) {
+      // The confirmed receipt established that this transaction reverted.
+    } else if (confirmed) {
+      onStep("verification_failed", transactionHash);
+    } else if (transactionHash) {
+      // A timeout after broadcast is not proof of failure. Keep the UI tied
+      // to this transaction so it cannot accidentally submit another one.
+      onStep("deployment_pending", transactionHash);
+    } else {
+      onStep("deployment_failed");
+    }
+    throw error;
+  }
+}
+
+export async function verifyConfirmedGrc20Deployment(
+  prepared: PreparedGrc20Deployment,
+  transactionHash: string,
+): Promise<Grc20DeploymentResult> {
+  if (!/^0x[a-fA-F0-9]{64}$/.test(transactionHash)) {
+    throw new Error("Deployment transaction hash is invalid.");
+  }
+  const eth = getEthereumProvider();
+  if (!eth) throw new Error("Wallet connection was lost before verification.");
+  await requireMainnet(eth);
+  const currentAccounts = await eth.request({ method: "eth_accounts" });
+  if (!Array.isArray(currentAccounts) || getAddress(currentAccounts[0] ?? "") !== prepared.creatorWallet) {
+    throw new Error("Reconnect the creator wallet used for this deployment before verification.");
+  }
+  const receipt = await prepared.provider.getTransactionReceipt(transactionHash);
+  if (!receipt) throw new Error("The deployment transaction is not confirmed yet. It has not been resubmitted.");
+  if (receipt.status !== 1) throw new Error("The deployment transaction failed on-chain. No token was saved.");
+  const contractAddress = receipt.contractAddress ? getAddress(receipt.contractAddress) : "";
+  if (!contractAddress) throw new Error("The confirmed receipt does not contain a contract address.");
+  return verifyDeploymentReceipt(prepared, transactionHash, receipt, contractAddress);
+}
+
+export interface Grc20OnchainSupply {
+  totalSupply: string;
+  totalSupplyBaseUnits: string;
+  decimals: number;
+  chainId: number;
+}
+
+const onchainSupplyCache = new Map<string, { value: Grc20OnchainSupply; expiresAt: number }>();
+
+export async function readGrc20OnchainSupply(contractAddressInput: string): Promise<Grc20OnchainSupply> {
+  if (!isAddress(contractAddressInput)) throw new Error("Invalid token contract address.");
+  const contractAddress = getAddress(contractAddressInput);
+  const eth = getEthereumProvider();
+  if (!eth) throw new Error("Connect a mainnet-compatible wallet to read live token supply.");
+  const provider = new BrowserProvider(eth as unknown as ConstructorParameters<typeof BrowserProvider>[0]);
+  const network = await provider.getNetwork();
+  const chainId = Number(network.chainId);
+  if (chainId !== GYDS_CHAIN_ID) {
+    throw new Error(`Live supply is only available from GYDS mainnet (chain ID ${GYDS_CHAIN_ID}).`);
+  }
+
+  const cached = onchainSupplyCache.get(contractAddress.toLowerCase());
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const code = await provider.getCode(contractAddress);
+  if (!code || code === "0x") throw new Error("No token contract is deployed at this address on GYDS mainnet.");
+
+  const token = new Contract(contractAddress, tokenArtifact.abi, provider);
+  const [supply, decimalsValue] = await Promise.all([token.totalSupply(), token.decimals()]);
+  const decimals = Number(decimalsValue);
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) {
+    throw new Error("The token contract returned unsupported decimal precision.");
+  }
+
+  const value = {
+    totalSupply: formatUnits(supply, decimals),
+    totalSupplyBaseUnits: BigInt(supply).toString(),
+    decimals,
+    chainId,
+  };
+  onchainSupplyCache.set(contractAddress.toLowerCase(), { value, expiresAt: Date.now() + 15_000 });
+  return value;
+}
+
+async function verifyDeploymentReceipt(
+  prepared: PreparedGrc20Deployment,
+  transactionHash: string,
+  receipt: TransactionReceipt,
+  contractAddress: string,
+): Promise<Grc20DeploymentResult> {
+  const deployedCode = await prepared.provider.getCode(contractAddress);
+  if (!deployedCode || deployedCode === "0x") {
+    throw new Error("The deployment is confirmed, but no contract code is present at its address.");
+  }
+
+  const deployedToken = new Contract(contractAddress, tokenArtifact.abi, prepared.provider);
+  const [name, symbol, decimals, supply, creatorBalance] = await Promise.all([
+    deployedToken.name(),
+    deployedToken.symbol(),
+    deployedToken.decimals(),
+    deployedToken.totalSupply(),
+    deployedToken.balanceOf(prepared.creatorWallet),
+  ]);
+  const expectedSupply = BigInt(prepared.initialSupplyBaseUnits);
+  if (
+    name !== prepared.input.name ||
+    symbol !== prepared.input.symbol ||
+    Number(decimals) !== prepared.input.decimals ||
+    BigInt(supply) !== expectedSupply ||
+    BigInt(creatorBalance) !== expectedSupply
+  ) {
+    throw new Error("The deployed contract's name, supply, or creator balance did not match the confirmed request.");
+  }
+
+  return {
+    name,
+    symbol,
+    decimals: Number(decimals),
+    initialSupply: formatUnits(supply, Number(decimals)),
+    initialSupplyBaseUnits: BigInt(supply).toString(),
+    verifiedInitialBalanceBaseUnits: BigInt(creatorBalance).toString(),
+    creatorWallet: prepared.creatorWallet,
+    contractAddress,
+    deploymentTxHash: transactionHash,
+    deploymentBlockNumber: BigInt(receipt.blockNumber).toString(),
+    chainId: GYDS_CHAIN_ID,
+  };
+}
+

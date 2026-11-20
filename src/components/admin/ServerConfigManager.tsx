@@ -25,6 +25,12 @@ interface ConfigValues {
   ADMIN_WALLET: string;
   FOUNDER_WALLET: string;
   REWARD_ADDRESS: string;
+  GYDS_TREASURY_FOUNDER_ADDRESS: string;
+  GYDS_TREASURY_MINING_POOL_ADDRESS: string;
+  GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS: string;
+  GYDS_TREASURY_STAKING_REWARDS_ADDRESS: string;
+  GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS: string;
+  GYDS_TREASURY_TEAM_ADDRESS: string;
   GITHUB_TOKEN: string;
   VITE_HCAPTCHA_SITE_KEY: string;
   HCAPTCHA_SECRET_KEY: string;
@@ -41,18 +47,33 @@ interface ConfigValues {
   GYDS_RPC_URL: string;
   GYDS_RPC_BACKUP_URLS: string;
   GYDS_LOCAL_RPC_URL: string;
+  GYDS_SWAP_WGYDS_ADDRESS: string;
+  GYDS_SWAP_FACTORY_ADDRESS: string;
+  GYDS_SWAP_ROUTER_ADDRESS: string;
+  GYDS_SWAP_FARM_ADDRESS: string;
+  GYDS_USDT_TOKEN_ADDRESS: string;
+  GYDS_GYD_TOKEN_ADDRESS: string;
   TREASURY_PRIVATE_KEY: string;
   DISCORD_WEBHOOK_URL: string;
 }
 
 const EMPTY: ConfigValues = {
   ADMIN_WALLET: '', FOUNDER_WALLET: '', REWARD_ADDRESS: '',
+  GYDS_TREASURY_FOUNDER_ADDRESS: '',
+  GYDS_TREASURY_MINING_POOL_ADDRESS: '',
+  GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS: '',
+  GYDS_TREASURY_STAKING_REWARDS_ADDRESS: '',
+  GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS: '',
+  GYDS_TREASURY_TEAM_ADDRESS: '',
   GITHUB_TOKEN: '', VITE_HCAPTCHA_SITE_KEY: '', HCAPTCHA_SECRET_KEY: '',
   TELEGRAM_BOT_TOKEN: '', TELEGRAM_CHAT_ID: '',
   SMTP_HOST: '', SMTP_PORT: '587', SMTP_USER: '', SMTP_PASS: '', SMTP_FROM: '',
   WHATSAPP_TOKEN: '', WHATSAPP_PHONE_ID: '',
   GYDS_BOOTSTRAP_NODES: '',
   GYDS_RPC_URL: '', GYDS_RPC_BACKUP_URLS: '', GYDS_LOCAL_RPC_URL: '',
+  GYDS_SWAP_WGYDS_ADDRESS: '', GYDS_SWAP_FACTORY_ADDRESS: '',
+  GYDS_SWAP_ROUTER_ADDRESS: '', GYDS_SWAP_FARM_ADDRESS: '',
+  GYDS_USDT_TOKEN_ADDRESS: '', GYDS_GYD_TOKEN_ADDRESS: '',
   TREASURY_PRIVATE_KEY: '',
   DISCORD_WEBHOOK_URL: '',
 };
@@ -267,8 +288,8 @@ export function ServerConfigManager() {
               <Zap className="h-5 w-5 text-primary" /> Server Configuration
             </h2>
             <p className="text-sm text-muted-foreground mt-0.5">
-              All changes are written to <code className="bg-black/30 px-1 rounded text-xs">.env</code> and
-              {' '}<code className="bg-black/30 px-1 rounded text-xs">gyds-config.env</code>, then the service restarts automatically.
+              Changes are saved to <code className="bg-black/30 px-1 rounded text-xs">.env</code>; applicable node settings are also synced to
+              {' '}<code className="bg-black/30 px-1 rounded text-xs">gyds-config.env</code>. The service restarts when PM2 is available.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -321,6 +342,29 @@ export function ServerConfigManager() {
             className="bg-black/20 border-border/40 font-mono text-sm"
           />
         </Field>
+      </Section>
+
+      <Section icon={Wallet} title="Genesis Treasury Recipients" desc="Six public addresses for the fixed genesis allocation" defaultOpen={false}>
+        <p className="text-xs text-muted-foreground md:col-span-2">
+          These are separate from the Admin and Founder identity addresses above. Leave them blank until you are ready; all six must be valid and unique before treasury actions or genesis export are enabled.
+        </p>
+        {([
+          ['GYDS_TREASURY_FOUNDER_ADDRESS', 'Founder genesis recipient'],
+          ['GYDS_TREASURY_MINING_POOL_ADDRESS', 'Mining pool recipient'],
+          ['GYDS_TREASURY_LIQUIDITY_POOL_ADDRESS', 'Liquidity pool recipient'],
+          ['GYDS_TREASURY_STAKING_REWARDS_ADDRESS', 'Staking rewards recipient'],
+          ['GYDS_TREASURY_DEVELOPMENT_FUND_ADDRESS', 'Development fund recipient'],
+          ['GYDS_TREASURY_TEAM_ADDRESS', 'Team recipient'],
+        ] as const).map(([key, label]) => (
+          <Field key={key} label={label} hint={key}>
+            <Input
+              value={values[key]}
+              onChange={e => set(key)(e.target.value)}
+              placeholder="0x..."
+              className="bg-black/20 border-border/40 font-mono text-sm"
+            />
+          </Field>
+        ))}
       </Section>
 
       <Section icon={KeyRound} title="Auth & Captcha" desc="GitHub token and hCaptcha keys" defaultOpen={false}>
@@ -524,6 +568,32 @@ export function ServerConfigManager() {
               )}
             </div>
           )}
+        </div>
+      </Section>
+
+      <Section icon={Radio} title="DeFi Contracts" desc="Runtime DEX addresses used by the swap interface">
+        <p className="text-xs text-amber-300/90">
+          Addresses must be deployed on chain 198282. GYD/USDT and GYDS/USDT trading also requires real token contracts, created pairs, and funded liquidity. Do not enter placeholder addresses.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Wrapped GYDS (WGYDS)">
+            <Input value={values.GYDS_SWAP_WGYDS_ADDRESS} onChange={e => set('GYDS_SWAP_WGYDS_ADDRESS')(e.target.value)} placeholder="0x…" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="GydsSwap Factory">
+            <Input value={values.GYDS_SWAP_FACTORY_ADDRESS} onChange={e => set('GYDS_SWAP_FACTORY_ADDRESS')(e.target.value)} placeholder="0x…" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="GydsSwap Router">
+            <Input value={values.GYDS_SWAP_ROUTER_ADDRESS} onChange={e => set('GYDS_SWAP_ROUTER_ADDRESS')(e.target.value)} placeholder="0x…" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="GydsSwap Farm (optional)">
+            <Input value={values.GYDS_SWAP_FARM_ADDRESS} onChange={e => set('GYDS_SWAP_FARM_ADDRESS')(e.target.value)} placeholder="0x…" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="USDT ERC-20 contract">
+            <Input value={values.GYDS_USDT_TOKEN_ADDRESS} onChange={e => set('GYDS_USDT_TOKEN_ADDRESS')(e.target.value)} placeholder="Actual USDT contract on GYDS mainnet" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
+          <Field label="GYD ERC-20 contract">
+            <Input value={values.GYDS_GYD_TOKEN_ADDRESS} onChange={e => set('GYDS_GYD_TOKEN_ADDRESS')(e.target.value)} placeholder="Actual GYD ERC-20 contract on GYDS mainnet" className="bg-black/20 border-border/40 font-mono text-sm" />
+          </Field>
         </div>
       </Section>
 

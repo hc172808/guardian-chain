@@ -5,17 +5,19 @@
 #  Designed for a home/office LAN with NO domain name.
 #  - Everything binds to your local IP (no SSL, no certbot)
 #  - Dashboard served on HTTP port 80 at http://<local-ip>
-#  - RPC on port 8546, WS on 8547, P2P on 30303
+#  - RPC on port 8546, WebSocket at /api/ws, P2P on 30303
 #  - Cloudflare Tunnel can be added later to expose it publicly over HTTPS
 #
 #  Usage:
 #    sudo bash install-localnode.sh
 #
 #  Optional env overrides:
-#    ENABLE_MINING=false          disable mining on this node
-#    NODE_TYPE=fullnode            default; also: litenode, rpc, validator
-#    REPO_URL=https://...          override the guardian-chain source repo
+#    NODE_TYPE=fullnode            default; also: litenode, rpc
+#    SRC_DIR=/path/to/node-fixes/fullnode  override the bundled local source
+#    GYDS_BOOTSTRAP_NODES=host:30303[,host:30303...]
 #    CHAIN_ID=198282                mainnet; testnet=198281
+#    Validator setup remains on scripts/setup-validator-node.sh until the
+#    canonical fullnode PoS engine consumes its configured signing key.
 #═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -25,19 +27,28 @@ GYDS_USER="${GYDS_USER:-gydschain}"
 GYDS_HOME="${GYDS_HOME:-/var/lib/gydschain}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-/var/log/gydschain}"
-GO_VERSION="${GO_VERSION:-1.22.5}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
 NODE_TYPE="${NODE_TYPE:-fullnode}"
+NODE_MODE=""
 RPC_PORT="${RPC_PORT:-8546}"
-WS_PORT="${WS_PORT:-8547}"
 P2P_PORT="${P2P_PORT:-30303}"
 CHAIN_ID="${CHAIN_ID:-198282}"
 BLOCK_TIME="${BLOCK_TIME:-120}"
-ENABLE_MINING="${ENABLE_MINING:-true}"
+BOOTSTRAP_NODES="${GYDS_BOOTSTRAP_NODES:-}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/guardian-chain.git}"
-REPO_DIR="${REPO_DIR:-/opt/guardian-chain}"
-SRC_DIR="${SRC_DIR:-$(cd "$(dirname "$0")/../blockchain-go" 2>/dev/null && pwd || echo "")}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/fullnode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
+SRC_DIR="${SRC_DIR:-${PROJECT_ROOT}/node-fixes/fullnode}"
+DATA_DIR="${GYDS_DATA_DIR:-${GYDS_HOME}/data-fullnode}"
 
 DASHBOARD_DIR="${DASHBOARD_DIR:-/var/www/gydschain}"
 NGINX_CONF="/etc/nginx/sites-available/gydschain-local"
@@ -49,6 +60,35 @@ log()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 err()  { echo -e "${RED}[✗]${NC} $*" >&2; }
 step() { echo -e "\n${CYAN}━━━ $* ━━━${NC}"; }
+
+case "$NODE_TYPE" in
+  fullnode) NODE_MODE="full" ;;
+  litenode) NODE_MODE="lite" ;;
+  rpc)      NODE_MODE="rpc" ;;
+  validator)
+    err "Validator mode remains on the dedicated setup script until fullnode.git uses GYDS_VALIDATOR_KEY for block signing."
+    err "No validator binary was changed or started."
+    exit 1
+    ;;
+  *)
+    err "Unsupported NODE_TYPE '$NODE_TYPE'. Use fullnode, litenode, or rpc."
+    exit 1
+    ;;
+esac
+
+case "$CHAIN_ID" in
+  198282) NETWORK="mainnet" ;;
+  198281) NETWORK="testnet" ;;
+  *)
+    err "Unsupported CHAIN_ID '$CHAIN_ID'. Canonical fullnode supports 198282 (mainnet) or 198281 (testnet)."
+    exit 1
+    ;;
+esac
+
+if [[ -n "$BOOTSTRAP_NODES" && ! "$BOOTSTRAP_NODES" =~ ^[A-Za-z0-9:./,_-]+$ ]]; then
+  err "GYDS_BOOTSTRAP_NODES may contain only host:port entries separated by commas."
+  exit 1
+fi
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 echo -e "${CYAN}"
@@ -64,6 +104,9 @@ echo -e "${NC}"
 # Detect local IP early (used throughout)
 LOCAL_IP="$(hostname -I | awk '{print $1}')"
 [[ -n "$LOCAL_IP" ]] || { err "Could not detect local IP. Check network interface."; exit 1; }
+GYDS_P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-$LOCAL_IP}"
+node_network_resolve_p2p_host || { err "Invalid P2P advertised address."; exit 1; }
+LAN_CIDR="${LAN_CIDR:-192.168.0.0/16}"
 log "Detected local IP: ${LOCAL_IP}"
 
 # ── Step 1: System packages ───────────────────────────────────────────────────
@@ -88,73 +131,63 @@ else
 fi
 export PATH="/usr/local/go/bin:${PATH}"
 
-# ── Step 3: Source code ───────────────────────────────────────────────────────
+# ── Step 3: Local source code ─────────────────────────────────────────────────
 step "3/8  Source code"
-if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR/cmd/${NODE_TYPE}" ]]; then
-  warn "SRC_DIR not set — cloning from ${REPO_URL}..."
-  if [[ -d "${REPO_DIR}/.git" ]]; then
-    log "Repo already present at ${REPO_DIR} — pulling..."
-    git -C "${REPO_DIR}" pull --ff-only
-  else
-    git clone --depth=1 "${REPO_URL}" "${REPO_DIR}"
-  fi
-  SRC_DIR="${REPO_DIR}/public/blockchain-go"
-fi
-
-if [[ ! -d "${SRC_DIR}/cmd/${NODE_TYPE}" ]]; then
-  err "cmd/${NODE_TYPE} not found at ${SRC_DIR}"
-  err "Override: NODE_TYPE=litenode sudo bash $0"
+if [[ ! -f "${SRC_DIR}/go.mod" ]] || ! grep -Fqx 'module github.com/gydschain/fullnode' "${SRC_DIR}/go.mod"; then
+  err "Expected the bundled local module github.com/gydschain/fullnode at ${SRC_DIR}."
+  err "Set PROJECT_ROOT to the checked-out project or SRC_DIR to node-fixes/fullnode."
   exit 1
 fi
-log "Source: ${SRC_DIR}"
+log "Local source: ${SRC_DIR}"
+if [[ "$NODE_MODE" != "rpc" && -z "$BOOTSTRAP_NODES" ]]; then
+  warn "No bootstrap peers configured. The node will run isolated until GYDS_BOOTSTRAP_NODES is set."
+fi
 
 # ── Step 4: Build binary ──────────────────────────────────────────────────────
 step "4/8  Build gyds-${NODE_TYPE}"
 BUILD_TMP="$(mktemp -d)"
-cp -r "${SRC_DIR}" "${BUILD_TMP}/blockchain-go"
-pushd "${BUILD_TMP}/blockchain-go" >/dev/null
-  go build -o "${GYDS_BIN}/gyds-${NODE_TYPE}" ./cmd/"${NODE_TYPE}"/...
-popd >/dev/null
+trap 'rm -rf "${BUILD_TMP:-}"' EXIT
+( cd "${SRC_DIR}" && go mod download && \
+  go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" \
+    -o "${BUILD_TMP}/gyds-fullnode" . )
+install -m 0755 "${BUILD_TMP}/gyds-fullnode" "${GYDS_BIN}/gyds-fullnode"
+if [[ "$NODE_TYPE" != "fullnode" ]]; then
+  ln -sfn "gyds-fullnode" "${GYDS_BIN}/gyds-${NODE_TYPE}"
+fi
 rm -rf "${BUILD_TMP}"
-log "Binary: ${GYDS_BIN}/gyds-${NODE_TYPE}"
+trap - EXIT
+log "Canonical binary: ${GYDS_BIN}/gyds-fullnode (mode: ${NODE_MODE})"
 
 # ── Step 5: System user + directories ─────────────────────────────────────────
 step "5/8  System user + directories"
 if ! id "${GYDS_USER}" &>/dev/null; then
   useradd -r -s /usr/sbin/nologin -d "${GYDS_HOME}" "${GYDS_USER}"
 fi
-mkdir -p "${GYDS_HOME}/data" "${GYDS_HOME}/config" "${LOG_DIR}" "${DASHBOARD_DIR}"
-chown -R "${GYDS_USER}:${GYDS_USER}" "${GYDS_HOME}" "${LOG_DIR}"
+mkdir -p "${DATA_DIR}" "${GYDS_HOME}/config" "${LOG_DIR}" "${DASHBOARD_DIR}"
+chown -R "${GYDS_USER}:${GYDS_USER}" "${DATA_DIR}" "${GYDS_HOME}/config" "${LOG_DIR}"
+if [[ -d "${GYDS_HOME}/data" && "${DATA_DIR}" != "${GYDS_HOME}/data" ]]; then
+  warn "Canonical data uses ${DATA_DIR}; legacy data at ${GYDS_HOME}/data is untouched. Back up first; a fresh sync may be required."
+fi
 
 # ── Step 6: Node config ───────────────────────────────────────────────────────
 step "6/8  Node configuration"
-cat > "${GYDS_HOME}/config/node.toml" <<EOF
-[chain]
-id          = ${CHAIN_ID}
-block_time  = ${BLOCK_TIME}
-
-[rpc]
-# Bind to all local interfaces — firewall restricts external access
-host        = "0.0.0.0"
-port        = ${RPC_PORT}
-cors_origins = ["*"]
-enable_ws   = true
-ws_port     = ${WS_PORT}
-
-[p2p]
-port        = ${P2P_PORT}
-# No public advertise address — LAN only until Cloudflare Tunnel is configured
-max_peers   = 25
-
-[mining]
-enabled     = ${ENABLE_MINING}
-threads     = 2
-
-[storage]
-data_dir    = "${GYDS_HOME}/data"
+cat > "${GYDS_HOME}/config/node.env" <<EOF
+GYDS_NODE_MODE=${NODE_MODE}
+GYDS_NETWORK=${NETWORK}
+GYDS_CHAIN_ID=${CHAIN_ID}
+GYDS_RPC_HOST=127.0.0.1
+GYDS_RPC_PORT=${RPC_PORT}
+GYDS_P2P_PORT=${P2P_PORT}
+GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
+GYDS_DASHBOARD_PORT=5000
+GYDS_BLOCK_TIME=${BLOCK_TIME}
+GYDS_DATA_DIR=${DATA_DIR}
+GYDS_BOOTSTRAP_NODES=${BOOTSTRAP_NODES}
+GYDS_LOG_FORMAT=json
 EOF
-chown "${GYDS_USER}:${GYDS_USER}" "${GYDS_HOME}/config/node.toml"
-log "Config: ${GYDS_HOME}/config/node.toml"
+chown "${GYDS_USER}:${GYDS_USER}" "${GYDS_HOME}/config/node.env"
+chmod 0640 "${GYDS_HOME}/config/node.env"
+log "Config: ${GYDS_HOME}/config/node.env"
 
 # ── Step 7: Systemd service ───────────────────────────────────────────────────
 step "7/8  Systemd service"
@@ -167,13 +200,9 @@ Wants=network-online.target
 [Service]
 User=${GYDS_USER}
 Group=${GYDS_USER}
-ExecStart=${GYDS_BIN}/gyds-${NODE_TYPE} \\
-  --config=${GYDS_HOME}/config/node.toml \\
-  --datadir=${GYDS_HOME}/data \\
-  --chain-id=${CHAIN_ID} \\
-  --rpc=http://${LOCAL_IP}:${RPC_PORT} \\
-  --ws=ws://${LOCAL_IP}:${WS_PORT} \\
-  --no-discovery
+WorkingDirectory=${GYDS_HOME}
+EnvironmentFile=${GYDS_HOME}/config/node.env
+ExecStart=${GYDS_BIN}/gyds-fullnode start
 Restart=always
 RestartSec=5
 StandardOutput=append:${LOG_DIR}/${NODE_TYPE}.log
@@ -209,7 +238,7 @@ server {
 
     # Proxy RPC requests so the dashboard can reach the node
     location /rpc {
-        proxy_pass http://127.0.0.1:${RPC_PORT};
+        proxy_pass http://127.0.0.1:${RPC_PORT}/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_http_version 1.1;
@@ -217,7 +246,7 @@ server {
 
     # Proxy WebSocket endpoint
     location /ws {
-        proxy_pass http://127.0.0.1:${WS_PORT};
+        proxy_pass http://127.0.0.1:${RPC_PORT};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -242,19 +271,10 @@ log "nginx: serving dashboard at http://${LOCAL_IP}"
 
 # ── Firewall (UFW) — LAN-only access ─────────────────────────────────────────
 log "Configuring firewall..."
-ufw --force enable
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw allow 80/tcp     comment 'HTTP dashboard (local network)'
-ufw allow "${RPC_PORT}/tcp"  comment 'GYDS RPC (local network)'
-ufw allow "${WS_PORT}/tcp"   comment 'GYDS WebSocket (local network)'
-ufw allow "${P2P_PORT}/tcp"  comment 'GYDS P2P'
-ufw allow "${P2P_PORT}/udp"  comment 'GYDS P2P'
-# Restrict RPC/WS to LAN subnet only (adjust to match your network)
-LAN_CIDR="${LAN_CIDR:-192.168.0.0/16}"
-ufw allow from "${LAN_CIDR}" to any port "${RPC_PORT}" comment 'RPC LAN only'
-ufw allow from "${LAN_CIDR}" to any port "${WS_PORT}"  comment 'WS LAN only'
+if command -v ufw &>/dev/null; then
+  ufw allow from "${LAN_CIDR}" to any port 80 proto tcp comment 'GYDS dashboard LAN only'
+  ufw allow from "${LAN_CIDR}" to any port "${P2P_PORT}" proto tcp comment 'GYDS P2P LAN'
+fi
 
 # ── Logrotate ─────────────────────────────────────────────────────────────────
 cat > "/etc/logrotate.d/gydschain" <<EOF
@@ -281,17 +301,19 @@ echo -e "${NC}"
 cat <<EOF
   Node type:     ${NODE_TYPE}
   Chain ID:      ${CHAIN_ID}
-  Binary:        ${GYDS_BIN}/gyds-${NODE_TYPE}
+  Node mode:     ${NODE_MODE}
+  Binary:        ${GYDS_BIN}/gyds-fullnode
   Service:       ${SERVICE_NAME}.service
-  Data dir:      ${GYDS_HOME}/data
-  Config:        ${GYDS_HOME}/config/node.toml
+  Data dir:      ${DATA_DIR}
+  Legacy data:   ${GYDS_HOME}/data (left untouched)
+  Config:        ${GYDS_HOME}/config/node.env
   Logs:          ${LOG_DIR}/${NODE_TYPE}.log
 
   ── Access (local network) ───────────────────────────────────────────────
   Dashboard:     http://${LOCAL_IP}
-  RPC:           http://${LOCAL_IP}:${RPC_PORT}
-  WebSocket:     ws://${LOCAL_IP}:${WS_PORT}
-  P2P:           ${LOCAL_IP}:${P2P_PORT}
+  RPC:           http://${LOCAL_IP}/rpc (LAN proxy; raw RPC port remains private)
+  WebSocket:     ws://${LOCAL_IP}/ws
+  P2P:           tcp://${GYDS_P2P_ADVERTISE_HOST}:${P2P_PORT} (LAN firewall rule)
 
   ── Service management ───────────────────────────────────────────────────
   systemctl status ${SERVICE_NAME}
@@ -318,4 +340,7 @@ cat <<EOF
   Once the tunnel is running your dashboard will be available at
   https://<your-hostname> without any changes to this server.
 EOF
+
+node_network_report_tcp_listener "$P2P_PORT"
+node_network_report_p2p "$P2P_PORT"
 echo ""

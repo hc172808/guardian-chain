@@ -1,6 +1,6 @@
 import { pool } from "./db";
 import bcrypt from "bcryptjs";
-import { RESERVED_WALLETS, TOTAL_GENESIS_SUPPLY } from "./reservedWallets";
+import { getReservedWalletConfiguration, TOTAL_GENESIS_SUPPLY } from "./reservedWallets";
 
 
 // ─── Founder wallet ────────────────────────────────────────────────────────────
@@ -44,9 +44,8 @@ export async function seedFounder() {
       console.log("[seed] No wallet account for founder — connect wallet to claim admin.");
     }
 
-    // ── Step 2: Always upsert the founder password account ───────────────────
-    // Uses ON CONFLICT (username) so it updates the password on every restart,
-    // ensuring FOUNDER_PASSWORD env var is always in effect.
+    // ── Step 2: Ensure the founder password account exists ───────────────────
+    // Existing accounts keep their username and password hash across restarts.
     // NOTE: do NOT set wallet_address here — the real wallet account already
     // owns that address and the unique constraint would reject the insert.
     const founderId   = "founder_bootstrap_001";
@@ -55,42 +54,44 @@ export async function seedFounder() {
     const founderUser = await pool.query(
       `INSERT INTO users (id, email, username, password_hash, first_name, last_name, updated_at)
        VALUES ($1, $2, $3, $4, 'Founder', 'GYDSchain', NOW())
-        ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()
+        ON CONFLICT (username) DO NOTHING
         RETURNING id`,
       [founderId, "founder@gydschain.local", "founder", founderHash]
     );
-    const founderAccountId = founderUser.rows[0]?.id ?? founderId;
+    const founderAccountId = founderUser.rows[0]?.id
+      ?? (await pool.query(`SELECT id FROM users WHERE username=$1 LIMIT 1`, ["founder"])).rows[0]?.id;
+    if (!founderAccountId) throw new Error("Founder account could not be created or found");
     await pool.query(
       `INSERT INTO profiles (id, user_id, email, username, display_name, role)
        VALUES (gen_random_uuid(), $1, $2, $3, 'Founder', 'founder')
-       ON CONFLICT (user_id) DO UPDATE SET username=$3, display_name='Founder', role='founder'`,
+       ON CONFLICT (user_id) DO UPDATE SET display_name='Founder', role='founder'`,
       [founderAccountId, "founder@gydschain.local", "founder"]
     );
     await grantRoles(founderAccountId, ["user", "admin", "founder"]);
 
-    // ── Step 3: Always upsert the admin password account ─────────────────────
+    // ── Step 3: Ensure the admin password account exists ─────────────────────
     const adminId   = "admin_bootstrap_001";
     const adminHash = await bcrypt.hash(adminPassword, 12);
 
     const adminUser = await pool.query(
       `INSERT INTO users (id, email, username, password_hash, first_name, last_name, updated_at)
        VALUES ($1, $2, $3, $4, 'Admin', 'User', NOW())
-        ON CONFLICT (username) DO UPDATE SET password_hash=$4, updated_at=NOW()
+        ON CONFLICT (username) DO NOTHING
         RETURNING id`,
       [adminId, "admin@gydschain.local", "admin", adminHash]
     );
-    const adminAccountId = adminUser.rows[0]?.id ?? adminId;
+    const adminAccountId = adminUser.rows[0]?.id
+      ?? (await pool.query(`SELECT id FROM users WHERE username=$1 LIMIT 1`, ["admin"])).rows[0]?.id;
+    if (!adminAccountId) throw new Error("Admin account could not be created or found");
     await pool.query(
       `INSERT INTO profiles (id, user_id, email, username, display_name, role)
        VALUES (gen_random_uuid(), $1, $2, $3, 'Admin', 'admin')
-       ON CONFLICT (user_id) DO UPDATE SET username=$3, display_name='Admin', role='admin'`,
+       ON CONFLICT (user_id) DO UPDATE SET display_name='Admin', role='admin'`,
       [adminAccountId, "admin@gydschain.local", "admin"]
     );
     await grantRoles(adminAccountId, ["user", "admin"]);
 
-    console.log(`[seed] Accounts ready:`);
-    console.log(`  founder / ${founderPassword}`);
-    console.log(`  admin   / ${adminPassword}`);
+    console.log("[seed] Bootstrap accounts ready; existing usernames and passwords were preserved.");
   } catch (err: any) {
     console.error("[seed] Founder seed error:", err.message);
   }
@@ -126,23 +127,38 @@ export async function seedFirewallDefaults() {
 }
 
 // ─── seedGenesisAllocations ──────────────────────────────────────────────────
-// Writes the 1,000,000,000 GYDS genesis distribution into PostgreSQL as
+// Writes the 3,000,000,000 GYDS genesis distribution into a fresh database as
 // confirmed `premine_gyds` token_operations rows — one per reserved wallet.
 //
-// Idempotent: each row carries a deterministic tx_hash (`genesis:<key>`), and
-// the insert is skipped when that hash already exists. Safe on every boot.
+// Existing databases are deliberately left untouched so a restart cannot
+// rewrite the supply or balances of a running network.
 export async function seedGenesisAllocations() {
-  try {
-    let inserted = 0;
-    for (const w of RESERVED_WALLETS) {
-      const txHash = `genesis:${w.key}`;
-      const { rows } = await pool.query(
-        `SELECT 1 FROM token_operations WHERE tx_hash = $1 LIMIT 1`,
-        [txHash]
-      );
-      if (rows.length > 0) continue;
+  const walletConfiguration = getReservedWalletConfiguration();
+  if (!walletConfiguration.configured) {
+    console.warn(
+      `[seed] Genesis allocation seed skipped; configure all reserved recipient addresses: ${walletConfiguration.issues.map((issue) => issue.envVar).join(", ")}`,
+    );
+    return;
+  }
 
-      await pool.query(
+  let client: any;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('gyds_genesis_allocations'))");
+
+    const existingSupply = await client.query(`SELECT id FROM token_price LIMIT 1`);
+    const existingOperations = await client.query(`SELECT 1 FROM token_operations LIMIT 1`);
+    if (existingSupply.rows.length > 0 || existingOperations.rows.length > 0) {
+      await client.query("ROLLBACK");
+      console.log("[seed] Existing supply or token activity found; leaving it unchanged");
+      return;
+    }
+
+    let inserted = 0;
+    for (const w of walletConfiguration.wallets) {
+      const txHash = `genesis:${w.key}`;
+      await client.query(
         `INSERT INTO token_operations
            (id, operation_type, amount, usdt_amount, wallet_address, tx_hash, status, network, created_at)
          VALUES (gen_random_uuid(), 'premine_gyds', $1, 0, $2, $3, 'confirmed', 'mainnet', NOW())`,
@@ -151,25 +167,20 @@ export async function seedGenesisAllocations() {
       inserted++;
     }
 
-    // Keep the published supply figures in step with the genesis distribution.
-    const priceRow = await pool.query(`SELECT id FROM token_price LIMIT 1`);
-    if (priceRow.rows.length === 0) {
-      await pool.query(
-        `INSERT INTO token_price (id, price, total_supply, circulating_supply, burned_total, updated_at)
-         VALUES (gen_random_uuid(), 0.0000001, $1, $1, 0, NOW())`,
-        [String(TOTAL_GENESIS_SUPPLY)]
-      );
-    } else {
-      await pool.query(
-        `UPDATE token_price SET total_supply = $1, updated_at = NOW() WHERE id = $2`,
-        [String(TOTAL_GENESIS_SUPPLY), priceRow.rows[0].id]
-      );
-    }
+    await client.query(
+      `INSERT INTO token_price (id, price, total_supply, circulating_supply, burned_total, updated_at)
+       VALUES (gen_random_uuid(), 0.0000001, $1, $1, 0, NOW())`,
+      [String(TOTAL_GENESIS_SUPPLY)]
+    );
+    await client.query("COMMIT");
 
     if (inserted > 0) {
       console.log(`[seed] Genesis allocations written for ${inserted} reserved wallet(s) — ${TOTAL_GENESIS_SUPPLY.toLocaleString()} GYDS total`);
     }
   } catch (err: any) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
     console.warn("[seed] Genesis allocation seed error:", err.message);
+  } finally {
+    client?.release();
   }
 }

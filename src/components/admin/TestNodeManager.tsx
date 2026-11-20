@@ -50,7 +50,7 @@ const NETWORKS:  Network[]   = ['mainnet', 'testnet', 'devnet'];
 const NETWORK_CFG = {
   mainnet: { label: 'Mainnet', chainId: 198282, symbol: 'GYDS',  color: 'emerald', icon: '🌐',
     rpcUrl: 'https://rpc.netlifegy.com', explorerUrl: 'https://explorer.netlifegy.com' },
-  testnet: { label: 'Testnet', chainId: 198281, symbol: 'tGYDS', color: 'amber',   icon: '🧪',
+  testnet: { label: 'Testnet', chainId: 198281, symbol: 'TGYDS', color: 'amber',   icon: '🧪',
     rpcUrl: 'https://testnet-rpc.netlifegy.com', explorerUrl: 'https://testnet-explorer.netlifegy.com' },
   devnet: { label: 'Devnet', chainId: 198283, symbol: 'dGYDS', color: 'sky', icon: '🛠️',
     rpcUrl: 'https://devnet-rpc.netlifegy.com', explorerUrl: 'https://devnet-explorer.netlifegy.com' },
@@ -896,7 +896,7 @@ function NodeSetupWizard({ onDone }: { onDone: () => void }) {
 
 const EMPTY_NODE_STATUS: NodeStatus = { running: false, startedAt: null, port: 0, blockHeight: 1000, peers: 0, txPool: 0 };
 const EMPTY_STATUS: FullStatus = {
-  mainnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8545 }, lite: { ...EMPTY_NODE_STATUS, port: 8555 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8565 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8575 }, validator: { ...EMPTY_NODE_STATUS, port: 8585 }, genesis: { ...EMPTY_NODE_STATUS, port: 8590 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8595 } },
+  mainnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8547 }, lite: { ...EMPTY_NODE_STATUS, port: 8555 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8565 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8575 }, validator: { ...EMPTY_NODE_STATUS, port: 8585 }, genesis: { ...EMPTY_NODE_STATUS, port: 8590 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8595 } },
   testnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8600 }, lite: { ...EMPTY_NODE_STATUS, port: 8601 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8602 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8603 }, validator: { ...EMPTY_NODE_STATUS, port: 8604 }, genesis: { ...EMPTY_NODE_STATUS, port: 8605 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8606 } },
   devnet: { rpc: { ...EMPTY_NODE_STATUS, port: 8610 }, lite: { ...EMPTY_NODE_STATUS, port: 8611 }, fullnode: { ...EMPTY_NODE_STATUS, port: 8612 }, boostnode: { ...EMPTY_NODE_STATUS, port: 8613 }, validator: { ...EMPTY_NODE_STATUS, port: 8614 }, genesis: { ...EMPTY_NODE_STATUS, port: 8615 }, bootnode: { ...EMPTY_NODE_STATUS, port: 8616 } },
 };
@@ -959,7 +959,11 @@ export function TestNodeManager() {
     try {
       const res = await fetch(`/api/admin/test-nodes/${network}/${type}/${act}`, { method: 'POST', credentials: 'include' });
       const { ok, message } = await describeFailure(res);
-      toast({ title: message, variant: ok ? 'default' : 'destructive' });
+      toast({
+        title: ok ? message : `Could not ${act} ${NODE_META[type].label.toLowerCase()}`,
+        description: ok ? undefined : message,
+        variant: ok ? 'default' : 'destructive',
+      });
       if (ok) await fetchStatus();
     } catch (e: any) {
       toast({ title: `Request failed: ${e?.message || 'network error'}`, variant: 'destructive' });
@@ -1047,6 +1051,15 @@ export function TestNodeManager() {
             <Activity className="w-3.5 h-3.5" />
             {syncLoading ? 'Checking…' : 'Sync Check'}
           </Button>
+        </div>
+      </div>
+
+      <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+        <div className="space-y-1">
+          <p className="font-medium text-amber-300">The installed mainnet RPC uses port 8545.</p>
+          <p>The dashboard RPC simulator uses port 8547 to avoid a collision. Stop/Stop All controls only affect nodes started here.</p>
+          <p>To inspect port 8545 over SSH, run <code className="font-mono text-foreground">sudo ss -ltnp 'sport = :8545'</code>. The installed service can be stopped with <code className="font-mono text-foreground">sudo systemctl stop gyds-rpcnode</code>, but this disconnects RPC users.</p>
         </div>
       </div>
 

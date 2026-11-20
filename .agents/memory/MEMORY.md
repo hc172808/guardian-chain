@@ -1,15 +1,16 @@
 - [UI improvements July 2026](ui-improvements-2026-07.md) — DeFi nav collapsed to 8 primary + 4 advanced; Leaderboard→Referrals redirect; light theme toggle; API key routes; Discord webhook alerts.
 - [Mining wallet binding](mining-wallet-binding.md) — Browser/manual/standalone mining must use a valid Wallet-page address, never a user ID placeholder.
+- [Mining access](mining-access.md) — Mining controls are restricted to admin and founder; hide every non-privileged entry point and keep route authorization.
 - [Bridge networks](bridge-networks.md) — EXTERNAL_CHAINS in CrossChainBridge.tsx now has 25 networks; non-EVM chains skip wallet verification and use a trust-based flow.
 - [New pages wired](new-pages.md) — 9 new pages added (governance, nft, analytics, community, developer, leaderboard, multisig, identity, rwa); Sidebar has collapsible Core/Ecosystem/Resources sections.
 - [DeFi tabs](defi-tabs.md) — DeFi page has 13 tabs: swap, pools, stake, farm, orderbook, vaults, bridge, stablecoin, perps, predict, launchpad, portfolio, ilcalc. DeFiBottomNav updated to match.
-- [User stablecoins](user-stablecoins.md) — user_stablecoins table in DB; full CRUD at /api/stablecoins; creation rules enforced server-side; StablecoinFactory.tsx 5-step wizard in DeFi → Stable tab.
+- [Stablecoin approval](stablecoin-approval.md) — Every stablecoin submission, including admin/founder submissions, must notify reviewers and wait for explicit approval before deployment.
 - [WireGuard peer manager](wireguard-peers.md) — WireGuardPeerManager.tsx in Admin nodes tab; reads approved nodes, assigns 10.8.0.x tunnel IPs, generates wg0.conf + per-peer client configs, downloads/copies them.
 - [Remote WireGuard management](wireguard-remote-management.md) — Remote VPS peer sync uses SSH with fingerprint verification; private key stays in the WG_SSH_PRIVATE_KEY secret.
-- [Notification bell](notification-bell.md) — NotificationBell in Layout.tsx; live /api/notifications → user_notifications table; server pushes on faucet drip + governance vote + new proposal.
 - [TOTP implementation](totp-impl.md) — otplib v12 dropped the `authenticator` export; use server/totp.ts (built-in crypto, zero-dep RFC 6238 TOTP) instead.
 - [Admin camelCase](admin-camelcase.md) — Drizzle returns camelCase; NodeInstallation interface and nodes tab now use nodeType, isApproved, isSynced, wireguardPublicKey, createdAt.
-- [Test nodes](test-nodes.md) — 5 nodes: rpc(8545), lite(8555), fullnode(8565), boostnode(8575), validator(8585). Validator node has validator_info/validator_set/validator_getRewards/validator_register JSON-RPC methods + /validators endpoint.
+- [Test nodes](test-nodes.md) — Dashboard RPC simulator uses 8547; installed mainnet RPC keeps 8545. Validator has custom JSON-RPC methods and /validators endpoint.
+- [Testnet coin symbols](testnet-coin-symbols.md) — testnet displays TGYDS/TGYD; mainnet remains GYDS/GYD, with canonical operation identifiers preserved.
 - [Tokens table creator](tokens-creator.md) — tokens table uses creator_id (no FK to users), not user_id. Use LEFT JOIN + coalesce for leaderboard queries.
 - [XP leaderboard](xp-leaderboard.md) — user_xp, xp_events, achievements, user_achievements tables pushed via raw SQL (db:push has TTY issue). Storage methods use pgPool directly.
 - [Replit migration](replit-migration.md) — db:push needs TTY; use `drizzle-kit generate` then pipe SQL to psql instead. Supabase client.ts is already a shim routing to Express API — no real Supabase keys needed.
@@ -35,7 +36,7 @@
 - [Active sessions](active-sessions.md) — GET/DELETE /api/auth/sessions; session table (connect-pg-simple) queried via sess->'passport'->>'user'. ua/ip/loginAt stored in session on login. ActiveSessionsPanel in Profile security tab; revoke individual or all other sessions.
 - [Test node auto-approval](test-node-approval.md) — Starting a test node via /api/admin/test-nodes/:type/start upserts node_installations (isApproved=true, isOnline=true) for the admin user. testNodeDbIds Map tracks row IDs; stop marks isOnline=false; status poll updates heartbeats. VALID_NODE_TYPES now includes "validator".
 - [Node repo fixes](node-repo-fixes.md) — node-fixes/ dir has corrected Go source for rpcnode/boostnode/fullnode/genesis; install-fullnode.sh and install-genesis.sh repo URLs fixed; NodeRepoSync.tsx in Admin GitHub tab checks each repo via GitHub API.
-- [Fullnode canonical source](fullnode-canonical-source.md) — production node installers build supported modes from one fullnode repository; unsupported modes must fail explicitly.
+- [Local node source policy](fullnode-canonical-source.md) — Fetch installer scripts from the dashboard repo first with local fallback; keep node source local and require fresh reset approval.
 - [SDK section](sdk-section.md) — Developer.tsx SDKs tab: JS/TS and Python marked Available with full code examples; Go is In Progress; Rust is Planned; feature matrix table included.
 - [GitHub webhook](github-webhook.md) — POST /api/webhooks/github receives GitHub push events; HMAC-SHA256 via GITHUB_WEBHOOK_SECRET; stores last 100 in-memory; GET /api/admin/github-webhook/events + POST /api/admin/github-webhook/ack; NodeRepoSync polls every 30s and auto-triggers checkOne().
 - [PWA install prompt](pwa-install.md) — InstallPrompt.tsx in Layout.tsx; uses beforeinstallprompt for Android; iOS step-by-step guide; manifest.json v2 has id, 7 icons, 4 shortcuts, share_target, protocol_handlers web+gyds, edge_side_panel; sw.js v2 has stale-while-revalidate + background sync.
@@ -43,10 +44,12 @@
 - [Payment methods system](payment-methods.md) — payment_methods + buy_requests tables (created at runtime in ensurePaymentTables()); 5 seeded defaults (PayPal, MMG Guyana, Bank GY, VISA/MC, Crypto); cashout_requests got payment_method column via ALTER IF NOT EXISTS; Admin → Payments tab (PaymentMethodsManager.tsx) has 3 sub-tabs: methods toggle/edit, buy requests approve/reject, cashout requests approve/reject.
 - [App Preview page](app-preview.md) — src/pages/Preview.tsx at /preview; shows all 36 pages as cards (group/filter/search); phone mockup iframe for /mobile; desktop iframe for /landing; Wallet App tab with build methods. Also in sidebar Resources section. When adding new pages, always add to PAGES array in Preview.tsx.
 - [Mobile wallet integration](mobile-wallet.md) — wallet repo hc172808/your-digital-wallet; already GYDS chain 198282, app ID io.netlifegy.gyds; setup scripts in mobile-wallet/; push-all.sh at root pushes both repos; todo.md has full contributor guide at top.
+- [External miner source](miner-repository.md) — miner source is a separate app at hc172808/replit-project-migration; clean its tracked .env before linking or copying code.
 - [Revenue Dashboard](revenue-dashboard.md) — GET /api/admin/revenue aggregates trust_payments, user_stablecoins.creation_fee_paid, insurance_policies.premium_paid, bridge_transfers.fee, buy_requests (completed), cashout_requests (completed); returns totals + 30-day daily breakdown + 12-month monthly + recent 25 events. RevenueDashboard.tsx in Admin → Revenue tab.
 - [Query cache repeater](query-cache.md) — server/queryCache.ts: withCache(ttlMs) Express middleware caches GET JSON responses; applied to /api/validators(8s), /api/tokens(20s), /api/pools(12s), /api/network-stats(5s); GET /api/admin/cache-stats + POST /api/admin/cache-clear admin routes.
 - [All node types](all-nodes.md) — testNodes.ts supports 7 node types across mainnet and testnet only; devnet is retired and testnet uses chain ID 198281.
-- [Token creation network](token-creation-network.md) — New tokens must be created on mainnet; legacy testnet tokens may still exist for promotion.
+- [Node installer resilience](node-installer-resilience.md) — attempt selected node roles independently; report skips/failures without rolling back successful installs.
+- [Token creation network](token-creation-network.md) — Verify wallet-approved GYDS mainnet deployments; cross-coin unlocks require on-chain supply × 30m TWAP and the configured market-cap threshold.
 - [Service worker cache](service-worker-cache.md) — Bump CACHE_NAME when shipping client copy or bundle changes so stale PWA assets are discarded.
 - [Server Config admin tab](server-config-admin.md) — GET/POST /api/admin/server-config; writes to .env (via existing writeEnvFile) + gyds-config.env; applies to process.env immediately; calls pm2 restart gydschain-api --update-env; ServerConfigManager.tsx in Admin "Server Config" tab; secret fields masked with ••••••••.
 - [gyds-config.env shared config](gyds-config-env.md) — written by deploy-dashboard.sh and POST /api/admin/server-config; sourced by all 7 node install scripts (install-validatornode/fullnode/litenode/boostnode/rpcnode/bootnode + setup-server.sh) via GYDS_CONF var before config-defaults block; NONINTERACTIVE=1 skips prompts.
@@ -66,8 +69,12 @@
 - [Public API + rate limiting](public-api-rate-limit.md) — /api/public/chain|tokens|stats require X-API-Key (SHA-256 hash lookup); publicApiLimiter 60 req/min; validate:{ip:false} needed to silence IPv6 keyGenerator warning from express-rate-limit.
 - [Network snapshots API](network-snapshots-api.md) — GET /api/network-snapshots?hours=N added; used by Validators.tsx real chart and Analytics.tsx; data written by DB pruner cron hourly from RPC stats.
 - [Live RPC wiring](live-rpc-wiring.md) — GYDS_RPC_URL=http://localhost:8545 in .env + gyds-config.env; chainRpc.ts falls back through all mainnet local ports (8545,8565,8555,8575,8585); mainnet test nodes enabled in test_node_state DB table; mock TPS/price fallbacks removed.
-- [WireGuard registration](wireguard-registration.md) — Server public key config and node peer registration are separate; every node needs its own public key before approval.
+- [WireGuard registration](wireguard-registration.md) — Local nodes stay loopback-only; detected remote peers require manual registration and approval before VPN sync.
 - [Admin node approval](admin-node-approval.md) — Approval/revocation uses a dedicated JSON action endpoint, separate from general node PATCH mutations.
 - [Admin user tools](admin-user-tools.md) — User edits, password resets, and session revocation are audited; console commands stay bounded and server-validated.
 - [Staking chain settlement](staking-chain-settlement.md) — Settle GYD through the chain transfer RPC before committing positions; production needs a real STAKING_POOL_ADDRESS.
 - [Stablecoin contract build isolation](stablecoin-contract-build.md) — Keep stablecoin compilation isolated from unrelated legacy AMM Solidity blockers.
+- [Embedded installer code tests](shell-embedded-code-tests.md) — Bash syntax checks do not validate Python heredocs; compile embedded code in the regression suite.
+- [Contract tooling firewall](contract-tooling-firewall.md) — Package installs for Hardhat tooling are blocked by a vulnerable transitive Handlebars package; update the parent dependency, never bypass the firewall.
+- [Nginx reload verification](nginx-reload-verification.md) — After reloading Nginx, retry the virtual-host check briefly so a transient stale response does not fail deployment.
+- [Account identity during updates](account-identity-updates.md) — Updates and migrations must preserve existing usernames and password hashes; bootstrap accounts are insert-only.

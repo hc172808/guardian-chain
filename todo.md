@@ -1,6 +1,6 @@
 # ChainCore — Developer TODO
 
-> Last updated: 2026-08-15  
+> Last updated: 2026-10-09  
 > Stack: Vite+React+TS frontend · Express+Drizzle backend · PostgreSQL · Chain ID 198282 · Domain: app.netlifegy.com
 
 ---
@@ -109,11 +109,28 @@
 
 ### High Priority
 
+- [ ] **Make user-created tokens real on-chain contracts (GRC-20 / GRC-721 / GRC-1155)** — `TokenFactory.tsx` currently invents a random address and `tx_hash`; `POST /api/tokens` only stores metadata. It does not deploy a contract.
+  - [ ] Add `contracts/GRC20Token.sol`, `contracts/GRC721Token.sol`, `contracts/GRC1155Token.sol`, and `contracts/GydsTokenFactory.sol` (or document and test a direct-deployment alternative). Implement the selected standard, creator/authority rules, initial supply, and a `TokenCreated` event.
+  - [ ] Update `src/components/token/TokenFactory.tsx` to have the connected wallet sign and submit the real deployment transaction on mainnet (chain ID 198282); do not fall back to `user:<id>` as a deployer.
+  - [ ] Update `server/routes.ts` so token metadata is accepted only after checking the real transaction receipt, deployed address/code, creator, and chain ID. Remove fabricated address/transaction hashes and reconcile the GYDS fee burn with an actual confirmed chain operation.
+  - [ ] Add isolated Hardhat tests for each supported contract, authority choices, initial supply, transfer, revert cases, and factory events. Keep these tests isolated from unrelated legacy AMM compile blockers.
+  - [ ] **Canonical Go fullnode files to verify/update only where tests expose a gap:**
+    - `evm/engine.go` — EVM execution and contract-creation transactions.
+    - `core/chain.go` — transaction inclusion, contract state, receipt persistence, and restart recovery.
+    - `rpc/server.go` — JSON-RPC deployment/call/read methods; `eth_getLogs` currently returns an empty list and needs real receipt-log filtering for token events.
+    - `core/evm_integration_test.go` and RPC tests — deploy compiled token bytecode through a signed raw transaction; verify receipt/status, `eth_getCode`, `eth_call`, transfer, event logs, and persistence after restart.
+  - [ ] Do not add a separate Go implementation for each token standard: the canonical node already embeds geth's EVM and exposes raw-transaction submission, receipts, code, calls, and gas estimation. Use Go changes for missing generic EVM/RPC behavior; keep token standards in Solidity.
+- [x] **Create a safe Go fullnode installer** — scope is node-only; `public/scripts/install-fullnode-service.sh` verifies the canonical origin, tests/builds before updating, fast-forwards only, preserves existing service/data, and rolls back the prior binary if startup fails.
+  - [x] Keep the dashboard application, database, firewall, and Nginx untouched; new-service RPC/dashboard bind to localhost through build-worktree-only hardening, while existing listener settings stay unchanged.
+  - [x] Add installer safety checks to `scripts/test-scripts.sh`.
+- [x] **Pull the app repository before local node work** — the former separate fullnode-repository workflow is superseded; node source now stays in local project bundles, with future repository criteria in `nodes-requirements.md`.
+
 - [x] **Real SMTP email verification** — Nodemailer delivery is wired through `server/email.ts` and the SMTP settings are available in Admin → Server Config. Without `SMTP_HOST`, development safely logs the message instead.
 - [ ] **Production Geth node** — genesis.json is correct; deploy a real Geth binary on a VPS, run `geth init genesis.json`, and peer the test nodes to the live network.
 - [x] **WireGuard VPN provisioning (deferred server connection)** — the app generates peer/client configuration and QR data; connect it to the user's existing WireGuard server during server setup when details are available, otherwise skip and leave it for later.
 - [ ] **Validator registration on-chain** — current validator dashboard is mock data. Deploy a Solidity `ValidatorRegistry` contract on chain 198282 and wire `validator_register` RPC method.
 - [ ] **Block explorer real data** — Explorer reads from `network_snapshots` seeded by a cron (`server/chainSync.ts`). Ensure `rpc.netlifegy.com` is live so the cron populates real data.
+- [ ] **External miner project** — see `MINER_REPOSITORY.md`; audit/remove the upstream tracked `.env` and rotate any exposed secrets before adding it as a submodule or copying code.
 
 ### Medium Priority
 
@@ -237,3 +254,13 @@ cat drizzle/migrations/XXXX_my_migration.sql | psql "$DATABASE_URL"
 - Founder — username `founder`, password from `FOUNDER_PASSWORD` env (default `password`)
 - Admin — username `admin`, password from `ADMIN_PASSWORD` env (default `password`)
 - Change these immediately by setting `FOUNDER_PASSWORD` / `ADMIN_PASSWORD` in `.env` and restarting.
+
+---
+
+## 2026-11-04 — Master installer debugging
+
+- [x] Reject unknown/conflicting modes, support `--redeploy`, forward requirements options separately, and propagate unattended mode to child installers.
+- [x] Preflight child scripts before any package installation; report failures without printing commands or credentials.
+- [x] Fix PostgreSQL client-only helper ordering and hide connection credentials during its read-only check.
+- [x] Preserve existing firewall rules and allow the current SSH connection's port instead of resetting UFW.
+- [ ] Run isolated execution regressions and the existing shell-script suite; installation on the target server is not performed here.

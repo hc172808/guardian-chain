@@ -18,6 +18,7 @@ import {
   getCaptchaSettings, getCaptchaSettingsDefaults, updateCaptchaSettings, resetCaptchaSettings,
   recordAttackSignal, setManualAttackMode, attackState, isFallbackAllowed,
 } from "./captchaSettings";
+import { hasAdminRole } from "./roles";
 const pgPool = pool;
 
 // ── WhatsApp OTP store (in-memory, short-lived) ───────────────────────────────
@@ -209,17 +210,36 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
   // ── Runtime security-check settings (admin/founder only) ───────────────────
-  const requireCaptchaAdmin = (req: any, res: any): boolean => {
-    const roles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
-    if (!roles.some((role: string) => role === 'admin' || role === 'founder')) {
+  const requireCaptchaAdmin = async (req: any, res: any): Promise<boolean> => {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return false;
+    }
+    let roles: Array<{ role: string }>;
+    try {
+      // Auth routes are registered before the admin routes' role-enrichment
+      // middleware, so the Passport session may not contain roles. The
+      // user_roles table is the source of truth for current privileges.
+      const result = await pgPool.query<{ role: string }>(
+        `SELECT role FROM user_roles WHERE user_id = $1`,
+        [userId],
+      );
+      roles = result.rows;
+    } catch (error: any) {
+      console.error('[auth] Could not verify captcha-admin role:', error?.message ?? error);
+      res.status(503).json({ error: 'Could not verify admin access. Please retry.' });
+      return false;
+    }
+    if (!hasAdminRole(roles)) {
       res.status(403).json({ error: 'Admin access required' });
       return false;
     }
     return true;
   };
 
-  app.get("/api/auth/captcha/settings", requireAuth, (req: any, res) => {
-    if (!requireCaptchaAdmin(req, res)) return;
+  app.get("/api/auth/captcha/settings", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     res.json({
       settings: getCaptchaSettings(),
       defaults: getCaptchaSettingsDefaults(),
@@ -228,20 +248,20 @@ export async function setupAuth(app: Express): Promise<void> {
     });
   });
 
-  app.put("/api/auth/captcha/settings", requireAuth, (req: any, res) => {
-    if (!requireCaptchaAdmin(req, res)) return;
+  app.put("/api/auth/captcha/settings", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     const settings = updateCaptchaSettings(req.body ?? {});
     res.json({ ok: true, settings, attack: attackState(), fallbackAllowed: isFallbackAllowed() });
   });
 
-  app.post("/api/auth/captcha/settings/reset", requireAuth, (req: any, res) => {
-    if (!requireCaptchaAdmin(req, res)) return;
+  app.post("/api/auth/captcha/settings/reset", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     res.json({ ok: true, settings: resetCaptchaSettings(), attack: attackState(), fallbackAllowed: isFallbackAllowed() });
   });
 
   // Manual attack-mode override: { minutes: number } (0 clears it)
-  app.post("/api/auth/captcha/attack-mode", requireAuth, (req: any, res) => {
-    if (!requireCaptchaAdmin(req, res)) return;
+  app.post("/api/auth/captcha/attack-mode", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     const minutes = Number(req.body?.minutes ?? 0);
     const state = setManualAttackMode(Number.isFinite(minutes) && minutes > 0 ? minutes * 60_000 : 0);
     res.json({ ok: true, attack: state, fallbackAllowed: isFallbackAllowed() });
@@ -258,11 +278,8 @@ export async function setupAuth(app: Express): Promise<void> {
   });
 
 
-  app.get("/api/auth/captcha/monitor", requireAuth, (req: any, res) => {
-    const roles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
-    if (!roles.some((role: string) => role === 'admin' || role === 'founder')) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+  app.get("/api/auth/captcha/monitor", requireAuth, async (req: any, res) => {
+    if (!await requireCaptchaAdmin(req, res)) return;
     const failures = (captchaMonitor.counts.html_response ?? 0) + (captchaMonitor.counts.fallback_activated ?? 0);
     const requestId = typeof req.query.requestId === 'string' ? req.query.requestId : null;
     res.json({
@@ -514,7 +531,7 @@ export async function setupAuth(app: Express): Promise<void> {
       }
       const purpose = requestedPurpose as "login" | "password-reset" | "wallet-link";
       const nonce = crypto.randomBytes(24).toString("hex") + Date.now().toString(36);
-      await storage.setUserNonce(address, nonce, { createPlaceholder: purpose === "login" });
+      await storage.setUserNonce(address, nonce);
       issueNonce(address, nonce);
       res.json({ nonce, message: CHALLENGE_MESSAGE(nonce, purpose) });
     } catch (err: any) {
@@ -528,7 +545,7 @@ export async function setupAuth(app: Express): Promise<void> {
       const { verifyWalletChallenge } = await import("./walletChallenge");
       const { address, signature } = req.body ?? {};
       const result = await verifyWalletChallenge(address, signature, storage, "login");
-      if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+      if (result.ok === false) return res.status(result.status).json({ error: result.error, code: result.code });
       const addr = result.address;
 
       // Get or create user for this wallet
@@ -611,7 +628,7 @@ export async function setupAuth(app: Express): Promise<void> {
     const user = req.user as any;
     const { verifyWalletChallenge } = await import("./walletChallenge");
     const result = await verifyWalletChallenge(address, signature, storage, "wallet-link");
-    if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+    if (result.ok === false) return res.status(result.status).json({ error: result.error, code: result.code });
 
     const client = await pgPool.connect();
     try {
@@ -758,7 +775,7 @@ export async function setupAuth(app: Express): Promise<void> {
       if (u?.totp_enabled && u?.totp_secret) {
         if (!totpCode) return res.status(403).json({ error: "This account has 2FA enabled. Provide your authenticator code to continue.", requires2fa: true });
         // Try TOTP code first
-        const valid = totp.verify(u.totp_secret, String(totpCode));
+        const valid = totp.verify({ secret: u.totp_secret, token: String(totpCode) });
         if (!valid) {
           // Try backup codes
           let codes: string[] = [];
@@ -787,7 +804,7 @@ export async function setupAuth(app: Express): Promise<void> {
       const { verifyWalletChallenge } = await import("./walletChallenge");
       const { address, signature } = req.body ?? {};
       const result = await verifyWalletChallenge(address, signature, storage, "password-reset");
-      if (!result.ok) return res.status(result.status).json({ error: result.error, code: result.code });
+      if (result.ok === false) return res.status(result.status).json({ error: result.error, code: result.code });
       const addr = result.address;
 
       // Find account linked to this wallet
@@ -839,6 +856,10 @@ export async function setupAuth(app: Express): Promise<void> {
         `If you did not request this, ignore this message.`,
       ].join("\n");
 
+      const safeReply = {
+        ok: true,
+        message: "If the account has a linked WhatsApp number, a reset code has been sent.",
+      };
       const result = await sendWhatsAppMessage(phone, text);
       if (!result.ok) {
         console.warn("[WA reset] send failed:", result.error);

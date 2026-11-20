@@ -4,8 +4,11 @@ import path from "node:path";
 import { pool } from "./db";
 import {
   broadcastRawTransaction,
+  callGydsRpcAtEndpoint,
   estimateTransactionGas,
-  getChainContextRpc,
+  getConfiguredGydsRpcEndpoints,
+  assertHealthyLocalGydsRpc,
+  isLoopbackRpcEndpoint,
   getContractCode,
   getGasPrice,
   getTransactionCount,
@@ -98,19 +101,63 @@ async function getVerifiedMainnetRpc(): Promise<{ chainId: number; endpoint: str
   if (process.env.GYDS_NETWORK && process.env.GYDS_NETWORK.toLowerCase() !== "mainnet") {
     throw new StablecoinDeploymentError("Stablecoin contract deployment is restricted to GYDS mainnet.", 409);
   }
-  let context: { chainId: number; endpoint: string };
-  try {
-    context = await getChainContextRpc();
-  } catch {
-    throw new StablecoinDeploymentError("Could not reach a GYDS Chain RPC to verify the deployment network.", 503);
-  }
-  if (context.chainId !== GYDS_MAINNET_CHAIN_ID) {
+  const endpoints = getConfiguredGydsRpcEndpoints();
+  if (!endpoints.length) {
     throw new StablecoinDeploymentError(
-      `The connected RPC is not GYDS mainnet (expected chain ID ${GYDS_MAINNET_CHAIN_ID}; got ${context.chainId}).`,
-      409,
+      "Configure GYDS_LOCAL_RPC_URL for a real local GYDS node, or GYDS_RPC_URL for a trusted remote node before approving.",
+      503,
     );
   }
-  return context;
+
+  for (const endpoint of endpoints) {
+    try {
+      const chainId = Number.parseInt(String(await callGydsRpcAtEndpoint(endpoint, "eth_chainId")), 16);
+      if (!Number.isSafeInteger(chainId) || chainId !== GYDS_MAINNET_CHAIN_ID) continue;
+      if (isLoopbackRpcEndpoint(endpoint)) {
+        await assertHealthyLocalGydsRpc(endpoint, GYDS_MAINNET_CHAIN_ID);
+      }
+      return { chainId, endpoint };
+    } catch {
+      // Try the next explicitly configured local or remote endpoint.
+    }
+  }
+
+  throw new StablecoinDeploymentError(
+    "No configured GYDS mainnet RPC is healthy. Local nodes must be real, synced, and peered; remote endpoints must report chain ID 198282.",
+    503,
+  );
+}
+
+export async function getStablecoinDeploymentReadiness(): Promise<{
+  ready: boolean;
+  canReconcile: boolean;
+  chainId: number | null;
+  blockers: string[];
+}> {
+  const blockers: string[] = [];
+  try {
+    getDeploymentWallet();
+  } catch (error: any) {
+    blockers.push(error instanceof Error ? error.message : "Stablecoin deployment signer is not configured.");
+  }
+  try {
+    getArtifact();
+  } catch (error: any) {
+    blockers.push(error instanceof Error ? error.message : "Stablecoin deployment artifact is unavailable.");
+  }
+  let chainId: number | null = null;
+  try {
+    const context = await getVerifiedMainnetRpc();
+    chainId = context.chainId;
+  } catch (error: any) {
+    blockers.push(error instanceof Error ? error.message : "GYDS mainnet RPC is not ready.");
+  }
+  return {
+    ready: blockers.length === 0,
+    canReconcile: chainId === GYDS_MAINNET_CHAIN_ID,
+    chainId,
+    blockers,
+  };
 }
 
 function transactionSucceeded(receipt: any): boolean {
@@ -129,7 +176,7 @@ export async function reconcileStablecoinDeployment(
 
   let context: { chainId: number; endpoint: string };
   try {
-    context = await getChainContextRpc();
+    context = await getVerifiedMainnetRpc();
   } catch {
     return null;
   }
@@ -137,6 +184,10 @@ export async function reconcileStablecoinDeployment(
 
   const receipt = await getTransactionReceipt(txHash, context.endpoint);
   if (!receipt || receipt.status === undefined || receipt.status === null) return null;
+  if (
+    typeof receipt.transactionHash !== "string" ||
+    receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()
+  ) return null;
 
   if (transactionSucceeded(receipt)) {
     const contractAddress = typeof receipt.contractAddress === "string" ? receipt.contractAddress : "";
@@ -185,9 +236,8 @@ export async function deployOrResumeStablecoin(
 ): Promise<{ stablecoin: UserStablecoinRow; pending: boolean }> {
   await ensureStablecoinDeploymentSchema();
 
-  const signer = getDeploymentWallet();
   const lockClient = await pool.connect();
-  const advisoryKey = `stablecoin-deployment:${signer.address.toLowerCase()}`;
+  const advisoryKey = "stablecoin-deployment";
   let lockHeld = false;
   let transactionOpen = false;
 
@@ -254,6 +304,7 @@ export async function deployOrResumeStablecoin(
     }
 
     const { chainId, endpoint } = await getVerifiedMainnetRpc();
+    const signer = getDeploymentWallet();
     const artifact = getArtifact();
     const deployData = await new ethers.ContractFactory(artifact.abi, artifact.bytecode)
       .getDeployTransaction(

@@ -310,14 +310,14 @@ contract GydsSwapRouter {
         } else {
             uint256 amountBOptimal = GydsSwapLibrary.quote(amountADesired, reserveA, reserveB);
             if (amountBOptimal <= amountBDesired) {
-                require(amountBOptimal >= amountBMin, "GydsSwapRouter: INSUFFICIENT_B_AMOUNT");
                 (amountA, amountB) = (amountADesired, amountBOptimal);
             } else {
                 uint256 amountAOptimal = GydsSwapLibrary.quote(amountBDesired, reserveB, reserveA);
-                require(amountAOptimal >= amountAMin, "GydsSwapRouter: INSUFFICIENT_A_AMOUNT");
                 (amountA, amountB) = (amountAOptimal, amountBDesired);
             }
         }
+        require(amountA >= amountAMin, "GydsSwapRouter: INSUFFICIENT_A_AMOUNT");
+        require(amountB >= amountBMin, "GydsSwapRouter: INSUFFICIENT_B_AMOUNT");
     }
 
     /// @dev Ensure pair exists; create it if needed with token symbols derived on-chain

@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/gydschain/genesis/core"
+	nodep2p "github.com/gydschain/genesis/p2p"
 )
 
 type Server struct {
@@ -20,7 +24,10 @@ type Server struct {
 	mu        sync.Mutex
 	clients   map[*websocket.Conn]struct{}
 	httpSrv   *http.Server
+	p2pSrv    *nodep2p.Server
 }
+
+func (s *Server) SetP2P(p2pSrv *nodep2p.Server) { s.p2pSrv = p2pSrv }
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -160,7 +167,20 @@ func (s *Server) dispatch(req map[string]interface{}) interface{} {
 	case "net_listening":
 		return true
 	case "net_peerCount":
-		return "0x20"
+		if s.p2pSrv == nil {
+			return "0x0"
+		}
+		return fmt.Sprintf("0x%x", s.p2pSrv.PeerCount())
+	case "net_enode":
+		if s.p2pSrv == nil {
+			return nil
+		}
+		return s.p2pSrv.EnodeURL()
+	case "admin_nodeInfo":
+		if s.p2pSrv == nil {
+			return nil
+		}
+		return map[string]interface{}{"enode": s.p2pSrv.EnodeURL()}
 	case "eth_syncing":
 		return false
 	case "eth_getLogs":
@@ -177,7 +197,15 @@ func (s *Server) Start() error {
 	r.HandleFunc("/", s.handleRPC).Methods("POST", "GET", "OPTIONS")
 	r.HandleFunc("/genesis.json", s.serveGenesisJSON).Methods("GET")
 	r.HandleFunc("/ws", s.handleWS)
-	addr := fmt.Sprintf("0.0.0.0:%d", s.rpcPort)
+	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok","node":"gyds-genesis"}`))
+	}).Methods("GET")
+	host := os.Getenv("GYDS_RPC_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(s.rpcPort))
 	s.httpSrv = &http.Server{Addr: addr, Handler: r}
 	return s.httpSrv.ListenAndServe()
 }

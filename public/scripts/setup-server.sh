@@ -105,8 +105,9 @@ apt-get install -y -qq \
     git curl wget build-essential \
     nginx \
     postgresql postgresql-contrib \
-    ufw fail2ban \
+    ufw fail2ban cron \
     jq unzip logrotate
+systemctl enable --now cron
 
 # Node.js LTS (via NodeSource)
 if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
@@ -355,14 +356,36 @@ PM2CFG
 
 # Start as node user
 if id -u "$NODE_USER" &>/dev/null; then
-    su - "$NODE_USER" -c "pm2 delete gydschain-api 2>/dev/null; pm2 start '$APP_DIR/ecosystem.config.cjs'; pm2 save --force" || true
-    env PATH="$PATH:/usr/bin:/usr/local/bin" pm2 startup systemd -u "$NODE_USER" --hp "/home/$NODE_USER" 2>/dev/null | tail -1 | bash 2>/dev/null || true
+    if ! su - "$NODE_USER" -c "pm2 delete gydschain-api >/dev/null 2>&1 || true; pm2 start '$APP_DIR/ecosystem.config.cjs' && pm2 save --force"; then
+        err "PM2 could not start gydschain-api as ${NODE_USER}."
+        exit 1
+    fi
+    PM2_RUN_USER="$NODE_USER"
 else
     pm2 delete gydschain-api 2>/dev/null || true
     pm2 start "$APP_DIR/ecosystem.config.cjs"
     pm2 save --force
+    PM2_RUN_USER="root"
 fi
+if [[ ! -f "$APP_DIR/public/scripts/ensure-api-boot.sh" ]]; then
+    err "Missing PM2 boot setup helper: $APP_DIR/public/scripts/ensure-api-boot.sh"
+    exit 1
+fi
+bash "$APP_DIR/public/scripts/ensure-api-boot.sh" "$PM2_RUN_USER"
 log "PM2 running: gydschain-api → port $PORT_API"
+
+# Install an independent API/database watchdog. PM2 restarts crashed processes;
+# this also catches a hung API or database connectivity loss.
+if [[ -f "$APP_DIR/public/scripts/gyds-watchdog.sh" ]]; then
+    install -m 755 "$APP_DIR/public/scripts/gyds-watchdog.sh" /usr/local/bin/gyds-watchdog
+    cat > /etc/cron.d/gyds-watchdog <<CRON
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root APP_PORT=${PORT_API} PM2_APP=gydschain-api PM2_USER=${NODE_USER} LOG_FILE=/var/log/gydschain/watchdog.log /usr/bin/flock -n /run/gyds-watchdog.lock /usr/local/bin/gyds-watchdog
+CRON
+    chmod 644 /etc/cron.d/gyds-watchdog
+    log "API/database watchdog installed (minute checks; 5-minute restart cooldown)"
+fi
 
 # ─── Step 6: Nginx (Cloudflare proxy — no SSL cert needed) ────────────────────
 step "6/9 — Nginx (Cloudflare-aware)"
@@ -470,6 +493,7 @@ NGINXCFG
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/gydschain
 nginx -t && systemctl reload nginx || systemctl restart nginx
+systemctl enable nginx
 log "Nginx: ${FQDN} → $APP_DIR/dist, /api → :${PORT_API}"
 
 # ─── Step 7: UFW Firewall ──────────────────────────────────────────────────────
@@ -535,22 +559,23 @@ fi
 # ─── Install redeploy helper ───────────────────────────────────────────────────
 cat > /usr/local/bin/gyds-redeploy <<REDEPLOY
 #!/usr/bin/env bash
-# Safe redeploy: git pull → npm install → build → PM2 reload
+# Compatibility wrapper: use the account-safe updater for all updates.
 set -euo pipefail
 APP_DIR="${APP_DIR}"
-source "\$APP_DIR/.env" 2>/dev/null || true
-echo "[gyds-redeploy] Pulling latest from git..."
-git -C "\$APP_DIR" fetch origin
-git -C "\$APP_DIR" pull --ff-only origin "\$(git -C \"\$APP_DIR\" branch --show-current)"
-echo "[gyds-redeploy] Installing dependencies..."
-cd "\$APP_DIR" && npm ci --prefer-offline 2>/dev/null || npm install --legacy-peer-deps
-echo "[gyds-redeploy] Building frontend..."
-npm run build
-echo "[gyds-redeploy] Reloading API server..."
-pm2 reload gydschain-api --update-env
-echo "[gyds-redeploy] Reloading Nginx..."
-nginx -s reload 2>/dev/null || systemctl reload nginx
-echo "[gyds-redeploy] Done! \$(date)"
+UPDATE_SCRIPT="\${APP_DIR}/public/scripts/gyds-update.sh"
+if [[ ! -f "\$UPDATE_SCRIPT" ]]; then
+    echo "Missing account-safe updater: \$UPDATE_SCRIPT" >&2
+    exit 1
+fi
+UPDATE_ARGS=()
+for arg in "\$@"; do
+    case "\$arg" in
+        --skip-db) UPDATE_ARGS+=(--no-db) ;;
+        --skip-build) UPDATE_ARGS+=(--no-build) ;;
+        *) UPDATE_ARGS+=("\$arg") ;;
+    esac
+done
+exec bash "\$UPDATE_SCRIPT" "\${UPDATE_ARGS[@]}"
 REDEPLOY
 chmod +x /usr/local/bin/gyds-redeploy
 log "Redeploy helper installed: run 'gyds-redeploy' to update"
@@ -589,9 +614,9 @@ echo -e "${CYAN}Cloudflare DNS to configure:${NC}"
 echo -e "  Type: A   Name: ${SUBDOMAIN}   Content: ${PUBLIC_IP}   Proxied: ✓ (orange cloud)"
 echo ""
 echo -e "${CYAN}PM2 commands:${NC}"
-echo -e "  pm2 status"
-echo -e "  pm2 logs gydschain-api --lines 50"
-echo -e "  pm2 restart gydschain-api"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 status"
+echo -e "  sudo -u ${PM2_RUN_USER} pm2 logs gydschain-api --lines 50"
+echo -e "  systemctl status pm2-${PM2_RUN_USER}.service  (enabled at boot)"
 echo ""
 echo -e "${CYAN}Redeploy (pull + build + reload):${NC}"
 echo -e "  gyds-redeploy"

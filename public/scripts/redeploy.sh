@@ -52,28 +52,20 @@ git -C "$APP_DIR" fetch origin 2>&1 | tee -a "$DEPLOY_LOG"
 CURRENT=$(git -C "$APP_DIR" rev-parse HEAD)
 REMOTE=$(git -C "$APP_DIR" rev-parse "origin/$BRANCH" 2>/dev/null || echo "")
 
-if [[ "$CURRENT" == "$REMOTE" ]]; then
-    warn "Already up-to-date ($(git -C "$APP_DIR" log -1 --format='%h %s'))"
-    echo "Up-to-date — skipping build" >> "$DEPLOY_LOG"
-
-    # Still run schema migration even if code hasn't changed (in case it was
-    # skipped last time or new SQL was applied manually)
-    if [[ "$SKIP_DB" != "1" ]]; then
-        info "Running schema migration anyway (code unchanged)..."
-        _run_migrations "$APP_DIR" || true
-    fi
-    exit 0
-fi
-
-info "Updating: $(git -C "$APP_DIR" log -1 --format='%h %s' "$CURRENT") → $(git -C "$APP_DIR" log -1 --format='%h %s' "origin/$BRANCH")"
-
 # ─── Schema migration helper (defined early so the up-to-date path can use it) ─
+MIGRATION_SAFETY_CHECKER="$(dirname "${BASH_SOURCE[0]}")/check-migration-identity-safety.py"
+
 _run_migrations() {
     local dir="$1"
     local db_url="${DATABASE_URL:-}"
+    local safety_status
     if [[ -z "$db_url" ]]; then
         warn "DATABASE_URL not set — skipping schema migration"
         return 0
+    fi
+    if [[ ! -f "$MIGRATION_SAFETY_CHECKER" ]]; then
+        err "Account-safety migration checker is missing; refusing to run database migrations."
+        return 1
     fi
 
     echo ""
@@ -85,6 +77,17 @@ _run_migrations() {
         for f in $(ls "${dir}/migrations/"*.sql 2>/dev/null | sort); do
             [[ -f "$f" ]] || continue
             info "  Applying migration: $(basename "$f")"
+            if python3 "$MIGRATION_SAFETY_CHECKER" "$f"; then
+                :
+            else
+                safety_status=$?
+                if [[ "$safety_status" -eq 1 ]]; then
+                    err "  Rejected $(basename "$f") — it changes a users username or password; redeploy stopped."
+                    return 1
+                fi
+                err "Could not verify migration safety; refusing to continue."
+                return 1
+            fi
             if psql "$db_url" -v ON_ERROR_STOP=0 -f "$f" >> "$DEPLOY_LOG" 2>&1; then
                 log "  ✓ $(basename "$f")"
                 (( migrated++ )) || true
@@ -107,6 +110,25 @@ _run_migrations() {
         2>/dev/null | tr -d ' ' || echo "?")
     log "Schema migration complete — ${table_count} tables in database"
 }
+
+if [[ "$CURRENT" == "$REMOTE" ]]; then
+    warn "Already up-to-date ($(git -C "$APP_DIR" log -1 --format='%h %s'))"
+    echo "Up-to-date — skipping build" >> "$DEPLOY_LOG"
+
+    # Still run schema migration even if code hasn't changed (in case it was
+    # skipped last time or new SQL was applied manually).
+    if [[ "$SKIP_DB" != "1" ]]; then
+        info "Running schema migration anyway (code unchanged)..."
+        if ! _run_migrations "$APP_DIR"; then
+            exit 1
+        fi
+    fi
+    exit 0
+fi
+
+FROM_COMMIT=$(git -C "$APP_DIR" log -1 --format='%h %s' "$CURRENT" 2>/dev/null || echo "unknown")
+TO_COMMIT=$(git -C "$APP_DIR" log -1 --format='%h %s' "origin/$BRANCH" 2>/dev/null || echo "unknown")
+info "Updating: $FROM_COMMIT → $TO_COMMIT"
 
 # ─── 2. Backup current dist ───────────────────────────────────────────────────
 if [[ -d "$APP_DIR/dist" ]]; then

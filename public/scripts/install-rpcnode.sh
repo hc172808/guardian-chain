@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  GYDSchain RPC Node Installer
-#  Repo:     https://github.com/hc172808/fullnode.git
+#  Source:   local node-fixes/rpcnode bundle
 #  OS:       Ubuntu 20.04/22.04/24.04 | Debian 11/12 | CentOS/RHEL/AlmaLinux
-#  Chain ID: 198282  |  Domain: netlifegy.com
+#  Chain IDs: 198282 (mainnet), 198281 (testnet)  |  Domain: netlifegy.com
 #  Run:      sudo bash install-rpcnode.sh
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -12,6 +12,16 @@ set -euo pipefail
 GYDS_CONF="${GYDS_CONF:-/var/www/gydschain/gyds-config.env}"
 # shellcheck disable=SC1090
 [[ -f "$GYDS_CONF" ]] && { source "$GYDS_CONF"; echo "[config] Loaded shared config from $GYDS_CONF"; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/node-network.sh"
+PROJECT_ROOT="${PROJECT_ROOT:-}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  if [[ -f "$SCRIPT_DIR/../../node-fixes/rpcnode/go.mod" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="/var/www/gydschain"
+  fi
+fi
 
 # ── Config ────────────────────────────────────────────────────────────────────
 GYDS_VERSION="1.0.0"
@@ -21,20 +31,20 @@ APP_DIR="${APP_DIR:-/opt/gyds-rpcnode}"
 DATA_DIR="${DATA_DIR:-/var/lib/gyds-rpcnode}"
 GYDS_BIN="${GYDS_BIN:-/usr/local/bin}"
 LOG_DIR="${LOG_DIR:-${DATA_DIR}/logs}"
-GO_VERSION="${GO_VERSION:-1.21.13}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 
-CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
-RPC_PORT="${GYDS_RPCNODE_RPC_PORT:-8547}"
-WS_PORT="${GYDS_RPCNODE_WS_PORT:-8548}"
-P2P_PORT="${GYDS_RPCNODE_P2P_PORT:-30305}"
+CHAIN_ID="${GYDS_CHAIN_ID:-${CHAIN_ID:-198282}}"
+CHAIN_ID="${CHAIN_ID//$'\r'/}"
+CHAIN_ID="${CHAIN_ID//[[:space:]]/}"
+RPC_PORT="${GYDS_RPC_PORT:-8545}"
+WS_PORT="${GYDS_WS_PORT:-8546}"
+P2P_PORT="${GYDS_P2P_PORT:-30305}"   # different P2P port for RPC nodes
 LOG_LEVEL="${GYDS_LOG_LEVEL:-info}"
 RATE_LIMIT="${RATE_LIMIT:-100}"
 BOOTSTRAP="${GYDS_BOOTSTRAP_NODES:-}"
-P2P_ADVERTISE_HOST="${GYDS_P2P_ADVERTISE_HOST:-}"
 DOMAIN="${DOMAIN:-rpc.netlifegy.com}"
 
-REPO_URL="${REPO_URL:-https://github.com/hc172808/fullnode.git}"
-BRANCH="main"
+NODE_SOURCE_DIR="${NODE_SOURCE_DIR:-${PROJECT_ROOT}/node-fixes/rpcnode}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
@@ -42,11 +52,19 @@ log()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 
+case "${CHAIN_ID,,}" in
+  mainnet) CHAIN_ID="198282"; NETWORK="mainnet" ;;
+  testnet) CHAIN_ID="198281"; NETWORK="testnet" ;;
+  198282) NETWORK="mainnet" ;;
+  198281) NETWORK="testnet" ;;
+  *) die "Unrecognized chain ID '${CHAIN_ID}'. The bundled RPC node supports GYDS mainnet (198282) and testnet (198281)." ;;
+esac
+
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║   GYDSchain RPC NODE Installer v${GYDS_VERSION}                    ║"
-echo "║   Chain ID: ${CHAIN_ID}  |  Domain: ${DOMAIN}          ║"
-echo "║   Repo: github.com/hc172808/fullnode                       ║"
+echo "║   Chain: ${NETWORK} (${CHAIN_ID})  |  Domain: ${DOMAIN}   ║"
+echo "║   Source: local node-fixes/rpcnode                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -63,7 +81,6 @@ while [[ $# -gt 0 ]]; do
     --data-dir)        DATA_DIR="$2";   shift 2 ;;
     --log-level)       LOG_LEVEL="$2";  shift 2 ;;
     --bootstrap-nodes) BOOTSTRAP="$2";  shift 2 ;;
-    --advertise-host)  P2P_ADVERTISE_HOST="$2"; shift 2 ;;
     *) warn "Unknown flag: $1"; shift ;;
   esac
 done
@@ -97,9 +114,6 @@ elif is_rhel; then
     ca-certificates openssl net-tools 2>/dev/null || \
   yum install -y gcc git curl wget jq firewalld fail2ban nginx ca-certificates openssl net-tools
 fi
-if [[ -z "$P2P_ADVERTISE_HOST" ]]; then
-  P2P_ADVERTISE_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
-fi
 
 # ── Go ────────────────────────────────────────────────────────────────────────
 log "[2/7] Installing Go ${GO_VERSION}..."
@@ -116,19 +130,15 @@ if [[ "$CURRENT_GO" != "$GO_VERSION" ]]; then
 fi
 log "    $(go version)"
 
-# ── Clone / update repo ───────────────────────────────────────────────────────
-log "[3/7] Fetching source from ${REPO_URL}..."
-if [[ -d "$APP_DIR/.git" ]]; then
-  git -C "$APP_DIR" fetch origin "$BRANCH"
-  git -C "$APP_DIR" reset --hard "origin/$BRANCH"
-else
-  git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
-fi
-[[ -f "$APP_DIR/go.mod" ]] || die "go.mod not found in $APP_DIR"
+# ── Validate bundled local source ─────────────────────────────────────────────
+log "[3/7] Checking local RPC node source..."
+[[ -f "$NODE_SOURCE_DIR/go.mod" ]] || die "Local RPC source not found at $NODE_SOURCE_DIR. Set PROJECT_ROOT to the checked-out project directory."
+grep -Fqx "module github.com/gydschain/rpcnode" "$NODE_SOURCE_DIR/go.mod" || \
+  die "Unexpected Go module in $NODE_SOURCE_DIR/go.mod; refusing to build another node source."
 
 # ── Build binary ──────────────────────────────────────────────────────────────
 log "[4/7] Building ${BINARY}..."
-( cd "$APP_DIR" && go mod download && \
+( cd "$NODE_SOURCE_DIR" && go mod download && \
   go build -ldflags="-s -w -X main.version=${GYDS_VERSION}" -o "/tmp/${BINARY}" . )
 install -m 0755 -o root -g root "/tmp/${BINARY}" "${GYDS_BIN}/${BINARY}"
 rm -f "/tmp/${BINARY}"
@@ -143,26 +153,11 @@ mkdir -p "${DATA_DIR}"/{state.db,logs} "${LOG_DIR}"
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${LOG_DIR}"
 
 # ── Firewall ──────────────────────────────────────────────────────────────────
-log "[6/7] Configuring firewall..."
-if is_debian && command -v ufw &>/dev/null; then
-  ufw default deny incoming >/dev/null 2>&1 || true
-  ufw default allow outgoing >/dev/null 2>&1 || true
-  ufw limit 22/tcp    comment "SSH"      >/dev/null 2>&1 || true
-  ufw allow 80/tcp    comment "HTTP"     >/dev/null 2>&1 || true
-  ufw allow 443/tcp   comment "HTTPS"    >/dev/null 2>&1 || true
-  ufw allow "${P2P_PORT}/tcp" comment "GYDS P2P" >/dev/null 2>&1 || true
-  ufw allow "${P2P_PORT}/udp" comment "GYDS P2P" >/dev/null 2>&1 || true
-  # RPC port bound to 127.0.0.1 — no need to open externally (nginx proxies it)
-  ufw --force enable >/dev/null 2>&1 || true
-elif is_rhel && command -v firewall-cmd &>/dev/null; then
-  systemctl enable --now firewalld
-  firewall-cmd --permanent --add-port=22/tcp
-  firewall-cmd --permanent --add-port=80/tcp
-  firewall-cmd --permanent --add-port=443/tcp
-  firewall-cmd --permanent --add-port="${P2P_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${P2P_PORT}/udp"
-  firewall-cmd --reload
-fi
+log "[6/7] Configuring node network access..."
+node_network_resolve_p2p_host || die "Could not determine a reachable P2P address."
+node_network_allow_p2p_tcp "$P2P_PORT"
+node_network_allow_tcp_port 80 "GYDS RPC HTTP proxy"
+node_network_allow_tcp_port 443 "GYDS RPC HTTPS proxy"
 
 # Fail2ban
 if command -v fail2ban-server &>/dev/null; then
@@ -213,7 +208,7 @@ server {
 
     # WebSocket endpoint
     location /ws {
-        proxy_pass         http://127.0.0.1:${WS_PORT};
+        proxy_pass         http://127.0.0.1:${RPC_PORT};
         proxy_http_version 1.1;
         proxy_set_header   Upgrade \$http_upgrade;
         proxy_set_header   Connection "Upgrade";
@@ -261,7 +256,7 @@ Environment=GYDS_NODE_MODE=rpc
 Environment=GYDS_RPC_PORT=${RPC_PORT}
 Environment=GYDS_RPC_HOST=127.0.0.1
 Environment=GYDS_P2P_PORT=${P2P_PORT}
-Environment=GYDS_P2P_ADVERTISE_HOST=${P2P_ADVERTISE_HOST}
+Environment=GYDS_P2P_ADVERTISE_HOST=${GYDS_P2P_ADVERTISE_HOST}
 Environment=GYDS_DATA_DIR=${DATA_DIR}
 Environment=GYDS_LOG_LEVEL=${LOG_LEVEL}
 Environment=GYDS_LOG_FORMAT=json
@@ -300,14 +295,8 @@ for i in 1 2 3 4 5; do
   sleep 5
 done
 
-if [[ "$NODE_OK" != "true" ]]; then
-  echo "RPC node did not pass its health check on port ${RPC_PORT}." >&2
-  systemctl --no-pager --full status gyds-rpcnode >&2 || true
-  journalctl -u gyds-rpcnode -n 50 --no-pager >&2 || true
-  exit 1
-fi
-
-SERVER_IP=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+node_network_report_tcp_listener "$P2P_PORT"
+SERVER_IP="${GYDS_P2P_ADVERTISE_HOST}"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -329,6 +318,7 @@ echo "  WebSocket (WSS)  : wss://${DOMAIN}/ws"
 echo "  Health check     : https://${DOMAIN}/health"
 echo "  Internal RPC     : http://127.0.0.1:${RPC_PORT}"
 echo "  P2P              : tcp://${SERVER_IP}:${P2P_PORT}"
+node_network_report_p2p "$P2P_PORT"
 echo "  Rate limit       : ${RATE_LIMIT} req/s per IP"
 echo "  Chain ID         : ${CHAIN_ID}"
 echo ""

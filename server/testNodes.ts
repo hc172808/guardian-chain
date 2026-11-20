@@ -4,7 +4,7 @@
  * 7 node types × 3 networks = 21 total node instances
  *
  * Port allocation:
- *   Mainnet: rpc=8545, lite=8555, fullnode=8565, boostnode=8575, validator=8585, genesis=8590, bootnode=8595
+ *   Mainnet: rpc=8547, lite=8555, fullnode=8565, boostnode=8575, validator=8585, genesis=8590, bootnode=8595
  *   Testnet: rpc=8600, lite=8601, fullnode=8602, boostnode=8603, validator=8604, genesis=8605, bootnode=8606
  *   Devnet:  rpc=8700, lite=8701, fullnode=8702, boostnode=8703, validator=8704, genesis=8705, bootnode=8706
  *
@@ -15,6 +15,7 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse, Server } from "http";
+import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { pool as pgPool } from "./db";
@@ -91,10 +92,11 @@ export const NETWORK_CFGS: Record<Network, NetworkCfg> = {
   mainnet: {
     chainId: 198282, chainIdHex: "0x3068a", symbol: "GYDS",
     name: "GYDS Network (Mainnet)", label: "mainnet",
-    ports: { rpc: 8545, lite: 8555, fullnode: 8565, boostnode: 8575, validator: 8585, genesis: 8590, bootnode: 8595 },
+    // The installed mainnet RPC service owns 8545; keep the dashboard simulator separate.
+    ports: { rpc: 8547, lite: 8555, fullnode: 8565, boostnode: 8575, validator: 8585, genesis: 8590, bootnode: 8595 },
   },
   testnet: {
-    chainId: 198281, chainIdHex: "0x30689", symbol: "tGYDS",
+    chainId: 198281, chainIdHex: "0x30689", symbol: "TGYDS",
     name: "GYDS Testnet", label: "testnet",
     ports: { rpc: 8600, lite: 8601, fullnode: 8602, boostnode: 8603, validator: 8604, genesis: 8605, bootnode: 8606 },
   },
@@ -375,16 +377,24 @@ export function getGenesisEnode(network: Network): string {
   return `enode://${GENESIS_ENODE_KEYS[network]}@127.0.0.1:${cfg.ports.genesis}`;
 }
 
-function blockObject(s: NodeState, cfg: NetworkCfg, extraTxCount = 0) {
+function stableBlockHash(chainId: number, height: number): string {
+  return createHash("sha256").update(`${chainId}:${height}`).digest("hex");
+}
+
+function blockObject(s: NodeState, cfg: NetworkCfg, height = s.blockHeight, extraTxCount = 0) {
+  const blockHeight = Math.max(0, Math.min(s.blockHeight, Math.floor(height)));
+  const timestamp = Math.floor(Date.now() / 1000) - Math.max(0, s.blockHeight - blockHeight) * 12;
   return {
-    number: "0x" + s.blockHeight.toString(16),
-    hash:   "0x" + randHex(64),
-    parentHash: "0x" + randHex(64),
-    timestamp: "0x" + Math.floor(Date.now() / 1000).toString(16),
+    number: "0x" + blockHeight.toString(16),
+    hash:   "0x" + stableBlockHash(cfg.chainId, blockHeight),
+    parentHash: "0x" + stableBlockHash(cfg.chainId, Math.max(0, blockHeight - 1)),
+    timestamp: "0x" + timestamp.toString(16),
     gasUsed: "0x" + (21_000 * extraTxCount || 0x5208).toString(16),
     gasLimit: "0x1000000",
     miner: "0x" + "a".repeat(40),
-    transactions: Array.from({ length: extraTxCount }, () => "0x" + randHex(64)),
+    transactions: Array.from({ length: extraTxCount }, (_, i) =>
+      "0x" + createHash("sha256").update(`${cfg.chainId}:${blockHeight}:tx:${i}`).digest("hex")
+    ),
     difficulty: "0x1",
     totalDifficulty: "0x" + s.blockHeight.toString(16),
     size: "0x1a3",
@@ -490,8 +500,17 @@ function jsonRpcDispatch(rpc: any, s: NodeState, cfg: NetworkCfg, opts: { booste
     }
     case "eth_getTransactionCount":   return "0x" + Math.floor(Math.random() * 100).toString(16);
     case "eth_estimateGas":           return "0x" + (21_000).toString(16);
-    case "eth_getBlockByNumber":      return blockObject(s, cfg, Math.floor(Math.random() * (opts.boosted ? 30 : 5)));
-    case "eth_getBlockByHash":        return blockObject(s, cfg, 0);
+    case "eth_getBlockByNumber": {
+      const tag = String(rpc.params?.[0] ?? "latest").toLowerCase();
+      let height: number;
+      if (["latest", "pending", "safe", "finalized"].includes(tag)) height = s.blockHeight;
+      else if (tag === "earliest") height = 0;
+      else if (/^0x[0-9a-f]+$/.test(tag)) height = Number.parseInt(tag.slice(2), 16);
+      else return null;
+      if (!Number.isSafeInteger(height) || height < 0 || height > s.blockHeight) return null;
+      return blockObject(s, cfg, height);
+    }
+    case "eth_getBlockByHash":        return blockObject(s, cfg);
     case "eth_call":                  return "0x";
     case "eth_getCode":               return "0x";
     case "eth_getStorageAt":          return "0x" + "0".repeat(64);
@@ -928,19 +947,19 @@ export const testNodeManager = {
         if (!settled) {
           settled = true;
           const hint = (err as any).code === "EADDRINUSE"
-            ? ` — port ${s.port} is already in use`
+            ? ` — port ${s.port} is already in use. Identify its owner with: sudo ss -ltnp 'sport = :${s.port}'. The dashboard can stop only nodes it started.`
             : "";
           resolve({ ok: false, message: `${NODE_LABELS[type]} failed to start: ${err.message}${hint}` });
         }
       });
 
-      srv.listen(s.port, "0.0.0.0", () => {
+      srv.listen(s.port, "127.0.0.1", () => {
         s.running = true;
         s.startedAt = new Date().toISOString();
         addLog(network, type, `${NODE_LABELS[type]} started on port ${s.port}`);
 
         addLog(network, type, `Network: ${cfg.name} | Chain ID: ${cfg.chainId} | Symbol: ${cfg.symbol}`);
-        addLog(network, type, `Endpoint: http://0.0.0.0:${s.port}`);
+        addLog(network, type, `Endpoint: http://127.0.0.1:${s.port} (localhost only)`);
         if (type === "boostnode") addLog(network, type, "MEV bundle endpoint: POST /boost/bundle");
         if (type === "fullnode")  addLog(network, type, "Full-state RPC + txpool_status + debug_traceTransaction enabled");
         if (type === "validator") addLog(network, type, "PoS consensus started | validator_info, validator_set, validator_getRewards, validator_register");

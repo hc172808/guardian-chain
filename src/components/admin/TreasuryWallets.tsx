@@ -18,6 +18,13 @@ interface TreasuryWallet {
   balance: number;
 }
 
+interface WalletConfigurationIssue {
+  key: string;
+  envVar: string;
+  reason: 'missing' | 'invalid' | 'duplicate';
+  message: string;
+}
+
 interface Transfer {
   id: string;
   fromAddress: string;
@@ -54,6 +61,8 @@ function downloadCsv(name: string, rows: Array<Record<string, unknown>>) {
 export function TreasuryWallets() {
   const { toast } = useToast();
   const [wallets, setWallets] = useState<TreasuryWallet[]>([]);
+  const [walletsConfigured, setWalletsConfigured] = useState(false);
+  const [walletConfigIssues, setWalletConfigIssues] = useState<WalletConfigurationIssue[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [totalSupply, setTotalSupply] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -71,9 +80,12 @@ export function TreasuryWallets() {
         api.get('/api/admin/treasury/transfers'),
       ]);
       setWallets(w?.wallets ?? []);
+      setWalletsConfigured(w?.configured === true);
+      setWalletConfigIssues(Array.isArray(w?.issues) ? w.issues : []);
       setTotalSupply(Number(w?.totalSupply ?? 0));
       setTransfers(t?.transfers ?? []);
-      if (!from && w?.wallets?.length) setFrom(w.wallets[0].address);
+      const firstConfiguredWallet = w?.wallets?.find((wallet: TreasuryWallet) => Boolean(wallet.address));
+      if (!from && firstConfiguredWallet) setFrom(firstConfiguredWallet.address);
     } catch (e: unknown) {
       toast({
         title: 'Could not load treasury',
@@ -94,6 +106,10 @@ export function TreasuryWallets() {
   const sender = wallets.find((w) => w.address === from);
 
   const submit = async () => {
+    if (!walletsConfigured) {
+      toast({ title: 'Treasury addresses are not configured', description: 'Set and validate all six recipient addresses on the server before sending.', variant: 'destructive' });
+      return;
+    }
     const amt = Number(amount);
     if (!from || !to || !(amt > 0)) {
       toast({ title: 'Fill in every field', description: 'Pick a source wallet, a destination address and an amount above zero.', variant: 'destructive' });
@@ -145,7 +161,7 @@ export function TreasuryWallets() {
               <Badge variant="secondary">{fmt(w.allocation)} alloc</Badge>
             </div>
             <div className="text-2xl font-bold text-primary">{fmt(w.balance)} <span className="text-sm text-muted-foreground">GYDS</span></div>
-            <div className="text-xs font-mono text-muted-foreground break-all">{w.address}</div>
+            <div className="text-xs font-mono text-muted-foreground break-all">{w.address || 'Address not configured'}</div>
             <p className="text-xs text-muted-foreground">{w.description}</p>
           </GlassCard>
         ))}
@@ -154,16 +170,28 @@ export function TreasuryWallets() {
         )}
       </div>
 
+      {!loading && !walletsConfigured && (
+        <GlassCard className="p-4 border-amber-500/30 bg-amber-500/5 space-y-2">
+          <p className="font-medium text-amber-300">Configure treasury recipient addresses on the server</p>
+          <p className="text-sm text-muted-foreground">The built-in sample addresses have been removed. Add all six public GYDS_TREASURY_*_ADDRESS values to the server environment before using treasury operations.</p>
+          {walletConfigIssues.length > 0 && (
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {walletConfigIssues.map((issue) => <li key={`${issue.key}:${issue.reason}`}>{issue.message}</li>)}
+            </ul>
+          )}
+        </GlassCard>
+      )}
+
       <GlassCard className="p-5 space-y-4">
         <h3 className="font-semibold flex items-center gap-2"><Send className="h-4 w-4 text-primary" /> Send GYDS</h3>
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label>From</Label>
-            <Select value={from} onValueChange={setFrom}>
+            <Select value={from} onValueChange={setFrom} disabled={!walletsConfigured}>
               <SelectTrigger><SelectValue placeholder="Source wallet" /></SelectTrigger>
               <SelectContent>
-                {wallets.map((w) => (
-                  <SelectItem key={w.address} value={w.address}>
+                {wallets.filter((w) => Boolean(w.address)).map((w) => (
+                  <SelectItem key={w.key} value={w.address}>
                     {w.name} — {fmt(w.balance)}
                   </SelectItem>
                 ))}
@@ -180,10 +208,10 @@ export function TreasuryWallets() {
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <Button onClick={() => void submit()} disabled={sending}>
-            {sending ? 'Sending…' : 'Send transfer'}
+          <Button onClick={() => void submit()} disabled={sending || !walletsConfigured}>
+            {sending ? 'Sending…' : walletsConfigured ? 'Send transfer' : 'Configure addresses first'}
           </Button>
-          {wallets.filter((w) => w.address !== from).slice(0, 3).map((w) => (
+          {wallets.filter((w) => Boolean(w.address) && w.address !== from).slice(0, 3).map((w) => (
             <Button key={w.address} variant="ghost" size="sm" onClick={() => setTo(w.address)}>
               → {w.name}
             </Button>
