@@ -187,11 +187,11 @@ export function TreasuryWallets() {
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label>From</Label>
-            <Select value={from} onValueChange={setFrom}>
+            <Select value={from} onValueChange={setFrom} disabled={!walletsConfigured}>
               <SelectTrigger><SelectValue placeholder="Source wallet" /></SelectTrigger>
               <SelectContent>
-                {wallets.map((w) => (
-                  <SelectItem key={w.address} value={w.address}>
+                {wallets.filter((w) => Boolean(w.address)).map((w) => (
+                  <SelectItem key={w.key} value={w.address}>
                     {w.name} — {fmt(w.balance)}
                   </SelectItem>
                 ))}
@@ -211,7 +211,7 @@ export function TreasuryWallets() {
           <Button onClick={() => void submit()} disabled={sending || !walletsConfigured}>
             {sending ? 'Sending…' : walletsConfigured ? 'Send transfer' : 'Configure addresses first'}
           </Button>
-          {wallets.filter((w) => w.address !== from).slice(0, 3).map((w) => (
+          {wallets.filter((w) => Boolean(w.address) && w.address !== from).slice(0, 3).map((w) => (
             <Button key={w.address} variant="ghost" size="sm" onClick={() => setTo(w.address)}>
               → {w.name}
             </Button>
