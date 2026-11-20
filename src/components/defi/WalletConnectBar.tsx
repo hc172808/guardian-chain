@@ -63,7 +63,7 @@ export const WalletConnectBar = () => {
             <p className="text-xs font-mono font-semibold">{gydBalance.toFixed(2)} <span className="text-muted-foreground">GYD</span></p>
             <p className="text-[10px] font-mono text-muted-foreground">{gydsBalance.toFixed(2)} GYDS</p>
           </div>
-          <Badge variant="outline" className="text-xs hidden sm:inline-flex">GYDS Network</Badge>
+          <Badge variant="outline" className="text-xs hidden sm:inline-flex">App ledger</Badge>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={disconnect}>
             <LogOut className="h-4 w-4" />
           </Button>
