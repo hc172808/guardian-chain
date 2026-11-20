@@ -357,6 +357,7 @@ check_no_pattern "$REPO_ROOT/public/scripts/install-fullnode.sh" 'ufw --force re
 check_contains "$REPO_ROOT/public/scripts/install-node.sh" 'install-fullnode.sh' "universal fullnode install uses the shared fullnode installer"
 check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "raw.githubusercontent.com/hc172808/guardian-chain/main/public/scripts" "admin installer fetches scripts from the project GitHub path"
 check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "fetch_node_script" "admin installer downloads scripts before running them"
+check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" 'fetch_node_script node-network.sh' "admin installer fetches the shared network helper"
 check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "GitHub unavailable; using local" "admin installer falls back to local scripts"
 check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" 'bash "$SCRIPT_PATH"' "admin installer runs the downloaded or fallback script"
 check_contains "$REPO_ROOT/src/components/admin/NodeInstaller.tsx" "uninstall-node.sh" "admin installer offers node uninstallation"

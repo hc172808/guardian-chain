@@ -64,6 +64,11 @@ externalPort = 3002
 exposeLocalhost = true
 
 [[ports]]
+localPort = 8585
+externalPort = 8099
+exposeLocalhost = true
+
+[[ports]]
 localPort = 8595
 externalPort = 8081
 exposeLocalhost = true
@@ -102,6 +107,10 @@ exposeLocalhost = true
 localPort = 8606
 externalPort = 8000
 exposeLocalhost = true
+
+[[ports]]
+localPort = 8651
+externalPort = 9000
 
 
 

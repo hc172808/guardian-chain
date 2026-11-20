@@ -11,7 +11,7 @@ node_network_resolve_p2p_host() {
 
   [[ -n "$host" ]] || {
     echo "ERROR: Set GYDS_P2P_ADVERTISE_HOST to this node's externally reachable IP or DNS name." >&2
-    echo "A node cannot advertise 127.0.0.1 or a private address to internet peers." >&2
+    echo "Use a publicly reachable host for internet peers, or explicitly set a private host for LAN/VPN peers." >&2
     return 1
   }
   [[ "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || {

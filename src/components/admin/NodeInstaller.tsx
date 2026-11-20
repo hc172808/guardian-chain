@@ -27,7 +27,7 @@ const NODE_OPTIONS: NodeOption[] = [
     label: 'Genesis Node',
     desc: 'FOUNDER ONLY — creates the blockchain from block 0. Run this ONCE on your primary server.',
     icon: Blocks,
-    ports: '8544 (rpc), 30300 (p2p)',
+    ports: 'P2P TCP 30300; RPC/WS 8544 via HTTPS',
     needsRoot: true,
     founderOnly: true,
   },
@@ -36,7 +36,7 @@ const NODE_OPTIONS: NodeOption[] = [
     label: 'Boot Node',
     desc: 'Peer discovery only — no mining, no RPC. Run 2-3 of these for network health.',
     icon: Network,
-    ports: '30303 tcp+udp',
+    ports: 'P2P TCP 30303',
     needsRoot: true,
   },
   {
@@ -44,7 +44,7 @@ const NODE_OPTIONS: NodeOption[] = [
     label: 'Full Node',
     desc: 'Full node with PoS consensus, mining and RPC. High storage required.',
     icon: Server,
-    ports: '8546, 30303',
+    ports: 'P2P TCP 30303; RPC/WS 8545 via HTTPS',
     needsRoot: true,
   },
   {
@@ -52,7 +52,7 @@ const NODE_OPTIONS: NodeOption[] = [
     label: 'RPC Node',
     desc: 'Public-facing RPC endpoint. Includes nginx reverse proxy with rate limiting.',
     icon: Globe,
-    ports: '8545, 8546, 8080',
+    ports: 'P2P TCP 30305; RPC/WS 8545 via HTTPS',
     needsRoot: true,
   },
   {
@@ -60,7 +60,7 @@ const NODE_OPTIONS: NodeOption[] = [
     label: 'Validator Node',
     desc: 'PoS validator — requires 10,000 GYDS staked. Earns block rewards.',
     icon: Shield,
-    ports: '8547, 8548, 30306',
+    ports: 'P2P TCP 30306; RPC/WS 8547 via HTTPS',
     needsRoot: true,
   },
   {
@@ -68,7 +68,7 @@ const NODE_OPTIONS: NodeOption[] = [
     label: 'Lite Node',
     desc: 'Cache + wallet. Talks to public RPC. Connects via WireGuard VPN. Runs as your user.',
     icon: Server,
-    ports: '3030 (api)',
+    ports: 'P2P TCP 30303; API 8545 via HTTPS',
     needsRoot: false,
   },
   {
@@ -76,7 +76,7 @@ const NODE_OPTIONS: NodeOption[] = [
     label: 'Boost Node',
     desc: 'High-performance relay node. Boosts network throughput and peer connectivity.',
     icon: Zap,
-    ports: '8547, 30304',
+    ports: 'P2P TCP 30304; RPC/WS 8547 via HTTPS',
     needsRoot: true,
   },
   {
@@ -152,7 +152,8 @@ export function NodeInstaller() {
       '  fi',
       '  printf \'%s\\n\' "$destination"',
       '}',
-      // These installers source a helper relative to their own script directory.
+      // These installers source helpers relative to their own script directory.
+      'NODE_NETWORK_SCRIPT="$(fetch_node_script node-network.sh)"',
       'NODE_PROFILE_SCRIPT="$(fetch_node_script node-profile.sh)"',
       '',
     ];
