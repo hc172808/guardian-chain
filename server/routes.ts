@@ -4256,16 +4256,9 @@ export function registerRoutes(expressApp: Express) {
     const network = requestedNetwork as (typeof ALL_NETWORKS)[number];
     const chainId = NETWORK_CFGS[network].chainId;
     const walletConfiguration = getReservedWalletConfiguration();
-    if (!walletConfiguration.configured) {
-      res.setHeader("Cache-Control", "no-store");
-      return res.json({
-        configured: false,
-        network,
-        reason: "treasury-addresses-not-configured",
-        issues: walletConfiguration.issues,
-      });
-    }
-    const addresses = walletConfiguration.wallets.filter((wallet) => wallet.allocation > 0).map((wallet) => wallet.address);
+    const addresses = walletConfiguration.configured
+      ? walletConfiguration.wallets.filter((wallet) => wallet.allocation > 0).map((wallet) => wallet.address)
+      : [];
 
     try {
       const { rows } = await pgPool.query<{
@@ -4279,13 +4272,14 @@ export function registerRoutes(expressApp: Express) {
          WHERE is_approved=true
            AND is_online=true
            AND COALESCE(network, 'mainnet')=$1
-           AND node_type IN ('rpc', 'fullnode', 'validator', 'genesis')
+           AND node_type IN ('rpc', 'fullnode', 'boostnode', 'validator', 'genesis')
            AND (ip_address IS NOT NULL OR hostname IS NOT NULL)
          ORDER BY CASE node_type
            WHEN 'rpc' THEN 0
            WHEN 'fullnode' THEN 1
-           WHEN 'validator' THEN 2
-           WHEN 'genesis' THEN 3
+           WHEN 'boostnode' THEN 2
+           WHEN 'validator' THEN 3
+           WHEN 'genesis' THEN 4
            ELSE 4
          END
          LIMIT 8`,
@@ -4304,14 +4298,15 @@ export function registerRoutes(expressApp: Express) {
         }
       }
 
-      const configuredRpc = network === "testnet"
-        ? process.env.GYDS_TESTNET_RPC_URL
-        : network === "devnet"
-          ? process.env.GYDS_DEVNET_RPC_URL
-          : process.env.GYDS_RPC_URL;
-      const configuredUrl = normalizeNodeRpcUrl(configuredRpc, null, NETWORK_CFGS[network].ports.rpc);
-      if (configuredUrl && !candidates.some((candidate) => candidate.url === configuredUrl)) {
-        candidates.push({ url: configuredUrl, nodeType: "configured-rpc" });
+      const configuredRpcs = network === "mainnet"
+        ? getConfiguredGydsRpcEndpoints()
+        : [network === "testnet" ? process.env.GYDS_TESTNET_RPC_URL : process.env.GYDS_DEVNET_RPC_URL]
+          .filter((url): url is string => Boolean(url?.trim()));
+      for (const configuredRpc of configuredRpcs) {
+        const configuredUrl = normalizeNodeRpcUrl(configuredRpc, null, NETWORK_CFGS[network].ports.rpc);
+        if (configuredUrl && !candidates.some((candidate) => candidate.url === configuredUrl)) {
+          candidates.push({ url: configuredUrl, nodeType: "configured-rpc" });
+        }
       }
 
       for (const candidate of candidates) {

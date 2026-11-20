@@ -62,11 +62,31 @@ describe("node-reported genesis status", () => {
     expect(await readGenesisSnapshotFromRpc("http://node.example:8545", 198282, ADDRESSES, noGenesis.fetcher)).toBeNull();
   });
 
-  it("rejects unsafe node URLs and malformed node balances", async () => {
+  it("rejects unsafe node URLs and omits malformed balance data", async () => {
     expect(normalizeNodeRpcUrl("https://user:pass@node.example", null, 8545)).toBeNull();
     expect(normalizeNodeRpcUrl("node.example", 8545, 8600)).toBe("http://node.example:8545/");
+    expect(normalizeNodeRpcUrl("https://rpc.example/api", null, 8545)).toBe("https://rpc.example/api");
 
     const { fetcher } = mockRpcFetch({ balances: { [ADDRESSES[0]]: "3 GYDS" } });
-    expect(await readGenesisSnapshotFromRpc("http://node.example:8545", 198282, ADDRESSES, fetcher)).toBeNull();
+    expect(await readGenesisSnapshotFromRpc("http://node.example:8545", 198282, ADDRESSES, fetcher)).toEqual({
+      chainId: 198282,
+      genesisHash: GENESIS_HASH,
+      genesisTimestamp: 101,
+      initialSupplyWei: null,
+    });
+  });
+
+  it("reports the verified genesis block and time even without treasury addresses", async () => {
+    const { fetcher, calls } = mockRpcFetch();
+
+    const snapshot = await readGenesisSnapshotFromRpc("https://rpc.example", 198282, [], fetcher);
+
+    expect(snapshot).toEqual({
+      chainId: 198282,
+      genesisHash: GENESIS_HASH,
+      genesisTimestamp: 101,
+      initialSupplyWei: null,
+    });
+    expect(calls.map((call) => call.method)).toEqual(["eth_chainId", "eth_getBlockByNumber"]);
   });
 });

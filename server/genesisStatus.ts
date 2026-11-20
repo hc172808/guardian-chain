@@ -4,7 +4,7 @@ export interface GenesisRpcSnapshot {
   chainId: number;
   genesisHash: string;
   genesisTimestamp: number | null;
-  initialSupplyWei: string;
+  initialSupplyWei: string | null;
 }
 
 function parseRpcQuantity(value: unknown): number | null {
@@ -20,7 +20,8 @@ function parseRpcQuantity(value: unknown): number | null {
 export function normalizeNodeRpcUrl(hostValue: unknown, portValue: unknown, defaultPort: number): string | null {
   if (typeof hostValue !== "string" || !hostValue.trim()) return null;
   const host = hostValue.trim();
-  const rawUrl = host.includes("://")
+  const hasScheme = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(host);
+  const rawUrl = hasScheme
     ? host
     : `http://${host.match(/:/g)?.length && host.match(/:/g)!.length > 1 && !host.startsWith("[") ? `[${host}]` : host}`;
 
@@ -28,7 +29,7 @@ export function normalizeNodeRpcUrl(hostValue: unknown, portValue: unknown, defa
     const url = new URL(rawUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     if (url.username || url.password) return null;
-    if (!url.port) {
+    if (!url.port && !hasScheme) {
       const parsedPort = Number(portValue);
       const port = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65_535
         ? parsedPort
@@ -51,7 +52,7 @@ export async function readGenesisSnapshotFromRpc(
   allocationAddresses: string[],
   fetcher: typeof fetch = fetch,
 ): Promise<GenesisRpcSnapshot | null> {
-  if (!allocationAddresses.length || allocationAddresses.some((address) => !/^0x[0-9a-f]{40}$/i.test(address))) {
+  if (allocationAddresses.some((address) => !/^0x[0-9a-f]{40}$/i.test(address))) {
     return null;
   }
 
@@ -82,13 +83,25 @@ export async function readGenesisSnapshotFromRpc(
       return null;
     }
 
-    const balanceValues = await Promise.all(
-      allocationAddresses.map((address) => rpc("eth_getBalance", [address, "0x0"])),
-    );
-    let initialSupplyWei = 0n;
-    for (const balance of balanceValues) {
-      if (typeof balance !== "string" || !/^0x[0-9a-f]+$/i.test(balance)) return null;
-      initialSupplyWei += BigInt(balance);
+    let initialSupplyWei: string | null = null;
+    if (allocationAddresses.length > 0) {
+      try {
+        const balanceValues = await Promise.all(
+          allocationAddresses.map((address) => rpc("eth_getBalance", [address, "0x0"])),
+        );
+        let totalWei = 0n;
+        let validBalances = true;
+        for (const balance of balanceValues) {
+          if (typeof balance !== "string" || !/^0x[0-9a-f]+$/i.test(balance)) {
+            validBalances = false;
+            break;
+          }
+          totalWei += BigInt(balance);
+        }
+        if (validBalances) initialSupplyWei = totalWei.toString();
+      } catch {
+        // A balance endpoint failure must not hide the verified genesis hash/time.
+      }
     }
 
     const timestamp = parseRpcQuantity(block.timestamp);
@@ -96,7 +109,7 @@ export async function readGenesisSnapshotFromRpc(
       chainId,
       genesisHash: block.hash,
       genesisTimestamp: timestamp,
-      initialSupplyWei: initialSupplyWei.toString(),
+      initialSupplyWei,
     };
   } catch {
     return null;
