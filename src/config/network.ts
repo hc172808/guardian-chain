@@ -259,12 +259,22 @@ export const addNetworkToWallet = async (kind: NetworkKind = 'mainnet'): Promise
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_chainId', params: [], id: 1 }),
     });
-    if (!rpcResponse.ok) {
-      throw new Error(`The ${params.chainName} RPC check failed (HTTP ${rpcResponse.status}). Check that this network's RPC service is running.`);
+    let rpcData: any;
+    try {
+      rpcData = await rpcResponse.json();
+    } catch {
+      throw new Error(`The ${params.chainName} RPC returned a non-JSON response. Check that its URL points to a public JSON-RPC endpoint.`);
     }
-    const rpcData = await rpcResponse.json();
-    if (rpcData?.error || typeof rpcData?.result !== 'string') {
-      throw new Error(`The ${params.chainName} RPC did not return a valid chain ID.`);
+    if (!rpcResponse.ok) {
+      const detail = typeof rpcData?.error?.message === 'string' ? ` ${rpcData.error.message}` : '';
+      throw new Error(`The ${params.chainName} RPC check failed (HTTP ${rpcResponse.status}).${detail}`);
+    }
+    if (rpcData?.error) {
+      const detail = typeof rpcData.error.message === 'string' ? ` ${rpcData.error.message}` : '';
+      throw new Error(`The ${params.chainName} RPC could not verify its chain ID.${detail}`);
+    }
+    if (typeof rpcData?.result !== 'string' || !/^0x[0-9a-f]+$/i.test(rpcData.result)) {
+      throw new Error(`The ${params.chainName} RPC returned an invalid chain ID. It must be a 0x-prefixed hexadecimal value.`);
     }
     let actualChainId: bigint;
     try {
@@ -283,6 +293,12 @@ export const addNetworkToWallet = async (kind: NetworkKind = 'mainnet'): Promise
   } catch (error: any) {
     if (error?.code === 4001) throw new Error('You rejected the request in your wallet.');
     const msg = (error as any)?.data?.message || error?.message || 'Failed to add network';
+    if (/unrecognized chain id/i.test(String(msg))) {
+      throw new Error(
+        `Your wallet rejected ${params.chainName} (${BigInt(params.chainId).toString()}, ${params.chainId}). ` +
+        `Its RPC must return this chain ID at ${params.rpcUrls[0]}. If it still rejects the chain, add it manually from the network details below.`,
+      );
+    }
     throw new Error(msg);
   }
 };

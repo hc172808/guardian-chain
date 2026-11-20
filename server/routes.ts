@@ -334,6 +334,41 @@ const faucetLimiter = rateLimit({ windowMs: 60 * 60_000, max: 5, standardHeaders
 const apiLimiter = rateLimit({ windowMs: 60_000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: "Rate limit exceeded. Please slow down." } });
 // RPC relay: 60 req / min per IP (protect the /rpc proxy endpoint)
 const rpcLimiter = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false, skip: (req) => { const ip = req.ip ?? ''; return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'; }, message: { error: "RPC rate limit exceeded." } });
+
+type RpcEndpointIdentity = { chainId: bigint | null; reachable: boolean; checkedAt: number };
+const rpcEndpointIdentityCache = new Map<string, RpcEndpointIdentity>();
+async function getRpcEndpointIdentity(url: string): Promise<RpcEndpointIdentity> {
+  const now = Date.now();
+  const cached = rpcEndpointIdentityCache.get(url);
+  const cacheTtl = cached?.reachable ? 30_000 : 5_000;
+  if (cached && now - cached.checkedAt < cacheTtl) return cached;
+
+  let identity: RpcEndpointIdentity = { chainId: null, reachable: false, checkedAt: now };
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (response.ok) {
+      identity = { chainId: null, reachable: true, checkedAt: now };
+      const data: any = await response.json();
+      if (typeof data?.result === "string") {
+        try {
+          identity.chainId = BigInt(data.result);
+        } catch {
+          // Keep the endpoint marked reachable but unverified.
+        }
+      }
+    }
+  } catch {
+    // Unreachable endpoints are cached briefly to avoid retrying every request.
+  }
+  rpcEndpointIdentityCache.set(url, identity);
+  return identity;
+}
+
 // File upload: 10 req / 10 min
 const uploadLimiter = rateLimit({ windowMs: 10 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: "Too many uploads. Please wait." } });
 
@@ -4698,7 +4733,11 @@ export function registerRoutes(expressApp: Express) {
   });
 
   app.post("/api/rpc", rpcLimiter, async (req, res) => {
-    const network = ((req.query.network as string) || req.body?._network || "mainnet") as ValidNetwork;
+    const requestedNetwork = String(req.query.network ?? req.body?._network ?? "mainnet").toLowerCase();
+    const network: ValidNetwork = VALID_NETWORKS.includes(requestedNetwork as ValidNetwork)
+      ? requestedNetwork as ValidNetwork
+      : "mainnet";
+    const expectedNetwork = NETWORK_CFGS[network];
     const all = testNodeManager.status() as any;
     const netStatus = all[VALID_NETWORKS.includes(network) ? network : "mainnet"] ?? {};
     const prioritized = ["rpc", "fullnode", "boostnode", "lite", "validator"] as const;
@@ -4734,23 +4773,80 @@ export function registerRoutes(expressApp: Express) {
     const body = { ...req.body };
     delete body._network; // strip internal field before forwarding
 
+    const mismatchedChainIds = new Set<string>();
+    let unverifiedReachableEndpoint = false;
     for (const url of urls) {
       try {
+        const identity = await getRpcEndpointIdentity(url);
+        if (!identity.reachable) continue;
+        if (identity.chainId === null) {
+          unverifiedReachableEndpoint = true;
+          continue;
+        }
+        if (identity.chainId !== BigInt(expectedNetwork.chainId)) {
+          mismatchedChainIds.add(identity.chainId.toString());
+          continue;
+        }
+
+        // Always return a canonical EVM hex quantity. Some upstreams return the
+        // same numeric ID in decimal, which wallets reject as "unrecognized".
+        if (body.method === "eth_chainId") {
+          return res.json({
+            jsonrpc: "2.0",
+            id: body.id ?? 1,
+            result: expectedNetwork.chainIdHex,
+          });
+        }
+        if (body.method === "net_version") {
+          return res.json({
+            jsonrpc: "2.0",
+            id: body.id ?? 1,
+            result: String(expectedNetwork.chainId),
+          });
+        }
+
         const upstream = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(10000),
         });
+        if (!upstream.ok) continue;
         const data = await upstream.json();
         res.json(data);
         return;
       } catch {}
     }
+
+    const requestId = req.body?.id ?? null;
+    if (mismatchedChainIds.size > 0 || unverifiedReachableEndpoint) {
+      const reported = mismatchedChainIds.size > 0
+        ? ` Reported chain ID(s): ${[...mismatchedChainIds].join(", ")}.`
+        : "";
+      return res.status(502).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: `No ${network} RPC endpoint could be verified against chain ID ${expectedNetwork.chainId}.${reported}`,
+        },
+        id: requestId,
+      });
+    }
+
+    // Wallets need the network identity before they can add a chain. If the
+    // node is offline, return only the configured identity methods; all live
+    // data and transaction methods still require a reachable matching node.
+    if (body.method === "eth_chainId") {
+      return res.json({ jsonrpc: "2.0", id: body.id ?? 1, result: expectedNetwork.chainIdHex });
+    }
+    if (body.method === "net_version") {
+      return res.json({ jsonrpc: "2.0", id: body.id ?? 1, result: String(expectedNetwork.chainId) });
+    }
+
     res.status(502).json({
       jsonrpc: "2.0",
-      error: { code: -32603, message: `All RPC endpoints unreachable. Tried: ${urls.join(', ')}` },
-      id: req.body?.id ?? null,
+      error: { code: -32603, message: `No live ${network} RPC endpoint is available.` },
+      id: requestId,
     });
   });
 

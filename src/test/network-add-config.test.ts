@@ -19,6 +19,7 @@ describe('wallet_addEthereumChain network configuration', () => {
       const config = NETWORK_BY_KIND[kind];
       const params = getNetworkParams(kind);
 
+      expect(params.chainId).toBe(config.chainIdHex);
       expect(BigInt(params.chainId)).toBe(BigInt(config.chainId));
       expect(params.rpcUrls).toEqual([config.rpcUrls.primary]);
       expect(params.rpcUrls).toHaveLength(1);
@@ -61,6 +62,23 @@ describe('wallet_addEthereumChain network configuration', () => {
 
     await expect(addNetworkToWallet('mainnet'))
       .rejects.toThrow('reports chain ID 1, but this network is configured as 198282');
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('rejects a decimal chain ID response before a wallet can reject it as unknown', async () => {
+    const request = vi.fn().mockResolvedValue(null);
+    Object.defineProperty(window, 'ethereum', {
+      configurable: true,
+      value: { request },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', result: '198282', id: 1 }),
+    }));
+
+    await expect(addNetworkToWallet('mainnet'))
+      .rejects.toThrow('It must be a 0x-prefixed hexadecimal value');
 
     expect(request).not.toHaveBeenCalled();
   });
