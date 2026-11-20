@@ -56,22 +56,18 @@ externalPort = 8008
 [[ports]]
 localPort = 8555
 externalPort = 8080
-exposeLocalhost = true
 
 [[ports]]
 localPort = 8565
 externalPort = 3002
-exposeLocalhost = true
 
 [[ports]]
 localPort = 8585
 externalPort = 8099
-exposeLocalhost = true
 
 [[ports]]
 localPort = 8595
 externalPort = 8081
-exposeLocalhost = true
 
 [[ports]]
 localPort = 8600
