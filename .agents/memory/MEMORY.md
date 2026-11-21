@@ -50,6 +50,7 @@
 - [All node types](all-nodes.md) — testNodes.ts supports 7 node types across mainnet and testnet only; devnet is retired and testnet uses chain ID 198281.
 - [Node installer resilience](node-installer-resilience.md) — attempt selected node roles independently; report skips/failures without rolling back successful installs.
 - [Token creation network](token-creation-network.md) — Verify wallet-approved GYDS mainnet deployments; cross-coin unlocks require on-chain supply × 30m TWAP and the configured market-cap threshold.
+- [Oracle token price sources](oracle-token-price-sources.md) — Never treat fiat FX rates or symbol matches as verified quotes for GYD/GYDS tokens.
 - [Service worker cache](service-worker-cache.md) — Bump CACHE_NAME when shipping client copy or bundle changes so stale PWA assets are discarded.
 - [Server Config admin tab](server-config-admin.md) — GET/POST /api/admin/server-config; writes to .env (via existing writeEnvFile) + gyds-config.env; applies to process.env immediately; calls pm2 restart gydschain-api --update-env; ServerConfigManager.tsx in Admin "Server Config" tab; secret fields masked with ••••••••.
 - [gyds-config.env shared config](gyds-config-env.md) — written by deploy-dashboard.sh and POST /api/admin/server-config; sourced by all 7 node install scripts (install-validatornode/fullnode/litenode/boostnode/rpcnode/bootnode + setup-server.sh) via GYDS_CONF var before config-defaults block; NONINTERACTIVE=1 skips prompts.

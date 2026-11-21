@@ -1140,8 +1140,17 @@ export async function startupMigrate(pool: Pool): Promise<void> {
       decimals     INTEGER DEFAULT 8,
       provider     TEXT DEFAULT 'internal',
       active       BOOLEAN DEFAULT true,
-      last_updated TIMESTAMPTZ DEFAULT NOW()
+      last_updated TIMESTAMPTZ DEFAULT NOW(),
+      source_updated_at TIMESTAMPTZ,
+      last_refresh_attempted_at TIMESTAMPTZ,
+      refresh_error TEXT
     )
+  `);
+
+  await run("oracle-feed-live-source-columns", `
+    ALTER TABLE oracle_feeds ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ;
+    ALTER TABLE oracle_feeds ADD COLUMN IF NOT EXISTS last_refresh_attempted_at TIMESTAMPTZ;
+    ALTER TABLE oracle_feeds ADD COLUMN IF NOT EXISTS refresh_error TEXT
   `);
 
   await run("oracle_submissions", `

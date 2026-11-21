@@ -2128,7 +2128,10 @@ export const storage = {
         decimals INTEGER DEFAULT 8,
         provider TEXT DEFAULT 'internal',
         active BOOLEAN DEFAULT true,
-        last_updated TIMESTAMPTZ DEFAULT NOW()
+        last_updated TIMESTAMPTZ DEFAULT NOW(),
+        source_updated_at TIMESTAMPTZ,
+        last_refresh_attempted_at TIMESTAMPTZ,
+        refresh_error TEXT
       );
       CREATE TABLE IF NOT EXISTS oracle_submissions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2138,19 +2141,19 @@ export const storage = {
         block_height BIGINT,
         submitted_at TIMESTAMPTZ DEFAULT NOW()
       );
+      ALTER TABLE oracle_feeds ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ;
+      ALTER TABLE oracle_feeds ADD COLUMN IF NOT EXISTS last_refresh_attempted_at TIMESTAMPTZ;
+      ALTER TABLE oracle_feeds ADD COLUMN IF NOT EXISTS refresh_error TEXT;
       CREATE INDEX IF NOT EXISTS oracle_sub_feed_idx ON oracle_submissions(feed_id, submitted_at DESC);
     `);
-    const count = await pgPool.query(`SELECT COUNT(*) FROM oracle_feeds`);
-    if (parseInt(count.rows[0].count) === 0) {
-      await pgPool.query(`
-        INSERT INTO oracle_feeds (feed_id, description, value, provider) VALUES
-        ('GYDS/USD', 'GYDSchain native coin price in USD', 0, 'manual'),
-        ('GYD/USD',  'GYD stablecoin price in USD', 0, 'manual'),
-        ('BTC/USD',  'Bitcoin price in USD', 0, 'manual'),
-        ('ETH/USD',  'Ethereum price in USD', 0, 'manual')
-        ON CONFLICT (feed_id) DO NOTHING
-      `);
-    }
+    await pgPool.query(`
+      INSERT INTO oracle_feeds (feed_id, description, value, provider) VALUES
+      ('GYDS/USD', 'GYDSchain native coin price in USD', 0, 'unavailable'),
+      ('GYD/USD',  'GYD stablecoin price in USD', 0, 'pending'),
+      ('BTC/USD',  'Bitcoin price in USD', 0, 'pending'),
+      ('ETH/USD',  'Ethereum price in USD', 0, 'pending')
+      ON CONFLICT (feed_id) DO NOTHING
+    `);
   },
 
   async getOracleFeeds() {
@@ -2158,11 +2161,50 @@ export const storage = {
       SELECT f.*,
              EXISTS (
                SELECT 1 FROM oracle_submissions s WHERE s.feed_id = f.feed_id
-             ) AS has_submission
+             ) OR f.source_updated_at IS NOT NULL AS has_submission
       FROM oracle_feeds f
       ORDER BY f.feed_id
     `);
     return res.rows;
+  },
+
+  async updateOracleFeedFromSource(data: {
+    feedId: string;
+    value: string;
+    provider: string;
+    sourceUpdatedAt: Date;
+  }) {
+    const res = await pgPool.query(
+      `UPDATE oracle_feeds
+       SET value=$1, provider=$2, source_updated_at=$3,
+           last_refresh_attempted_at=NOW(), refresh_error=NULL, last_updated=NOW()
+       WHERE feed_id=$4 RETURNING *`,
+      [data.value, data.provider, data.sourceUpdatedAt, data.feedId],
+    );
+    const row = res.rows[0];
+    if (!row) throw new Error(`Oracle feed ${data.feedId} is not provisioned.`);
+
+    await pgPool.query(
+      `INSERT INTO oracle_submissions (feed_id, submitter, value)
+       SELECT $1, $2, $3
+       WHERE NOT EXISTS (
+         SELECT 1 FROM oracle_submissions
+         WHERE feed_id=$1 AND submitter=$2
+           AND submitted_at > NOW() - INTERVAL '5 minutes'
+       )`,
+      [data.feedId, `oracle:${data.provider}`, data.value],
+    );
+    return row;
+  },
+
+  async recordOracleFeedRefreshFailure(feedId: string, message: string) {
+    const res = await pgPool.query(
+      `UPDATE oracle_feeds
+       SET last_refresh_attempted_at=NOW(), refresh_error=$2
+       WHERE feed_id=$1 RETURNING *`,
+      [feedId, message.slice(0, 240)],
+    );
+    return res.rows[0] ?? null;
   },
 
   async createOracleFeed(
@@ -2220,9 +2262,16 @@ export const storage = {
     if (patch.value !== undefined) add("value", patch.value);
     if (patch.description !== undefined) add("description", patch.description);
     if (patch.decimals !== undefined) add("decimals", patch.decimals);
-    if (patch.provider !== undefined) add("provider", patch.provider);
+    if (patch.provider !== undefined && patch.value === undefined) add("provider", patch.provider);
     if (patch.active !== undefined) add("active", patch.active);
     if (!assignments.length) return null;
+    if (patch.value !== undefined) {
+      assignments.push(
+        "provider='manual'",
+        "source_updated_at=NULL",
+        "refresh_error='Manual values are not verified live prices'",
+      );
+    }
     assignments.push("last_updated=NOW()");
     values.push(feedId);
     const res = await pgPool.query(

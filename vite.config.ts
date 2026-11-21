@@ -9,6 +9,11 @@ export default defineConfig({
     allowedHosts: true,
     hmr: false,
     proxy: {
+      "/v1": {
+        target: "http://localhost:5001",
+        changeOrigin: true,
+        headers: { "X-Forwarded-Proto": "https" },
+      },
       "/api": {
         target: "http://localhost:5001",
         changeOrigin: true,

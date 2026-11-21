@@ -332,26 +332,44 @@ function OracleAdmin({ toast }: { toast: any }) {
   const [feeds, setFeeds] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newFeedId, setNewFeedId] = useState('');
-  const [newProvider, setNewProvider] = useState('manual');
-  const [newDescription, setNewDescription] = useState('');
-  const [newDecimals, setNewDecimals] = useState('8');
-  const [newValue, setNewValue] = useState('0');
-  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
-  const [adding, setAdding] = useState(false);
   const [savingFeed, setSavingFeed] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedFeed, setSelectedFeed] = useState<string | null>(null);
 
-  const fetchFeeds = async () => {
-    setLoading(true);
+  const fetchFeeds = async (showLoader = true, reportError = showLoader) => {
+    if (showLoader) setLoading(true);
     try {
       const res = await fetch('/api/oracle/feeds', { credentials: 'include' });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
       const data = await res.json();
       setFeeds(Array.isArray(data) ? data : []);
     } catch (e: any) {
-      toast({ title: 'Could not load oracle feeds', description: e.message, variant: 'destructive' });
-    } finally { setLoading(false); }
+      if (reportError) toast({ title: 'Could not load oracle feeds', description: e.message, variant: 'destructive' });
+    } finally { if (showLoader) setLoading(false); }
+  };
+
+  const refreshFeedsNow = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch('/api/admin/oracle/refresh', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
+      await fetchFeeds(false, true);
+      const updated = Array.isArray(result.updated) ? result.updated.length : 0;
+      const failures = Object.keys(result.failed ?? {}).length;
+      toast({
+        title: result.skipped ? 'Oracle refresh is already recent' : 'Oracle refresh checked',
+        description: `${updated} live feed${updated === 1 ? '' : 's'} updated; ${failures} unavailable or stale.`,
+        variant: failures > 0 && updated === 0 ? 'destructive' : 'default',
+      });
+    } catch (e: any) {
+      toast({ title: 'Could not refresh oracle prices', description: e.message, variant: 'destructive' });
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const fetchSubmissions = async (feedId: string) => {
@@ -363,35 +381,6 @@ function OracleAdmin({ toast }: { toast: any }) {
     } catch (e: any) {
       toast({ title: 'Could not load feed history', description: e.message, variant: 'destructive' });
     }
-  };
-
-  const addFeed = async () => {
-    if (!newFeedId.trim()) return;
-    setAdding(true);
-    try {
-      const res = await fetch('/api/admin/oracle/feeds', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          feedId: newFeedId.trim().toUpperCase(),
-          provider: newProvider.trim() || 'manual',
-          description: newDescription.trim(),
-          decimals: Number(newDecimals),
-          value: newValue,
-          active: true,
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
-      toast({ title: `Oracle feed ${newFeedId.toUpperCase()} created` });
-      setNewFeedId('');
-      setNewProvider('manual');
-      setNewDescription('');
-      setNewDecimals('8');
-      setNewValue('0');
-      await fetchFeeds();
-    } catch (e: any) {
-      toast({ title: 'Error', description: e.message, variant: 'destructive' });
-    } finally { setAdding(false); }
   };
 
   const updateFeed = async (feedId: string, patch: Record<string, unknown>) => {
@@ -412,32 +401,27 @@ function OracleAdmin({ toast }: { toast: any }) {
     } finally { setSavingFeed(null); }
   };
 
-  useEffect(() => { fetchFeeds(); }, []);
+  useEffect(() => {
+    void fetchFeeds();
+    const interval = setInterval(() => void fetchFeeds(false, false), 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="space-y-4">
       <GlassCard className="p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold">Oracle Price Feeds</h3>
-          <Button variant="outline" size="sm" onClick={fetchFeeds} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="font-semibold">Oracle Price Feeds</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Prices refresh automatically from verified providers. Provider timestamps and stale or unavailable feeds are shown below.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void refreshFeedsNow()} disabled={loading || refreshing} className="shrink-0">
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh prices</span>
           </Button>
         </div>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          <input value={newFeedId} onChange={e => setNewFeedId(e.target.value)} placeholder="Feed ID (e.g. GYDS/USD)" className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
-          <input value={newProvider} onChange={e => setNewProvider(e.target.value)} placeholder="Source label (e.g. manual)" className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
-          <input value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Description (optional)" className="bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
-          <div className="flex gap-2">
-            <input type="number" min="0" max="18" step="1" value={newDecimals} onChange={e => setNewDecimals(e.target.value)} aria-label="Feed decimals" placeholder="Decimals" className="w-28 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
-            <input type="text" inputMode="decimal" value={newValue} onChange={e => setNewValue(e.target.value)} aria-label="Initial feed value" placeholder="Initial price (0 if unset)" className="min-w-0 flex-1 bg-muted/30 border border-border/40 rounded-lg px-3 py-2 text-sm focus:ring-1 ring-primary outline-none" />
-            <Button onClick={addFeed} disabled={adding || !newFeedId.trim()} className="gap-1 shrink-0">
-            {adding ? <RefreshCw className="h-4 w-4 animate-spin" /> : '+'} Add
-            </Button>
-          </div>
-        </div>
-        <p className="text-xs text-amber-400/90">
-          Source labels are configuration only. Values are manually entered by an administrator; automatic provider polling and independent price verification are not enabled.
-        </p>
         {loading ? (
           <div className="text-muted-foreground text-sm py-4 text-center"><RefreshCw className="inline w-4 h-4 animate-spin mr-2" />Loading feeds…</div>
         ) : feeds.length === 0 ? (
@@ -449,34 +433,27 @@ function OracleAdmin({ toast }: { toast: any }) {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono font-bold text-primary">{f.feed_id}</span>
-                    <Badge variant={f.active ? 'default' : 'secondary'} className="text-xs">
-                      {f.active ? 'Active' : 'Inactive'}
+                    <Badge
+                      variant={f.health?.status === 'live' ? 'default' : f.health?.status === 'disabled' ? 'secondary' : 'destructive'}
+                      className="text-xs"
+                    >
+                      {f.health?.status === 'live' ? 'LIVE' : f.health?.status === 'stale' ? 'STALE' : f.health?.status === 'disabled' ? 'DISABLED' : f.health?.status === 'pending' ? 'WAITING FOR DATA' : 'UNAVAILABLE'}
                     </Badge>
-                    <span className="text-xs text-muted-foreground">source label: {f.provider || 'manual'} · {f.decimals} decimals</span>
+                    <span className="text-xs text-muted-foreground">{f.health?.source ?? 'No verified source'} · {f.decimals} decimals</span>
                   </div>
                   {f.description && <p className="mt-1 text-xs text-muted-foreground">{f.description}</p>}
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Current value: {f.has_submission && Number(f.value) > 0 ? Number(f.value).toLocaleString(undefined, { maximumFractionDigits: 12 }) : 'unset'}
-                    {f.last_updated ? ` · feed configuration updated ${new Date(f.last_updated).toLocaleString()}` : ''}
+                    {f.health?.status === 'live' ? 'Verified live price' : f.health?.status === 'stale' ? 'Last known price (stale)' : 'Price'}
+                    {f.health?.status === 'live' || f.health?.status === 'stale'
+                      ? `: ${Number(f.value).toLocaleString(undefined, { maximumFractionDigits: 12 })}`
+                      : ': unavailable'}
+                    {f.health?.sourceUpdatedAt ? ` · provider updated ${new Date(f.health.sourceUpdatedAt).toLocaleString()}` : ''}
+                    {f.health?.sourceUpdatedAt && f.health?.fetchedAt ? ` · last saved ${new Date(f.health.fetchedAt).toLocaleString()}` : ''}
+                    {f.health?.lastAttemptedAt ? ` · last checked ${new Date(f.health.lastAttemptedAt).toLocaleString()}` : ''}
                   </p>
+                  {f.health?.error && <p className="mt-1 text-xs text-amber-400/90" role="status">{f.health.error}</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    aria-label={`New value for ${f.feed_id}`}
-                    value={priceDrafts[f.feed_id] ?? String(f.value ?? '')}
-                    onChange={e => setPriceDrafts(current => ({ ...current, [f.feed_id]: e.target.value }))}
-                    className="w-32 rounded-lg border border-border/40 bg-muted/30 px-2 py-1.5 font-mono text-xs outline-none focus:ring-1 ring-primary"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={savingFeed === f.feed_id}
-                    onClick={() => void updateFeed(f.feed_id, { value: priceDrafts[f.feed_id] ?? String(f.value ?? '0') })}
-                  >
-                    Save value
-                  </Button>
                   <Button
                     size="sm"
                     variant="outline"

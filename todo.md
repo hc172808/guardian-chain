@@ -1,11 +1,20 @@
 # ChainCore — Developer TODO
 
-> Last updated: 2026-10-09  
+> Last updated: 2026-11-20  
 > Stack: Vite+React+TS frontend · Express+Drizzle backend · PostgreSQL · Chain ID 198282 · Domain: app.netlifegy.com
 
 ---
 
+## Progress Tracking Rules
+- Keep this file as the central development progress record.
+- Mark completed tasks `[x]`, unfinished tasks `[ ]`, and blocked tasks `[!]` with an explanation.
+- Update this file after each completed development task.
+- When resuming development, read this file and continue from the first unfinished task.
+
 ## ✅ Completed
+
+### Oracle Data
+- [x] **Automatic oracle price updates** — Provision standard feeds; poll CoinGecko every minute for BTC/ETH; reject stale or invalid responses; expose provider/freshness status; block manual price entry/feed creation; return GYD/GYDS as unavailable until a verified token-specific source exists. Proxy `/v1` through the dev preview.
 
 ### Core Infrastructure
 - [x] Vite + React + TypeScript SPA (port 5000 dev)

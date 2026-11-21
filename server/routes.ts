@@ -40,8 +40,8 @@ import {
 import {
   normalizeOracleDecimals,
   normalizeOracleFeedId,
-  normalizeOracleValue,
 } from "./oracleFeedValidation";
+import { getOracleFeedHealth, refreshOracleFeeds } from "./oraclePriceFeeds";
 import { makeTokenRegistrationProofMessage } from "../shared/tokenDeploymentProof";
 import { generateTreasuryWallet, hasTreasuryKey, getTreasuryAddress, getTreasuryBalance, sendTreasuryTransfer } from "./treasury";
 import {
@@ -5606,19 +5606,24 @@ export function registerRoutes(expressApp: Express) {
     try {
       const feeds = await storage.getOracleFeeds();
       const prices: Record<string, number | string> = {};
-      const activeFeeds = feeds.filter((feed: any) => feed.active && feed.has_submission);
-      for (const feed of activeFeeds as any[]) {
+      const feedStatus: Record<string, ReturnType<typeof getOracleFeedHealth> & { value: number | null }> = {};
+      const liveTimestamps: number[] = [];
+      for (const feed of feeds as any[]) {
         const feedId = String(feed.feed_id ?? "").trim().toUpperCase();
+        const health = getOracleFeedHealth(feed);
         const pair = feedId.split("/");
         const symbol = pair.length === 2 && pair[1] === "USD" ? pair[0] : feedId;
         const value = Number(feed.value);
-        if (symbol && Number.isFinite(value) && value > 0) prices[symbol] = value;
+        const liveValue = health.status === "live" && Number.isFinite(value) && value > 0
+          ? value
+          : null;
+        feedStatus[symbol] = { ...health, value: liveValue };
+        if (liveValue !== null) {
+          prices[symbol] = liveValue;
+          if (health.sourceUpdatedAt) liveTimestamps.push(new Date(health.sourceUpdatedAt).getTime());
+        }
       }
-      const latestTimestamp = activeFeeds
-        .filter((feed: any) => Number(feed.value) > 0 && feed.last_updated)
-        .map((feed: any) => new Date(feed.last_updated).getTime())
-        .filter(Number.isFinite)
-        .sort((a: number, b: number) => b - a)[0] ?? null;
+      const latestTimestamp = liveTimestamps.filter(Number.isFinite).sort((a, b) => b - a)[0] ?? null;
       return res.json({
         ...prices,
         GYDS: prices.GYDS ?? null,
@@ -5626,7 +5631,8 @@ export function registerRoutes(expressApp: Express) {
         BTC: prices.BTC ?? null,
         ETH: prices.ETH ?? null,
         updated_at: latestTimestamp ? new Date(latestTimestamp).toISOString() : null,
-        source: "admin-configured-oracle-feeds",
+        source: "automated-oracle-feeds",
+        feeds: feedStatus,
       });
     } catch (e: any) {
       return res.status(500).json({ error: e.message });
@@ -5781,39 +5787,25 @@ export function registerRoutes(expressApp: Express) {
 
   // ── Oracle Admin ────────────────────────────────────────────────────────────
   app.get("/api/oracle/feeds", async (_req, res) => {
-    try { res.json(await (storage as any).getOracleFeeds()); }
+    try {
+      const feeds = await storage.getOracleFeeds();
+      res.json(feeds.map((feed: any) => ({ ...feed, health: getOracleFeedHealth(feed) })));
+    }
     catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.post("/api/admin/oracle/feeds", requireAdmin, async (req, res) => {
-    const feedId = normalizeOracleFeedId(req.body?.feedId ?? req.body?.symbol);
-    const provider = typeof req.body?.provider === "string" ? req.body.provider.trim() : "manual";
-    const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
-    const value = normalizeOracleValue(req.body?.value ?? "0");
-    const decimals = normalizeOracleDecimals(req.body?.decimals);
-    const active = req.body?.active ?? true;
-    if (!feedId) return res.status(400).json({ error: "Feed ID must be a symbol or pair such as GYDS/USD." });
-    if (!provider || provider.length > 80) return res.status(400).json({ error: "Provider label must be 1–80 characters." });
-    if (description.length > 240) return res.status(400).json({ error: "Description must be 240 characters or fewer." });
-    if (value === null) return res.status(400).json({ error: "Feed value must be a non-negative decimal number." });
-    if (decimals === null) {
-      return res.status(400).json({ error: "Feed decimals must be a whole number from 0 to 18." });
-    }
-    if (typeof active !== "boolean") return res.status(400).json({ error: "Feed active state must be a boolean." });
+  app.post("/api/admin/oracle/refresh", requireAdmin, async (_req, res) => {
     try {
-      const feed = await (storage as any).createOracleFeed({
-        feedId,
-        description: description || null,
-        value,
-        decimals,
-        provider,
-        active,
-      });
-      res.status(201).json(feed);
-    } catch (error: any) {
-      if (error?.code === "23505") return res.status(409).json({ error: "That oracle feed ID already exists." });
-      res.status(500).json({ error: error?.message ?? "Could not create oracle feed." });
+      res.json({ ...(await refreshOracleFeeds()), checkedAt: new Date().toISOString() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message ?? "Could not refresh oracle prices." });
     }
+  });
+
+  app.post("/api/admin/oracle/feeds", requireAdmin, (_req, res) => {
+    res.status(409).json({
+      error: "Oracle feed definitions are provisioned by the system; manual feed creation is disabled.",
+    });
   });
 
   const updateOracleFeedFromBody = async (feedIdInput: unknown, body: any, res: any) => {
@@ -5821,9 +5813,7 @@ export function registerRoutes(expressApp: Express) {
     if (!feedId) return res.status(400).json({ error: "A valid feed ID is required." });
     const patch: Record<string, unknown> = {};
     if (body?.value !== undefined) {
-      const value = normalizeOracleValue(body.value);
-      if (value === null) return res.status(400).json({ error: "Feed value must be a non-negative decimal number." });
-      patch.value = value;
+      return res.status(400).json({ error: "Oracle prices are provider-managed and cannot be entered manually." });
     }
     if (body?.description !== undefined) {
       if (body.description !== null && typeof body.description !== "string") {
@@ -6536,6 +6526,24 @@ export function registerRoutes(expressApp: Express) {
       }
       return `Checked ${rows.length} alerts, triggered ${triggered}. RPC: ${rpcOnline ? 'online' : 'offline'}. Prices: ${Object.keys(pm).join(', ') || 'none in DB'}`;
     }
+  });
+
+  const oracleRefreshJob = defineJob({
+    id: 'oracle-feed-refresh',
+    name: 'Live Oracle Feed Refresh',
+    description: 'Refreshes supported crypto oracle prices from verified live providers',
+    schedule: '* * * * *',
+    intervalMs: 60_000,
+    enabled: true,
+    fn: async () => {
+      const result = await refreshOracleFeeds();
+      const updated = result.updated.length ? result.updated.join(", ") : "none";
+      const failures = Object.entries(result.failed).map(([feed, message]) => `${feed}: ${message}`).join("; ");
+      return `Updated: ${updated}. ${result.skipped ? "Refresh skipped because a recent update is already running." : failures ? `Unavailable: ${failures}` : "All configured sources are current."}`;
+    },
+  });
+  void oracleRefreshJob.fn().catch((error) => {
+    console.warn("[oracle] Initial live price refresh failed:", error?.message ?? error);
   });
 
   defineJob({ id: 'health-check', name: 'Health Check Ping', description: 'Pings configured RPC endpoints and logs availability', schedule: '*/15 * * * *', intervalMs: 900_000, enabled: true,

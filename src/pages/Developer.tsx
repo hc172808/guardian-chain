@@ -196,7 +196,16 @@ const DeveloperPage = () => {
     const mock: Record<string, any> = {
       '/v1/network/stats': { tps: 1250, validators: 87, block_height: 1_234_567, chain_id: 198282 },
       '/v1/tokens': [{ symbol: 'GYDS', supply: 20_000_000 }, { symbol: 'GYD', supply: 5_000_000 }],
-      '/v1/oracle/prices': { GYDS: null, GYD: null, BTC: null, ETH: null, updated_at: null, source: 'admin-configured-oracle-feeds' },
+      '/v1/oracle/prices': {
+        GYDS: null, GYD: null, BTC: null, ETH: null,
+        updated_at: null, source: 'automated-oracle-feeds',
+        feeds: {
+          GYDS: { value: null, status: 'unavailable', source: null, sourceUpdatedAt: null, error: 'No verified live source configured.' },
+          GYD: { value: null, status: 'unavailable', source: null, sourceUpdatedAt: null, error: 'No verified token price source configured.' },
+          BTC: { value: null, status: 'pending', source: 'CoinGecko', sourceUpdatedAt: null, error: null },
+          ETH: { value: null, status: 'pending', source: 'CoinGecko', sourceUpdatedAt: null, error: null },
+        },
+      },
     };
     const result = mock[tryEndpoint.path] ?? { status: 'ok', message: 'Endpoint available on mainnet' };
     setTryResult(JSON.stringify(result, null, 2));

@@ -94,7 +94,10 @@ export async function bootstrapDatabase(pgPool: Pool): Promise<void> {
         decimals     INTEGER DEFAULT 8,
         provider     TEXT DEFAULT 'internal',
         active       BOOLEAN DEFAULT true,
-        last_updated TIMESTAMPTZ DEFAULT NOW()
+        last_updated TIMESTAMPTZ DEFAULT NOW(),
+        source_updated_at TIMESTAMPTZ,
+        last_refresh_attempted_at TIMESTAMPTZ,
+        refresh_error TEXT
       );
       CREATE TABLE IF NOT EXISTS oracle_submissions (
         id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -104,6 +107,9 @@ export async function bootstrapDatabase(pgPool: Pool): Promise<void> {
         block_height BIGINT,
         submitted_at TIMESTAMPTZ DEFAULT NOW()
       );
+      ALTER TABLE oracle_feeds ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ;
+      ALTER TABLE oracle_feeds ADD COLUMN IF NOT EXISTS last_refresh_attempted_at TIMESTAMPTZ;
+      ALTER TABLE oracle_feeds ADD COLUMN IF NOT EXISTS refresh_error TEXT;
     `);
     await pgPool.query(`
       CREATE INDEX IF NOT EXISTS oracle_sub_feed_idx
